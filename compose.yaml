@@ -21,7 +21,7 @@ networks:
   default:
     ipam:
       config:
-        - subnet: ${AXIS_SUBNET:-172.31.84.0/24}
+        - subnet: ${AXIS_SUBNET:-10.84.40.0/24}
 
 volumes:
   vortex-axis-data:

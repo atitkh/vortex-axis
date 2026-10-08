@@ -102,7 +102,7 @@ The addresses in `.env` are starting points. Anything saved on the admin page is
 
 Axis joins the gateway the way a device does: one identity, an operator link for turns and a node link for commands. The admin page does steps 2 and 5 for you; the calls below are what it uses.
 
-0. If the gateway runs on the Docker host and that host has a firewall, let the container reach it. The compose file gives Axis a fixed subnet for this: `sudo ufw allow from 172.31.84.0/24 to any port 18789 proto tcp`. Published ports are not affected by this; only calls from the container to the host are.
+0. If the gateway runs on the Docker host and that host has a firewall, let the container reach it. The compose file gives Axis a fixed subnet for this: `sudo ufw allow from 10.84.40.0/24 to any port 18789 proto tcp`. Published ports are not affected by this; only calls from the container to the host are.
 1. On the gateway host, print a setup code: `openclaw qr --setup-code-only`
 2. Give it to Axis:
    ```bash
