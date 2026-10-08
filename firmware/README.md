@@ -108,7 +108,7 @@ Milestones 1 to 4 of 5 are done on the Waveshare board: display, Wi-Fi setup net
 
 Tried on the real board with nobody in the room, using the board's own speaker as the sound source: tap-to-talk into a quiet room (cancels after `onsetMs`), tap-to-talk with a sound (recorded, trimmed by silence, transcribed, answered, spoken), the wake word recognised from the board's own voice saying "Hey Vortex" (scores 0.94 to 0.98), a wake being granted by Axis, and interrupting a spoken answer with the wake word.
 
-**Not tried:** a human voice, the touchscreen (nobody was there to tap), and anything that needs eyes or ears (the green face, how a recording sounds). See "Tests for a person".
+**Tried by a person (2026-10-08):** wake word, tap-to-talk, follow-up, NO_REPLY, cue, green face, transcripts: all good. Wake word over a long answer does NOT stop speech (accepted for now, tap to interrupt). See "Tests for a person".
 
 Measured: the face is now sent to the panel four rows at a time (960 pixels, under the driver's 1024 limit), which cut a frame from 31 ms to about 21 ms. The wake word costs about 3 ms in every 30, on the other core. With everything running, 118 KB of internal memory is free and the lowest seen is 115 KB.
 
@@ -118,25 +118,27 @@ Not built yet: updates over Wi-Fi, `axis+tls://`, choosing the wake word model f
 
 ## Tests for a person
 
-1. Say "Hey Vortex" from a metre away. The face should turn green within about half a second. Then ask something. Repeat from across the room and with the TV on. Note misses and false wakes.
-2. Tap the screen while idle: green face, speak, stop talking. It should send after about a second of quiet.
-3. Tap once while it is listening, before and after you speak: it should finish early, or cancel if you had said nothing.
-4. Tap while it is speaking or thinking: it should go quiet and return to the idle face.
-5. Say "Hey Vortex" while it is speaking a long answer: it should stop and listen. If it triggers on its own voice, set `bargeIn` to 0 in the admin page.
-6. Say nothing after the wake word: it should give up after about six seconds with no error.
-7. Check the transcripts: words cut at the start mean the pre-roll or settle time is wrong, misheard words mean the microphone gain is.
-8. Leave it alone for an hour and read the `[mic]` serial lines for false wakes (`wake: N heard`).
-9. Say whether the speaker buzz you reported is gone (codec gain and resampling changed in 0.3.x).
+All done by Atit on 2026-10-08, with the exceptions noted.
 
-Added in 0.5.0 (follow-up, cue, log page, livelier listening face), still to try:
+1. [x] Say "Hey Vortex" from a metre away. The face should turn green within about half a second. Then ask something. Repeat from across the room and with the TV on. Note misses and false wakes.
+2. [x] Tap the screen while idle: green face, speak, stop talking. It should send after about a second of quiet.
+3. [x] Tap once while it is listening, before and after you speak: it should finish early, or cancel if you had said nothing.
+4. [x] Tap while it is speaking or thinking: it should go quiet and return to the idle face.
+5. [x] Say "Hey Vortex" while it is speaking a long answer: it should stop and listen. If it triggers on its own voice, set `bargeIn` to 0 in the admin page. **Tried 2026-10-08: does not work** (the wake word does not stop speech mid-answer even with ducking). Accepted for now; tap the screen to interrupt. An echo canceller is the real fix.
+6. [x] Say nothing after the wake word: it should give up after about six seconds with no error.
+7. [x] Check the transcripts: words cut at the start mean the pre-roll or settle time is wrong, misheard words mean the microphone gain is.
+8. [x] Leave it alone for an hour and read the `[mic]` serial lines for false wakes (`wake: N heard`).
+9. [x] Say whether the speaker buzz you reported is gone (codec gain and resampling changed in 0.3.x). No report back after the 0.5.1 resampler fix.
 
-10. Ask something, let it answer, then reply WITHOUT the wake word within six seconds: it should take your reply. Say nothing: the green face should end quietly after six seconds.
-11. Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
-12. Listen for the rising tone on wake, on tap and on follow-up. Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
-13. While listening, talk at different volumes: the green face should swell and shrink with your voice.
-14. Open `http://10.0.0.49/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
-15. Say "Hey Vortex" over a long answer again (any volume): the speech should dip as you start the phrase and the device should stop and listen. If not, `/logs` shows whether the score rose (`ducking the speaker`).
-16. Is the buzz gone or lighter (0.5.1 resampler)?
+Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
+
+10. [x] Ask something, let it answer, then reply WITHOUT the wake word within six seconds: it should take your reply. Say nothing: the green face should end quietly after six seconds.
+11. [x] Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
+12. [x] Listen for the rising tone on wake and on tap (not on follow-up, removed at his request). Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
+13. [x] While listening, talk at different volumes: the green face should swell and shrink with your voice.
+14. [x] Open `http://10.0.0.49/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
+15. [x] Say "Hey Vortex" over a long answer again (any volume): the speech should dip as you start the phrase and the device should stop and listen. If not, `/logs` shows whether the score rose (`ducking the speaker`). **Tried 2026-10-08: does not work** (the wake word does not stop speech mid-answer even with ducking). Accepted for now; tap the screen to interrupt. An echo canceller is the real fix.
+16. [x] Is the buzz gone or lighter (0.5.1 resampler)? No report back after the 0.5.1 resampler fix.
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
 
