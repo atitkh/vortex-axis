@@ -61,6 +61,20 @@ class TurnFailure extends Error {
   }
 }
 
+/** Replies that mean "the agent has nothing to say". They are neither shown nor spoken. */
+const SILENT_REPLIES = ["NO_REPLY", "HEARTBEAT_OK"];
+
+/** True while `text` could still turn out to be a silent reply, or is a complete one. Empty text counts. */
+function mayBeSilent(text: string): boolean {
+  const word = text.trim().toUpperCase();
+  return SILENT_REPLIES.some((silent) => silent.startsWith(word));
+}
+
+function isSilent(text: string): boolean {
+  const word = text.trim().toUpperCase();
+  return word === "" || SILENT_REPLIES.includes(word);
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
@@ -388,20 +402,34 @@ export class TurnManager {
         await speaker.flush();
       };
 
+      // An agent reply that turns out to be "NO_REPLY" must not be spoken, so nothing goes out
+      // while the text so far could still become one. Said words are never held back.
+      const fromAgent = !("say" in input);
+      const held: string[] = [];
       for await (const delta of source) {
         if (signal.aborted) return "interrupted";
         full += delta;
-        for (const piece of splitter.push(delta)) {
-          await emit(piece);
+        for (const piece of splitter.push(delta)) held.push(piece);
+        if (fromAgent && mayBeSilent(full)) continue;
+        while (held.length) {
+          await emit(held.shift()!);
           if (signal.aborted) return "interrupted";
         }
       }
       const rest = splitter.flush();
-      if (rest) await emit(rest);
+      if (rest) held.push(rest);
+      const silent = fromAgent && isSilent(full);
+      if (!silent) {
+        while (held.length) {
+          await emit(held.shift()!);
+          if (signal.aborted) return "interrupted";
+        }
+      }
       if (signal.aborted) return "interrupted";
 
       if (hasScreen) {
-        this.port.send(session, { t: "reply.text", turnId, text: full.trim().slice(0, 16000), final: true });
+        // A silent reply leaves the screen empty rather than showing "NO_REPLY".
+        this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : full.trim().slice(0, 16000), final: true });
       }
       if (speaker?.started) {
         this.port.send(session, { t: "speak.end", turnId });

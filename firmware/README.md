@@ -57,6 +57,8 @@ Set these in the admin page, for all clients, for the type `waveshare-amoled-1.8
 | `wakeListen` | 1 to listen for the wake word, 0 for tap-to-talk only | 1 |
 | `wakeSense` | Wake word cutoff in percent, 50 to 99. Lower wakes more easily. 0 uses the model's own (87) | 0 |
 | `bargeIn` | 1 lets the wake word interrupt the device while it talks, 0 ignores it until it has finished | 1 |
+| `followUpMs` | After an answer that was spoken to the end, keep listening this long for a reply without the wake word. 0 turns it off | 6000 |
+| `listenCue` | 1 plays a short rising tone whenever the device starts listening, 0 is silent | 1 |
 | `onsetMs` | How long to wait for the first word after a wake or tap, 1000 to 20000 | 6000 |
 | `silenceMs` | Quiet that ends what you said, 300 to 5000 | 900 |
 | `maxSpeechMs` | Longest single utterance, 3000 to 60000 | 20000 |
@@ -94,7 +96,11 @@ The microphone and the speaker share one 16 kHz stream from the ES8311 codec. A 
 - **Only what was said is sent**: about 200 ms before the first word, through the last. Silence before it is never uploaded.
 - **Interrupting.** The wake word works while the device is talking (`bargeIn`): speech stops at once and a new recording begins. The device's own voice is kept out of the room-level estimate, and the quarter second after cutting speech is ignored so the tail of the old sentence is not mistaken for the new one.
 
-The face goes green and pulses with your voice while listening.
+- **Follow-up.** When an answer to something you said has been spoken to the end, the device listens for `followUpMs` without the wake word. Silence ends it quietly. It does not open after an answer that was cut off, after something Axis said unprompted, or when the agent answered `NO_REPLY` or nothing (Axis neither shows nor speaks those, so there is no speech to follow).
+- **Cue.** A short soft rising tone plays when listening starts (wake granted, tap, follow-up). The microphone ignores the next 300 ms so the cue is not taken for speech. Set `listenCue` to 0 to turn it off.
+- **Log over Wi-Fi.** `http://<device address>/logs` shows the last ~64 KB of the device log (about two hours when idle), stamped with the uptime in seconds; `?tail=4000` limits it to the last bytes. It also appears as "Device log" on the setup page. The wake detector logs "near miss" lines (score and whether the device was speaking), which is what to read when "Hey Vortex" is not heard.
+
+The face goes green and pulses with your voice while listening (the size follows how far you are above the room's own level).
 
 ## Status
 
@@ -108,7 +114,7 @@ Measured: the face is now sent to the panel four rows at a time (960 pixels, und
 
 Build order: (1) display, Wi-Fi setup, pairing and a face that follows Axis's state; (2) speaker; (3) microphone with tap-to-talk; (4) wake word; (5) polish and updates over Wi-Fi.
 
-Not built yet: updates over Wi-Fi, `axis+tls://`, a cue (sound or otherwise) that the wake word was heard beyond the green face, choosing the wake word model from Axis instead of at build time.
+Not built yet: updates over Wi-Fi, `axis+tls://`, choosing the wake word model from Axis instead of at build time.
 
 ## Tests for a person
 
@@ -122,4 +128,12 @@ Not built yet: updates over Wi-Fi, `axis+tls://`, a cue (sound or otherwise) tha
 8. Leave it alone for an hour and read the `[mic]` serial lines for false wakes (`wake: N heard`).
 9. Say whether the speaker buzz you reported is gone (codec gain and resampling changed in 0.3.x).
 
-Serial commands added: `talk` (tap-to-talk), `mic` (room level and thresholds), `wake` (pretend the wake word was heard), `chime` (play the boot chime).
+Added in 0.5.0 (follow-up, cue, log page, livelier listening face), still to try:
+
+10. Ask something, let it answer, then reply WITHOUT the wake word within six seconds: it should take your reply. Say nothing: the green face should end quietly after six seconds.
+11. Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
+12. Listen for the rising tone on wake, on tap and on follow-up. Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
+13. While listening, talk at different volumes: the green face should swell and shrink with your voice.
+14. Open `http://10.0.0.49/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
+
+Serial commands added: `talk` (tap-to-talk), `mic` (room level and thresholds), `wake` (pretend the wake word was heard), `chime` (play the boot chime), `cue` (play the listening cue).

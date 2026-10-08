@@ -135,6 +135,8 @@ const uint16_t *render(float dt) {
 
     // While speaking with a known loudness, the voice drives the size instead of a sine wave.
     const bool voiced = (mode == Mode::Speaking || mode == Mode::Listening) && level >= 0;
+    // Speech is already a big swing; the listening look pulses gently on its own, so it needs a bigger one to follow a voice.
+    const float voiceSwell = mode == Mode::Listening ? 0.40f : now.pulse;
     const float cx = SIZE / 2 + now.wander * sinf(wanderPhase);
     const float cy = SIZE / 2 + now.wander * sinf(wanderPhase * 1.7f + 1.0f);
 
@@ -147,7 +149,7 @@ const uint16_t *render(float dt) {
             if (now.sparkle > 0 && randomUnit() < now.sparkle) spark = 1.0f;
             spark *= 0.86f;
 
-            const float swell = voiced ? now.pulse * level : now.pulse * sinf(pulsePhase - t * 3.0f);
+            const float swell = voiced ? voiceSwell * level : now.pulse * sinf(pulsePhase - t * 3.0f);
             const float radius = MAX_RADIUS * now.radius * (1.0f + swell) * powf(t, 0.85f);
             const float angle = phase + arm * (2.0f * PI / ARMS) - now.twist * 2.0f * PI * t;
             const float glow = min(1.0f, (1.0f - 0.72f * t) + spark);
@@ -155,7 +157,7 @@ const uint16_t *render(float dt) {
                        color565(now.r * glow + spark * 0.5f, now.g * glow + spark * 0.5f, now.b * glow + spark * 0.5f));
         }
     }
-    const float core = 7.0f + 3.0f * (voiced ? level : sinf(pulsePhase));
+    const float core = 7.0f + (mode == Mode::Listening ? 6.0f : 3.0f) * (voiced ? level : sinf(pulsePhase));
     fillCircle(cx, cy, core, color565(0.55f + now.r * 0.45f, 0.55f + now.g * 0.45f, 0.55f + now.b * 0.45f));
     return frame;
 }

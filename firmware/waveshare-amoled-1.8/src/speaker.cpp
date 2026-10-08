@@ -29,7 +29,7 @@ volatile bool wantStop = false;
 volatile bool isStarted = false, isDrained = true, isPlaying = false;
 volatile float currentLevel = 0;
 volatile int gainQ15 = 0;
-volatile bool wantChime = false;
+volatile bool wantChime = false, wantCue = false;
 
 // Resampler state, carried across chunks so joins do not click.
 uint32_t inRate = RATE;
@@ -86,6 +86,25 @@ void playChime() {
     playSilence(DRIVER_TAIL);
 }
 
+/** A short, soft rising pair of notes: "go ahead, I'm listening". Lasts CUE_MS including the driver tail. */
+void playCue() {
+    static int16_t tone[CHUNK];
+    float phase = 0;
+    for (int note = 0; note < 2; note++) {
+        const float step = 2.0f * PI * (note ? 1180.0f : 880.0f) / RATE;
+        const int chunks = RATE * 60 / 1000 / CHUNK;
+        for (int c = 0; c < chunks; c++) {
+            for (size_t i = 0; i < CHUNK; i++, phase += step) {
+                const int at = c * CHUNK + i, total = chunks * CHUNK;
+                const float fade = min(1.0f, min(at, total - at) / 160.0f);
+                tone[i] = (int16_t)(6000.0f * fade * sinf(phase));
+            }
+            play(tone, CHUNK);
+        }
+    }
+    playSilence(DRIVER_TAIL);
+}
+
 void playbackTask(void *) {
     static int16_t chunk[CHUNK];
     bool running = false;
@@ -96,6 +115,13 @@ void playbackTask(void *) {
             running = false;
             isPlaying = false;
             isDrained = true;
+            currentLevel = 0;
+        }
+        if (wantCue) {
+            wantCue = false;
+            isPlaying = true;
+            playCue();
+            isPlaying = false;
             currentLevel = 0;
         }
         if (wantChime) {
@@ -211,5 +237,6 @@ void setVolume(int volume) {
 bool playing() { return isPlaying; }
 float level() { return currentLevel; }
 void chime() { wantChime = true; }
+void cue() { wantCue = true; }
 
 }  // namespace speaker

@@ -24,6 +24,12 @@ bool playing();
 /** Loudness of what is playing right now, 0 to 1, before the volume setting. */
 float level();
 
+/** How long the listening cue takes to leave the speaker, in milliseconds. The microphone must ignore this long. */
+const uint32_t CUE_MS = 240;
+
+/** A soft rising cue that says the device is now listening. */
+void cue();
+
 /** A short two-note chime, to prove the speaker works without Axis. */
 void chime();
 

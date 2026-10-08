@@ -148,6 +148,8 @@ struct Client::Impl {
     float wakeScore = 0, wakeLevel = 0;
     uint32_t wakeSentAt = 0, recordingCount = 0, droppedSamples = 0;
     size_t settleLeft = 0;
+    /** The last turn this device recorded. A spoken reply to it is followed by a short listen. */
+    String lastVoiceTurn;
 
     explicit Impl(Client &client) : self(client) {}
 
@@ -337,7 +339,7 @@ struct Client::Impl {
                   "<label>Wi-Fi password</label><input name=pass type=password>"
                   "<label>Setup string from the Axis admin page</label><input name=setup autocapitalize=off autocorrect=off placeholder='axis://address:port/code'>"
                   "<small>Leave a field empty to keep what the device already has.</small>"
-                  "<button>Save</button></form><p><a href='/?rescan=1' style='color:#19b8c9'>Search for networks again</a></p>");
+                  "<button>Save</button></form><p><a href='/?rescan=1' style='color:#19b8c9'>Search for networks again</a> &middot; <a href='/logs' style='color:#19b8c9'>Device log</a></p>");
         return html;
     }
 
@@ -369,6 +371,24 @@ struct Client::Impl {
                 everJoined = false;
                 join(ssid.c_str(), pass.c_str());
             }
+        });
+        // The last stretch of the device's log, as plain text. `?tail=N` limits it to the last N bytes.
+        web.on("/logs", HTTP_GET, [this] {
+            if (!self.logBuffer_) return web.send(404, "text/plain", "no log kept on this device");
+            LogBuffer &log = *self.logBuffer_;
+            const long tail = web.hasArg("tail") ? web.arg("tail").toInt() : 0;
+            uint64_t from = log.tailStart(tail > 0 ? (size_t)tail : 1u << 30);
+            web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+            web.send(200, "text/plain; charset=utf-8", "");
+            char chunk[1024];
+            // Stops at what was written when the request came in, so a busy log cannot keep it open.
+            const uint64_t end = log.total();
+            while (from < end) {
+                const size_t n = log.readFrom(from, chunk, sizeof chunk);
+                if (!n) break;
+                web.sendContent(chunk, n);
+            }
+            web.sendContent("");
         });
         // Phones probe odd addresses to detect a setup network. Send them all to the form.
         web.onNotFound([this] {
@@ -612,7 +632,11 @@ struct Client::Impl {
         if (speakEnded && self.sink_->drained()) {
             reportPlayback("finished");
             logf("finished speaking");
+            const bool answeredUs = speakTurn == lastVoiceTurn;
             speakTurn = "";
+            // Only an answer that was spoken to the end leads to a follow-up. Silence from the agent
+            // (NO_REPLY) never starts speech, and a cut-off answer means the person took over.
+            if (answeredUs) startFollowUp();
         }
     }
 
@@ -754,12 +778,26 @@ struct Client::Impl {
 
     String newTurnId() { return "m" + String(millis()) + "-" + String(++recordingCount); }
 
+    /** Whether a cue should play when listening starts, and how long the microphone is deaf for it. */
+    size_t cueSamples() {
+        if (!self.listenCue_ || self.settingInt("listenCue", 1) == 0) return 0;
+        return (size_t)self.cueMs_ * MIC_RATE / 1000;
+    }
+
+    void playCue() {
+        if (self.listenCue_ && self.settingInt("listenCue", 1) != 0) self.listenCue_();
+    }
+
     void onWakeResult(const char *id, bool granted) {
         if (!outRing) return;
+        const size_t cue = cueSamples();
+        bool cueNow = false;
         xSemaphoreTake(audioLock, portMAX_DELAY);
         if (self.recording_ && wakePending && wakeId == id) {
             if (granted) {
                 wakePending = false;
+                settleLeft = max(settleLeft, cue);
+                cueNow = cue > 0;
                 logf("wake granted");
             } else {
                 dropRecordingLocked();
@@ -767,6 +805,37 @@ struct Client::Impl {
             }
         }
         xSemaphoreGive(audioLock);
+        if (cueNow) playCue();
+    }
+
+    /**
+     * After a spoken answer the device listens briefly, so a conversation does
+     * not need the wake word every time. Silence just ends it. Client task only.
+     */
+    void startFollowUp() {
+        const long waitMs = self.settingInt("followUpMs", 6000);
+        if (waitMs <= 0 || !outRing || !self.online_) return;
+        const VadLimits limits = vadLimits();
+        const size_t cue = cueSamples();
+        bool started = false;
+        xSemaphoreTake(audioLock, portMAX_DELAY);
+        if (!self.recording_) {
+            dropRecordingLocked();
+            vad.begin((uint32_t)constrain(waitMs, 1000, 30000), limits.silenceMs, limits.maxMs);
+            wakeId = "";
+            turnId = newTurnId();
+            quietWanted = false;
+            preFill = 0;
+            // The speaker's own tail and the cue must not count as the person answering.
+            settleLeft = TAIL_SETTLE_SAMPLES + cue;
+            self.recording_ = true;
+            started = true;
+        }
+        xSemaphoreGive(audioLock);
+        if (started) {
+            logf("listening for a follow-up for %ld ms", waitMs);
+            playCue();
+        }
     }
 
     /** Moves the recording along over the network: wake, start, audio, end. Client task only. */
@@ -841,6 +910,7 @@ struct Client::Impl {
             JsonDocument doc;
             doc["t"] = "audio.start";
             doc["turnId"] = tid;
+            lastVoiceTurn = tid;
             doc["format"]["encoding"] = "pcm_s16le";
             doc["format"]["sampleRate"] = MIC_RATE;
             doc["format"]["channels"] = 1;
@@ -1047,6 +1117,7 @@ bool Client::startListening() {
     Impl &m = *impl_;
     if (!m.outRing || recording_ || !online_) return false;
     const Impl::VadLimits limits = m.vadLimits();
+    const size_t cue = m.cueSamples();
     bool started = false;
     xSemaphoreTake(m.audioLock, portMAX_DELAY);
     if (!recording_) {
@@ -1055,11 +1126,12 @@ bool Client::startListening() {
         m.wakeId = "";
         m.turnId = m.newTurnId();
         m.quietWanted = true;
-        m.settleLeft = 0;
+        m.settleLeft = cue;
         recording_ = true;
         started = true;
     }
     xSemaphoreGive(m.audioLock);
+    if (started && cue > 0) m.playCue();
     return started;
 }
 

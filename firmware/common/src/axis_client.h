@@ -10,12 +10,13 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <functional>
+#include "log_buffer.h"
 
 /** Version of the client protocol this core speaks. See protocol/src/version.ts. */
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.4.0"
+#define AXIS_FIRMWARE_VERSION "0.5.0"
 
 namespace axis {
 
@@ -115,6 +116,21 @@ class Client {
     using ConsoleHandler = std::function<bool(const String &word, const String &rest)>;
     void onConsole(ConsoleHandler handler) { consoleHandler_ = handler; }
 
+    /** Serves this log at `/logs` on the device's web page. Call before `begin`. */
+    void setLogSource(LogBuffer *log) { logBuffer_ = log; }
+
+    /**
+     * Called when the device starts listening for a turn: a wake word Axis
+     * accepted, a tap, or a follow-up after a spoken reply. A board uses it to
+     * play a cue. The microphone is kept deaf for `cueMs` afterwards so the
+     * cue is not taken for speech. Called from the client's task or the
+     * caller's of `startListening`; it must return quickly.
+     */
+    void onListenStart(std::function<void()> cue, uint32_t cueMs) {
+        listenCue_ = cue;
+        cueMs_ = cueMs;
+    }
+
     /** Asks Axis to stop the current reply. Safe to call from any task. */
     void interrupt() { wantInterrupt_ = true; }
 
@@ -158,6 +174,9 @@ class Client {
     volatile bool speaking_ = false;
     CommandHandler commandHandler_;
     ConsoleHandler consoleHandler_;
+    std::function<void()> listenCue_;
+    uint32_t cueMs_ = 0;
+    LogBuffer *logBuffer_ = nullptr;
     AudioSink *sink_ = nullptr;
     friend struct Impl;
 };

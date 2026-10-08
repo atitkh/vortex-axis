@@ -16,6 +16,8 @@
 // This board's serial port is the chip's own USB, not a UART. Output on plain
 // `Serial` goes nowhere unless this is used and ARDUINO_USB_CDC_ON_BOOT is set.
 HWCDC USBSerial;
+// Everything printed here also goes into a memory buffer the device serves at /logs.
+static axis::LogBuffer logOut(USBSerial);
 
 static const char *const CAPABILITIES[] = {"screen", "speaker", "mic"};
 static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3};
@@ -232,12 +234,13 @@ static void onTap() {
 
 void setup() {
     USBSerial.begin(115200);
+    logOut.begin();
     delay(500);  // do not wait on the port itself: it never reports "connected" on this chip
-    USBSerial.printf("\n[boot] VorteX Axis client %s, protocol %d\n", AXIS_FIRMWARE_VERSION, AXIS_PROTOCOL_VERSION);
+    logOut.printf("\n[boot] VorteX Axis client %s, protocol %d\n", AXIS_FIRMWARE_VERSION, AXIS_PROTOCOL_VERSION);
 
     const bool displayOk = display::begin();
     const bool faceOk = vortex::begin();
-    USBSerial.printf("[boot] display %s, face buffer %s, heap %u, psram %u\n", displayOk ? "started" : "FAILED",
+    logOut.printf("[boot] display %s, face buffer %s, heap %u, psram %u\n", displayOk ? "started" : "FAILED",
                      faceOk ? "ok" : "FAILED", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
     if (!faceOk) {
         display::textLine(100, 2, COLOR_WARN, "No memory for the face");
@@ -245,21 +248,27 @@ void setup() {
     }
 
     hasSpeaker = speaker::begin();
-    USBSerial.printf("[boot] speaker %s\n", hasSpeaker ? "started" : "FAILED");
+    logOut.printf("[boot] speaker %s\n", hasSpeaker ? "started" : "FAILED");
     if (hasSpeaker) {
         client.setAudioSink(speaker::sink());
+        client.onListenStart([] { speaker::cue(); }, speaker::CUE_MS + 60);
         speaker::chime();
     }
     // The wake word model takes a slab of internal memory in one piece, so it goes first, before Wi-Fi fragments the heap.
-    const bool wakeOk = mic::loadWakeWord(&USBSerial);
-    client.begin(IDENTITY, &USBSerial);
-    hasMic = hasSpeaker && mic::begin(client, &USBSerial);
-    USBSerial.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
+    const bool wakeOk = mic::loadWakeWord(&logOut);
+    client.setLogSource(&logOut);
+    client.begin(IDENTITY, &logOut);
+    hasMic = hasSpeaker && mic::begin(client, &logOut);
+    logOut.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
     // Serial-only helpers for testing without anybody in the room.
     client.onConsole([](const String &word, const String &) {
         if (word == "chime") {
             speaker::chime();
+            return true;
+        }
+        if (word == "cue") {
+            speaker::cue();
             return true;
         }
         if (word == "wake") {
@@ -303,8 +312,8 @@ void loop() {
     drawMicros += micros() - t0;
     frames++;
 
-    if (started - lastReport >= 15000) {
-        USBSerial.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u)\n",
+    if (started - lastReport >= 60000) {
+        logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u)\n",
                          (unsigned long)(started / 1000), frames * 1000.0f / (started - lastReport),
                          drawMicros / 1000.0f / max(1u, (unsigned)frames), renderMicros / 1000.0f / max(1u, (unsigned)frames),
                          vortex::idleName(), (unsigned)ESP.getFreeHeap(),
@@ -312,7 +321,7 @@ void loop() {
         if (hasMic) {
             const mic::Stats m = mic::stats();
             const axis::Client::MicStats room = client.micStats();
-            USBSerial.printf("[mic] %lu blocks, %lu stalls; room %u (speech above %u); wake: %lu heard, %lu ignored, best %u%%, %.1f ms a run\n",
+            logOut.printf("[mic] %lu blocks, %lu stalls; room %u (speech above %u); wake: %lu heard, %lu ignored, best %u%%, %.1f ms a run\n",
                              (unsigned long)m.blocks, (unsigned long)m.stalls, (unsigned)room.floor, (unsigned)room.onset,
                              (unsigned long)m.detections, (unsigned long)m.ignored, (unsigned)m.peakPercent, m.inferenceUs / 1000.0f);
         }

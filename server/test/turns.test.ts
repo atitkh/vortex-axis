@@ -171,6 +171,33 @@ describe("a voice turn", () => {
     expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("It is eight o'clock. Time for a break.");
   });
 
+  it("stays silent when the agent answers NO_REPLY, even if it arrives in pieces", async () => {
+    fakes.reply = ["NO", "_RE", "PLY"];
+    const { client } = await ready(["mic", "speaker", "screen"]);
+    client.send({ t: "text", turnId: "t1", text: "hello" });
+    await client.turn("t1", "idle");
+
+    expect(fakes.spoken).toEqual([]);
+    expect(client.types()).not.toContain("speak.start");
+    expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("");
+  });
+
+  it("stays silent when the agent answers nothing at all", async () => {
+    fakes.reply = [];
+    const { client } = await ready(["speaker", "screen"]);
+    client.send({ t: "text", turnId: "t1", text: "hello" });
+    await client.turn("t1", "idle");
+    expect(fakes.spoken).toEqual([]);
+  });
+
+  it("speaks a reply that merely starts like NO_REPLY", async () => {
+    fakes.reply = ["No ", "problem. ", "Done."];
+    const { client } = await ready(["speaker", "screen"]);
+    client.send({ t: "text", turnId: "t1", text: "hello" });
+    await client.next("speak.end");
+    expect(fakes.spoken.map((s) => s.text).join(" ")).toContain("No problem.");
+  });
+
   it("goes idle when nothing was said", async () => {
     fakes.transcript = "";
     const { client } = await ready();

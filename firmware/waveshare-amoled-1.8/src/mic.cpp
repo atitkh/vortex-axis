@@ -20,6 +20,8 @@ volatile uint32_t blocks = 0, stalls = 0, ignored = 0;
 bool modelLoaded = false;
 
 /** Reads one block and keeps the left channel; the codec sends both. False when the stream stalls. */
+bool speakingNow() { return client->snapshot().turn == axis::Turn::Speaking; }
+
 bool readBlock(int16_t *mono) {
     static int16_t stereo[BLOCK * 2];
     const size_t need = BLOCK * 4;
@@ -43,6 +45,9 @@ void task(void *) {
     int16_t block[BLOCK];
     // Loudness around the wake word, used to pick between devices that heard it at once.
     float recent = 0;
+    // The room's own loudness, so the face moves with a voice and not with a fan.
+    float room = 0;
+    uint32_t lastNearMiss = 0;
     for (;;) {
         if (!readBlock(block)) {
             stalls++;
@@ -53,7 +58,12 @@ void task(void *) {
         uint32_t sum = 0;
         for (size_t i = 0; i < BLOCK; i++) sum += abs((int)block[i]);
         const float now = min(1.0f, (sum / (float)BLOCK) / 3000.0f);
-        currentLevel = currentLevel * 0.7f + now * 0.3f;
+        const float average = sum / (float)BLOCK;
+        room += average < room ? (average - room) / 16.0f : (average - room) / 1024.0f;
+        // Square root: ordinary speech should fill most of the range, not the bottom of it.
+        const float voice = sqrtf(constrain((average - room * 1.3f - 20.0f) / 1500.0f, 0.0f, 1.0f));
+        // Rise at once, fall over about a tenth of a second, so the face follows syllables.
+        currentLevel = voice > currentLevel ? voice : currentLevel * 0.9f + voice * 0.1f;
         recent = recent * 0.95f + now * 0.05f;
 
         client->feedAudio(block, BLOCK);
@@ -61,10 +71,20 @@ void task(void *) {
         // Always fed, even while recording or speaking: a gap would leave the model's state stale.
         float score = 0;
         const bool heard = modelLoaded && wake::feed(block, BLOCK, &score);
+        // A phrase that scored well but fell short is what to look at when it "does not hear me".
+        if (!heard && score >= 0.3f && millis() - lastNearMiss > 700) {
+            lastNearMiss = millis();
+            if (logOut) logOut->printf("[wake] near miss: score %.2f of %u%%, %s\n", score, (unsigned)wake::cutoffPercent(),
+                                       client->listening() ? "recording" : speakingNow() ? "while speaking" : "quiet");
+        }
         if (!heard || !wakeEnabled) continue;
-        if (client->listening()) continue;  // already recording
+        if (client->listening()) {
+            if (logOut) logOut->printf("[wake] heard it while already recording (score %.2f)\n", score);
+            continue;
+        }
         if (!bargeIn && client->snapshot().turn == axis::Turn::Speaking) {
             ignored++;
+            if (logOut) logOut->printf("[wake] heard it over speech but bargeIn is off (score %.2f)\n", score);
             continue;
         }
         if (logOut) logOut->printf("[wake] heard it (score %.2f, level %.2f)\n", score, recent);
