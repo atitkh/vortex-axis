@@ -459,28 +459,56 @@ const player = {
 
 let capture;
 
+// One audio context for the microphone, kept for the life of the page and paused between
+// recordings. A new one per tap leaked when taps came quickly (each kept processing the
+// microphone, which slowed the whole page), and browsers allow only a few at once.
+let micContext;
+let micModule;
+async function micReady() {
+  if (!micContext) {
+    micContext = new AudioContext();
+    micModule = micContext.audioWorklet.addModule("/web/pcm-worklet.js");
+  }
+  await micModule;
+  if (micContext.state === "suspended") await micContext.resume();
+  return micContext;
+}
+
+/** True while a recording is being set up; taps then are ignored, so only one starts. */
+let starting = false;
+
 async function startCapture() {
-  if (capture || !online) return;
+  if (capture || starting || !online) return;
+  starting = true;
   // Speaking over a reply interrupts it, like a button on a device would.
   if (player.stop() || turnState !== "idle") send({ t: "interrupt" });
 
   let stream;
+  let context;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
+    context = await micReady();
   } catch {
+    for (const track of stream?.getTracks() ?? []) track.stop();
+    starting = false;
     bubble("error", "The browser did not allow the microphone.");
+    caption(undefined, "The browser did not allow the microphone.", "error");
     return;
   }
-  const context = new AudioContext();
-  await context.audioWorklet.addModule("/web/pcm-worklet.js");
+  starting = false;
+  // The connection may have dropped while the browser was asking for the microphone.
+  if (!online) {
+    for (const track of stream.getTracks()) track.stop();
+    return;
+  }
   const source = context.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(context, "pcm-capture");
   source.connect(node);
 
   const turnId = newTurnId();
-  capture = { stream, context, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0, last: 0 };
+  capture = { stream, context, source, node, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0, last: 0 };
   const step = context.sampleRate / MIC_RATE;
 
   node.port.onmessage = (event) => {
@@ -539,10 +567,14 @@ async function startCapture() {
 
 function stopCapture(tellHub, reason = "silence") {
   if (!capture) return;
-  const { stream, context, turnId } = capture;
+  const { stream, context, source, node, turnId } = capture;
   capture = undefined;
+  node.port.onmessage = null;
+  source.disconnect();
+  node.disconnect();
   for (const track of stream.getTracks()) track.stop();
-  context.close();
+  // Paused, not closed: the next recording reuses it.
+  context.suspend().catch(() => {});
   if (tellHub) send({ t: "audio.end", turnId, reason });
   renderFace();
 }
@@ -550,9 +582,11 @@ function stopCapture(tellHub, reason = "silence") {
 // The face works like the board's screen: tap to talk, tap to finish, tap to stop it.
 $("mic").addEventListener("click", () => {
   player.ensure(); // a click is what lets the browser play sound later
-  if (!identity || !online) return;
+  if (!identity || !online || starting) return;
   if (capture) return stopCapture(true, capture.spoke ? "silence" : "cancel");
-  if (player.turnId || turnState !== "idle") return stopEverything();
+  // Only a reply on its way is stopped by a tap. After a failed turn the state stays "error"
+  // until the next one, and a tap then must start listening, not just stop.
+  if (player.turnId || ["transcribing", "thinking", "speaking"].includes(turnState)) return stopEverything();
   if (micAvailable) startCapture();
   else $("say").focus();
 });
