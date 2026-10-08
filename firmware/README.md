@@ -47,7 +47,7 @@ The address in a setup string must be plain `http` for now. `axis+tls://` is par
 
 ## Settings a device reads
 
-Set these in the admin page, for all clients, for the type `waveshare-amoled-1.8` or for one device.
+Set these in the admin page: open the device under Clients, then pick the layer (this device, all devices of this type, or everything). The board describes them itself (`SETTINGS` and `ACTIONS` in `main.cpp`, sent as `describe` when it connects), so a new setting needs one line there and nothing on the server. Keep that table in step with `applySettings()` and the client core's `vadLimits()`: a listed key that nothing reads does nothing.
 
 | Key | Meaning | Default |
 | --- | --- | --- |
@@ -141,5 +141,7 @@ Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 16. [x] Is the buzz gone or lighter (0.5.1 resampler)? No report back after the 0.5.1 resampler fix.
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
+
+Added in 0.6.0 (device editor in the admin page): open the board under Clients. Its settings are grouped (Screen, Sound, Listening) with the three layers as tabs and "On this device: X (from ...)" next to each; actions are `Play listening cue`, `Play chime`, `Start listening`, `Microphone levels`, `Diagnostics`, `Reboot`; links open its log and setup page; Announce speaks a line on it.
 
 Serial commands added: `talk` (tap-to-talk), `mic` (room level and thresholds), `wake` (pretend the wake word was heard), `chime` (play the boot chime), `cue` (play the listening cue), `probe HZ RATE [pause]` (play a tone through the speech path, record it with the microphone and print the spectrum; `pause` stops drawing the face meanwhile).

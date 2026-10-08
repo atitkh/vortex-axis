@@ -108,6 +108,67 @@ export const SettingsGet = message("settings.get", {
   have: Type.Integer({ minimum: 0 }),
 });
 
+/**
+ * One setting a client reads, so Axis can draw an editor for it without
+ * knowing the device. The value itself lives in the settings layers; this
+ * only says what it is. Toggles are stored as 1 and 0.
+ */
+export const SettingDef = Type.Object(
+  {
+    key: Type.String({ minLength: 1, maxLength: 64 }),
+    label: Type.String({ maxLength: 80 }),
+    kind: Type.Union([Type.Literal("number"), Type.Literal("text"), Type.Literal("toggle"), Type.Literal("choice")]),
+    /** Headings the editor groups settings under, for example "Sound". */
+    group: Type.Optional(Type.String({ maxLength: 40 })),
+    help: Type.Optional(Type.String({ maxLength: 240 })),
+    /** What the client uses when nothing is set. */
+    default: Type.Optional(Type.Union([Type.String({ maxLength: 128 }), Type.Number()])),
+    min: Type.Optional(Type.Number()),
+    max: Type.Optional(Type.Number()),
+    unit: Type.Optional(Type.String({ maxLength: 16 })),
+    /** The allowed values of a `choice`. */
+    options: Type.Optional(Type.Array(Type.Union([Type.String({ maxLength: 64 }), Type.Number()]), { maxItems: 16 })),
+  },
+  { $id: "SettingDef", additionalProperties: false },
+);
+export type SettingDef = Static<typeof SettingDef>;
+
+/** Something a person can ask a client to do from the admin page, carried as a `command`. */
+export const ActionDef = Type.Object(
+  {
+    /** The `command` name Axis sends. */
+    name: Type.String({ minLength: 1, maxLength: 64 }),
+    label: Type.String({ maxLength: 80 }),
+    help: Type.Optional(Type.String({ maxLength: 240 })),
+    /** Ask for confirmation first, for example before a reboot. */
+    confirm: Type.Optional(Type.Boolean()),
+  },
+  { $id: "ActionDef", additionalProperties: false },
+);
+export type ActionDef = Static<typeof ActionDef>;
+
+/** A page the client serves itself, for example its log. `path` is relative to its own address. */
+export const LinkDef = Type.Object(
+  {
+    label: Type.String({ maxLength: 80 }),
+    path: Type.String({ minLength: 1, maxLength: 128 }),
+  },
+  { $id: "LinkDef", additionalProperties: false },
+);
+export type LinkDef = Static<typeof LinkDef>;
+
+/**
+ * What a client offers to the admin page: its settings, actions and own web
+ * pages. Sent after `welcome`, and kept by Axis per client type.
+ */
+export const Describe = message("describe", {
+  settings: Type.Array(SettingDef, { maxItems: 48 }),
+  actions: Type.Array(ActionDef, { maxItems: 24 }),
+  links: Type.Array(LinkDef, { maxItems: 8 }),
+  /** Where the client's own pages are reachable, as host or host:port. */
+  address: Type.Optional(Type.String({ maxLength: 64 })),
+});
+
 /** Result of a `command` sent by Axis. */
 export const CommandResult = message("command.result", {
   id: Id,
@@ -232,6 +293,7 @@ export const CLIENT_MESSAGE_SCHEMAS = [
   Sense,
   SettingsGet,
   CommandResult,
+  Describe,
 ] as const;
 
 export const SERVER_MESSAGE_SCHEMAS = [
@@ -264,6 +326,7 @@ export type Playback = Static<typeof Playback>;
 export type Sense = Static<typeof Sense>;
 export type SettingsGet = Static<typeof SettingsGet>;
 export type CommandResult = Static<typeof CommandResult>;
+export type Describe = Static<typeof Describe>;
 
 export type Welcome = Static<typeof Welcome>;
 export type Settings = Static<typeof Settings>;

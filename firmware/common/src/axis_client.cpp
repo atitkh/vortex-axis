@@ -531,6 +531,7 @@ struct Client::Impl {
             welcomed = true;
             lastSense = millis() - SENSE_INTERVAL_MS + 5000;
             logf("connected to Axis");
+            sendDescribe();
         } else if (!strcmp(t, "settings")) {
             xSemaphoreTake(lock, portMAX_DELAY);
             settings.clear();
@@ -604,6 +605,80 @@ struct Client::Impl {
                 setLink(Link::Unpaired, "Axis no longer knows this device. Pair it again.");
             }
         }
+    }
+
+    /** A number when the whole text is one, so "90" is sent as 90 and "Hey" stays text. */
+    static void addNumberOrText(JsonArray array, const char *text) {
+        char *end = nullptr;
+        const double number = strtod(text, &end);
+        if (end != text && *end == '\0') array.add(number);
+        else array.add(text);
+    }
+
+    /** Tells Axis what this board offers the admin page: settings, actions and its own web pages. */
+    void sendDescribe() {
+        JsonDocument doc;
+        doc["t"] = "describe";
+        JsonArray settingList = doc["settings"].to<JsonArray>();
+        for (size_t i = 0; i < identity.settingCount; i++) {
+            const SettingDef &d = identity.settings[i];
+            JsonObject o = settingList.add<JsonObject>();
+            o["key"] = d.key;
+            o["label"] = d.label;
+            o["kind"] = d.kind;
+            if (d.group) o["group"] = d.group;
+            if (d.help) o["help"] = d.help;
+            if (d.fallback) {
+                if (!strcmp(d.kind, "text")) o["default"] = d.fallback;
+                else o["default"] = atof(d.fallback);
+            }
+            if (!strcmp(d.kind, "number") && (d.min || d.max)) {
+                o["min"] = d.min;
+                o["max"] = d.max;
+            }
+            if (d.unit) o["unit"] = d.unit;
+            if (d.options) {
+                JsonArray options = o["options"].to<JsonArray>();
+                String all = d.options;
+                for (int from = 0; from <= (int)all.length();) {
+                    int comma = all.indexOf(',', from);
+                    if (comma < 0) comma = all.length();
+                    String one = all.substring(from, comma);
+                    one.trim();
+                    if (!one.isEmpty()) addNumberOrText(options, one.c_str());
+                    from = comma + 1;
+                }
+            }
+        }
+        JsonArray actionList = doc["actions"].to<JsonArray>();
+        for (size_t i = 0; i < identity.actionCount; i++) {
+            const ActionDef &a = identity.actions[i];
+            JsonObject o = actionList.add<JsonObject>();
+            o["name"] = a.name;
+            o["label"] = a.label;
+            if (a.help) o["help"] = a.help;
+            if (a.confirm) o["confirm"] = true;
+        }
+        JsonObject diag = actionList.add<JsonObject>();
+        diag["name"] = "diag";
+        diag["label"] = "Diagnostics";
+        diag["help"] = "Firmware version, uptime, free memory and signal strength.";
+        JsonObject reboot = actionList.add<JsonObject>();
+        reboot["name"] = "reboot";
+        reboot["label"] = "Reboot";
+        reboot["help"] = "Restarts the device. It reconnects by itself.";
+        reboot["confirm"] = true;
+        JsonArray links = doc["links"].to<JsonArray>();
+        if (self.logBuffer_) {
+            JsonObject log = links.add<JsonObject>();
+            log["label"] = "Device log";
+            log["path"] = "/logs";
+        }
+        JsonObject page = links.add<JsonObject>();
+        page["label"] = "Device page";
+        page["path"] = "/";
+        doc["address"] = WiFi.localIP().toString();
+        send(doc);
     }
 
     void reportPlayback(const char *what) {

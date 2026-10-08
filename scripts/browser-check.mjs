@@ -216,6 +216,28 @@ try {
   await admin.front();
   step("client listed", await admin.until(`document.querySelector('#client-table tbody tr')?.textContent.replace(/\\s+/g, ' ').slice(0, 80)`, "the client row"));
   step("name shown as text, not markup", await admin.run(`document.querySelectorAll('#client-table b').length === 0`));
+  // The device editor. A real board describes its settings itself; here the schema is stored directly.
+  app.store.saveSchema("web", {
+    settings: [
+      { key: "volume", label: "Volume", kind: "number", group: "Sound", min: 0, max: 100, default: 60, unit: "%" },
+      { key: "listenCue", label: "Listening cue", kind: "toggle", group: "Sound", default: 1 },
+      { key: "rotation", label: "Rotation", kind: "choice", group: "Screen", options: [0, 90, 180, 270], default: 90 },
+    ],
+    actions: [{ name: "diag", label: "Diagnostics" }],
+    links: [],
+  });
+  await admin.run(`[...document.querySelectorAll('#client-table button')].find(b => b.textContent === 'Open').click()`);
+  step("device editor", await admin.until(`!${byId("device")}.classList.contains('hidden') && (t => /volume/.test(t) && t)([...document.querySelectorAll('#device-settings .mono')].map(e => e.textContent).join(', '))`, "the device settings (the page polls every 3 s)"));
+  // Volume on the device layer, then check where it comes from on each layer.
+  await admin.run(`(i => { i.value = '35'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
+  step("device value", await admin.until(`(t => /from this device/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Volume/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the volume to save"));
+  await admin.run(`(i => { i.value = '150'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
+  step("range refused", await admin.until(`(t => /at most 100/.test(t) && t)(${byId("device-note")}.textContent)`, "the range error"));
+  await admin.run(`[...document.querySelectorAll('#device-tabs button')].find(b => /web devices/.test(b.textContent)).click()`);
+  await admin.run(`(s => { s.value = '0'; s.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings select[data-edit=listenCue]'))`);
+  step("type layer toggle", await admin.until(`(t => /off \\(from its type\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the type toggle to save"));
+  await admin.run(`[...document.querySelectorAll('#device-settings button')].find(b => b.textContent === 'Reset').click()`);
+  step("reset", await admin.until(`(t => /on \\(from the device's default\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the reset"));
   await admin.run(`window.confirm = () => true; document.querySelector('#client-table button.danger').click()`);
   await client.front();
   step("client after removal", await client.until(`${byId("pair-error")}.textContent`, "the client to notice", 10000));

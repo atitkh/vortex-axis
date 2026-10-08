@@ -5,6 +5,11 @@ const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "axis-admin-token";
 let token = sessionStorage.getItem(TOKEN_KEY) || "";
 let timer;
+// The device being edited, which layer of settings the editor is on, and the last data fetched.
+let selectedId = "";
+let layerTab = "device";
+let lastClients = [];
+let lastTypes = {};
 
 /** Builds an element. Text always goes in as text, never as markup. */
 function h(tag, attrs = {}, ...children) {
@@ -119,6 +124,9 @@ async function refresh() {
     renderSummary(status);
     renderGateway(gateway);
     renderClients(clients.clients);
+    lastClients = clients.clients;
+    lastTypes = clients.types || {};
+    renderDevice();
     renderSettings(settings.values);
   } catch (error) {
     if (error.status === 401) signOut("That token was not accepted.");
@@ -274,23 +282,6 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- clients ---------------------------------------------------------------
 
-function settingInput(client, key, type) {
-  const value = client.settings[key];
-  const input = h("input", { type, value: value ?? "", "data-edit": `${client.id}:${key}`, style: "min-width:84px" });
-  input.addEventListener("change", async () => {
-    const raw = input.value.trim();
-    const next = raw === "" ? null : type === "number" ? Number(raw) : raw;
-    try {
-      await api("PATCH", `/admin/settings/device/${encodeURIComponent(client.id)}`, { values: { [key]: next } });
-    } catch (error) {
-      note("code-note", error.message, "bad");
-    }
-    input.blur();
-    refresh();
-  });
-  return input;
-}
-
 function renderClients(clients) {
   // Leave the table alone while someone is typing in it.
   if ($("client-table").contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
@@ -305,11 +296,25 @@ function renderClients(clients) {
       h("td", {}, h("div", {}, c.name), h("div", { class: "note mono", style: "margin:0" }, `${c.type} · ${c.version}`)),
       h("td", { class: "tight" }, pill(c.online ? "online" : "offline", c.online ? "good" : "")),
       h("td", {}, c.capabilities.join(", ") || "nothing"),
-      h("td", {}, settingInput(c, "room", "text")),
-      h("td", {}, settingInput(c, "volume", "number")),
+      h("td", {}, c.settings.room || ""),
       h(
         "td",
         { class: "tight" },
+        h(
+          "button",
+          {
+            class: `small${c.id === selectedId ? " primary" : ""}`,
+            onclick: () => {
+              selectedId = c.id;
+              layerTab = "device";
+              $("device-note").textContent = "";
+              renderDevice();
+              $("device").scrollIntoView({ behavior: "smooth", block: "nearest" });
+            },
+          },
+          "Open",
+        ),
+        " ",
         h(
           "button",
           {
@@ -329,8 +334,235 @@ function renderClients(clients) {
     h(
       "table",
       {},
-      h("thead", {}, h("tr", {}, ...["Client", "", "Can", "Room", "Volume", ""].map((t) => h("th", {}, t)))),
+      h("thead", {}, h("tr", {}, ...["Client", "", "Can", "Room", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, rows),
+    ),
+  );
+}
+
+// --- one device: settings in three layers, actions and its own pages -----------
+
+const LAYER_LABELS = { device: "This device", type: "All devices of this type", global: "Everything" };
+const SOURCE_NAMES = { device: "this device", type: "its type", global: "everything", default: "the device's default" };
+
+function showValue(def, value) {
+  if (value === undefined || value === null || value === "") return "not set";
+  if (def.kind === "toggle") return Number(value) ? "on" : "off";
+  return `${value}${def.unit && def.kind === "number" ? ` ${def.unit}` : ""}`;
+}
+
+/** Which layer decides a setting for this device, and what it says. */
+function effective(def, layers) {
+  for (const name of ["device", "type", "global"]) {
+    if (layers[name][def.key] !== undefined) return { source: name, value: layers[name][def.key] };
+  }
+  return { source: "default", value: def.default };
+}
+
+/** What the layers BELOW the one being edited would give. */
+function inherited(def, layers, tab) {
+  const below = { device: ["type", "global"], type: ["global"], global: [] }[tab];
+  for (const name of below) if (layers[name][def.key] !== undefined) return { source: name, value: layers[name][def.key] };
+  return { source: "default", value: def.default };
+}
+
+function layerPath(client, tab) {
+  if (tab === "global") return "/admin/settings/global";
+  if (tab === "type") return `/admin/settings/type/${encodeURIComponent(client.type)}`;
+  return `/admin/settings/device/${encodeURIComponent(client.id)}`;
+}
+
+async function saveSetting(client, tab, key, value) {
+  try {
+    await api("PATCH", layerPath(client, tab), { values: { [key]: value } });
+    note("device-note", "Saved. The device has it now.", "good");
+  } catch (error) {
+    if (error.status === 401) return signOut("That token was not accepted.");
+    note("device-note", error.message, "bad");
+  }
+  await refresh();
+}
+
+function settingEditor(client, def, layers, tab) {
+  const own = layers[tab][def.key];
+  const below = inherited(def, layers, tab);
+  const placeholder = showValue(def, below.value);
+  const choose = (raw) => (raw === "" ? null : def.kind === "number" ? Number(raw) : raw);
+  if (def.kind === "toggle" || def.kind === "choice") {
+    const options = def.kind === "toggle" ? [[1, "on"], [0, "off"]] : (def.options || []).map((o) => [o, String(o)]);
+    const select = h(
+      "select",
+      { "data-edit": def.key },
+      h("option", { value: "" }, `inherit (${placeholder})`),
+      options.map(([value, label]) => h("option", { value: String(value), ...(own !== undefined && String(own) === String(value) ? { selected: true } : {}) }, label)),
+    );
+    select.addEventListener("change", () => {
+      const raw = select.value;
+      // Toggles and numeric choices are stored as numbers, the way the firmware reads them.
+      const numeric = def.kind === "toggle" || (def.options || []).every((o) => typeof o === "number");
+      saveSetting(client, tab, def.key, raw === "" ? null : numeric ? Number(raw) : raw);
+    });
+    return select;
+  }
+  const input = h("input", {
+    type: def.kind === "number" ? "number" : "text",
+    value: own ?? "",
+    placeholder,
+    "data-edit": def.key,
+    spellcheck: "false",
+    ...(def.kind === "number" && def.min !== undefined ? { min: def.min } : {}),
+    ...(def.kind === "number" && def.max !== undefined ? { max: def.max } : {}),
+  });
+  input.addEventListener("change", () => saveSetting(client, tab, def.key, choose(input.value.trim())));
+  return input;
+}
+
+function renderDevice() {
+  const client = lastClients.find((c) => c.id === selectedId);
+  $("device").classList.toggle("hidden", !client);
+  if (!client) return;
+  // Leave the editor alone while someone is typing in it.
+  const active = document.activeElement;
+  if ($("device").contains(active) && ["INPUT", "SELECT"].includes(active.tagName)) return;
+
+  const schema = lastTypes[client.type] || { settings: [], actions: [], links: [] };
+  $("device-title").textContent = client.name;
+  const base = client.address ? `http://${client.address}` : "";
+  $("device-head").replaceChildren(
+    h(
+      "div",
+      { class: "row center", style: "margin-top:6px" },
+      pill(client.online ? "online" : "offline", client.online ? "good" : ""),
+      h("span", { class: "note mono", style: "margin:0" }, `${client.type} · ${client.version}${client.address ? ` · ${client.address}` : ""}`),
+      ...(client.online && base
+        ? schema.links.map((l) => h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label))
+        : []),
+    ),
+  );
+
+  // Actions: the device's own, plus announce for anything that can speak or show text.
+  const canSay = client.capabilities.includes("speaker") || client.capabilities.includes("screen");
+  const announceInput = h("input", { placeholder: "Say something on this device", style: "min-width:220px", spellcheck: "false" });
+  $("device-actions").replaceChildren(
+    h(
+      "div",
+      { class: "row center" },
+      ...schema.actions.map((a) =>
+        h(
+          "button",
+          {
+            class: "small",
+            title: a.help || "",
+            disabled: !client.online,
+            onclick: async (event) => {
+              if (a.confirm && !confirm(`${a.label} on ${client.name}?`)) return;
+              await act(event.target, "device-note", async () => {
+                const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/commands/${encodeURIComponent(a.name)}`);
+                const detail = Object.entries(result.payload || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+                note("device-note", result.ok ? `${a.label}: ok${detail ? ` · ${detail}` : ""}` : `${a.label}: ${result.error || "failed"}`, result.ok ? "good" : "bad");
+              });
+            },
+          },
+          a.label,
+        ),
+      ),
+    ),
+    canSay
+      ? h(
+          "div",
+          { class: "row center" },
+          announceInput,
+          h(
+            "button",
+            {
+              class: "small",
+              disabled: !client.online,
+              onclick: (event) =>
+                act(event.target, "device-note", async () => {
+                  const text = announceInput.value.trim();
+                  if (!text) return;
+                  note("device-note", "Announcing...");
+                  const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/announce`, { text });
+                  announceInput.value = "";
+                  note("device-note", result.heard ? "Announced; the device played it to the end." : "Sent, but the device did not report playing it.", result.heard ? "good" : "warn");
+                }),
+            },
+            "Announce",
+          ),
+        )
+      : null,
+  );
+
+  const tabs = ["device", "type", "global"].map((name) =>
+    h(
+      "button",
+      {
+        class: `small${name === layerTab ? " primary" : ""}`,
+        onclick: () => {
+          layerTab = name;
+          renderDevice();
+        },
+      },
+      name === "type" ? `All ${client.type} devices` : LAYER_LABELS[name],
+    ),
+  );
+  $("device-tabs").replaceChildren(
+    ...tabs,
+    h(
+      "span",
+      { class: "note", style: "margin:0" },
+      layerTab === "device"
+        ? "Only this device. Empty inherits."
+        : layerTab === "type"
+          ? `Every ${client.type} device without its own value.`
+          : "Every device of every type without a more specific value.",
+    ),
+  );
+
+  const groups = new Map();
+  for (const def of schema.settings) {
+    const name = def.group || "Other";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(def);
+  }
+  if (!groups.size) {
+    $("device-settings").replaceChildren(h("p", { class: "empty" }, "This device has not described its settings yet. It does so each time it connects."));
+    return;
+  }
+  const layers = client.layers;
+  $("device-settings").replaceChildren(
+    ...[...groups].map(([name, defs]) =>
+      h(
+        "div",
+        {},
+        h("h2", { style: "margin-top:14px" }, name),
+        h(
+          "table",
+          {},
+          h(
+            "tbody",
+            {},
+            defs.map((def) => {
+              const now = effective(def, layers);
+              const own = layers[layerTab][def.key];
+              return h(
+                "tr",
+                {},
+                h("td", { style: "width:34%" }, h("div", {}, def.label), def.help ? h("div", { class: "note", style: "margin:2px 0 0" }, def.help) : null, h("div", { class: "note mono", style: "margin:0" }, def.key)),
+                h("td", { style: "width:30%" }, settingEditor(client, def, layers, layerTab)),
+                h("td", { class: "note", style: "margin:0" }, `On this device: ${showValue(def, now.value)} (from ${SOURCE_NAMES[now.source]})`),
+                h(
+                  "td",
+                  { class: "tight" },
+                  own === undefined
+                    ? null
+                    : h("button", { class: "small", title: "Remove this value so the next layer applies", onclick: () => saveSetting(client, layerTab, def.key, null) }, "Reset"),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
     ),
   );
 }

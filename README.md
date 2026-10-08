@@ -132,7 +132,9 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | Call | Does |
 | --- | --- |
 | `POST /admin/pairing-codes` | Creates a one-time pairing code (valid 10 minutes by default). |
-| `GET /admin/clients` | Lists clients, whether each is online, and its resolved settings. |
+| `GET /admin/clients` | Lists clients with whether each is online, its address, its resolved settings and the three layers they come from, plus `types`: what each client type described (settings, actions, links). |
+| `POST /admin/clients/:id/commands/:name` | Sends one of the actions the device offered and returns its answer (`{ok, payload, error}`). 409 when offline, 504 when it does not answer. |
+| `POST /admin/clients/:id/announce` | Body `{ text }`. Speaks or shows it on that device and returns `{heard}`. |
 | `GET /admin/clients/:id` | One client. |
 | `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
 | `GET /admin/status` | Version, upstream health and client counts. |
@@ -144,7 +146,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `GET /admin/gateway/agents` | Lists the agents the gateway offers. |
 | `POST /admin/gateway/retry` | Reconnects now, skipping any backoff. |
 | `GET` or `PATCH /admin/settings/global` | Reads or changes settings for every client. |
-| `GET` or `PATCH /admin/settings/type/:type` | Same, for one client type. |
+| `GET` or `PATCH /admin/settings/type/:type` | Same, for one client type. Values for settings the type described are checked (range, options, toggles as 1 or 0). |
 | `GET` or `PATCH /admin/settings/device/:id` | Same, for one client. |
 
 `PATCH` takes `{"values": {"volume": 60}}`. Setting a key to `null` removes it from that layer.

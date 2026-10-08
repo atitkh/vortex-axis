@@ -2,10 +2,11 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PAIR_PATH, isPairRequest, type PairResponse, type ScalarMap } from "@vortex-axis/protocol";
+import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
 import type { Hub } from "./hub.js";
+import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testServices } from "./upstream.js";
@@ -127,8 +128,40 @@ export function createHttpHandler(deps: HttpDeps) {
       ...client,
       online: Boolean(session),
       settings: store.resolveSettings(client),
+      // The three layers separately, so the editor can show which one a value comes from.
+      layers: {
+        global: store.getLayer("global", ""),
+        type: store.getLayer("type", client.type),
+        device: store.getLayer("device", client.id),
+      },
       readings: session?.readings ?? {},
+      address: session?.address ?? null,
     };
+  }
+
+  /** The schema for each client type that exists, built-ins included. */
+  function typeSchemas(): Record<string, ClientSchema> {
+    const out: Record<string, ClientSchema> = {};
+    for (const client of store.listClients()) out[client.type] ??= withBuiltIns(store.getSchema(client.type));
+    return out;
+  }
+
+  function requireOnline(id: string) {
+    const client = store.getClient(id);
+    if (!client) throw new HttpError(404, "no such client");
+    const session = hub.session(id);
+    if (!session) throw new HttpError(409, `${client.name} is offline`);
+    return { client, session };
+  }
+
+  /** Refuses a value the client's own schema does not allow. Unknown keys are allowed. */
+  function checkAgainstSchema(type: string, values: Record<string, unknown>) {
+    const schema = withBuiltIns(store.getSchema(type));
+    for (const [key, value] of Object.entries(values)) {
+      const def = schema.settings.find((s) => s.key === key);
+      const problem = def ? settingProblem(def, value as Scalar) : undefined;
+      if (problem) throw new HttpError(400, problem);
+    }
   }
 
   async function patchSettings(req: IncomingMessage, scope: SettingsScope, scopeId: string) {
@@ -136,7 +169,12 @@ export function createHttpHandler(deps: HttpDeps) {
     if (!isScalarMap(body.values)) {
       throw new HttpError(400, "body must be { values: { key: string | number | boolean | null } }");
     }
-    if (scope === "device" && !store.getClient(scopeId)) throw new HttpError(404, "no such client");
+    if (scope === "device") {
+      const client = store.getClient(scopeId);
+      if (!client) throw new HttpError(404, "no such client");
+      checkAgainstSchema(client.type, body.values);
+    }
+    if (scope === "type") checkAgainstSchema(scopeId, body.values);
     const version = store.patchLayer(scope, scopeId, body.values);
     hub.pushSettings();
     return { version, values: store.getLayer(scope, scopeId) };
@@ -185,7 +223,34 @@ export function createHttpHandler(deps: HttpDeps) {
         return sendJson(res, 201, store.createPairingCode(config.pairingCodeTtlMs));
       }
       if (method === "GET" && parts.length === 2 && parts[1] === "clients") {
-        return sendJson(res, 200, { clients: store.listClients().map((client) => describeClient(client.id)) });
+        return sendJson(res, 200, {
+          clients: store.listClients().map((client) => describeClient(client.id)),
+          types: typeSchemas(),
+        });
+      }
+      if (method === "POST" && parts.length === 5 && parts[1] === "clients" && parts[3] === "commands") {
+        const { client, session } = requireOnline(parts[2]!);
+        const name = parts[4]!;
+        const allowed = withBuiltIns(store.getSchema(client.type)).actions.some((a) => a.name === name);
+        if (!allowed) throw new HttpError(400, `${client.name} does not offer "${name}"`);
+        try {
+          return sendJson(res, 200, await hub.command(session, name));
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+      }
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "announce") {
+        const { client, session } = requireOnline(parts[2]!);
+        const body = (await readJson(req)) as { text?: unknown };
+        if (typeof body.text !== "string" || !body.text.trim()) throw new HttpError(400, "body must be { text: string }");
+        if (!client.capabilities.includes("speaker") && !client.capabilities.includes("screen")) {
+          throw new HttpError(400, `${client.name} can neither speak nor show text`);
+        }
+        try {
+          return sendJson(res, 200, await hub.say(session, body.text.trim().slice(0, 1000)));
+        } catch (error) {
+          throw new HttpError(409, (error as Error).message);
+        }
       }
       if (parts.length === 3 && parts[1] === "clients") {
         const id = parts[2]!;

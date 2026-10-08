@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.5.1"
+#define AXIS_FIRMWARE_VERSION "0.6.0"
 
 namespace axis {
 
@@ -36,12 +36,48 @@ enum class Link : uint8_t {
 
 enum class Turn : uint8_t { Idle, Listening, Transcribing, Thinking, Speaking, Error };
 
+/**
+ * A setting the board reads, described so the Axis admin page can draw an
+ * editor for it. All text must stay valid for the life of the program, so use
+ * string literals. Toggles are 1 and 0.
+ */
+struct SettingDef {
+    const char *key;
+    const char *label;
+    /** "number", "text", "toggle" or "choice". */
+    const char *kind;
+    /** Heading the editor files it under. */
+    const char *group;
+    const char *help;
+    /** What the board uses when nothing is set, as text. Sent as a number unless `kind` is "text". */
+    const char *fallback;
+    /** Range of a number. Both 0 means no limit. */
+    int32_t min, max;
+    const char *unit;
+    /** The values of a choice, comma separated. */
+    const char *options;
+};
+
+/** Something a person can ask the board to do from the admin page. Handled in `onCommand`. */
+struct ActionDef {
+    const char *name;
+    const char *label;
+    const char *help;
+    /** The admin page asks before sending it. */
+    bool confirm;
+};
+
 struct Identity {
     /** Client type, the name Axis groups settings under. */
     const char *type;
     /** Capabilities from protocol/src/common.ts, for example {"screen", "speaker"}. */
     const char *const *capabilities;
     size_t capabilityCount;
+    /** What the admin page offers for this board. Optional. `diag` and `reboot` are always added. */
+    const SettingDef *settings = nullptr;
+    size_t settingCount = 0;
+    const ActionDef *actions = nullptr;
+    size_t actionCount = 0;
 };
 
 /** Everything a board needs to draw its state. Copied out under a lock. */

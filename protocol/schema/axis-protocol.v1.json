@@ -433,6 +433,171 @@
           "type": "string"
         }
       }
+    },
+    "describe": {
+      "$id": "describe",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "settings",
+        "actions",
+        "links"
+      ],
+      "properties": {
+        "t": {
+          "const": "describe",
+          "type": "string"
+        },
+        "settings": {
+          "maxItems": 48,
+          "type": "array",
+          "items": {
+            "$id": "SettingDef",
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "key",
+              "label",
+              "kind"
+            ],
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "maxLength": 64,
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 80,
+                "type": "string"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "const": "number",
+                    "type": "string"
+                  },
+                  {
+                    "const": "text",
+                    "type": "string"
+                  },
+                  {
+                    "const": "toggle",
+                    "type": "string"
+                  },
+                  {
+                    "const": "choice",
+                    "type": "string"
+                  }
+                ]
+              },
+              "group": {
+                "maxLength": 40,
+                "type": "string"
+              },
+              "help": {
+                "maxLength": 240,
+                "type": "string"
+              },
+              "default": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "unit": {
+                "maxLength": 16,
+                "type": "string"
+              },
+              "options": {
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "maxLength": 64,
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "actions": {
+          "maxItems": 24,
+          "type": "array",
+          "items": {
+            "$id": "ActionDef",
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "label"
+            ],
+            "properties": {
+              "name": {
+                "minLength": 1,
+                "maxLength": 64,
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 80,
+                "type": "string"
+              },
+              "help": {
+                "maxLength": 240,
+                "type": "string"
+              },
+              "confirm": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "links": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "$id": "LinkDef",
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "label",
+              "path"
+            ],
+            "properties": {
+              "label": {
+                "maxLength": 80,
+                "type": "string"
+              },
+              "path": {
+                "minLength": 1,
+                "maxLength": 128,
+                "type": "string"
+              }
+            }
+          }
+        },
+        "address": {
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
     }
   },
   "axisToClient": {

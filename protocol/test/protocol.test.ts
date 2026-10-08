@@ -38,6 +38,17 @@ const clientSamples: ClientMessage[] = [
   { t: "sense", readings: { battery: 0.81, charging: false, room: "office" } },
   { t: "settings.get", have: 3 },
   { t: "command.result", id: "k1", ok: true, payload: { volume: 60 } },
+  {
+    t: "describe",
+    settings: [
+      { key: "volume", label: "Volume", kind: "number", group: "Sound", min: 0, max: 100, default: 60, unit: "%" },
+      { key: "rotation", label: "Rotation", kind: "choice", options: [0, 90, 180, 270], default: 90 },
+      { key: "listenCue", label: "Listening cue", kind: "toggle", default: 1, help: "A short tone when it starts listening." },
+    ],
+    actions: [{ name: "reboot", label: "Reboot", confirm: true }],
+    links: [{ label: "Device log", path: "/logs" }],
+    address: "10.0.0.49",
+  },
 ];
 
 const serverSamples: ServerMessage[] = [

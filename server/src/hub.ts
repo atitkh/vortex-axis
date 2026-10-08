@@ -8,6 +8,7 @@ import {
   parseClientMessage,
   type ClientMessage,
   type ErrorCode,
+  type LinkDef,
   type ScalarMap,
   type ServerMessage,
   type Status,
@@ -30,6 +31,22 @@ export interface Session {
   connectedAt: number;
   /** Latest sensor readings the client reported. Not persisted. */
   readings: ScalarMap;
+  /** Where the client's own pages are reachable, from its last `describe`. */
+  address?: string | undefined;
+  /** Links the client offers, relative to `address`. */
+  links: LinkDef[];
+}
+
+/** What a client answered to a `command`. */
+export interface CommandOutcome {
+  ok: boolean;
+  payload?: ScalarMap | undefined;
+  error?: string | undefined;
+}
+
+interface PendingCommand {
+  resolve: (outcome: CommandOutcome) => void;
+  timer: NodeJS.Timeout;
 }
 
 export interface HubOptions {
@@ -54,6 +71,8 @@ export class Hub implements TurnPort {
   private readonly helloTimeoutMs: number;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
+  private readonly pending = new Map<string, PendingCommand>();
+  private commandCount = 0;
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 
   constructor(options: HubOptions) {
@@ -178,6 +197,7 @@ export class Hub implements TurnPort {
       if (session && this.online.get(session.client.id) === session) {
         this.online.delete(session.client.id);
         this.turns.drop(session);
+        this.abandonCommands(session);
         this.store.touch(session.client.id);
         this.log(`client ${session.client.id} disconnected`);
       }
@@ -203,6 +223,7 @@ export class Hub implements TurnPort {
     const previous = this.online.get(client.id);
     if (previous) {
       this.turns.drop(previous);
+      this.abandonCommands(previous);
       this.fail(previous.socket, "busy", "replaced by a newer connection", CLOSE_REPLACED);
     }
 
@@ -213,6 +234,7 @@ export class Hub implements TurnPort {
       audioBufferMs: hello.audioBufferMs ?? DEFAULT_AUDIO_BUFFER_MS,
       connectedAt: this.now(),
       readings: {},
+      links: [],
     };
     this.online.set(client.id, session);
     this.log(`client ${client.id} (${client.name}) connected`);
@@ -241,9 +263,25 @@ export class Hub implements TurnPort {
       case "sense":
         session.readings = { ...session.readings, ...message.readings };
         return;
-      case "command.result":
+      case "describe":
+        this.store.saveSchema(session.client.type, {
+          settings: message.settings,
+          actions: message.actions,
+          links: message.links,
+        });
+        session.address = message.address;
+        session.links = message.links;
+        return;
+      case "command.result": {
+        const wait = this.pending.get(`${session.client.id}:${message.id}`);
+        if (!wait) return;
+        this.pending.delete(`${session.client.id}:${message.id}`);
+        clearTimeout(wait.timer);
+        wait.resolve({ ok: message.ok, payload: message.payload, error: message.error });
+        return;
+      }
       case "answer":
-        // Nothing sends commands or questions yet, so there is nothing to match these to.
+        // Nothing asks questions yet, so there is nothing to match this to.
         return;
       case "wake":
       case "audio.start":
@@ -253,6 +291,31 @@ export class Hub implements TurnPort {
       case "playback":
         this.turns.handle(session, message);
         return;
+    }
+  }
+
+  /** Asks a client to carry out a command and waits for its answer. Rejects when it does not answer in time. */
+  command(session: Session, name: string, params?: ScalarMap, timeoutMs = 8000): Promise<CommandOutcome> {
+    const id = `k${++this.commandCount}`;
+    const key = `${session.client.id}:${id}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(key);
+        reject(new Error(`${session.client.name} did not answer "${name}" in ${Math.round(timeoutMs / 1000)} s`));
+      }, timeoutMs);
+      this.pending.set(key, { resolve, timer });
+      this.send(session, { t: "command", id, name, ...(params ? { params } : {}) });
+    });
+  }
+
+  /** Forgets commands a client will no longer answer. */
+  private abandonCommands(session: Session): void {
+    const prefix = `${session.client.id}:`;
+    for (const [key, wait] of this.pending) {
+      if (!key.startsWith(prefix)) continue;
+      clearTimeout(wait.timer);
+      this.pending.delete(key);
+      wait.resolve({ ok: false, error: `${session.client.name} disconnected` });
     }
   }
 
@@ -285,6 +348,7 @@ export class Hub implements TurnPort {
     if (!session) return;
     this.online.delete(clientId);
     this.turns.drop(session);
+    this.abandonCommands(session);
     this.fail(session.socket, "unauthorized", "client was removed", CLOSE_REMOVED);
   }
 

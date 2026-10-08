@@ -90,6 +90,8 @@ Values are flat: strings, numbers, booleans or null.
 
 ## Commands
 
+`describe` (client to Axis, sent after `welcome`) says what the client offers the admin page: `settings` (key, label, kind `number`/`text`/`toggle`/`choice`, group, help, default, min, max, unit, options), `actions` (a `command` name, label, help, whether to confirm first) and `links` to pages the client serves itself, plus its `address`. Axis keeps the latest description per client type, so settings can be edited while a device is off, and checks values for those settings against it. Toggles are stored as 1 and 0. It is optional: a client that never sends it simply has no editor beyond Axis's own `room` and `voice`.
+
 `command` asks the client to do something outside a turn, such as change volume, set a timer, report diagnostics or reboot. The client replies with `command.result` carrying the same `id`. A client that does not implement a command replies `ok: false`.
 
 Command names and their parameters are not fixed in version 1. They are defined alongside the server.
@@ -102,7 +104,7 @@ Command names and their parameters are not fixed in version 1. They are defined 
 
 ## Message list
 
-Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `settings.get`, `command.result`.
+Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `settings.get`, `command.result`, `describe`.
 
 Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `speak.start`, `speak.end`, `ask`, `stop`, `status`, `command`, `error`.
 

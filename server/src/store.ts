@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Capability, Scalar, ScalarMap } from "@vortex-axis/protocol";
+import type { ClientSchema } from "./schema.js";
 import {
   hashSecret,
   newClientId,
@@ -204,6 +205,18 @@ export class Store {
     if (removed.changes !== 1) return false;
     this.db.prepare("DELETE FROM settings WHERE scope = 'device' AND scope_id = ?").run(id);
     return true;
+  }
+
+  // --- what each client type offers ----------------------------------------
+
+  /** Keeps what a client type declared in `describe`, so it can be edited while the device is off. */
+  saveSchema(type: string, schema: ClientSchema): void {
+    this.setMeta(`schema:${type}`, JSON.stringify(schema));
+  }
+
+  getSchema(type: string): ClientSchema | undefined {
+    const text = this.getMeta(`schema:${type}`);
+    return text ? (JSON.parse(text) as ClientSchema) : undefined;
   }
 
   // --- small named values --------------------------------------------------

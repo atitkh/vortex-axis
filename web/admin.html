@@ -102,7 +102,7 @@
 
     <section class="card" id="clients">
       <h2>Clients</h2>
-      <p class="hint">Devices paired with this hub. Room and volume are stored here and sent to the device.</p>
+      <p class="hint">Devices paired with this hub. Open one to change its settings, run its actions or announce something on it.</p>
       <div id="client-table"></div>
       <div class="row center">
         <button class="primary" id="code-new">New pairing code</button>
@@ -115,6 +115,15 @@
         <div class="grow"><label for="setup-string">Setup string for a device</label><input id="setup-string" class="mono" readonly placeholder="Press New pairing code"></div>
       </div>
       <p class="hint">A hardware device takes the address and the code as one setup string, pasted into its own setup page. Use an address the device can reach from its Wi-Fi: usually this machine's LAN address and port, not a Tailscale name.</p>
+    </section>
+
+    <section class="card hidden" id="device">
+      <h2 id="device-title">Device</h2>
+      <div id="device-head"></div>
+      <div id="device-actions"></div>
+      <p class="note" id="device-note"></p>
+      <div id="device-tabs" class="row" style="margin-top:14px"></div>
+      <div id="device-settings"></div>
     </section>
 
     <section class="card" id="settings">

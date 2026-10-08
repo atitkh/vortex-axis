@@ -20,7 +20,29 @@ HWCDC USBSerial;
 static axis::LogBuffer logOut(USBSerial);
 
 static const char *const CAPABILITIES[] = {"screen", "speaker", "mic"};
-static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3};
+// What the Axis admin page offers for this board. Keep in step with applySettings() and the
+// client core's vadLimits(): a key listed here that nothing reads does nothing.
+static const axis::SettingDef SETTINGS[] = {
+    {"rotation", "Screen rotation", "choice", "Screen", "Turns the picture. Applies at once.", "90", 0, 0, "degrees", "0,90,180,270"},
+    {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
+    {"volume", "Volume", "number", "Sound", "The microphone clips on the board's own voice above about 50.", "60", 0, 100, "%", nullptr},
+    {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
+    {"wakeListen", "Wake word", "toggle", "Listening", "Off leaves tap-to-talk as the only way in.", "1", 0, 0, nullptr, nullptr},
+    {"wakeSense", "Wake word cutoff", "number", "Listening", "Lower wakes more easily but also by mistake. 0 uses the model's own (87).", "0", 0, 99, "%", nullptr},
+    {"bargeIn", "Wake word interrupts speech", "toggle", "Listening", "Does not work reliably yet: the speaker drowns the microphone. Tap to interrupt.", "1", 0, 0, nullptr, nullptr},
+    {"followUpMs", "Follow-up listening", "number", "Listening", "After a spoken answer, keep listening this long without the wake word. 0 turns it off.", "6000", 0, 30000, "ms", nullptr},
+    {"onsetMs", "Wait for the first word", "number", "Listening", "How long to wait for you to start talking after a wake or a tap.", "6000", 1000, 20000, "ms", nullptr},
+    {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
+    {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
+};
+static const axis::ActionDef ACTIONS[] = {
+    {"cue", "Play listening cue", "The tone it plays when it starts listening.", false},
+    {"chime", "Play chime", "The two-note boot chime.", false},
+    {"talk", "Start listening", "Same as tapping the screen while idle.", false},
+    {"mic", "Microphone levels", "Room level, speech threshold and wake word statistics.", false},
+};
+static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
+                                        ACTIONS, sizeof ACTIONS / sizeof ACTIONS[0]};
 
 static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
@@ -344,6 +366,32 @@ void setup() {
     hasMic = hasSpeaker && mic::begin(client, &logOut);
     logOut.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
+    // Actions the admin page can send.
+    client.onCommand([](const char *name, JsonObjectConst, JsonObject payload) {
+        if (!strcmp(name, "cue")) {
+            speaker::cue();
+            return true;
+        }
+        if (!strcmp(name, "chime")) {
+            speaker::chime();
+            return true;
+        }
+        if (!strcmp(name, "talk")) {
+            payload["started"] = client.startListening();
+            return true;
+        }
+        if (!strcmp(name, "mic")) {
+            const axis::Client::MicStats room = client.micStats();
+            const mic::Stats m = mic::stats();
+            payload["room"] = room.floor;
+            payload["speechAbove"] = room.onset;
+            payload["wakeHeard"] = m.detections;
+            payload["wakeBestPercent"] = m.peakPercent;
+            payload["stalls"] = m.stalls;
+            return true;
+        }
+        return false;
+    });
     // Serial-only helpers for testing without anybody in the room.
     client.onConsole([](const String &word, const String &rest) {
         if (word == "chime") {
