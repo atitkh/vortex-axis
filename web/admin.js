@@ -46,7 +46,7 @@ async function api(method, path, body) {
 function note(id, text, kind = "") {
   const el = $(id);
   el.textContent = text;
-  el.className = `note ${kind}`.trim();
+  el.className = `msg ${kind}`.trim();
 }
 
 /** Runs an action from a button, showing failure next to it. */
@@ -62,7 +62,18 @@ async function act(button, noteId, fn) {
   }
 }
 
-const pill = (label, kind) => h("span", { class: `pill ${kind}` }, label);
+/** A status mark: a small coloured square and a word. */
+const stat = (label, kind = "") => h("span", { class: `stat ${kind}`.trim() }, label);
+
+/** "3 min ago" style age of a timestamp. */
+function ago(at) {
+  if (!at) return "never";
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(at).toLocaleDateString();
+}
 
 const LINK_STATES = {
   connected: ["connected", "good"],
@@ -80,7 +91,7 @@ function signOut(message = "") {
   sessionStorage.removeItem(TOKEN_KEY);
   clearInterval(timer);
   $("app").classList.add("hidden");
-  $("signin").classList.remove("hidden");
+  $("signin-form").classList.remove("hidden");
   $("summary").replaceChildren();
   $("signin-error").textContent = message;
 }
@@ -96,8 +107,9 @@ async function signIn() {
     return signOut(token ? message : "");
   }
   sessionStorage.setItem(TOKEN_KEY, token);
-  $("signin").classList.add("hidden");
+  $("signin-form").classList.add("hidden");
   $("app").classList.remove("hidden");
+  route();
   await Promise.all([loadConfig(), refresh()]);
   clearInterval(timer);
   timer = setInterval(() => document.hidden || refresh(), 3000);
@@ -134,31 +146,41 @@ async function refresh() {
 }
 
 function renderSummary(status) {
-  const up = (name, value) => pill(name, value === "up" ? "good" : value === "down" ? "bad" : "");
+  const up = (name, value) => stat(name, value === "up" ? "good" : value === "down" ? "bad" : "");
   $("summary").replaceChildren(
     up("agent", status.upstream.openclaw),
     up("recognition", status.upstream.stt),
     up("synthesis", status.upstream.tts),
-    pill(`${status.clientsOnline}/${status.clientsKnown} clients online`, status.clientsOnline ? "good" : ""),
+    stat(`${status.clientsOnline} of ${status.clientsKnown} clients online`, status.clientsOnline ? "good" : ""),
   );
+  $("nav-clients").textContent = `${status.clientsOnline}/${status.clientsKnown}`;
 }
 
 let gatewayUrlTouched = false;
 let agentTouched = false;
+let stepsOpened = false;
 
 function renderGateway(gw) {
   const link = (name, l) => {
     const [label, kind] = LINK_STATES[l.state] || [l.state, ""];
-    return pill(`${name}: ${label}`, kind);
+    return stat(`${name}: ${label}`, kind);
   };
   $("gw-pills").replaceChildren(
     link("turns", gw.operator),
     link("commands", gw.node),
-    gw.setupCodePending ? pill("setup code waiting", "warn") : null,
+    ...(gw.setupCodePending ? [stat("setup code waiting", "warn")] : []),
   );
+  // The sidebar says when the gateway needs attention, so it is seen from any section.
+  const both = gw.operator.state === "connected" && gw.node.state === "connected";
+  const failed = [gw.operator.state, gw.node.state].some((s) => s === "auth_failed" || s === "unreachable");
+  $("nav-openclaw").textContent = both ? "" : failed ? "down" : "setup";
+  $("nav-openclaw").className = `count ${failed ? "bad" : both ? "" : "warn"}`.trim();
+  // Open the pairing steps once for a hub that is not paired yet.
+  if (!both && !stepsOpened) $("gw-steps").open = stepsOpened = true;
   const problem = gw.operator.error || gw.node.error;
   $("gw-note").textContent = problem ? problem : "";
-  $("gw-device").textContent = `Device id: ${gw.deviceId}`;
+  $("gw-note").className = problem ? "msg bad" : "msg";
+  $("gw-device").textContent = gw.deviceId;
   $("gw-commands").textContent = (gw.commands || []).filter((c) => c.startsWith("vortex.axis.")).join(", ");
   if (!gatewayUrlTouched && document.activeElement !== $("gw-url")) $("gw-url").value = gw.url || "";
   if (!agentTouched && document.activeElement !== $("agent-id")) $("agent-id").value = gw.agentId || "";
@@ -280,70 +302,95 @@ $("agent-save").addEventListener("click", (event) =>
   }),
 );
 
+// --- sections ----------------------------------------------------------------
+
+/** Shows one section, picked by the address: #clients, #clients/<id>, #pair, #settings, ... */
+function route() {
+  const [name, id] = location.hash.slice(1).split("/").map(decodeURIComponent);
+  let view = ["clients", "pair", "settings", "openclaw", "agent", "speech"].includes(name) ? name : "clients";
+  if (view === "clients" && id) {
+    view = "device";
+    if (id !== selectedId) {
+      selectedId = id;
+      layerTab = "device";
+      $("device-note").textContent = "";
+      $("device-note").className = "msg";
+    }
+  } else {
+    selectedId = "";
+  }
+  for (const section of document.querySelectorAll(".view")) section.classList.toggle("on", section.id === view);
+  const navFor = view === "device" ? "clients" : view;
+  for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navFor);
+  if (view === "device") renderDevice();
+}
+window.addEventListener("hashchange", () => {
+  route();
+  window.scrollTo(0, 0);
+});
+
 // --- clients ---------------------------------------------------------------
 
+const deviceHref = (c) => `#clients/${encodeURIComponent(c.id)}`;
+
 function renderClients(clients) {
-  // Leave the table alone while someone is typing in it.
-  if ($("client-table").contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
   if (!clients.length) {
-    $("client-table").replaceChildren(h("p", { class: "empty" }, "No clients yet. Create a pairing code below."));
+    $("client-table").replaceChildren(
+      h("p", { class: "empty" }, "No clients yet. ", h("a", { href: "#pair" }, "Add a device"), " to get started."),
+    );
     return;
   }
-  const rows = clients.map((c) =>
+  const filter = $("client-filter").value.trim().toLowerCase();
+  const shown = clients
+    .filter((c) => !filter || [c.name, c.type, c.settings.room].some((v) => String(v ?? "").toLowerCase().includes(filter)))
+    // Online first, then by name.
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+  if (!shown.length) {
+    $("client-table").replaceChildren(h("p", { class: "empty" }, "No client matches that filter."));
+    return;
+  }
+  const rows = shown.map((c) =>
     h(
       "tr",
-      {},
-      h("td", {}, h("div", {}, c.name), h("div", { class: "note mono", style: "margin:0" }, `${c.type} · ${c.version}`)),
-      h("td", { class: "tight" }, pill(c.online ? "online" : "offline", c.online ? "good" : "")),
-      h("td", {}, c.capabilities.join(", ") || "nothing"),
-      h("td", {}, c.settings.room || ""),
-      h(
-        "td",
-        { class: "tight" },
-        h(
-          "button",
-          {
-            class: `small${c.id === selectedId ? " primary" : ""}`,
-            onclick: () => {
-              selectedId = c.id;
-              layerTab = "device";
-              $("device-note").textContent = "";
-              renderDevice();
-              $("device").scrollIntoView({ behavior: "smooth", block: "nearest" });
-            },
-          },
-          "Open",
-        ),
-        " ",
-        h(
-          "button",
-          {
-            class: "small danger",
-            onclick: async (event) => {
-              if (!confirm(`Remove ${c.name}? Its token stops working and it must pair again.`)) return;
-              await act(event.target, "code-note", () => api("DELETE", `/admin/clients/${encodeURIComponent(c.id)}`));
-              refresh();
-            },
-          },
-          "Remove",
-        ),
-      ),
+      { class: `link-row${c.online ? "" : " off"}`, onclick: (event) => event.target.closest("a") || (location.hash = deviceHref(c)) },
+      h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
+      h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
+      h("td", { class: "mono" }, c.type),
+      h("td", {}, c.settings.room || h("span", { class: "sub" }, "none")),
+      h("td", { class: "hide-narrow sub" }, c.capabilities.join(", ") || "nothing"),
+      h("td", { class: "hide-narrow mono sub" }, c.version),
+      h("td", { class: "hide-narrow sub tight" }, c.online ? "now" : ago(c.lastSeenAt)),
     ),
   );
   $("client-table").replaceChildren(
     h(
       "table",
       {},
-      h("thead", {}, h("tr", {}, ...["Client", "", "Can", "Room", ""].map((t) => h("th", {}, t)))),
+      h(
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", { class: "tight" }, "State"),
+          h("th", {}, "Name"),
+          h("th", {}, "Type"),
+          h("th", {}, "Room"),
+          h("th", { class: "hide-narrow" }, "Can"),
+          h("th", { class: "hide-narrow" }, "Version"),
+          h("th", { class: "hide-narrow tight" }, "Last seen"),
+        ),
+      ),
       h("tbody", {}, rows),
     ),
   );
 }
 
+$("client-filter").addEventListener("input", () => renderClients(lastClients));
+
 // --- one device: settings in three layers, actions and its own pages -----------
 
-const LAYER_LABELS = { device: "This device", type: "All devices of this type", global: "Everything" };
-const SOURCE_NAMES = { device: "this device", type: "its type", global: "everything", default: "the device's default" };
+const SOURCE_NAMES = { device: "this device", type: "type", global: "all devices", default: "default" };
 
 function showValue(def, value) {
   if (value === undefined || value === null || value === "") return "not set";
@@ -375,11 +422,12 @@ function layerPath(client, tab) {
 async function saveSetting(client, tab, key, value) {
   try {
     await api("PATCH", layerPath(client, tab), { values: { [key]: value } });
-    note("device-note", "Saved. The device has it now.", "good");
+    note("device-note", `Saved ${key}. Connected devices have it now.`, "good");
   } catch (error) {
     if (error.status === 401) return signOut("That token was not accepted.");
-    note("device-note", error.message, "bad");
+    note("device-note", `${key}: ${error.message}`, "bad");
   }
+  if (document.activeElement?.dataset?.edit) document.activeElement.blur();
   await refresh();
 }
 
@@ -407,7 +455,7 @@ function settingEditor(client, def, layers, tab) {
   const input = h("input", {
     type: def.kind === "number" ? "number" : "text",
     value: own ?? "",
-    placeholder,
+    placeholder: `inherit (${placeholder})`,
     "data-edit": def.key,
     spellcheck: "false",
     ...(def.kind === "number" && def.min !== undefined ? { min: def.min } : {}),
@@ -418,106 +466,102 @@ function settingEditor(client, def, layers, tab) {
 }
 
 function renderDevice() {
+  if (!selectedId || !$("device").classList.contains("on")) return;
   const client = lastClients.find((c) => c.id === selectedId);
-  $("device").classList.toggle("hidden", !client);
-  if (!client) return;
-  // Leave the editor alone while someone is typing in it.
+  if (!client) {
+    $("device-title").textContent = lastClients.length ? "No such client" : "Loading";
+    for (const id of ["device-state", "device-head", "device-actions", "device-tabs", "device-settings", "device-readings"]) $(id).replaceChildren();
+    $("device-remove").disabled = true;
+    return;
+  }
+  // Leave the page alone while someone is typing in it.
   const active = document.activeElement;
   if ($("device").contains(active) && ["INPUT", "SELECT"].includes(active.tagName)) return;
 
   const schema = lastTypes[client.type] || { settings: [], actions: [], links: [] };
   $("device-title").textContent = client.name;
+  $("device-state").replaceChildren(stat(client.online ? "online" : `offline, last seen ${ago(client.lastSeenAt)}`, client.online ? "good" : ""));
+  $("device-remove").disabled = false;
+
   const base = client.address ? `http://${client.address}` : "";
+  const fact = (term, ...value) => [h("dt", {}, term), h("dd", {}, ...value)];
   $("device-head").replaceChildren(
-    h(
-      "div",
-      { class: "row center", style: "margin-top:6px" },
-      pill(client.online ? "online" : "offline", client.online ? "good" : ""),
-      h("span", { class: "note mono", style: "margin:0" }, `${client.type} · ${client.version}${client.address ? ` · ${client.address}` : ""}`),
-      ...(client.online && base
-        ? schema.links.map((l) => h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label))
-        : []),
-    ),
+    ...fact("Type", h("span", { class: "mono" }, client.type), `, version ${client.version}`),
+    ...fact("Room", client.settings.room || "none"),
+    ...fact("Can", client.capabilities.join(", ") || "nothing"),
+    ...(client.address ? fact("Address", h("span", { class: "mono" }, client.address)) : []),
+    ...(client.online && base && schema.links.length
+      ? fact("Pages", ...schema.links.flatMap((l, i) => [i ? " · " : "", h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label)]))
+      : []),
+    ...fact("Id", h("span", { class: "mono" }, client.id)),
   );
 
   // Actions: the device's own, plus announce for anything that can speak or show text.
   const canSay = client.capabilities.includes("speaker") || client.capabilities.includes("screen");
-  const announceInput = h("input", { placeholder: "Say something on this device", style: "min-width:220px", spellcheck: "false" });
+  const announceInput = h("input", { placeholder: client.online ? "Text to speak or show on this device" : "Offline", spellcheck: "false", disabled: !client.online });
+  const announce = (event) =>
+    act(event.target, "device-note", async () => {
+      const text = announceInput.value.trim();
+      if (!text) return;
+      note("device-note", "Announcing…");
+      const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/announce`, { text });
+      announceInput.value = "";
+      note("device-note", result.heard ? "Announced. The device played it to the end." : "Sent, but the device did not report playing it.", result.heard ? "good" : "warn");
+    });
+  announceInput.addEventListener("keydown", (event) => event.key === "Enter" && announce({ target: announceInput }));
   $("device-actions").replaceChildren(
-    h(
-      "div",
-      { class: "row center" },
-      ...schema.actions.map((a) =>
-        h(
-          "button",
-          {
-            class: "small",
-            title: a.help || "",
-            disabled: !client.online,
-            onclick: async (event) => {
-              if (a.confirm && !confirm(`${a.label} on ${client.name}?`)) return;
-              await act(event.target, "device-note", async () => {
-                const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/commands/${encodeURIComponent(a.name)}`);
-                const detail = Object.entries(result.payload || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
-                note("device-note", result.ok ? `${a.label}: ok${detail ? ` · ${detail}` : ""}` : `${a.label}: ${result.error || "failed"}`, result.ok ? "good" : "bad");
-              });
-            },
-          },
-          a.label,
-        ),
-      ),
-    ),
-    canSay
+    schema.actions.length
       ? h(
           "div",
-          { class: "row center" },
-          announceInput,
-          h(
-            "button",
-            {
-              class: "small",
-              disabled: !client.online,
-              onclick: (event) =>
-                act(event.target, "device-note", async () => {
-                  const text = announceInput.value.trim();
-                  if (!text) return;
-                  note("device-note", "Announcing...");
-                  const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/announce`, { text });
-                  announceInput.value = "";
-                  note("device-note", result.heard ? "Announced; the device played it to the end." : "Sent, but the device did not report playing it.", result.heard ? "good" : "warn");
-                }),
-            },
-            "Announce",
+          { class: "inline" },
+          ...schema.actions.map((a) =>
+            h(
+              "button",
+              {
+                title: a.help || "",
+                disabled: !client.online,
+                onclick: async (event) => {
+                  if (a.confirm && !confirm(`${a.label} on ${client.name}?`)) return;
+                  await act(event.target, "device-note", async () => {
+                    const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/commands/${encodeURIComponent(a.name)}`);
+                    const detail = Object.entries(result.payload || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+                    note("device-note", result.ok ? `${a.label}: done${detail ? ` · ${detail}` : ""}` : `${a.label}: ${result.error || "failed"}`, result.ok ? "good" : "bad");
+                  });
+                },
+              },
+              a.label,
+            ),
           ),
         )
+      : h("p", { class: "help" }, "This device offers no actions."),
+    canSay
+      ? h("div", { class: "inline", style: "margin-top:8px" }, announceInput, h("button", { disabled: !client.online, onclick: announce }, "Announce"))
       : null,
   );
 
-  const tabs = ["device", "type", "global"].map((name) =>
-    h(
-      "button",
-      {
-        class: `small${name === layerTab ? " primary" : ""}`,
-        onclick: () => {
-          layerTab = name;
-          renderDevice();
-        },
-      },
-      name === "type" ? `All ${client.type} devices` : LAYER_LABELS[name],
-    ),
-  );
+  const LAYER_HELP = {
+    device: "Values set here apply to this device only. Empty fields inherit.",
+    type: `Values set here apply to every ${client.type} device that has no value of its own.`,
+    global: "Values set here apply to every device of every type, unless a more specific layer sets one.",
+  };
   $("device-tabs").replaceChildren(
-    ...tabs,
-    h(
-      "span",
-      { class: "note", style: "margin:0" },
-      layerTab === "device"
-        ? "Only this device. Empty inherits."
-        : layerTab === "type"
-          ? `Every ${client.type} device without its own value.`
-          : "Every device of every type without a more specific value.",
+    ...["device", "type", "global"].map((name) =>
+      h(
+        "button",
+        {
+          class: name === layerTab ? "on" : "",
+          onclick: () => {
+            layerTab = name;
+            renderDevice();
+          },
+        },
+        name === "device" ? "This device" : name === "type" ? `All ${client.type} devices` : "All devices",
+      ),
     ),
   );
+  $("device-layer-help").textContent = LAYER_HELP[layerTab];
+
+  renderReadings(client);
 
   const groups = new Map();
   for (const def of schema.settings) {
@@ -535,10 +579,10 @@ function renderDevice() {
       h(
         "div",
         {},
-        h("h2", { style: "margin-top:14px" }, name),
+        groups.size > 1 ? h("p", { class: "group" }, name) : null,
         h(
           "table",
-          {},
+          { class: "settings" },
           h(
             "tbody",
             {},
@@ -547,10 +591,15 @@ function renderDevice() {
               const own = layers[layerTab][def.key];
               return h(
                 "tr",
-                {},
-                h("td", { style: "width:34%" }, h("div", {}, def.label), def.help ? h("div", { class: "note", style: "margin:2px 0 0" }, def.help) : null, h("div", { class: "note mono", style: "margin:0" }, def.key)),
-                h("td", { style: "width:30%" }, settingEditor(client, def, layers, layerTab)),
-                h("td", { class: "note", style: "margin:0" }, `On this device: ${showValue(def, now.value)} (from ${SOURCE_NAMES[now.source]})`),
+                { class: own === undefined ? "" : "mine" },
+                h(
+                  "td",
+                  {},
+                  h("div", {}, def.label, " ", h("span", { class: "mono sub" }, def.key)),
+                  def.help ? h("div", { class: "sub" }, def.help) : null,
+                ),
+                h("td", {}, settingEditor(client, def, layers, layerTab)),
+                h("td", { class: "eff" }, showValue(def, now.value), " ", h("span", { class: "from" }, `(${SOURCE_NAMES[now.source]})`)),
                 h(
                   "td",
                   { class: "tight" },
@@ -567,15 +616,55 @@ function renderDevice() {
   );
 }
 
+/** Sensor readings the device reported, if any. */
+function renderReadings(client) {
+  const entries = Object.entries(client.readings || {});
+  $("device-readings").replaceChildren(
+    ...(entries.length
+      ? [
+          h("h3", {}, "Readings"),
+          h("table", {}, h("tbody", {}, entries.map(([k, v]) => h("tr", {}, h("td", { class: "mono tight" }, k), h("td", {}, String(v)))))),
+        ]
+      : []),
+  );
+}
+
+$("device-remove").addEventListener("click", (event) => {
+  const client = lastClients.find((c) => c.id === selectedId);
+  if (!client || !confirm(`Remove ${client.name}? Its token stops working and it must pair again.`)) return;
+  act(event.target, "device-note", async () => {
+    await api("DELETE", `/admin/clients/${encodeURIComponent(client.id)}`);
+    location.hash = "#clients";
+    await refresh();
+  });
+});
+
+// --- pairing -----------------------------------------------------------------
+
 $("code-new").addEventListener("click", (event) =>
   act(event.target, "code-note", async () => {
     const { code, expiresAt } = await api("POST", "/admin/pairing-codes");
     $("code-value").textContent = code;
     renderSetupString();
     const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60000));
-    note("code-note", `Works once, for ${minutes} minute${minutes === 1 ? "" : "s"}.`);
+    const until = new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    note("code-note", `Works once, for ${minutes} minute${minutes === 1 ? "" : "s"} (until ${until}).`);
   }),
 );
+
+$("setup-copy").addEventListener("click", async (event) => {
+  const value = $("setup-string").value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    // The clipboard needs https or localhost; selecting the text is the fallback.
+    $("setup-string").select();
+    document.execCommand("copy");
+  }
+  event.target.textContent = "Copied";
+  setTimeout(() => (event.target.textContent = "Copy"), 1500);
+});
 
 // A device cannot follow a link, so it gets the address and the code as one string.
 // The address is kept in this browser: it is a fact about the network, not about Axis.
@@ -612,7 +701,7 @@ function renderKnownSettings(values) {
   box.replaceChildren(
     h(
       "table",
-      {},
+      { class: "settings" },
       h(
         "tbody",
         {},
@@ -627,9 +716,8 @@ function renderKnownSettings(values) {
           return h(
             "tr",
             {},
-            h("td", { class: "tight" }, h("div", {}, label), h("div", { class: "note mono", style: "margin:0" }, key)),
-            h("td", { style: "width:34%" }, input),
-            h("td", { class: "note", style: "margin:0" }, `When empty: ${fallback}.`),
+            h("td", {}, h("div", {}, label, " ", h("span", { class: "mono sub" }, key)), h("div", { class: "sub" }, `When empty: ${fallback}.`)),
+            h("td", {}, input),
           );
         }),
       ),
@@ -643,7 +731,7 @@ function renderSettings(all) {
   const values = Object.fromEntries(Object.entries(all).filter(([key]) => !known.has(key)));
   const keys = Object.keys(values);
   if (!keys.length) {
-    $("settings-table").replaceChildren(h("p", { class: "empty" }, "None."));
+    $("settings-table").replaceChildren(h("p", { class: "empty" }, "No other keys set."));
     return;
   }
   $("settings-table").replaceChildren(

@@ -157,7 +157,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 npm install
 npm test
 npm run build && AXIS_ADMIN_TOKEN=dev npm start
-npm run browser-check     # drives both pages in headless Chrome; needs google-chrome
+npm run browser-check     # drives both pages in headless Chrome; needs google-chrome, or CHROME=<path to a Chromium browser>
 AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis
 ```
 

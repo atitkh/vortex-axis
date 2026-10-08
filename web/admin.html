@@ -5,144 +5,228 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VorteX Axis admin</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/web/style.css">
+  <link rel="stylesheet" href="/web/admin.css">
 </head>
 <body>
-<main>
-  <header class="top">
-    <h1>VorteX Axis <span>admin</span></h1>
-    <div class="pills" id="summary"></div>
+
+<form class="signin" id="signin-form">
+  <h1>VorteX Axis</h1>
+  <label for="token">Admin token</label>
+  <input id="token" type="password" autocomplete="off" required autofocus>
+  <p class="help">The <code>AXIS_ADMIN_TOKEN</code> value from the hub's <code>.env</code>. Kept in this tab only.</p>
+  <button class="primary" type="submit">Sign in</button>
+  <p class="msg bad" id="signin-error"></p>
+</form>
+
+<div id="app" class="shell hidden">
+  <header class="bar">
+    <span class="brand">VorteX Axis</span>
+    <div class="health" id="summary"></div>
+    <button class="plain" id="signout">Sign out</button>
   </header>
 
-  <section class="card" id="signin">
-    <h2>Sign in</h2>
-    <p class="hint">Enter the admin token from the hub's <code>.env</code> file (<code>AXIS_ADMIN_TOKEN</code>). It is kept in this tab only.</p>
-    <form class="row" id="signin-form">
-      <div class="grow"><label for="token">Admin token</label><input id="token" type="password" autocomplete="off" required></div>
-      <button class="primary" type="submit">Sign in</button>
-    </form>
-    <p class="note bad" id="signin-error"></p>
-  </section>
+  <nav class="side">
+    <a href="#clients" data-view="clients">Clients <span class="count" id="nav-clients"></span></a>
+    <a href="#pair" data-view="pair">Add a device</a>
+    <a href="#settings" data-view="settings">Shared settings</a>
+    <span class="navhead">Hub</span>
+    <a href="#openclaw" data-view="openclaw">OpenClaw <span class="count" id="nav-openclaw"></span></a>
+    <a href="#agent" data-view="agent">Agent</a>
+    <a href="#speech" data-view="speech">Speech</a>
+  </nav>
 
-  <div id="app" class="hidden">
-    <section class="card" id="openclaw">
-      <h2>OpenClaw</h2>
-      <p class="hint">Axis joins your gateway as one device with two links: one sends turns to an agent, the other lets agents speak through Axis.</p>
-      <div class="pills" id="gw-pills"></div>
-      <p class="note" id="gw-note"></p>
-
-      <div class="row">
-        <div class="grow"><label for="gw-url">Gateway address</label><input id="gw-url" placeholder="ws://host:18789" spellcheck="false"></div>
-        <button id="gw-url-save">Save address</button>
-        <button id="gw-retry">Reconnect</button>
+  <main>
+    <!-- Clients -->
+    <section class="view" id="clients">
+      <div class="head">
+        <h2>Clients</h2>
+        <input id="client-filter" type="search" placeholder="Filter by name, type or room" spellcheck="false">
+        <a class="button" href="#pair">Add a device</a>
       </div>
-
-      <div class="row">
-        <div class="grow"><label for="gw-code">Setup code</label><textarea id="gw-code" class="mono" spellcheck="false" placeholder="Paste the output of: openclaw qr --setup-code-only"></textarea></div>
-        <button class="primary" id="gw-pair">Pair</button>
-      </div>
-      <ol class="steps">
-        <li>On the gateway host run <code>openclaw qr --setup-code-only</code>, paste the result above and press Pair.</li>
-        <li>Approve the device on the gateway: <code>openclaw devices list</code>, then <code>openclaw devices approve &lt;id&gt;</code>. Two requests come in, one after the other: first the device, then its request to also act as a node. Axis retries every 10 seconds.</li>
-        <li>Allow Axis's commands in the gateway config under <code>gateway.nodes.commands.allow</code>: <code id="gw-commands"></code></li>
-      </ol>
-      <p class="note mono" id="gw-device"></p>
-    </section>
-
-    <section class="card" id="agent">
-      <h2>Agent</h2>
-      <p class="hint">Who answers when someone speaks to a client.</p>
-      <div class="row">
-        <div class="grow">
-          <label for="agent-backend">Answered by</label>
-          <select id="agent-backend">
-            <option value="gateway">OpenClaw gateway</option>
-            <option value="openai">Another OpenAI-style chat endpoint</option>
-          </select>
-        </div>
-        <div class="grow" id="agent-gateway">
-          <label for="agent-id">OpenClaw agent</label>
-          <input id="agent-id" list="agent-list" placeholder="gateway default" spellcheck="false">
-          <datalist id="agent-list"></datalist>
-        </div>
-      </div>
-      <div id="agent-openai" class="hidden">
-        <div class="row">
-          <div class="grow"><label for="agent-url">Chat endpoint</label><input id="agent-url" placeholder="http://host:11434/v1/chat/completions" spellcheck="false"></div>
-          <div class="grow"><label for="agent-model">Model</label><input id="agent-model" spellcheck="false"></div>
-        </div>
-        <div class="row">
-          <div class="grow"><label for="agent-token">Token <span id="agent-token-state"></span></label><input id="agent-token" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
-        </div>
-      </div>
-      <div class="row"><button class="primary" id="agent-save">Save agent</button><span class="note" id="agent-note"></span></div>
-    </section>
-
-    <section class="card" id="speech">
-      <h2>Speech</h2>
-      <p class="hint">OpenAI-style endpoints. Recognition is <code>/v1/audio/transcriptions</code>; synthesis is <code>/v1/audio/speech</code>, asked for raw PCM.</p>
-      <div class="row">
-        <div class="grow"><label for="stt-url">Speech recognition address</label><input id="stt-url" placeholder="http://host:8090/v1/audio/transcriptions" spellcheck="false"></div>
-        <div style="flex:0 1 180px"><label for="stt-model">Model</label><input id="stt-model" spellcheck="false"></div>
-        <div style="flex:0 1 180px"><label for="stt-key">Key <span id="stt-key-state"></span></label><input id="stt-key" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
-      </div>
-      <div class="row">
-        <div class="grow"><label for="tts-url">Speech synthesis address</label><input id="tts-url" placeholder="http://host:8092/v1/audio/speech" spellcheck="false"></div>
-        <div style="flex:0 1 180px"><label for="tts-model">Model</label><input id="tts-model" spellcheck="false"></div>
-        <div style="flex:0 1 180px"><label for="tts-key">Key <span id="tts-key-state"></span></label><input id="tts-key" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
-      </div>
-      <div class="row">
-        <div style="flex:0 1 220px"><label for="tts-voice">Default voice</label><input id="tts-voice" placeholder="service default" spellcheck="false"></div>
-        <div style="flex:0 1 160px"><label for="tts-rate">PCM sample rate</label><input id="tts-rate" type="number" min="8000" max="48000" step="1"></div>
-        <button class="primary" id="speech-save">Save speech</button>
-        <button id="speech-test">Test both</button>
-      </div>
-      <p class="note" id="speech-note"></p>
-    </section>
-
-    <section class="card" id="clients">
-      <h2>Clients</h2>
-      <p class="hint">Devices paired with this hub. Open one to change its settings, run its actions or announce something on it.</p>
       <div id="client-table"></div>
-      <div class="row center">
-        <button class="primary" id="code-new">New pairing code</button>
-        <span class="code-big" id="code-value"></span>
-        <span class="note" id="code-note"></span>
-      </div>
-      <p class="note">To try it from a browser, open the <a href="/" target="_blank" rel="noopener">web client</a> and enter a code.</p>
-      <div class="row">
-        <div class="grow"><label for="device-address">Address devices reach Axis at</label><input id="device-address" class="mono" spellcheck="false" placeholder="10.0.0.6:8440"></div>
-        <div class="grow"><label for="setup-string">Setup string for a device</label><input id="setup-string" class="mono" readonly placeholder="Press New pairing code"></div>
-      </div>
-      <p class="hint">A hardware device takes the address and the code as one setup string, pasted into its own setup page. Use an address the device can reach from its Wi-Fi: usually this machine's LAN address and port, not a Tailscale name.</p>
     </section>
 
-    <section class="card hidden" id="device">
-      <h2 id="device-title">Device</h2>
-      <div id="device-head"></div>
+    <!-- One client -->
+    <section class="view" id="device">
+      <p class="crumb"><a href="#clients">Clients</a> /</p>
+      <div class="head">
+        <h2 id="device-title">Device</h2>
+        <span id="device-state"></span>
+      </div>
+      <dl class="facts" id="device-head"></dl>
+
+      <h3>Actions</h3>
       <div id="device-actions"></div>
-      <p class="note" id="device-note"></p>
-      <div id="device-tabs" class="row" style="margin-top:14px"></div>
+      <p class="msg" id="device-note"></p>
+
+      <h3>Settings</h3>
+      <div class="layers">
+        <div class="seg" id="device-tabs"></div>
+        <span class="help" id="device-layer-help"></span>
+      </div>
       <div id="device-settings"></div>
+
+      <div id="device-readings"></div>
+
+      <h3>Remove</h3>
+      <p class="help">Its token stops working at once. It has to be paired again to come back.</p>
+      <button class="danger" id="device-remove">Remove this client</button>
     </section>
 
-    <section class="card" id="settings">
-      <h2>Shared settings</h2>
-      <p class="hint">Apply to every client unless a client has its own value. Nothing here is required: an empty setting means Axis uses the fallback shown next to it.</p>
+    <!-- Pairing -->
+    <section class="view" id="pair">
+      <div class="head"><h2>Add a device</h2></div>
+      <div class="form">
+        <label>Pairing code</label>
+        <div>
+          <div class="inline">
+            <button class="primary" id="code-new">New pairing code</button>
+            <span class="code" id="code-value"></span>
+          </div>
+          <p class="help" id="code-note">A code works once and expires after 10 minutes.</p>
+        </div>
+
+        <label for="device-address">Axis address for devices</label>
+        <div>
+          <input id="device-address" class="mono" spellcheck="false" placeholder="10.0.0.6:8440">
+          <p class="help">An address the device can reach over its Wi-Fi, usually this machine's LAN address and port. Not a Tailscale name.</p>
+        </div>
+
+        <label for="setup-string">Setup string</label>
+        <div>
+          <div class="inline">
+            <input id="setup-string" class="mono" readonly placeholder="Make a code first">
+            <button id="setup-copy">Copy</button>
+          </div>
+          <p class="help">Paste into the device's own setup page (its <code>VorteX-Axis-XXXX</code> network, then <code>http://192.168.4.1</code>).</p>
+        </div>
+
+        <label>A browser</label>
+        <p class="help">Open the <a href="/" target="_blank" rel="noopener">web client</a> and type the code.</p>
+      </div>
+    </section>
+
+    <!-- Shared settings -->
+    <section class="view" id="settings">
+      <div class="head"><h2>Shared settings</h2></div>
+      <p class="help">These apply to every client unless a client type or a device sets its own. Device-specific settings are edited on the device's page.</p>
+      <h3>Read by Axis</h3>
       <div id="settings-known"></div>
-      <h2 style="margin-top:16px">Other settings</h2>
-      <p class="hint">Any other key is passed to clients as it is, for firmware that wants its own options.</p>
+      <h3>Other keys</h3>
+      <p class="help">Passed to every client as is, for firmware with its own options.</p>
       <div id="settings-table"></div>
-      <div class="row">
-        <div style="flex:0 1 200px"><label for="set-key">Key</label><input id="set-key" spellcheck="false"></div>
-        <div class="grow"><label for="set-value">Value</label><input id="set-value" spellcheck="false"></div>
+      <div class="inline add">
+        <input id="set-key" class="mono" placeholder="key" spellcheck="false">
+        <input id="set-value" placeholder="value" spellcheck="false">
         <button id="set-add">Set</button>
       </div>
     </section>
 
-    <p class="note"><button class="small" id="signout">Sign out</button></p>
-  </div>
-</main>
+    <!-- OpenClaw -->
+    <section class="view" id="openclaw">
+      <div class="head"><h2>OpenClaw</h2></div>
+      <div class="health" id="gw-pills"></div>
+      <p class="msg" id="gw-note"></p>
+
+      <div class="form">
+        <label for="gw-url">Gateway address</label>
+        <div class="inline">
+          <input id="gw-url" class="mono" placeholder="ws://host:18789" spellcheck="false">
+          <button id="gw-url-save">Save</button>
+          <button id="gw-retry">Reconnect</button>
+        </div>
+
+        <label for="gw-code">Setup code</label>
+        <div>
+          <textarea id="gw-code" class="mono" spellcheck="false" placeholder="Output of: openclaw qr --setup-code-only"></textarea>
+          <div class="inline"><button class="primary" id="gw-pair">Pair</button></div>
+        </div>
+
+        <label>Device id</label>
+        <p class="mono value" id="gw-device"></p>
+      </div>
+
+      <details id="gw-steps">
+        <summary>Pairing steps</summary>
+        <ol>
+          <li>On the gateway host run <code>openclaw qr --setup-code-only</code>, paste it above and press Pair.</li>
+          <li>Approve the device: <code>openclaw devices list</code>, then <code>openclaw devices approve &lt;id&gt;</code>. Two requests arrive one after the other: the device, then its node role. Axis retries every 10 seconds.</li>
+          <li>Allow these under <code>gateway.nodes.commands.allow</code>: <code id="gw-commands"></code></li>
+        </ol>
+      </details>
+    </section>
+
+    <!-- Agent -->
+    <section class="view" id="agent">
+      <div class="head"><h2>Agent</h2></div>
+      <p class="help">Who answers when someone talks to a client.</p>
+      <div class="form">
+        <label for="agent-backend">Answered by</label>
+        <select id="agent-backend">
+          <option value="gateway">OpenClaw gateway</option>
+          <option value="openai">Another OpenAI-style chat endpoint</option>
+        </select>
+
+        <div class="contents" id="agent-gateway">
+          <label for="agent-id">OpenClaw agent</label>
+          <div>
+            <input id="agent-id" list="agent-list" placeholder="gateway default" spellcheck="false">
+            <datalist id="agent-list"></datalist>
+          </div>
+        </div>
+
+        <div class="contents hidden" id="agent-openai">
+          <label for="agent-url">Chat endpoint</label>
+          <input id="agent-url" class="mono" placeholder="http://host:11434/v1/chat/completions" spellcheck="false">
+          <label for="agent-model">Model</label>
+          <input id="agent-model" spellcheck="false">
+          <label for="agent-token">Token <span class="set" id="agent-token-state"></span></label>
+          <input id="agent-token" type="password" autocomplete="off" placeholder="leave empty to keep">
+        </div>
+
+        <span></span>
+        <div class="inline"><button class="primary" id="agent-save">Save</button><span class="msg" id="agent-note"></span></div>
+      </div>
+    </section>
+
+    <!-- Speech -->
+    <section class="view" id="speech">
+      <div class="head"><h2>Speech</h2></div>
+      <p class="help">OpenAI-style endpoints. Changes apply to the next turn.</p>
+
+      <h3>Recognition</h3>
+      <div class="form">
+        <label for="stt-url">Address</label>
+        <input id="stt-url" class="mono" placeholder="http://host:8090/v1/audio/transcriptions" spellcheck="false">
+        <label for="stt-model">Model</label>
+        <input id="stt-model" spellcheck="false">
+        <label for="stt-key">Key <span class="set" id="stt-key-state"></span></label>
+        <input id="stt-key" type="password" autocomplete="off" placeholder="leave empty to keep">
+      </div>
+
+      <h3>Synthesis</h3>
+      <div class="form">
+        <label for="tts-url">Address</label>
+        <input id="tts-url" class="mono" placeholder="http://host:8092/v1/audio/speech" spellcheck="false">
+        <label for="tts-model">Model</label>
+        <input id="tts-model" spellcheck="false">
+        <label for="tts-key">Key <span class="set" id="tts-key-state"></span></label>
+        <input id="tts-key" type="password" autocomplete="off" placeholder="leave empty to keep">
+        <label for="tts-voice">Default voice</label>
+        <input id="tts-voice" placeholder="service default" spellcheck="false">
+        <label for="tts-rate">PCM sample rate</label>
+        <input id="tts-rate" type="number" min="8000" max="48000" step="1" class="short">
+      </div>
+
+      <div class="inline actions">
+        <button class="primary" id="speech-save">Save</button>
+        <button id="speech-test">Test both</button>
+      </div>
+      <p class="msg" id="speech-note"></p>
+    </section>
+  </main>
+</div>
+
 <script type="module" src="/web/admin.js"></script>
 </body>
 </html>

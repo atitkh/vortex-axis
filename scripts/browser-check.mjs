@@ -4,7 +4,7 @@
 //   npm run build && TTS=http://host/v1/audio/speech STT=http://host/v1/audio/transcriptions node scripts/browser-check.mjs
 //
 // TTS and STT are optional; without them the speech steps report "not set".
-// Needs google-chrome on the PATH. Exits non-zero if a step fails.
+// Needs google-chrome on the PATH, or CHROME set to another Chromium browser. Exits non-zero if a step fails.
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -45,7 +45,7 @@ const app = await startApp(
 const base = `http://localhost:${app.port}`;
 
 const chrome = spawn(
-  "google-chrome",
+  process.env.CHROME || "google-chrome",
   [
     "--headless=new",
     "--no-sandbox",
@@ -129,7 +129,7 @@ async function openPage(url) {
 }
 
 const pills = (selector) =>
-  `[...document.querySelectorAll('${selector} .pill')].map(p => p.textContent + '=' + (p.classList[1] || '-')).join(' | ')`;
+  `[...document.querySelectorAll('${selector} .pill, ${selector} .stat')].map(p => p.textContent + '=' + (p.classList[1] || '-')).join(' | ')`;
 const byId = (id) => `document.getElementById('${id}')`;
 const report = [];
 const step = (label, value) => report.push(`${label}: ${value}`);
@@ -141,7 +141,7 @@ try {
   await admin.run(`${byId("token")}.value = 'wrong'; ${byId("signin-form")}.requestSubmit()`);
   step("wrong admin token", await admin.until(`${byId("signin-error")}.textContent`, "sign-in error"));
   await admin.run(`${byId("token")}.value = 'browser-check'; ${byId("signin-form")}.requestSubmit()`);
-  await admin.until(`!${byId("app")}.classList.contains('hidden') && document.querySelectorAll('#summary .pill').length === 4`, "the admin page");
+  await admin.until(`!${byId("app")}.classList.contains('hidden') && document.querySelectorAll('#summary .stat').length === 4`, "the admin page");
   step("summary", await admin.until(`(t => /agent=good/.test(t) && t)(${pills("#summary")})`, "upstream health"));
   step("gateway links", await admin.run(pills("#gw-pills")));
   step("commands listed", await admin.run(`${byId("gw-commands")}.textContent`));
@@ -226,19 +226,19 @@ try {
     actions: [{ name: "diag", label: "Diagnostics" }],
     links: [],
   });
-  await admin.run(`[...document.querySelectorAll('#client-table button')].find(b => b.textContent === 'Open').click()`);
-  step("device editor", await admin.until(`!${byId("device")}.classList.contains('hidden') && (t => /volume/.test(t) && t)([...document.querySelectorAll('#device-settings .mono')].map(e => e.textContent).join(', '))`, "the device settings (the page polls every 3 s)"));
+  await admin.run(`document.querySelector('#client-table tbody a').click()`);
+  step("device editor", await admin.until(`${byId("device")}.classList.contains('on') && (t => /volume/.test(t) && t)([...document.querySelectorAll('#device-settings .mono')].map(e => e.textContent).join(', '))`, "the device settings (the page polls every 3 s)"));
   // Volume on the device layer, then check where it comes from on each layer.
   await admin.run(`(i => { i.value = '35'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
-  step("device value", await admin.until(`(t => /from this device/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Volume/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the volume to save"));
+  step("device value", await admin.until(`(t => /\\(this device\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Volume/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the volume to save"));
   await admin.run(`(i => { i.value = '150'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
   step("range refused", await admin.until(`(t => /at most 100/.test(t) && t)(${byId("device-note")}.textContent)`, "the range error"));
   await admin.run(`[...document.querySelectorAll('#device-tabs button')].find(b => /web devices/.test(b.textContent)).click()`);
   await admin.run(`(s => { s.value = '0'; s.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings select[data-edit=listenCue]'))`);
-  step("type layer toggle", await admin.until(`(t => /off \\(from its type\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the type toggle to save"));
+  step("type layer toggle", await admin.until(`(t => /off \\(type\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the type toggle to save"));
   await admin.run(`[...document.querySelectorAll('#device-settings button')].find(b => b.textContent === 'Reset').click()`);
-  step("reset", await admin.until(`(t => /on \\(from the device's default\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the reset"));
-  await admin.run(`window.confirm = () => true; document.querySelector('#client-table button.danger').click()`);
+  step("reset", await admin.until(`(t => /on \\(default\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the reset"));
+  await admin.run(`window.confirm = () => true; ${byId("device-remove")}.click()`);
   await client.front();
   step("client after removal", await client.until(`${byId("pair-error")}.textContent`, "the client to notice", 10000));
 } catch (error) {
