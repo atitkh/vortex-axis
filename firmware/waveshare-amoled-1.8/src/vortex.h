@@ -5,6 +5,8 @@
 //
 // It is drawn into its own square buffer and never touches the panel; the
 // caller sends the buffer to the display.
+//
+// Specified in docs/face.md, which web/vortex.js also follows. Change all three together.
 
 #include <Arduino.h>
 

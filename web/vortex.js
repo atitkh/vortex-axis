@@ -1,7 +1,8 @@
 // The vortex face, the same one the Waveshare board draws (firmware/waveshare-amoled-1.8/src/vortex.cpp):
 // dots on three spiral arms that spin slowly when idle, pull inward and go green to listen, spin
 // fast and violet to think, and open and pulse with the voice to speak. Looks and colours are
-// copied from the firmware so a browser and a board look like the same thing.
+// copied from the firmware so a browser and a board look like the same thing. The specification
+// is docs/face.md; change it, this file and vortex.cpp together.
 
 const SIZE = 240; // the firmware's drawing size; everything below is in its units
 const ARMS = 3;

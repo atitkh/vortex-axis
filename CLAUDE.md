@@ -136,6 +136,7 @@ The gateway's device tokens and the setup code are stored in the SQLite `meta` t
 - `firmware/common/src/log_buffer.h`: the in-memory log served at `/logs`, also copied to USB serial.
 - `firmware/common/src/vad.h`: energy-based speech detection.
 - `firmware/wake/`: the wake word detector. `firmware/lib/` holds vendored TensorFlow Lite Micro and the audio front end; do not edit them.
+- `docs/face.md`: the vortex face's specification: the 13 looks with their numbers, the drawing steps, how a voice level is measured, and which look shows when. A new board draws the face from it. `vortex.cpp` and `web/vortex.js` follow it; change all three in one commit.
 - `firmware/waveshare-amoled-1.8/src/`: board code only: `main.cpp` (wiring, settings table, actions), `display`, `vortex` (the face), `speaker` (includes the 24 kHz to 16 kHz low-pass resampler), `mic`, `codec`, `touch`.
 
 A setting or action a device offers is declared once, in the board's table in `main.cpp`. The server validates against that description and the admin page draws from it, so do not add per-board code to `web/` or the server.

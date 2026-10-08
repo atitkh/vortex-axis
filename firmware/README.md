@@ -65,7 +65,7 @@ Set these in the admin page: open the device under Clients, then pick the layer 
 
 ## The face
 
-The web client draws the same face from `web/vortex.js`, a port of `vortex.cpp`. A change to a look or colour here should be made there too.
+The full specification (every look's numbers, the drawing steps, the voice rules and which look shows when) is [docs/face.md](../docs/face.md). A new board should draw the face from it. The web client draws the same face from `web/vortex.js`; a change to a look or a rule goes into the spec and both implementations together.
 
 The default face is a vortex: dots on three spiral arms, drawn on the device from the turn state Axis sends. Nothing is streamed as pixels.
 
