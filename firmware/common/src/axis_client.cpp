@@ -3,14 +3,21 @@
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <WebServer.h>
 #include <WebSocketsClient.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
 #include <stdarg.h>
 
 #include "vad.h"
+
+// The Arduino core accepts a newly installed firmware the moment it starts.
+// Returning true here leaves that to the client, which accepts it only once
+// it has reached Axis, so a firmware that cannot connect is rolled back.
+extern "C" bool verifyRollbackLater() { return true; }
 
 namespace axis {
 
@@ -37,6 +44,8 @@ const size_t PRE_ROLL_SAMPLES = MIC_RATE / 5;
 const size_t WAKE_SETTLE_SAMPLES = MIC_RATE / 10;
 // Cutting speech short leaves its tail in the speaker's buffers and in the room for a moment.
 const size_t TAIL_SETTLE_SAMPLES = MIC_RATE / 4;
+/** How long a newly installed firmware has to reach Axis before the device goes back to the old one. */
+const uint32_t UNPROVEN_MS = 180000;
 // Axis answers a wake within about 200 ms. Longer than this and the recording is dropped.
 const uint32_t WAKE_ANSWER_MS = 3000;
 const size_t SEND_BLOCK_SAMPLES = 1024;
@@ -152,6 +161,14 @@ struct Client::Impl {
     String lastVoiceTurn;
     /** When the device gives up on an open question by itself, in `millis()`. 0 with no question. */
     uint32_t askDeadline = 0;
+
+    // --- updates over Wi-Fi ---
+    /** Set by the `update` command; the download starts on the next tick, once the answer has gone out. */
+    bool updateWanted = false;
+    String updatePath, updateMd5, updateVersion;
+    uint32_t updateSize = 0;
+    /** True while this firmware has just been installed and has not yet proved it can reach Axis. */
+    bool unproven = false;
 
     explicit Impl(Client &client) : self(client) {}
 
@@ -536,6 +553,12 @@ struct Client::Impl {
             welcomed = true;
             lastSense = millis() - SENSE_INTERVAL_MS + 5000;
             logf("connected to Axis");
+            if (unproven) {
+                // A freshly installed firmware that got this far is good enough to keep.
+                unproven = false;
+                esp_ota_mark_app_valid_cancel_rollback();
+                logf("this firmware is now the one to keep");
+            }
             sendDescribe();
         } else if (!strcmp(t, "settings")) {
             xSemaphoreTake(lock, portMAX_DELAY);
@@ -614,6 +637,85 @@ struct Client::Impl {
                 setLink(Link::Unpaired, "Axis no longer knows this device. Pair it again.");
             }
         }
+    }
+
+    /**
+     * Downloads the firmware Axis holds for this type and installs it in the
+     * other app slot, then restarts into it. The file is checked against the
+     * MD5 Axis gave before the slot is made the one to boot. A failure leaves
+     * the running firmware as it was.
+     */
+    void runUpdate() {
+        logf("updating to %s (%u bytes)", updateVersion.c_str(), (unsigned)updateSize);
+        cancelRecording();
+        quiet();
+        endAsk();
+        update([](Snapshot &s) { s.updatePercent = 0; });
+        String problem;
+        {
+            WiFiClient plain;
+            HTTPClient http;
+            http.setConnectTimeout(6000);
+            http.setTimeout(10000);
+            if (!http.begin(plain, baseUrl + updatePath)) {
+                problem = "bad address";
+            } else {
+                http.addHeader("Authorization", "Bearer " + token);
+                http.addHeader("X-Axis-Client", clientId);
+                const int status = http.GET();
+                if (status != 200) problem = "Axis answered " + String(status);
+                else if ((uint32_t)http.getSize() != updateSize) problem = "the file is not the size Axis said";
+                else if (!Update.begin(updateSize)) problem = String("no room: ") + Update.errorString();
+                else {
+                    Update.setMD5(updateMd5.c_str());
+                    WiFiClient *stream = http.getStreamPtr();
+                    static uint8_t block[4096];
+                    uint32_t done = 0, lastData = millis();
+                    int8_t shown = 0;
+                    while (done < updateSize) {
+                        const int got = stream->read(block, min((uint32_t)sizeof block, updateSize - done));
+                        if (got > 0) {
+                            if (Update.write(block, got) != (size_t)got) {
+                                problem = String("writing failed: ") + Update.errorString();
+                                break;
+                            }
+                            done += got;
+                            lastData = millis();
+                            const int8_t percent = (int8_t)(done * 100ULL / updateSize);
+                            if (percent >= shown + 2) {
+                                shown = percent;
+                                update([&](Snapshot &s) { s.updatePercent = percent; });
+                            }
+                        } else if (!stream->connected() || millis() - lastData > 15000) {
+                            problem = "the download stopped";
+                            break;
+                        } else {
+                            delay(5);
+                        }
+                    }
+                    if (problem.isEmpty() && !Update.end(true)) problem = String("the file did not check out: ") + Update.errorString();
+                    if (!problem.isEmpty()) Update.abort();
+                }
+                http.end();
+            }
+        }
+        if (problem.isEmpty()) {
+            logf("update installed, restarting");
+            update([](Snapshot &s) { s.updatePercent = 100; });
+            socket.disconnect();
+            delay(400);
+            ESP.restart();
+        }
+        logf("update failed: %s", problem.c_str());
+        update([&](Snapshot &s) {
+            s.updatePercent = -1;
+            s.note = "Update failed: " + problem;
+        });
+        // Axis hears about it too, as a reading the admin page shows.
+        JsonDocument doc;
+        doc["t"] = "sense";
+        doc["readings"]["updateFailed"] = problem.substring(0, 120);
+        send(doc);
     }
 
     /** A number when the whole text is one, so "90" is sent as 90 and "Hey" stays text. */
@@ -740,6 +842,15 @@ struct Client::Impl {
             handled = true;
         } else if (!strcmp(name, "reboot")) {
             handled = true;
+        } else if (!strcmp(name, "update")) {
+            // Answer first, download after: the download keeps this task busy for half a minute.
+            updatePath = doc["params"]["path"] | "";
+            updateMd5 = doc["params"]["md5"] | "";
+            updateVersion = doc["params"]["version"] | "";
+            updateSize = doc["params"]["size"] | 0;
+            updateWanted = updatePath.startsWith("/") && updateSize > 0;
+            if (updateWanted) payload["updating"] = updateVersion;
+            handled = updateWanted;
         } else if (!strcmp(name, "timer.next")) {
             // Axis keeps the timers and announces them. This is only for a countdown on a screen.
             const uint32_t ms = doc["params"]["ms"] | 0;
@@ -782,6 +893,13 @@ struct Client::Impl {
             }
             return;
         }
+        // A new firmware that cannot reach Axis in three minutes goes back to the one before.
+        if (unproven && !welcomed && millis() > UNPROVEN_MS) {
+            logf("the new firmware never reached Axis, going back to the old one");
+            delay(200);
+            esp_ota_mark_app_invalid_rollback_and_reboot();
+            unproven = false;  // only reached when there is nothing to go back to
+        }
         if (!socketStarted) startSocket();
         socket.loop();
         if (!socketStarted) return;  // a message handler dropped the pairing
@@ -816,6 +934,11 @@ struct Client::Impl {
             }
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
+        if (updateWanted) {
+            updateWanted = false;
+            socket.loop();  // let the answer to the command out first
+            runUpdate();
+        }
         if (millis() - lastSense > SENSE_INTERVAL_MS) {
             lastSense = millis();
             JsonDocument doc;
@@ -1182,6 +1305,11 @@ void Client::begin(const Identity &identity, Stream *console) {
     impl_ = new Impl(*this);
     impl_->identity = identity;
     impl_->console = console;
+    esp_ota_img_states_t slot = ESP_OTA_IMG_UNDEFINED;
+    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &slot) == ESP_OK && slot == ESP_OTA_IMG_PENDING_VERIFY) {
+        impl_->unproven = true;
+        if (console) console->println("[axis] first start of a new firmware; it is kept once it reaches Axis");
+    }
     for (size_t i = 0; i < identity.capabilityCount; i++) {
         if (strcmp(identity.capabilities[i], "mic") != 0) continue;
         impl_->outRing = (int16_t *)heap_caps_malloc(OUT_RING_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);

@@ -19,6 +19,7 @@ let lastGlobal = {};
 let lastStatus;
 let lastGateway;
 let lastNow;
+let lastFirmware = [];
 let lastConfig;
 
 /** Builds an element. Text always goes in as text, never as markup. */
@@ -163,14 +164,16 @@ $("signout").addEventListener("click", () => signOut());
 
 async function refresh() {
   try {
-    const [status, gateway, clients, settings, now] = await Promise.all([
+    const [status, gateway, clients, settings, now, firmware] = await Promise.all([
       api("GET", "/admin/status"),
       api("GET", "/admin/gateway"),
       api("GET", "/admin/clients"),
       api("GET", "/admin/settings/global"),
       api("GET", "/admin/now").catch(() => undefined),
+      api("GET", "/admin/firmware").catch(() => undefined),
     ]);
     lastNow = now;
+    lastFirmware = firmware?.firmware ?? [];
     lastClients = clients.clients;
     lastTypes = clients.types || {};
     lastGlobal = settings.values;
@@ -686,7 +689,24 @@ function renderDevice() {
   $("device-head").replaceChildren(
     ...row("Name", nameInput),
     ...row("Room", roomInput),
-    ...row("Type", h("a", { href: typeHref(client.type), class: "mono" }, client.type), h("span", { class: "sub" }, ` · version ${client.version}`)),
+    ...row(
+      "Type",
+      h("a", { href: typeHref(client.type), class: "mono" }, client.type),
+      h("span", { class: "sub" }, ` · version ${client.version} `),
+      (() => {
+        const held = lastFirmware.find((f) => f.type === client.type);
+        if (!held || held.version === client.version || !client.online) return null;
+        return h("button", {
+          type: "button",
+          class: "small",
+          onclick: (event) => {
+            if (confirm(`Update ${client.name} to ${held.version}? It restarts and is away for about half a minute.`)) {
+              act(event.target, "device-note", () => updateDevice(client, "device-note"));
+            }
+          },
+        }, `Update to ${held.version}`);
+      })(),
+    ),
     ...row("Can", client.capabilities.join(", ") || "nothing"),
     ...(client.address ? row("Address", h("span", { class: "mono" }, client.address)) : []),
     ...(client.online && base && schema.links.length
@@ -821,6 +841,65 @@ $("device-remove").addEventListener("click", (event) => {
 
 // --- one type: what its devices share --------------------------------------------
 
+/** Tells one device to install the build Axis holds for its type. */
+async function updateDevice(client, noteId) {
+  const told = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/update`);
+  note(noteId, `${told.client} is updating from ${told.from} to ${told.to}. It restarts by itself in about half a minute.`, "good");
+}
+
+/** The build kept for a type, a way to replace it, and a button to send it to the devices behind. */
+function renderTypeFirmware(type, members) {
+  const box = $("type-firmware");
+  const held = lastFirmware.find((f) => f.type === type);
+  const behind = members.filter((c) => c.online && held && c.version !== held.version);
+  // Drawn again only when something changed, so a chosen file is not lost to the 3 s refresh.
+  const key = JSON.stringify([type, held, members.map((c) => [c.id, c.online, c.version])]);
+  if (box.dataset.drawn === key) return;
+  box.dataset.drawn = key;
+
+  const file = h("input", { type: "file", accept: ".bin" });
+  const version = h("input", { placeholder: "Version, for example 0.8.1", spellcheck: "false", maxlength: 32 });
+  const upload = h("button", {
+    type: "button",
+    onclick: (event) =>
+      act(event.target, "type-firmware-note", async () => {
+        if (!file.files[0]) throw new Error("Choose the firmware.bin from the build first.");
+        if (!version.value.trim()) throw new Error("Say which version this build is.");
+        const res = await fetch(`/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version.value.trim())}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
+          body: file.files[0],
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new ApiError(res.status, data.error || `upload failed (${res.status})`);
+        note("type-firmware-note", `Version ${data.version} is ready to send.`, "good");
+        refresh();
+      }),
+  }, "Upload");
+  const send = h("button", {
+    type: "button",
+    class: "primary",
+    disabled: !behind.length,
+    onclick: (event) =>
+      act(event.target, "type-firmware-note", async () => {
+        if (!confirm(`Update ${plural(behind.length, "device")} to ${held.version}? Each restarts and is away for about half a minute.`)) return;
+        const failed = [];
+        for (const client of behind) await updateDevice(client, "type-firmware-note").catch((error) => failed.push(`${client.name}: ${error.message}`));
+        if (failed.length) throw new Error(failed.join(" "));
+        note("type-firmware-note", `${plural(behind.length, "device")} told to update to ${held.version}.`, "good");
+      }),
+  }, behind.length ? `Update ${plural(behind.length, "device")} to ${held.version}` : "Nothing to update");
+
+  box.replaceChildren(
+    h("p", {}, held
+      ? `Axis holds version ${held.version} (${(held.size / 1024 / 1024).toFixed(2)} MB, uploaded ${ago(held.uploadedAt)}). `
+      : "No build has been uploaded for this type yet. ",
+      held ? (behind.length ? `${behind.map((c) => `${c.name} is on ${c.version}`).join(", ")}.` : "Every online device is on it.") : ""),
+    h("div", { class: "inline" }, send),
+    h("div", { class: "inline", style: "margin-top:10px" }, file, version, upload),
+  );
+}
+
 function renderType() {
   const type = view.id;
   const members = lastClients.filter((c) => c.type === type).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
@@ -833,6 +912,7 @@ function renderType() {
   if (busy($("type"))) return;
   const schema = lastTypes[type] || { settings: [], actions: [], links: [] };
   const online = members.filter((c) => c.online);
+  renderTypeFirmware(type, members);
   $("type-help").textContent = `${plural(members.length, "device")}, ${online.length} online. Settings here apply to all of them, except where a device has its own value.`;
 
   $("type-devices").replaceChildren(

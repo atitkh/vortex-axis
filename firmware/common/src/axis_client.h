@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.7.1"
+#define AXIS_FIRMWARE_VERSION "0.8.1"
 
 namespace axis {
 
@@ -105,6 +105,8 @@ struct Snapshot {
     /** The answers offered. None means the question is open and is answered by voice. */
     String choices[6];
     uint8_t choiceCount = 0;
+    /** How far a firmware update has got, 0 to 100. Negative when none is running. */
+    int8_t updatePercent = -1;
     /** The timer due soonest, as Axis last told it. `timerEndsAt` is in `millis()`; `timerCount` 0 means none. */
     String timerLabel;
     uint32_t timerEndsAt = 0;

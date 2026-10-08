@@ -286,6 +286,13 @@ static void present() {
     }
 
     // A recording starts before Axis has said so (a wake takes a moment to be answered), so show it from this side.
+    // An update takes over: nothing else can happen until the device restarts into the new firmware.
+    if (state.updatePercent >= 0) {
+        idleSince = 0;
+        vortex::setMode(Mode::Thinking);
+        return show("Updating", COLOR_HEAD, String((int)state.updatePercent) + "%\nDo not unplug");
+    }
+
     // An open question stays on the screen while the device waits for it to be answered.
     if (client.listening() && state.turn == Turn::Idle) {
         idleSince = 0;

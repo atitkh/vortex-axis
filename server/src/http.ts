@@ -1,12 +1,13 @@
 import type { Timers } from "./timers.js";
 import { timingSafeEqual } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
+import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
 import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
@@ -42,6 +43,17 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   } catch {
     throw new HttpError(400, "request body is not valid JSON");
   }
+}
+
+async function readBytes(req: IncomingMessage, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > limit) throw new HttpError(413, "request body too large");
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 function isScalarMap(value: unknown): value is ScalarMap {
@@ -106,6 +118,7 @@ export function createHttpHandler(deps: HttpDeps) {
   const web = loadWebFiles(config.webDir);
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
+  const firmware = new FirmwareStore(config.dataDir);
 
   function allowPairAttempt(address: string): boolean {
     const cutoff = now() - 60_000;
@@ -230,6 +243,18 @@ export function createHttpHandler(deps: HttpDeps) {
       }
     }
 
+    // A device fetching the firmware Axis told it to install. It proves who it is with its own token.
+    if (method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "firmware") {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      const info = client.type === parts[2] ? firmware.info(client.type) : undefined;
+      if (!info) throw new HttpError(404, "there is no firmware for this client type");
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": info.size, "x-md5": info.md5 });
+      createReadStream(firmware.path(info.type)).pipe(res);
+      return;
+    }
+
     if (method === "POST" && url.pathname === PAIR_PATH) {
       if (!allowPairAttempt(req.socket.remoteAddress ?? "unknown")) {
         throw new HttpError(429, "too many pairing attempts, wait a minute");
@@ -302,6 +327,45 @@ export function createHttpHandler(deps: HttpDeps) {
           hub.disconnect(id);
           return sendJson(res, 200, { removed: id });
         }
+      }
+      // Firmware: one build kept per client type, sent to devices over Wi-Fi.
+      if (parts[1] === "firmware") {
+        if (method === "GET" && parts.length === 2) return sendJson(res, 200, { firmware: firmware.list() });
+        if (method === "POST" && parts.length === 3) {
+          try {
+            const info = firmware.save(parts[2]!, url.searchParams.get("version") ?? "", await readBytes(req, MAX_FIRMWARE_BYTES));
+            activity?.note("admin", "", `Firmware ${info.version} uploaded for ${info.type}`);
+            return sendJson(res, 201, info);
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            throw new HttpError(400, (error as Error).message);
+          }
+        }
+        if (method === "DELETE" && parts.length === 3) {
+          if (!firmware.remove(parts[2]!)) throw new HttpError(404, "there is no firmware for that client type");
+          return sendJson(res, 200, { removed: parts[2] });
+        }
+      }
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {
+        const { client, session } = requireOnline(parts[2]!);
+        const info = firmware.info(client.type);
+        if (!info) throw new HttpError(404, `no firmware has been uploaded for ${client.type}`);
+        let outcome;
+        try {
+          outcome = await hub.command(session, "update", {
+            version: info.version,
+            size: info.size,
+            md5: info.md5,
+            path: `/v1/firmware/${encodeURIComponent(info.type)}`,
+          });
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+        if (!outcome.ok) {
+          throw new HttpError(409, `${client.name} cannot update itself over Wi-Fi (${outcome.error ?? "refused"}). Flash it by cable once.`);
+        }
+        activity?.note("admin", client.id, `${client.name} told to update from ${client.version} to ${info.version}`);
+        return sendJson(res, 202, { client: client.name, from: client.version, to: info.version });
       }
       // What is going on at this moment: timers running, questions waiting, clients mid-turn.
       if (method === "GET" && parts.length === 2 && parts[1] === "now") {
