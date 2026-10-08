@@ -26,6 +26,9 @@ void clear();
  */
 void blitSquare(int x, int y, int size, const uint16_t *pixels);
 
+/** Blacks out a full-width band of `rows` rows starting at logical `y`. */
+void clearBand(int y, int rows);
+
 /** Draws one centred line of text in a full-width band at logical `y`, clearing the band. */
 void textLine(int y, uint8_t size, uint16_t color, const String &text);
 

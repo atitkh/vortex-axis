@@ -73,6 +73,18 @@ void clear() {
     for (int16_t y = 0; y < LCD_HEIGHT; y++) gfx->drawFastHLine(0, y, LCD_WIDTH, RGB565_BLACK);
 }
 
+void clearBand(int y, int rows) {
+    // Lines run along the band, so this takes one write per row whatever the rotation.
+    for (int i = 0; i < rows; i++) {
+        const int at = y + i;
+        if (at < 0 || at >= height()) continue;
+        if (rotation == 0) gfx->drawFastHLine(0, at, LCD_WIDTH, RGB565_BLACK);
+        else if (rotation == 180) gfx->drawFastHLine(0, LCD_HEIGHT - 1 - at, LCD_WIDTH, RGB565_BLACK);
+        else if (rotation == 90) gfx->drawFastVLine(at, 0, LCD_HEIGHT, RGB565_BLACK);
+        else gfx->drawFastVLine(LCD_WIDTH - 1 - at, 0, LCD_HEIGHT, RGB565_BLACK);
+    }
+}
+
 void blitSquare(int x, int y, int size, const uint16_t *pixels) {
     int px = x, py = y;
     if (rotation == 90) {

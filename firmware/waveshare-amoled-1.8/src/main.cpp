@@ -8,14 +8,15 @@
 #include "HWCDC.h"
 #include "axis_client.h"
 #include "display.h"
+#include "speaker.h"
 #include "vortex.h"
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
 // `Serial` goes nowhere unless this is used and ARDUINO_USB_CDC_ON_BOOT is set.
 HWCDC USBSerial;
 
-static const char *const CAPABILITIES[] = {"screen"};
-static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 1};
+static const char *const CAPABILITIES[] = {"screen", "speaker"};
+static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 2};
 
 static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
@@ -32,12 +33,20 @@ static axis::Snapshot state;
 static uint32_t seenRevision = 0, seenSettings = UINT32_MAX;
 static uint32_t idleSince = 0, connectingSince = 0;
 
-// What is on the panel now, so only lines that changed are sent again.
+// What should be on the panel, and what is there now, so only lines that changed are sent again.
+static String wantHead, wantBody;
+static uint16_t wantHeadColor = 0;
 static String shownHead, shownBody[MAX_BODY_LINES];
 static uint16_t shownHeadColor = 0;
 static bool redrawAll = true;
+// Where the top of the face is now. -1 until it has been placed once.
+static int faceY = -1;
+static bool hasSpeaker = false;
 
+/** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
+/** Where the face sits when it has the screen to itself. */
+static int faceMiddle() { return (display::height() - vortex::SIZE) / 2; }
 static int headTop() { return faceTop() + vortex::SIZE + 4; }
 static int bodyTop() { return headTop() + display::lineHeight(3); }
 static int bodyLines() { return min(MAX_BODY_LINES, (display::height() - bodyTop()) / display::lineHeight(2)); }
@@ -45,6 +54,7 @@ static int bodyLines() { return min(MAX_BODY_LINES, (display::height() - bodyTop
 static void applySettings() {
     display::setRotation((int)client.settingInt("rotation", 90));
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
+    speaker::setVolume((int)client.settingInt("volume", 60));
     redrawAll = true;
 }
 
@@ -75,14 +85,41 @@ static int wrap(const String &text, String *lines, int maxLines) {
 }
 
 static void show(const String &head, uint16_t headColor, const String &body) {
-    if (redrawAll || head != shownHead || headColor != shownHeadColor) {
-        display::textLine(headTop(), 3, headColor, head);
+    wantHead = head;
+    wantHeadColor = headColor;
+    wantBody = body;
+}
+
+/**
+ * Places the face and draws the text. With nothing to say the face sits in the
+ * middle of the screen; when text is needed it slides up first and the text
+ * appears once it is out of the way.
+ */
+static void layout() {
+    const bool text = !wantHead.isEmpty() || !wantBody.isEmpty();
+    const int target = text ? faceTop() : faceMiddle();
+    if (faceY < 0) faceY = target;
+    if (faceY != target) {
+        const int distance = target - faceY;
+        const int step = constrain(distance / 5, -24, 24);
+        const int next = faceY + (step != 0 ? step : (distance > 0 ? 1 : -1));
+        // Black out the rows the face is leaving, or it would smear.
+        if (next < faceY) display::clearBand(next + vortex::SIZE, faceY - next);
+        else display::clearBand(faceY, next - faceY);
+        faceY = next;
+    }
+    // The text area is under the face until the face has reached the top.
+    if (text && faceY != faceTop()) return;
+
+    const String head = text ? wantHead : String("");
+    if (redrawAll || head != shownHead || wantHeadColor != shownHeadColor) {
+        if (text || !shownHead.isEmpty() || redrawAll) display::textLine(headTop(), 3, wantHeadColor, head);
         shownHead = head;
-        shownHeadColor = headColor;
+        shownHeadColor = wantHeadColor;
     }
     String lines[MAX_BODY_LINES];
     const int rows = bodyLines();
-    wrap(body, lines, rows);
+    wrap(wantBody, lines, rows);
     for (int i = 0; i < rows; i++) {
         if (!redrawAll && lines[i] == shownBody[i]) continue;
         display::textLine(bodyTop() + i * display::lineHeight(2), 2, COLOR_BODY, lines[i]);
@@ -147,6 +184,12 @@ static void present() {
             break;
     }
 
+    // The turn can be over for Axis while the last words are still coming out of the speaker.
+    if (speaker::playing()) {
+        idleSince = 0;
+        vortex::setMode(Mode::Speaking);
+        return show("", COLOR_HEAD, state.reply);
+    }
     vortex::setMode(Mode::Idle);
     if (!idleSince) idleSince = now;
     // Say which service is down, so a failed request is not a mystery.
@@ -169,6 +212,12 @@ void setup() {
         for (;;) delay(1000);
     }
 
+    hasSpeaker = speaker::begin();
+    USBSerial.printf("[boot] speaker %s\n", hasSpeaker ? "started" : "FAILED");
+    if (hasSpeaker) {
+        client.setAudioSink(speaker::sink());
+        speaker::chime();
+    }
     client.begin(IDENTITY, &USBSerial);
     applySettings();
 }
@@ -194,11 +243,13 @@ void loop() {
         lastText = started;
         present();
     }
+    layout();
+    vortex::setLevel(speaker::playing() ? speaker::level() : -1.0f);
 
     const uint32_t t0 = micros();
     const uint16_t *frame = vortex::render(min(seconds, 0.1f));
     renderMicros += micros() - t0;
-    display::blitSquare((display::width() - vortex::SIZE) / 2, faceTop(), vortex::SIZE, frame);
+    display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
     drawMicros += micros() - t0;
     frames++;
 

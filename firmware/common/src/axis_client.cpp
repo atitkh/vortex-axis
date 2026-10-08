@@ -114,6 +114,10 @@ struct Client::Impl {
     String currentTurn;
     String consoleLine;
 
+    // The speech stream being received or played, if any.
+    String speakTurn;
+    bool speakEnded = false, speakStartReported = false;
+
     explicit Impl(Client &client) : self(client) {}
 
     // --- shared state ------------------------------------------------------
@@ -438,12 +442,21 @@ struct Client::Impl {
             JsonArray capabilities = hello["capabilities"].to<JsonArray>();
             for (size_t i = 0; i < identity.capabilityCount; i++) capabilities.add(identity.capabilities[i]);
             hello["settingsVersion"] = settingsVersion;
+            if (self.sink_) {
+                hello["maxFrameBytes"] = 4096;
+                hello["audioBufferMs"] = self.sink_->bufferMs();
+            }
             send(hello);
         } else if (type == WStype_DISCONNECTED) {
             if (welcomed) logf("lost the connection to Axis");
             welcomed = false;
+            // Whatever is already queued may finish, but nothing more is coming.
+            if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
+            speakTurn = "";
         } else if (type == WStype_TEXT) {
             onMessage(payload, length);
+        } else if (type == WStype_BIN) {
+            if (!speakTurn.isEmpty() && !speakEnded && self.sink_) self.sink_->streamWrite(payload, length);
         }
     }
 
@@ -513,6 +526,19 @@ struct Client::Impl {
                 if (final) s.reply = text;
                 else s.reply += text;
             });
+        } else if (!strcmp(t, "speak.start")) {
+            if (!self.sink_) return;
+            enterTurn(doc["turnId"]);
+            speakTurn = doc["turnId"] | "";
+            speakEnded = false;
+            speakStartReported = false;
+            self.sink_->streamBegin(doc["format"]["sampleRate"] | 16000);
+        } else if (!strcmp(t, "speak.end")) {
+            if (!self.sink_ || speakTurn != (doc["turnId"] | "")) return;
+            speakEnded = true;
+            self.sink_->streamEnd();
+        } else if (!strcmp(t, "stop")) {
+            quiet();
         } else if (!strcmp(t, "command")) {
             onCommand(doc);
         } else if (!strcmp(t, "error")) {
@@ -523,6 +549,36 @@ struct Client::Impl {
                 forgetPairing();
                 setLink(Link::Unpaired, "Axis no longer knows this device. Pair it again.");
             }
+        }
+    }
+
+    void reportPlayback(const char *what) {
+        JsonDocument doc;
+        doc["t"] = "playback";
+        doc["turnId"] = speakTurn;
+        doc["state"] = what;
+        send(doc);
+    }
+
+    /** Stops speech at once and tells Axis, which is waiting to hear how playback went. */
+    void quiet() {
+        if (!self.sink_ || speakTurn.isEmpty()) return;
+        self.sink_->stop();
+        reportPlayback("stopped");
+        speakTurn = "";
+    }
+
+    /** Tells Axis when sound really starts and really ends, not when the bytes arrived. */
+    void speechTick() {
+        if (!self.sink_ || speakTurn.isEmpty()) return;
+        if (!speakStartReported && self.sink_->started()) {
+            speakStartReported = true;
+            reportPlayback("started");
+        }
+        if (speakEnded && self.sink_->drained()) {
+            reportPlayback("finished");
+            logf("finished speaking");
+            speakTurn = "";
         }
     }
 
@@ -582,8 +638,10 @@ struct Client::Impl {
             return;
         }
         setLink(Link::Online, state.turn == Turn::Error ? state.note : "");
+        speechTick();
         if (self.wantInterrupt_) {
             self.wantInterrupt_ = false;
+            quiet();
             JsonDocument doc;
             doc["t"] = "interrupt";
             send(doc);
@@ -640,6 +698,8 @@ struct Client::Impl {
             doc["turnId"] = "t" + String(millis());
             doc["text"] = rest;
             send(doc);
+        } else if (word == "stop") {
+            self.wantInterrupt_ = true;
         } else if (word == "forget") {
             if (rest == "wifi") {
                 WiFi.disconnect(false, true);
@@ -652,7 +712,7 @@ struct Client::Impl {
         } else if (word == "reboot") {
             ESP.restart();
         } else {
-            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | forget [wifi] | reboot");
+            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | stop | forget [wifi] | reboot");
         }
     }
 
@@ -680,7 +740,8 @@ struct Client::Impl {
             wifiTick();
             axisTick();
             consoleTick();
-            delay(5);
+            // Short enough that speech frames are picked up as fast as Axis sends them.
+            delay(2);
         }
     }
 };

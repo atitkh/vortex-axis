@@ -15,7 +15,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.2.0"
+#define AXIS_FIRMWARE_VERSION "0.3.0"
 
 namespace axis {
 
@@ -66,6 +66,28 @@ struct Snapshot {
 };
 
 /**
+ * Where speech from Axis goes. A board with a speaker implements this and hands
+ * it to the client. Every call comes from the client's task and must return
+ * quickly; the board plays the audio from a task of its own.
+ */
+class AudioSink {
+  public:
+    /** A new stream of 16-bit mono PCM at `sampleRate` follows. Drops anything still queued. */
+    virtual void streamBegin(uint32_t sampleRate) = 0;
+    virtual void streamWrite(const uint8_t *data, size_t length) = 0;
+    /** No more audio is coming for this stream. What is queued still plays. */
+    virtual void streamEnd() = 0;
+    /** Go quiet now and drop what is queued. */
+    virtual void stop() = 0;
+    /** True once sound from the current stream has actually started. */
+    virtual bool started() = 0;
+    /** True when an ended stream has finished playing, to the last sample. */
+    virtual bool drained() = 0;
+    /** How much audio the board can queue, in milliseconds. Axis never sends further ahead than this. */
+    virtual uint32_t bufferMs() = 0;
+};
+
+/**
  * A command from Axis. Fill `payload` with flat values and return true, or
  * return false for a command the board does not implement.
  */
@@ -75,6 +97,9 @@ class Client {
   public:
     /** Starts the client task. `console` is optional; it gets logs and takes commands. */
     void begin(const Identity &identity, Stream *console = nullptr);
+
+    /** Gives the client somewhere to play speech. Call before `begin`. */
+    void setAudioSink(AudioSink *sink) { sink_ = sink; }
 
     Snapshot snapshot();
     /** Cheap check for whether `snapshot()` would return anything new. */
@@ -95,6 +120,7 @@ class Client {
     volatile uint32_t revision_ = 0;
     volatile bool wantInterrupt_ = false;
     CommandHandler commandHandler_;
+    AudioSink *sink_ = nullptr;
     friend struct Impl;
 };
 
