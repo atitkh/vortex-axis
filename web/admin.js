@@ -20,6 +20,7 @@ let lastStatus;
 let lastGateway;
 let lastNow;
 let lastFirmware = [];
+let lastShelves = [];
 let lastConfig;
 
 /** Builds an element. Text always goes in as text, never as markup. */
@@ -174,6 +175,8 @@ async function refresh() {
     ]);
     lastNow = now;
     lastFirmware = firmware?.firmware ?? [];
+    lastShelves = firmware?.shelves ?? [];
+    renderNavFirmware();
     lastClients = clients.clients;
     lastTypes = clients.types || {};
     lastGlobal = settings.values;
@@ -352,7 +355,7 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech"];
+const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
@@ -384,6 +387,7 @@ function renderView() {
   if (view.name === "device") renderDevice();
   if (view.name === "type") renderType();
   if (view.name === "settings") renderAllDevices();
+  if (view.name === "firmware") renderFirmware();
 }
 
 /** Every client type that has a device, with how many are online. */
@@ -852,58 +856,154 @@ async function updateDevice(client, noteId) {
   note(noteId, `${told.client} is updating from ${told.from} to ${told.to}. It restarts by itself in about half a minute.`, "good");
 }
 
-/** The build kept for a type, a way to replace it, and a button to send it to the devices behind. */
-function renderTypeFirmware(type, members) {
-  const box = $("type-firmware");
+/** Online devices of a type that are not on the build Axis sends for it. */
+function devicesBehind(type) {
   const held = lastFirmware.find((f) => f.type === type);
-  const behind = members.filter((c) => c.online && held && c.version !== held.version);
-  // Drawn again only when something changed, so a chosen file is not lost to the 3 s refresh.
-  const key = JSON.stringify([type, held, members.map((c) => [c.id, c.online, c.version])]);
-  if (box.dataset.drawn === key) return;
-  box.dataset.drawn = key;
+  return held ? lastClients.filter((c) => c.type === type && c.online && c.version !== held.version) : [];
+}
 
-  const file = h("input", { type: "file", accept: ".bin" });
-  const version = h("input", { placeholder: "Version, for example 0.8.1", spellcheck: "false", maxlength: 32 });
-  const upload = h("button", {
-    type: "button",
-    onclick: (event) =>
-      act(event.target, "type-firmware-note", async () => {
-        if (!file.files[0]) throw new Error("Choose the firmware.bin from the build first.");
-        if (!version.value.trim()) throw new Error("Say which version this build is.");
-        const res = await fetch(`/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version.value.trim())}`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
-          body: file.files[0],
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new ApiError(res.status, data.error || `upload failed (${res.status})`);
-        note("type-firmware-note", `Version ${data.version} is ready to send.`, "good");
-        refresh();
-      }),
-  }, "Upload");
-  const send = h("button", {
+/** A button that sends the current build to every online device of a type that is not on it. */
+function updateButton(type, noteId) {
+  const held = lastFirmware.find((f) => f.type === type);
+  const behind = devicesBehind(type);
+  return h("button", {
     type: "button",
     class: "primary",
     disabled: !behind.length,
     onclick: (event) =>
-      act(event.target, "type-firmware-note", async () => {
+      act(event.target, noteId, async () => {
         if (!confirm(`Update ${plural(behind.length, "device")} to ${held.version}? Each restarts and is away for about half a minute.`)) return;
         const failed = [];
-        for (const client of behind) await updateDevice(client, "type-firmware-note").catch((error) => failed.push(`${client.name}: ${error.message}`));
+        for (const client of behind) await updateDevice(client, noteId).catch((error) => failed.push(`${client.name}: ${error.message}`));
         if (failed.length) throw new Error(failed.join(" "));
-        note("type-firmware-note", `${plural(behind.length, "device")} told to update to ${held.version}.`, "good");
+        note(noteId, `${plural(behind.length, "device")} told to update to ${held.version}. They restart by themselves in about half a minute.`, "good");
       }),
   }, behind.length ? `Update ${plural(behind.length, "device")} to ${held.version}` : "Nothing to update");
+}
 
+/** On a type's page: which build its devices are sent and who is behind. The builds themselves are on the Firmware page. */
+function renderTypeFirmware(type, members) {
+  const box = $("type-firmware");
+  const held = lastFirmware.find((f) => f.type === type);
+  const behind = devicesBehind(type);
+  const key = JSON.stringify([type, held, members.map((c) => [c.id, c.online, c.version])]);
+  if (box.dataset.drawn === key) return;
+  box.dataset.drawn = key;
   box.replaceChildren(
     h("p", {}, held
-      ? `Axis holds version ${held.version} (${(held.size / 1024 / 1024).toFixed(2)} MB, uploaded ${ago(held.uploadedAt)}). `
-      : "No build has been uploaded for this type yet. ",
-      held ? (behind.length ? `${behind.map((c) => `${c.name} is on ${c.version}`).join(", ")}.` : "Every online device is on it.") : ""),
-    h("div", { class: "inline" }, send),
-    h("div", { class: "inline", style: "margin-top:10px" }, file, version, upload),
+      ? `Devices are sent version ${held.version}. ${behind.length ? `${behind.map((c) => `${c.name} is on ${c.version}`).join(", ")}.` : "Every online device is on it."}`
+      : "No build has been uploaded for this type yet."),
+    held ? h("div", { class: "inline" }, updateButton(type, "type-firmware-note")) : null,
   );
 }
+
+function renderNavFirmware() {
+  const behind = lastFirmware.reduce((sum, f) => sum + devicesBehind(f.type).length, 0);
+  $("nav-firmware").textContent = behind ? String(behind) : "";
+  $("nav-firmware").className = `count ${behind ? "warn" : ""}`.trim();
+}
+
+/** Fetches a build with the admin token and hands it to the browser as a download. */
+async function downloadBuild(build) {
+  const res = await fetch(`/admin/firmware/${encodeURIComponent(build.type)}/${encodeURIComponent(build.version)}`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new ApiError(res.status, `download failed (${res.status})`);
+  const link = h("a", { href: URL.createObjectURL(await res.blob()), download: `${build.type}-${build.version}.bin` });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+}
+
+/** The Firmware page: every client type with its builds, which one is sent, and which devices are on what. */
+function renderFirmware() {
+  const types = [...new Set([...typesInUse().map((t) => t.type), ...lastShelves.map((s) => s.type)])].sort();
+  $("firmware-types").replaceChildren(...types.map((type) => h("option", { value: type })));
+  const box = $("firmware-shelves");
+  const key = JSON.stringify([lastShelves, lastClients.map((c) => [c.id, c.type, c.online, c.version, c.name]), lastTypes && Object.entries(lastTypes).map(([t, v]) => [t, v.label])]);
+  if (box.dataset.drawn === key) return;
+  box.dataset.drawn = key;
+
+  const path = (b) => `/admin/firmware/${encodeURIComponent(b.type)}/${encodeURIComponent(b.version)}`;
+  box.replaceChildren(
+    ...(types.length ? [] : [h("p", { class: "empty" }, "No devices are paired and no builds are held yet.")]),
+    ...types.flatMap((type) => {
+      const shelf = lastShelves.find((s) => s.type === type) ?? { type, current: undefined, builds: [] };
+      const members = lastClients.filter((c) => c.type === type);
+      const noteId = `firmware-note-${type}`;
+      const devices = members.length
+        ? members
+            .map((c) => `${c.name} ${c.version}${!c.online ? " (offline)" : shelf.current && c.version !== shelf.current ? " (behind)" : ""}`)
+            .join(", ")
+        : "no devices paired";
+      return [
+        h("h3", {}, typeName(type), typeName(type) === type ? null : h("span", { class: "sub mono" }, ` ${type}`)),
+        h("p", {}, `Devices: ${devices}.`),
+        shelf.builds.length
+          ? h("table", { class: "numbers" },
+              h("thead", {}, h("tr", {}, h("th", {}, "Version"), h("th", { class: "num" }, "Size"), h("th", {}, "Uploaded"), h("th", {}, "Checksum"), h("th", {}, ""), h("th", {}))),
+              h("tbody", {}, ...shelf.builds.map((b) =>
+                h("tr", {},
+                  h("td", { class: "mono" }, b.version),
+                  h("td", { class: "num" }, `${(b.size / 1024 / 1024).toFixed(2)} MB`),
+                  h("td", {}, ago(b.uploadedAt)),
+                  h("td", { class: "mono sub", title: b.md5 }, b.md5.slice(0, 10)),
+                  h("td", {}, b.version === shelf.current ? stat("sent to devices", "good") : ""),
+                  h("td", { class: "num" },
+                    h("div", { class: "inline", style: "justify-content:flex-end" },
+                      b.version === shelf.current ? null : h("button", {
+                        type: "button", class: "small",
+                        onclick: (event) => act(event.target, noteId, async () => {
+                          await api("PUT", `${path(b)}/current`);
+                          note(noteId, `Devices are now sent ${b.version}. Update them to put it on.`, "good");
+                          refresh();
+                        }),
+                      }, "Send this one"),
+                      h("button", { type: "button", class: "small", onclick: (event) => act(event.target, noteId, () => downloadBuild(b)) }, "Download"),
+                      h("button", {
+                        type: "button", class: "small",
+                        onclick: (event) => {
+                          if (!confirm(`Remove ${type} ${b.version} from Axis? Devices already running it keep it.`)) return;
+                          act(event.target, noteId, async () => {
+                            await api("DELETE", path(b));
+                            refresh();
+                          });
+                        },
+                      }, "Remove"),
+                    ),
+                  ),
+                ),
+              )),
+            )
+          : h("p", { class: "empty" }, "No builds held for this type. Add one above."),
+        shelf.builds.length ? h("div", { class: "inline", style: "margin-top:10px" }, updateButton(type, noteId)) : null,
+        h("p", { class: "msg", id: noteId }),
+      ];
+    }),
+  );
+}
+
+$("firmware-upload").addEventListener("click", (event) =>
+  act(event.target, "firmware-note", async () => {
+    const type = $("firmware-type").value.trim();
+    const version = $("firmware-version").value.trim();
+    const file = $("firmware-file").files[0];
+    if (!type) throw new Error("Say which client type this build is for.");
+    if (!version) throw new Error("Say which version this build is.");
+    if (!file) throw new Error("Choose the firmware.bin from the build.");
+    note("firmware-note", "Uploading…");
+    const res = await fetch(`/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version)}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `upload failed (${res.status})`);
+    note("firmware-note", `${data.type} ${data.version} is held and is the build devices are sent.`, "good");
+    $("firmware-file").value = "";
+    $("firmware-version").value = "";
+    await refresh();
+  }),
+);
 
 $("type-rename").addEventListener("click", async () => {
   const type = view.id;

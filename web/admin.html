@@ -37,6 +37,7 @@
     <a href="#openclaw" data-view="openclaw">OpenClaw <span class="count" id="nav-openclaw"></span></a>
     <a href="#agent" data-view="agent">Agent</a>
     <a href="#speech" data-view="speech">Speech</a>
+    <a href="#firmware" data-view="firmware">Firmware <span class="count" id="nav-firmware"></span></a>
   </nav>
 
   <main>
@@ -151,13 +152,39 @@
         <div id="type-actions"></div>
       </div>
 
-      <h3>Firmware</h3>
-      <p class="help">Axis keeps one build per client type and sends it to devices over Wi-Fi. A device installs it in its spare slot, restarts, and goes back to the old firmware by itself if the new one cannot reach Axis.</p>
+      <h3>Firmware <a class="more" href="#firmware">Manage builds</a></h3>
       <div id="type-firmware"></div>
       <p class="msg" id="type-firmware-note"></p>
 
       <h3>Settings</h3>
       <div id="type-settings"></div>
+    </section>
+
+    <!-- Firmware: the builds Axis holds for each client type -->
+    <section class="view" id="firmware">
+      <div class="head"><h2>Firmware</h2></div>
+      <p class="help">Axis keeps the last five builds of each client type. One of them is the one devices are sent. A device installs it in its spare slot, restarts, and goes back to its old firmware by itself if the new one cannot reach Axis. To go back to an older build, make it the one that is sent and update the devices again.</p>
+
+      <h3>Add a build</h3>
+      <div class="form">
+        <label for="firmware-type">Client type</label>
+        <div>
+          <input id="firmware-type" class="mono" list="firmware-types" spellcheck="false" maxlength="64" placeholder="waveshare-amoled-1.8">
+          <datalist id="firmware-types"></datalist>
+          <p class="help">The type the firmware reports, not a display name. A build only ever goes to devices of its own type.</p>
+        </div>
+        <label for="firmware-version">Version</label>
+        <div><input id="firmware-version" class="mono" spellcheck="false" maxlength="32" placeholder="0.9.1"></div>
+        <label for="firmware-file">File</label>
+        <div>
+          <input id="firmware-file" type="file" accept=".bin">
+          <p class="help"><code>firmware.bin</code> from the build folder. It becomes the build devices are sent; nothing is updated until you say so below.</p>
+        </div>
+        <label></label>
+        <div class="inline"><button class="primary" id="firmware-upload">Upload</button><span class="msg" id="firmware-note"></span></div>
+      </div>
+
+      <div id="firmware-shelves"></div>
     </section>
 
     <!-- Pairing -->

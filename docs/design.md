@@ -144,11 +144,12 @@ SQLite, one file in one data folder bind-mounted from the host, through Node's b
 
 Built 2026-10-08 (brought into version 1 by the owner the same day).
 
-- Axis keeps ONE build per client type in `<data folder>/firmware/` (`server/src/firmware.ts`): `POST /admin/firmware/:type?version=` with the file as the body, `GET /admin/firmware`, `DELETE /admin/firmware/:type`. A file that does not start like an ESP32 application image is refused.
+- Axis keeps the last five builds of each client type in `<data folder>/firmware/<type>/` (`server/src/firmware.ts`), one of them marked current: that is the one devices are sent. `POST /admin/firmware/:type?version=` with the file as the body adds a build and makes it current; `GET /admin/firmware` lists them; `GET /admin/firmware/:type/:version` downloads one; `PUT /admin/firmware/:type/:version/current` chooses which is sent; `DELETE` removes one build or a whole type. A file that does not start like an ESP32 application image is refused. Going back to an older firmware is: make it current, then update the devices.
+- The admin page's Firmware section shows every client type with its builds, which devices are on which version, and does all of the above.
 - `POST /admin/clients/:id/update` sends the device the `update` command. The device fetches `GET /v1/firmware/:type` with its own token, so only a paired device of that type can download it.
 - The device writes the file to its spare app slot, checks the MD5 Axis gave, and restarts. The new firmware is kept only once it has connected to Axis; if it has not within three minutes, the device restarts into the old one. A failed download or check leaves the running firmware untouched and is reported on the screen and as the reading `updateFailed`.
 - `scripts/push-firmware.mjs <type> [--update]` uploads a build and updates the devices of that type that are behind. The admin page has the same on each client type's page, and an Update button on a device's page.
-- Not built: staged rollout, signed firmware (the MD5 guards against a broken download, not a hostile one; anyone with the admin token can already do anything).
+- Not built: building firmware in CI on a tag, staged rollout, signed firmware (the MD5 guards against a broken download, not a hostile one; anyone with the admin token can already do anything).
 
 ### 7.2 Encrypted link from devices
 

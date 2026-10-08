@@ -338,7 +338,7 @@ export function createHttpHandler(deps: HttpDeps) {
       const info = client.type === parts[2] ? firmware.info(client.type) : undefined;
       if (!info) throw new HttpError(404, "there is no firmware for this client type");
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": info.size, "x-md5": info.md5 });
-      createReadStream(firmware.path(info.type)).pipe(res);
+      createReadStream(firmware.path(info.type, info.version)).pipe(res);
       return;
     }
 
@@ -431,22 +431,56 @@ export function createHttpHandler(deps: HttpDeps) {
         activity?.note("admin", "", label ? `Client type ${type} is now shown as "${label}"` : `Client type ${type} is shown by its own name again`);
         return sendJson(res, 200, { type, label: label || null });
       }
-      // Firmware: one build kept per client type, sent to devices over Wi-Fi.
+      // Firmware: the last few builds kept per client type, one of them current, sent to devices over Wi-Fi.
       if (parts[1] === "firmware") {
-        if (method === "GET" && parts.length === 2) return sendJson(res, 200, { firmware: firmware.list() });
+        const type = parts[2] ?? "";
+        const version = parts[3] ?? "";
+        if (method === "GET" && parts.length === 2) {
+          const shelves = firmware.shelves();
+          return sendJson(res, 200, {
+            // The current build of each type, for callers that only want to know what devices get.
+            firmware: shelves.map((shelf) => shelf.builds.find((b) => b.version === shelf.current)!),
+            shelves,
+          });
+        }
         if (method === "POST" && parts.length === 3) {
           try {
-            const info = firmware.save(parts[2]!, url.searchParams.get("version") ?? "", await readBytes(req, MAX_FIRMWARE_BYTES));
-            activity?.note("admin", "", `Firmware ${info.version} uploaded for ${info.type}`);
+            const info = firmware.save(type, url.searchParams.get("version") ?? "", await readBytes(req, MAX_FIRMWARE_BYTES));
+            activity?.note("admin", "", `Firmware ${info.version} uploaded for ${info.type}; it is now the one devices are sent`);
             return sendJson(res, 201, info);
           } catch (error) {
             if (error instanceof HttpError) throw error;
             throw new HttpError(400, (error as Error).message);
           }
         }
+        // A copy of a build, for keeping elsewhere or flashing by cable.
+        if (method === "GET" && parts.length === 4) {
+          const info = firmware.build(type, version);
+          if (!info) throw new HttpError(404, "there is no such build");
+          res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            "content-type": "application/octet-stream",
+            "content-length": info.size,
+            "content-disposition": `attachment; filename="${info.type}-${info.version}.bin"`,
+          });
+          createReadStream(firmware.path(info.type, info.version)).pipe(res);
+          return;
+        }
+        // Chooses the build devices are sent. Going back to an older one is this, then an update.
+        if (method === "PUT" && parts.length === 5 && parts[4] === "current") {
+          if (!firmware.setCurrent(type, version)) throw new HttpError(404, "there is no such build");
+          activity?.note("admin", "", `Firmware for ${type}: devices are now sent ${version}`);
+          return sendJson(res, 200, firmware.shelf(type));
+        }
+        if (method === "DELETE" && parts.length === 4) {
+          if (!firmware.removeBuild(type, version)) throw new HttpError(404, "there is no such build");
+          activity?.note("admin", "", `Firmware ${version} for ${type} removed`);
+          return sendJson(res, 200, firmware.shelf(type));
+        }
         if (method === "DELETE" && parts.length === 3) {
-          if (!firmware.remove(parts[2]!)) throw new HttpError(404, "there is no firmware for that client type");
-          return sendJson(res, 200, { removed: parts[2] });
+          if (!firmware.remove(type)) throw new HttpError(404, "there is no firmware for that client type");
+          activity?.note("admin", "", `All firmware for ${type} removed`);
+          return sendJson(res, 200, { removed: type });
         }
       }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {

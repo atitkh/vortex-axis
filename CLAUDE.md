@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added the public-address protections, the device guide and firmware 0.9.0. Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added the Firmware page and kept builds (firmware 0.9.1). Update this line whenever you change this section.
 
 Built and running:
 
@@ -31,9 +31,9 @@ Built 2026-10-08 after milestone 5: protections for a public address (design 9.0
 
 `docs/client-guide.md` is the contract for a new client type: what each capability obliges a client to do, the shared setting keys, the commands every client answers, and a checklist. Read it before writing firmware for a new board, and change it in the same commit as any change to what clients must do.
 
-Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, wake word models sent from Axis, a firmware history. The owner asked about the last three on 2026-10-08; they were discussed, not started.
+Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, wake word models sent from Axis, firmware built in CI on a tag. The owner asked about these on 2026-10-08; they were discussed, not started.
 
-Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.0 at that commit.
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.1 at that commit. 0.9.1 corrects auto-rotate, which 0.9.0 had a quarter turn out; the owner has not yet confirmed the correction.
 
 Loose ends, not yet done:
 
@@ -138,7 +138,7 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/gateway/client.ts`: both links, credentials, agent turns, node commands.
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
 - `server/src/ask.ts`: matches what a person said or typed to one of a question's choices. The question's life (speak it, send `ask`, take the answer from a tap, a recording or typed text, time out) is in `turns.ts`, because a spoken answer arrives as an ordinary recording and must be kept from the agent.
-- `server/src/firmware.ts`: the firmware build kept per client type for updates over Wi-Fi. The routes are in `http.ts`.
+- `server/src/firmware.ts`: the firmware builds kept per client type (the last five, one current) for updates over Wi-Fi. The routes are in `http.ts`; the admin page's Firmware section manages them.
 - `server/src/timers.ts`: timers agents set. Kept in the `timers` table, announced with `hub.say` when due, retried while nobody can be reached, and told to screens with the `timer.next` command.
 
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.

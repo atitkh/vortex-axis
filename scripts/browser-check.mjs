@@ -295,7 +295,23 @@ try {
   await admin.until(`${byId("type")}.classList.contains('on') && document.querySelector('#type-settings tr[data-key=listenCue] button')`, "the type page again");
   await admin.run(`document.querySelector('#type-settings tr[data-key=listenCue] button').click()`);
   step("type reset", await admin.until(`${source("#type-settings", "listenCue")} === 'default' && ${row("#type-settings", "listenCue")}`, "the type reset"));
-  await admin.run(`history.back()`);
+  // The firmware page: upload a build from the page's own form, see it listed as the one that is sent.
+  await admin.run(`location.hash = '#firmware'`);
+  await admin.until(`${byId("firmware")}.classList.contains('on') && ${byId("firmware-shelves")}.textContent.includes('No builds held')`, "the firmware page");
+  await admin.run(`(() => {
+    const bytes = new Uint8Array(70000); bytes[0] = 0xe9;
+    const files = new DataTransfer(); files.items.add(new File([bytes], 'firmware.bin'));
+    ${byId("firmware-file")}.files = files.files;
+    ${byId("firmware-type")}.value = 'web';
+    ${byId("firmware-version")}.value = '9.9.9';
+    ${byId("firmware-upload")}.click();
+  })()`);
+  step("firmware uploaded", await admin.until(`${byId("firmware-shelves")}.textContent.includes('sent to devices') && ${byId("firmware-shelves")}.textContent.replace(/\\s+/g, ' ')`, "the build to be listed"));
+  await admin.run(`window.confirm = () => true; [...document.querySelectorAll('#firmware-shelves button')].find((b) => b.textContent === 'Remove').click()`);
+  step("firmware removed", await admin.until(`${byId("firmware-shelves")}.textContent.includes('No builds held') && 'gone'`, "the build to go"));
+  await admin.run(`location.hash = '#type/web'`);
+  await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
+  await admin.run(`history.go(-3)`);
   await admin.until(`${byId("device")}.classList.contains('on') && !${byId("device-remove")}.disabled`, "the device page again");
   await admin.run(`window.confirm = () => true; ${byId("device-remove")}.click()`);
   await client.front();

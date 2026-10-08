@@ -41,6 +41,36 @@ describe("firmware for updates over Wi-Fi", () => {
     expect((await admin("GET", "/admin/firmware")).body.firmware).toEqual([]);
   });
 
+  it("keeps earlier builds, lets one be made current again, downloaded and removed", async () => {
+    await upload("board", "1.0.0", image(80_000, 1));
+    await new Promise((r) => setTimeout(r, 5));
+    await upload("board", "1.1.0", image(80_000, 2));
+    let shelf = (await admin("GET", "/admin/firmware")).body.shelves[0];
+    expect(shelf).toMatchObject({ type: "board", current: "1.1.0" });
+    expect(shelf.builds.map((b: any) => b.version)).toEqual(["1.1.0", "1.0.0"]);
+
+    // Going back: the older build becomes the one devices are sent.
+    expect((await admin("PUT", "/admin/firmware/board/1.0.0/current")).body.current).toBe("1.0.0");
+    expect((await admin("GET", "/admin/firmware")).body.firmware).toMatchObject([{ version: "1.0.0" }]);
+    expect((await admin("PUT", "/admin/firmware/board/9.9.9/current")).status).toBe(404);
+
+    const copy = await fetch(`${ctx.base}/admin/firmware/board/1.1.0`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } });
+    expect(copy.headers.get("content-disposition")).toContain("board-1.1.0.bin");
+    expect(Buffer.from(await copy.arrayBuffer()).equals(image(80_000, 2))).toBe(true);
+
+    // Removing the current build hands the place to the newest one left.
+    shelf = (await admin("DELETE", "/admin/firmware/board/1.0.0")).body;
+    expect(shelf).toMatchObject({ current: "1.1.0" });
+    expect(shelf.builds).toHaveLength(1);
+
+    for (let i = 2; i < 9; i++) {
+      await new Promise((r) => setTimeout(r, 3));
+      await upload("board", `1.${i}.0`, image(70_000, i));
+    }
+    shelf = (await admin("GET", "/admin/firmware")).body.shelves[0];
+    expect(shelf.builds.map((b: any) => b.version)).toEqual(["1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.4.0"]);
+  });
+
   it("hands a device its own type's build, and only with its token", async () => {
     const data = image();
     await upload("board", "1.2.0", data);

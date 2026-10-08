@@ -43,13 +43,22 @@ bool writeReg(uint8_t reg, uint8_t value) {
     return Wire.endTransmission(true) == 0;
 }
 
-/** The rotation that suits gravity pulling this way, or -1 when no edge is clearly down. */
+/**
+ * The rotation that suits the way the board is standing, or -1 when no edge
+ * is clearly down. An axis reads positive when it points UP.
+ *
+ * The sensor's Y axis runs along the panel's short side and its X axis along
+ * the long side, pointing at the panel's top. So gravity along Y means the
+ * board is standing on a long edge (landscape), and along X on a short edge
+ * (portrait). Measured on the real board: lying nearly flat and tipped toward
+ * the reader at rotation 90, it read y = -0.26. The first version had this a
+ * quarter turn out.
+ */
 int rotationFor(float x, float y) {
-    // Measured on the real board: see the table in firmware/README.md.
-    if (y < -DOWN_G) return 0;
-    if (y > DOWN_G) return 180;
-    if (x > DOWN_G) return 90;
-    if (x < -DOWN_G) return 270;
+    if (y < -DOWN_G) return 90;
+    if (y > DOWN_G) return 270;
+    if (x > DOWN_G) return 0;
+    if (x < -DOWN_G) return 180;
     return -1;
 }
 
