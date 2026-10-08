@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** early. The hub handles client pairing, settings, full voice and text turns, and the link to an OpenClaw gateway in both directions. It has an admin page and a web client. There is no firmware client yet, and the gateway link has not run against a real gateway. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** working, version 1 nearly complete. The hub handles pairing, settings, voice and text turns, and the link to an OpenClaw gateway in both directions, proven against a real gateway. There is an admin page (overview, activity and uptime, per-type and per-device settings) and a web client. The first firmware client runs on the Waveshare ESP32-S3-Touch-AMOLED-1.8 with an on-device "Hey Vortex" wake word, tap-to-talk and follow-up listening; see [firmware/README.md](firmware/README.md). Not built yet: the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands, firmware updates over Wi-Fi, and TLS from firmware. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -35,7 +35,7 @@ With Axis:
 
 ## Repository layout
 
-Planned layout. Folders appear as the work reaches them.
+Folders appear as the work reaches them; `clients/` does not exist yet.
 
 | Path | Contents |
 | --- | --- |
@@ -68,7 +68,7 @@ Out, for later:
 
 ## Running it
 
-What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an admin page and a web client. Not built yet: firmware clients, and the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands.
+What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an activity log with uptime, an admin page, a web client and a firmware client. Not built yet: the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands.
 
 ```bash
 cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page
@@ -159,7 +159,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 npm install
 npm test
 npm run build && AXIS_ADMIN_TOKEN=dev npm start
-npm run browser-check     # drives both pages in headless Chrome; needs google-chrome, or CHROME=<path to a Chromium browser>
+npm run browser-check     # drives both pages in headless Chrome, with stub speech unless STT and TTS are set; needs google-chrome, or CHROME=<path to a Chromium browser>
 AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis
 ```
 

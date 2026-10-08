@@ -125,21 +125,27 @@ function signOut(message = "") {
   $("signin-error").textContent = message;
 }
 
+// Each attempt gets a number, so an answer to an older attempt cannot undo a newer one.
+let signInAttempt = 0;
+
 async function signIn() {
+  const attempt = ++signInAttempt;
   try {
     await api("GET", "/admin/status");
   } catch (error) {
+    if (attempt !== signInAttempt) return;
     const message =
       error.status === 503 ? "The admin API is off: set AXIS_ADMIN_TOKEN on the hub and restart it."
       : error.status === 401 ? "That token was not accepted."
       : error.message;
     return signOut(token ? message : "");
   }
+  if (attempt !== signInAttempt) return;
   sessionStorage.setItem(TOKEN_KEY, token);
   $("signin-form").classList.add("hidden");
   $("app").classList.remove("hidden");
   route();
-  await Promise.all([loadConfig(), refresh()]);
+  await Promise.all([loadConfig().catch(() => {}), refresh()]);
   clearInterval(timer);
   timer = setInterval(() => document.hidden || refresh(), 3000);
 }
@@ -365,6 +371,8 @@ window.addEventListener("hashchange", () => {
 });
 
 function renderView() {
+  // Before sign-in there is nothing to fetch, and a refused fetch would sign out the next attempt.
+  if (!token) return;
   if (["overview", "activity", "device"].includes(view.name)) loadActivity();
   if (view.name === "overview") renderOverview(false);
   if (view.name === "device") renderDevice();

@@ -97,7 +97,7 @@ npm test          # all workspaces
 npm run typecheck
 npm run build
 npm run schema --workspace protocol   # regenerate protocol/schema/*.json
-npm run browser-check                 # both pages in headless Chrome; set TTS and STT to include real speech, CHROME=<path> for another Chromium browser
+npm run browser-check                 # both pages in headless Chrome, stub speech unless TTS and STT are set; CHROME=<path> for another Chromium browser
 AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis (uses the real agent)
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
 docker compose up -d --build          # needs .env, see .env.example

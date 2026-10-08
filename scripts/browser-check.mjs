@@ -3,7 +3,8 @@
 //
 //   npm run build && TTS=http://host/v1/audio/speech STT=http://host/v1/audio/transcriptions node scripts/browser-check.mjs
 //
-// TTS and STT are optional; without them the speech steps report "not set".
+// TTS and STT are optional. Without them a stub stands in: recognition always hears
+// "what time is it" and synthesis answers with a short tone, so every step runs anywhere.
 // Needs google-chrome on the PATH, or CHROME set to another Chromium browser. Exits non-zero if a step fails.
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -26,6 +27,29 @@ const chat = createServer((req, res) => {
 });
 await new Promise((r) => chat.listen(0, "127.0.0.1", r));
 
+// OpenAI-style speech endpoints, for when no real ones are given.
+const speech = createServer((req, res) => {
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    if (req.url === "/v1/audio/transcriptions") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return void res.end(JSON.stringify({ text: "what time is it" }));
+    }
+    if (req.url === "/v1/audio/speech") {
+      // 0.4 s of a quiet 440 Hz tone, 24 kHz 16-bit mono, as Axis asks for raw PCM.
+      const pcm = Buffer.alloc(24000 * 2 * 0.4);
+      for (let i = 0; i < pcm.length / 2; i++) pcm.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / 24000) * 3000), i * 2);
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      return void res.end(pcm);
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end("{}");
+  });
+});
+await new Promise((r) => speech.listen(0, "127.0.0.1", r));
+const stub = `http://127.0.0.1:${speech.address().port}`;
+const realSpeech = Boolean(process.env.STT && process.env.TTS);
+
 const dataDir = mkdtempSync(join(tmpdir(), "axischeck-data-"));
 const profile = mkdtempSync(join(tmpdir(), "axischeck-chrome-"));
 const app = await startApp(
@@ -34,8 +58,8 @@ const app = await startApp(
     AXIS_PORT: "0",
     AXIS_DATA_DIR: dataDir,
     AXIS_ADMIN_TOKEN: "browser-check",
-    AXIS_STT_URL: process.env.STT,
-    AXIS_TTS_URL: process.env.TTS,
+    AXIS_STT_URL: process.env.STT || `${stub}/v1/audio/transcriptions`,
+    AXIS_TTS_URL: process.env.TTS || `${stub}/v1/audio/speech`,
     AXIS_HEALTH_INTERVAL_MS: "2000",
     AXIS_AGENT_URL: `http://127.0.0.1:${chat.address().port}/v1/chat/completions`,
     AXIS_AGENT_MODEL: "stub",
@@ -133,6 +157,7 @@ const pills = (selector) =>
 const byId = (id) => `document.getElementById('${id}')`;
 const report = [];
 const step = (label, value) => report.push(`${label}: ${value}`);
+step("speech services", realSpeech ? "real (STT and TTS given)" : "stub");
 let failed = false;
 
 try {
@@ -175,7 +200,7 @@ try {
   // Nobody has clicked on this page yet, so the browser holds its sound back.
   await client.until(`!${byId("sound-note")}.classList.contains('hidden')`, "the sound notice");
   step("sound notice shown before any click", true);
-  if (process.env.TTS) {
+  {
     const session = [...app.hub.sessions()][0];
     const muted = await app.hub.say(session, "Can anyone hear this?");
     step("agent speech on an unclicked page", `heard=${muted.heard}`);
@@ -185,8 +210,6 @@ try {
     const audible = await app.hub.say(session, "And now?");
     step("agent speech after a click", `heard=${audible.heard}`);
     if (!audible.heard) throw new Error("speech after a click was not reported as heard");
-  } else {
-    await client.click(30, 30);
   }
 
   // Record what the page sends, to check the protocol side of each action.
@@ -197,7 +220,7 @@ try {
   await client.run(`${byId("say")}.value = 'what time is it'; ${byId("say-form")}.requestSubmit()`);
   const reply = await client.until(`(b => b.length && /Anything else/.test(b[b.length - 1].textContent) && b[b.length - 1].textContent)(document.querySelectorAll('.bubble.axis'))`, "the reply", 30000);
   step("typed turn reply", `${reply} (${Date.now() - started} ms)`);
-  if (process.env.TTS) {
+  {
     await client.until(`window.sent.some(m => m.t === 'playback' && m.state === 'finished')`, "playback to finish", 30000);
     step("playback reported", `${await client.run(`window.sent.filter(m => m.t === 'playback').map(m => m.state).join(', ')`)} (${Date.now() - started} ms)`);
   }
@@ -224,7 +247,11 @@ try {
   await admin.run(`location.hash = '#activity'`);
   step("activity turns", await admin.until(`document.querySelectorAll('#activity-turns tbody tr').length >= 2 && [...document.querySelectorAll('#activity-turns tbody tr')].map(r => r.children[2].textContent + ':' + r.children[3].textContent.trim()).join(', ')`, "the turns on the activity page"));
   step("activity chart drawn", await admin.until(`document.querySelector('#chart-turns svg') && 'yes'`, "the turns chart"));
-  step("no words stored", await admin.run(`!/what time is it|nine o'clock/.test(document.body.textContent)`));
+  // The words of a turn must never reach the activity log: not on the page, not from the API.
+  const wordsKept = await admin.run(`fetch('/admin/activity?hours=24', { headers: { authorization: 'Bearer browser-check' } })
+    .then(r => r.text()).then(t => /what time is it|nine o'clock/.test(t + document.getElementById('activity').textContent))`);
+  step("no words stored", !wordsKept);
+  if (wordsKept) throw new Error("what was said turned up in the activity log");
   await admin.run(`location.hash = '#clients'`);
   // The device editor. A real board describes its settings itself; here the schema is stored directly.
   app.store.saveSchema("web", {
@@ -283,6 +310,7 @@ console.log("page errors:", problems.length ? problems : "none");
 chrome.kill();
 await app.close();
 chat.close();
+speech.close();
 await new Promise((r) => setTimeout(r, 800));
 for (const dir of [dataDir, profile]) {
   try {

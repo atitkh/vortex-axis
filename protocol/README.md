@@ -2,7 +2,7 @@
 
 How a client talks to Axis. The TypeScript in `src/` is the definition; this page explains it. `schema/axis-protocol.v1.json` is the same definition as JSON Schema, generated for firmware and other non-TypeScript clients.
 
-Status: draft. Nothing has run against it yet, so expect changes until the server and the web client exist.
+Status: version 1, in use by the server, the web client and the Waveshare firmware. A change visible on the wire needs a new version (see the end of this page).
 
 ## Transport
 
