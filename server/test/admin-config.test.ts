@@ -117,7 +117,7 @@ describe("runtime settings", () => {
   it("changes the gateway address at runtime", async () => {
     const changed = await admin("PATCH", "/admin/gateway", { url: "http://gw.test:18789" });
     expect(changed.body.url).toBe("ws://gw.test:18789/");
-    expect(changed.body.commands).toContain("axis.say");
+    expect(changed.body.commands).toContain("vortex.axis.say");
     expect((await admin("PATCH", "/admin/gateway", { url: "ftp://nope" })).status).toBe(400);
     expect((await admin("PATCH", "/admin/gateway", { url: null })).body.url ?? null).toBeNull();
   });

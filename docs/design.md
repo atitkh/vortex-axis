@@ -105,16 +105,16 @@ OpenClaw filters node commands through an allowlist, and widening a node's decla
 
 | Command | Purpose |
 | --- | --- |
-| `axis.say` | Speak or show something on a client or in a room. |
-| `axis.ask` | Ask a question with choices and return the answer. |
-| `axis.clients` | List clients, their state and capabilities. |
-| `axis.config` | Read or change a client's settings. |
-| `axis.sense` | Read sensor data a client reports. |
-| `axis.diag` | Read diagnostics for Axis or a client. |
-| `axis.timer` | Set and manage timers on a client. |
-| `axis.admin` | Reboot, re-pair and similar actions. |
+| `vortex.axis.say` | Speak or show something on a client or in a room. |
+| `vortex.axis.ask` | Ask a question with choices and return the answer. |
+| `vortex.axis.clients` | List clients, their state and capabilities. |
+| `vortex.axis.config` | Read or change a client's settings. |
+| `vortex.axis.sense` | Read sensor data a client reports. |
+| `vortex.axis.diag` | Read diagnostics for Axis or a client. |
+| `vortex.axis.timer` | Set and manage timers on a client. |
+| `vortex.axis.admin` | Reboot, re-pair and similar actions. |
 
-Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect. Only commands that work get a tool. Built: `axis.say`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag`, and `system.notify` (spoken as a message). Declared but not built: `axis.ask`, `axis.timer`, `axis.admin`.
+Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect. Only commands that work get a tool. Built: `vortex.axis.say`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.diag`, and `system.notify` (spoken as a message). Declared but not built: `vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin`.
 
 Where agent-started output goes: a named client, else a named room, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. A client in a conversation is waited for, up to 20 seconds.
 

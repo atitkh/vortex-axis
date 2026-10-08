@@ -151,7 +151,7 @@ function renderGateway(gw) {
   const problem = gw.operator.error || gw.node.error;
   $("gw-note").textContent = problem ? problem : "";
   $("gw-device").textContent = `Device id: ${gw.deviceId}`;
-  $("gw-commands").textContent = (gw.commands || []).filter((c) => c.startsWith("axis.")).join(", ");
+  $("gw-commands").textContent = (gw.commands || []).filter((c) => c.startsWith("vortex.axis.")).join(", ");
   if (!gatewayUrlTouched && document.activeElement !== $("gw-url")) $("gw-url").value = gw.url || "";
   if (!agentTouched && document.activeElement !== $("agent-id")) $("agent-id").value = gw.agentId || "";
 }

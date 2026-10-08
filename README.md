@@ -68,7 +68,7 @@ Out, for later:
 
 ## Running it
 
-What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an admin page and a web client. Not built yet: firmware clients, and the `axis.ask`, `axis.timer` and `axis.admin` commands.
+What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an admin page and a web client. Not built yet: firmware clients, and the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands.
 
 ```bash
 cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page
@@ -112,7 +112,7 @@ Axis joins the gateway the way a device does: one identity, an operator link for
      -d '{"code": "<setup code>"}'
    ```
 3. Approve the device on the gateway (`openclaw devices list`, then `openclaw devices approve <id>`, or Settings, Devices in the Control UI). Axis retries every 10 seconds until then. Expect two requests one after the other: first the device itself, then its request to also act as a node.
-4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `axis.say`, `axis.ask`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag`, `axis.timer`, `axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
+4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `vortex.axis.say`, `vortex.axis.ask`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.diag`, `vortex.axis.timer`, `vortex.axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
 5. Check: `GET /admin/gateway` should show both links `connected`.
 
 Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime on the admin page (`PATCH /admin/gateway` with `{"agentId": "name"}`). With neither, the gateway's default agent answers.

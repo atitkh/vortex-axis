@@ -10,26 +10,26 @@ import type { Store } from "./store.js";
  */
 export const NODE_COMMANDS = [
   "system.notify",
-  "axis.say",
-  "axis.ask",
-  "axis.clients",
-  "axis.config",
-  "axis.sense",
-  "axis.diag",
-  "axis.timer",
-  "axis.admin",
+  "vortex.axis.say",
+  "vortex.axis.ask",
+  "vortex.axis.clients",
+  "vortex.axis.config",
+  "vortex.axis.sense",
+  "vortex.axis.diag",
+  "vortex.axis.timer",
+  "vortex.axis.admin",
 ] as const;
 
 const TARGET_PROPERTIES = {
-  client: { type: "string", description: "Name or id of one client. Use axis_clients to see them." },
+  client: { type: "string", description: "Name or id of one client. Use vortex_axis_clients to see them." },
   room: { type: "string", description: "Room to reach, when no single client is meant." },
 };
 
 /** Tools published to agents. Only commands that work get a tool. */
 export const NODE_TOOLS: NodeTool[] = [
   {
-    name: "axis_say",
-    command: "axis.say",
+    name: "vortex_axis_say",
+    command: "vortex.axis.say",
     description:
       "Speak a short message aloud, or show it, on one of the user's VorteX Axis devices. Use for timely " +
       "things the user should hear without looking at a screen. Keep it to one or two sentences, with no " +
@@ -41,16 +41,16 @@ export const NODE_TOOLS: NodeTool[] = [
     },
   },
   {
-    name: "axis_clients",
-    command: "axis.clients",
+    name: "vortex_axis_clients",
+    command: "vortex.axis.clients",
     description:
       "List the user's VorteX Axis devices: name, type, room, what each can do (mic, speaker, screen, " +
       "buttons, vibration, sensors) and whether it is online.",
     parameters: { type: "object", properties: {} },
   },
   {
-    name: "axis_config",
-    command: "axis.config",
+    name: "vortex_axis_config",
+    command: "vortex.axis.config",
     description:
       "Read or change a setting on one VorteX Axis device, such as volume or room. Give only the client " +
       "to read all its settings. Give key and value to change one.",
@@ -65,14 +65,14 @@ export const NODE_TOOLS: NodeTool[] = [
     },
   },
   {
-    name: "axis_sense",
-    command: "axis.sense",
+    name: "vortex_axis_sense",
+    command: "vortex.axis.sense",
     description: "Read the latest sensor readings a VorteX Axis device has reported, such as battery level.",
     parameters: { type: "object", properties: { client: TARGET_PROPERTIES.client } },
   },
   {
-    name: "axis_diag",
-    command: "axis.diag",
+    name: "vortex_axis_diag",
+    command: "vortex.axis.diag",
     description: "Check the health of the VorteX Axis hub: devices online, and whether speech services are up.",
     parameters: { type: "object", properties: {} },
   },
@@ -123,11 +123,11 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
 
   return async (command, params) => {
     switch (command) {
-      case "axis.say":
+      case "vortex.axis.say":
       case "system.notify": {
         // system.notify carries a title and a body; say them as one message.
         const words =
-          command === "axis.say"
+          command === "vortex.axis.say"
             ? text(params.text)
             : [text(params.title), text(params.body)].filter(Boolean).join(". ") || undefined;
         if (!words) throw new Error("there is nothing to say: text is empty");
@@ -136,12 +136,12 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         return { delivered: session.client.name };
       }
 
-      case "axis.clients":
+      case "vortex.axis.clients":
         return {
           clients: store.listClients().map((client) => describe(hub.session(client.id), client.id)),
         };
 
-      case "axis.config": {
+      case "vortex.axis.config": {
         const name = text(params.client);
         if (!name) throw new Error("say which client");
         const client = clientNamed(name);
@@ -154,7 +154,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         return { client: client.name, settings: store.resolveSettings(client) };
       }
 
-      case "axis.sense": {
+      case "vortex.axis.sense": {
         const name = text(params.client);
         const sessions = name ? [hub.session(clientNamed(name).id)] : [...hub.sessions()];
         return {
@@ -164,7 +164,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         };
       }
 
-      case "axis.diag":
+      case "vortex.axis.diag":
         return {
           version: deps.version,
           uptimeSeconds: Math.round((Date.now() - deps.startedAt) / 1000),
@@ -173,9 +173,9 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           upstream: hub.upstreamStatus(),
         };
 
-      case "axis.ask":
-      case "axis.timer":
-      case "axis.admin":
+      case "vortex.axis.ask":
+      case "vortex.axis.timer":
+      case "vortex.axis.admin":
         throw new Error(`${command} is not built yet`);
 
       default:

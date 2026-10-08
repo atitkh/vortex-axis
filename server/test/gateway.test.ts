@@ -147,7 +147,7 @@ describe("pairing with the gateway", () => {
     expect(methods.slice(0, 2)).toEqual(["node.pluginTools.update", "node.event"]);
     expect(methods).not.toContain("node.pluginSurface.refresh");
     const tools = gateway.nodeRequests[0]!.params.tools;
-    expect(tools.map((t: any) => t.name)).toEqual(["axis_say", "axis_clients", "axis_config", "axis_sense", "axis_diag"]);
+    expect(tools.map((t: any) => t.name)).toEqual(["vortex_axis_say", "vortex_axis_clients", "vortex_axis_config", "vortex_axis_sense", "vortex_axis_diag"]);
     expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
     expect(gateway.nodeRequests[1]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "vortex-axis" } });
   });
@@ -265,7 +265,7 @@ describe("commands from an agent", () => {
     kitchen.client.send({ t: "playback", turnId: "t1", state: "finished" });
     await kitchen.client.turn("t1", "idle");
 
-    const pending = gateway.invoke("axis.say", { text: "The build finished." });
+    const pending = gateway.invoke("vortex.axis.say", { text: "The build finished." });
     const start = await kitchen.client.next("speak.start", 0, (m) => m.turnId.startsWith("say-"));
     await kitchen.client.next("speak.end", 0, (m) => m.turnId === start.turnId);
     kitchen.client.send({ t: "playback", turnId: start.turnId, state: "finished" });
@@ -284,11 +284,11 @@ describe("commands from an agent", () => {
       const end = await c.next("speak.end");
       c.send({ t: "playback", turnId: end.turnId, state: "finished" });
     };
-    const byRoom = gateway.invoke("axis.say", { text: "Good night.", room: "bedroom" });
+    const byRoom = gateway.invoke("vortex.axis.say", { text: "Good night.", room: "bedroom" });
     await finish(bed.client);
     expect((await byRoom).payload).toEqual({ delivered: "Bedside" });
 
-    const byName = gateway.invoke("axis.say", { text: "Still up?", client: "desk" });
+    const byName = gateway.invoke("vortex.axis.say", { text: "Still up?", client: "desk" });
     await finish(desk.client);
     expect((await byName).payload).toEqual({ delivered: "Desk" });
   });
@@ -303,19 +303,19 @@ describe("commands from an agent", () => {
 
   it("refuses when nothing can take the message", async () => {
     await pairWithGateway();
-    expect(await gateway.invoke("axis.say", { text: "hello" })).toMatchObject({
+    expect(await gateway.invoke("vortex.axis.say", { text: "hello" })).toMatchObject({
       ok: false,
       error: { message: "no client that can speak or show text is online" },
     });
-    expect((await gateway.invoke("axis.say", { text: "hello", client: "Ghost" })).error.message).toMatch(/no client called "Ghost"/);
-    expect((await gateway.invoke("axis.say", {})).error.message).toMatch(/nothing to say/);
+    expect((await gateway.invoke("vortex.axis.say", { text: "hello", client: "Ghost" })).error.message).toMatch(/no client called "Ghost"/);
+    expect((await gateway.invoke("vortex.axis.say", {})).error.message).toMatch(/nothing to say/);
   });
 
   it("lists clients with what they can do", async () => {
     await pairWithGateway();
     const { identity } = await ready(["mic", "speaker"], { name: "Desk" });
     await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { room: "office" } });
-    const result = await gateway.invoke("axis.clients", {});
+    const result = await gateway.invoke("vortex.axis.clients", {});
     expect(result.payload.clients).toEqual([
       { id: identity.clientId, name: "Desk", type: "web", room: "office", can: ["mic", "speaker"], online: true },
     ]);
@@ -327,27 +327,27 @@ describe("commands from an agent", () => {
     await admin("PATCH", "/admin/settings/global", { values: { volume: 50 } });
     const seen = client.received.length;
 
-    const changed = await gateway.invoke("axis.config", { client: "Desk", key: "volume", value: 80 });
+    const changed = await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: 80 });
     expect(changed.payload).toEqual({ client: "Desk", settings: { volume: 80 } });
     expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ volume: 80 });
 
-    expect((await gateway.invoke("axis.config", { client: "Desk" })).payload.settings).toEqual({ volume: 80 });
-    expect((await gateway.invoke("axis.config", { client: "Desk", key: "volume", value: [1] })).ok).toBe(false);
+    expect((await gateway.invoke("vortex.axis.config", { client: "Desk" })).payload.settings).toEqual({ volume: 80 });
+    expect((await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: [1] })).ok).toBe(false);
   });
 
   it("reports sensor readings and hub health", async () => {
     await pairWithGateway();
     const { client } = await ready(["sensors", "screen"], { name: "Watch" });
     client.send({ t: "sense", readings: { battery: 0.7 } });
-    await until(async () => (await gateway.invoke("axis.sense", { client: "Watch" })).payload.readings[0]?.readings.battery === 0.7, "the reading");
+    await until(async () => (await gateway.invoke("vortex.axis.sense", { client: "Watch" })).payload.readings[0]?.readings.battery === 0.7, "the reading");
 
-    const diag = (await gateway.invoke("axis.diag", {})).payload;
+    const diag = (await gateway.invoke("vortex.axis.diag", {})).payload;
     expect(diag).toMatchObject({ version: "0.1.0", clientsOnline: 1, clientsKnown: 1, upstream: { openclaw: "up" } });
   });
 
   it("says plainly that a command is not built yet", async () => {
     await pairWithGateway();
-    expect((await gateway.invoke("axis.ask", { question: "?" })).error.message).toBe("axis.ask is not built yet");
+    expect((await gateway.invoke("vortex.axis.ask", { question: "?" })).error.message).toBe("vortex.axis.ask is not built yet");
     expect((await gateway.invoke("made.up", {})).error.message).toBe("unknown command made.up");
   });
 });

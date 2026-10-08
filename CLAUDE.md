@@ -10,11 +10,11 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles client pairing, tokens, settings sync, the admin API, wake arbitration, voice and text turns, and the OpenClaw gateway link: an operator link that sends turns to a named agent, and a node link that declares the command list, publishes tools and carries out `axis.say`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag` and `system.notify`.
+Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles client pairing, tokens, settings sync, the admin API, wake arbitration, voice and text turns, and the OpenClaw gateway link: an operator link that sends turns to a named agent, and a node link that declares the command list, publishes tools and carries out `vortex.axis.say`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.diag` and `system.notify`.
 
 `web/` holds the admin page and the web client.
 
-Not built yet: `axis.ask`, `axis.timer`, `axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and firmware.
+Not built yet: `vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and firmware.
 
 The gateway link has paired with a real gateway once (2026-10-07). What that taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` was changed to behave the same way. Agent turns and agent commands over a real gateway are still unproven.
 
@@ -28,6 +28,7 @@ The gateway link has paired with a real gateway once (2026-10-07). What that tau
 - The web client is a normal client. It pairs and uses the same socket as firmware, with no private shortcuts.
 - Pages put untrusted text (client names, replies) into the page as text, never as markup.
 - Name things `vortex-axis`, never plain `axis`, in hostnames, containers and Home Assistant entities. Plain `axis` collides with Axis Communications cameras and Home Assistant's `axis` integration.
+- Gateway commands are named `vortex.axis.*` and the tools agents see `vortex_axis_*`. A bare `axis.` prefix could collide with someone else's plugin.
 - No host-specific values in code. Addresses come from environment variables.
 - Version 1 scope is in the README. Do not build the "later" items without being asked.
 
