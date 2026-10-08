@@ -19,6 +19,8 @@ class Fakes {
   ttsChunkDelayMs = 0;
   /** When each synthesis started and finished, by text. */
   ttsTimes: { text: string; started: number; finished: number }[] = [];
+  /** Delay before the first audio of each clip, like a real engine starting up. */
+  ttsFirstDelayMs = 0;
   /** Silence the speech engine leaves at the end of each clip, in bytes. */
   trailingSilenceBytes = 0;
 
@@ -40,6 +42,7 @@ class Fakes {
         self.ttsTimes.push(times);
         // Deliberately odd-sized chunks, to exercise frame assembly.
         const total = Buffer.concat([Buffer.alloc(self.audioBytes, 1), Buffer.alloc(self.trailingSilenceBytes)]);
+        if (self.ttsFirstDelayMs) await new Promise((r) => setTimeout(r, self.ttsFirstDelayMs));
         for (let at = 0; at < total.length; at += 333) {
           if (self.ttsChunkDelayMs) await new Promise((r) => setTimeout(r, self.ttsChunkDelayMs));
           yield total.subarray(at, at + 333);
@@ -460,7 +463,7 @@ describe("speaking a reply sentence by sentence", () => {
     return runs.map((samples) => Math.round(samples / 24)).filter((ms) => ms > 20);
   };
 
-  it("synthesizes the next sentence while the one before is still being spoken", async () => {
+  it("synthesizes sentences one at a time, each as soon as the one before is done", async () => {
     fakes.reply = ["The first sentence is here. ", "The second one follows. ", "And a third."];
     fakes.ttsChunkDelayMs = 40; // each sentence takes about 120 ms to synthesize
     const { client } = await ready(["speaker"]);
@@ -468,9 +471,25 @@ describe("speaking a reply sentence by sentence", () => {
     await client.next("speak.end");
 
     const [first, second, third] = fakes.ttsTimes;
-    expect(second!.started).toBeLessThan(first!.finished);
-    // Only one sentence ahead: the third waits until the second is the one playing.
-    expect(third!.started).toBeGreaterThanOrEqual(first!.finished);
+    // One synthesis at a time, so the first sentence gets the speech service to itself;
+    // the next starts the moment the one before is done, not when it has been played.
+    expect(second!.started).toBeGreaterThanOrEqual(first!.finished);
+    expect(second!.started - first!.finished).toBeLessThan(30);
+    expect(third!.started).toBeGreaterThanOrEqual(second!.finished);
+  });
+
+  it("has the next sentence ready before the one playing has finished", async () => {
+    fakes.reply = ["The first sentence is here. ", "The second one follows."];
+    fakes.audioBytes = 48000; // one second of speech each
+    fakes.ttsFirstDelayMs = 300; // a real engine: a wait for the first audio, then faster than real time
+    // A small buffer, so sending follows playback closely, as on a real device.
+    const { client } = await ready(["speaker"], { hello: { audioBufferMs: 200 } });
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+    const frames = client.timeline.filter((m) => m.t === "<audio>") as { at: number }[];
+    const [, second] = fakes.ttsTimes;
+    // The second sentence was fully synthesized while the first was still going out.
+    expect(second!.finished).toBeLessThan(frames[0]!.at + 1000);
   });
 
   it("pauses between sentences, shorter after a comma and longer at a new paragraph, none at the ends", async () => {

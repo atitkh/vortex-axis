@@ -198,10 +198,11 @@ interface SynthJob {
 }
 
 /**
- * Speaks a reply sentence by sentence. A sentence's synthesis starts as soon as the sentence
- * is known, up to one sentence ahead of the one being played, so the next is ready when the
- * last ends. Between sentences a deliberate pause goes in, so the rhythm is the same whether
- * the speech service is quick or slow.
+ * Speaks a reply sentence by sentence. The next sentence is synthesized while the one before
+ * is still playing, up to one sentence ahead, so it is ready when the last ends. Only one
+ * synthesis runs at a time: a small speech server shares its processor between requests, and
+ * a second one would delay the first sentence's first sound. Between sentences a deliberate
+ * pause goes in, so the rhythm is the same whether the speech service is quick or slow.
  */
 class SpeechQueue {
   private readonly jobs: SynthJob[] = [];
@@ -260,9 +261,14 @@ class SpeechQueue {
     this.changed = new Promise<void>((resolve) => (this.notify = resolve));
   }
 
+  /** Starts the next synthesis that is due, if none is running. */
   private startDue(): void {
     const last = Math.min(this.jobs.length - 1, this.playing + (this.options.lookahead ?? 1));
-    for (let i = this.playing; i <= last; i++) if (!this.jobs[i]!.started) this.synthesize(this.jobs[i]!);
+    for (let i = this.playing; i <= last; i++) {
+      const job = this.jobs[i]!;
+      if (job.started && !job.done) return; // one at a time
+      if (!job.started) return this.synthesize(job);
+    }
   }
 
   private synthesize(job: SynthJob): void {
@@ -278,6 +284,8 @@ class SpeechQueue {
         job.error = error;
       } finally {
         job.done = true;
+        // The speech service is free again: the next sentence can start.
+        if (!this.options.signal.aborted) this.startDue();
         this.wake();
       }
     })();
