@@ -16,6 +16,9 @@ export const PAIR_PATH = "/v1/pair";
  */
 export const DEFAULT_MAX_FRAME_BYTES = 4096;
 
+/** Audio a client is assumed to buffer when it does not say otherwise in `hello`. */
+export const DEFAULT_AUDIO_BUFFER_MS = 2000;
+
 export function isSupportedProtocolVersion(version: number): boolean {
   return (
     Number.isInteger(version) &&

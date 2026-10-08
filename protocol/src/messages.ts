@@ -36,6 +36,11 @@ export const Hello = message("hello", {
   settingsVersion: Type.Integer({ minimum: 0 }),
   /** Largest binary frame the client can receive. */
   maxFrameBytes: Type.Optional(Type.Integer({ minimum: 512, maximum: 1048576 })),
+  /**
+   * How much audio the client can hold before playing it, in milliseconds.
+   * Axis never sends speech further ahead of real time than this.
+   */
+  audioBufferMs: Type.Optional(Type.Integer({ minimum: 200, maximum: 60000 })),
 });
 
 /** The client heard the wake word and is buffering audio locally. */
@@ -141,7 +146,10 @@ export const Transcript = message("transcript", {
   text: Type.String({ maxLength: 4000 }),
 });
 
-/** Reply text for clients with a screen. Sent as it arrives; `final` marks the end. */
+/**
+ * Reply text for clients with a screen. Frames with `final: false` each carry
+ * the next piece of the reply. The frame with `final: true` carries the whole reply.
+ */
 export const ReplyText = message("reply.text", {
   turnId: Id,
   text: Type.String({ maxLength: 16000 }),

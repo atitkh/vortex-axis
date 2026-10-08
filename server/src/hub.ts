@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import {
   PROTOCOL_VERSION,
+  DEFAULT_AUDIO_BUFFER_MS,
   DEFAULT_MAX_FRAME_BYTES,
   encodeServerMessage,
   isSupportedProtocolVersion,
@@ -12,6 +13,7 @@ import {
   type Status,
 } from "@vortex-axis/protocol";
 import type { ClientRecord, Store } from "./store.js";
+import { TurnManager, type Services, type TurnPort } from "./turns.js";
 
 /** WebSocket close codes in the application range. */
 const CLOSE_PROTOCOL = 4400;
@@ -23,6 +25,8 @@ export interface Session {
   client: ClientRecord;
   socket: WebSocket;
   maxFrameBytes: number;
+  /** How much speech the client can buffer, in milliseconds. */
+  audioBufferMs: number;
   connectedAt: number;
   /** Latest sensor readings the client reported. Not persisted. */
   readings: ScalarMap;
@@ -31,13 +35,18 @@ export interface Session {
 export interface HubOptions {
   store: Store;
   helloTimeoutMs: number;
+  services?: Services;
+  wakeWindowMs?: number;
+  maxUtteranceMs?: number;
+  playbackGraceMs?: number;
   now?: () => number;
   log?: (line: string) => void;
 }
 
 /** Tracks which clients are connected and speaks the client protocol to them. */
-export class Hub {
-  private readonly sessions = new Map<string, Session>();
+export class Hub implements TurnPort {
+  private readonly online = new Map<string, Session>();
+  private readonly turns: TurnManager;
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly now: () => number;
@@ -49,14 +58,28 @@ export class Hub {
     this.helloTimeoutMs = options.helloTimeoutMs;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
+    this.turns = new TurnManager(this, {
+      services: options.services ?? {},
+      wakeWindowMs: options.wakeWindowMs ?? 200,
+      maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
+      ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
+    });
+  }
+
+  sessions(): Iterable<Session> {
+    return this.online.values();
+  }
+
+  settings(session: Session): ScalarMap {
+    return this.store.resolveSettings(session.client);
   }
 
   isOnline(clientId: string): boolean {
-    return this.sessions.has(clientId);
+    return this.online.has(clientId);
   }
 
   session(clientId: string): Session | undefined {
-    return this.sessions.get(clientId);
+    return this.online.get(clientId);
   }
 
   /** Takes over a freshly accepted socket. The first frame must be `hello`. */
@@ -69,13 +92,13 @@ export class Hub {
 
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
-        // Audio frames are handled once the voice turn exists.
         if (!session) this.fail(socket, "bad_message", "hello must come first", CLOSE_PROTOCOL);
+        else this.turns.handleAudio(session, data as Buffer);
         return;
       }
       const parsed = parseClientMessage(data.toString());
       if (!parsed.ok) {
-        if (session) this.send(socket, { t: "error", code: "bad_message", message: clip(parsed.error) });
+        if (session) this.send(session, { t: "error", code: "bad_message", message: clip(parsed.error) });
         else this.fail(socket, "bad_message", parsed.error, CLOSE_PROTOCOL);
         return;
       }
@@ -95,8 +118,9 @@ export class Hub {
 
     socket.on("close", () => {
       clearTimeout(helloTimer);
-      if (session && this.sessions.get(session.client.id) === session) {
-        this.sessions.delete(session.client.id);
+      if (session && this.online.get(session.client.id) === session) {
+        this.online.delete(session.client.id);
+        this.turns.drop(session);
         this.store.touch(session.client.id);
         this.log(`client ${session.client.id} disconnected`);
       }
@@ -119,8 +143,9 @@ export class Hub {
     this.store.recordHello(known.id, { version: hello.version, capabilities: hello.capabilities });
     const client = this.store.getClient(known.id)!;
 
-    const previous = this.sessions.get(client.id);
+    const previous = this.online.get(client.id);
     if (previous) {
+      this.turns.drop(previous);
       this.fail(previous.socket, "busy", "replaced by a newer connection", CLOSE_REPLACED);
     }
 
@@ -128,14 +153,15 @@ export class Hub {
       client,
       socket,
       maxFrameBytes: hello.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES,
+      audioBufferMs: hello.audioBufferMs ?? DEFAULT_AUDIO_BUFFER_MS,
       connectedAt: this.now(),
       readings: {},
     };
-    this.sessions.set(client.id, session);
+    this.online.set(client.id, session);
     this.log(`client ${client.id} (${client.name}) connected`);
 
     const settingsVersion = this.store.settingsVersion();
-    this.send(socket, {
+    this.send(session, {
       t: "welcome",
       protocol: PROTOCOL_VERSION,
       clientId: client.id,
@@ -143,14 +169,14 @@ export class Hub {
       settingsVersion,
     });
     if (hello.settingsVersion !== settingsVersion) this.sendSettings(session);
-    this.send(socket, { t: "status", upstream: this.upstream });
+    this.send(session, { t: "status", upstream: this.upstream });
     return session;
   }
 
   private handleMessage(session: Session, message: ClientMessage): void {
     switch (message.t) {
       case "hello":
-        this.send(session.socket, { t: "error", code: "bad_message", message: "hello was already sent" });
+        this.send(session, { t: "error", code: "bad_message", message: "hello was already sent" });
         return;
       case "settings.get":
         if (message.have !== this.store.settingsVersion()) this.sendSettings(session);
@@ -159,26 +185,22 @@ export class Hub {
         session.readings = { ...session.readings, ...message.readings };
         return;
       case "command.result":
-      case "playback":
-      case "interrupt":
       case "answer":
-        // Nothing sends commands, audio or questions yet, so there is nothing to match these to.
+        // Nothing sends commands or questions yet, so there is nothing to match these to.
         return;
       case "wake":
       case "audio.start":
       case "audio.end":
       case "text":
-        this.send(session.socket, {
-          t: "error",
-          code: "not_supported",
-          message: "voice and text turns are not implemented yet",
-        });
+      case "interrupt":
+      case "playback":
+        this.turns.handle(session, message);
         return;
     }
   }
 
   private sendSettings(session: Session): void {
-    this.send(session.socket, {
+    this.send(session, {
       t: "settings",
       version: this.store.settingsVersion(),
       values: this.store.resolveSettings(session.client),
@@ -187,7 +209,7 @@ export class Hub {
 
   /** Pushes current settings to every connected client a change could affect. */
   pushSettings(filter?: (client: ClientRecord) => boolean): void {
-    for (const session of this.sessions.values()) {
+    for (const session of this.online.values()) {
       if (!filter || filter(session.client)) this.sendSettings(session);
     }
   }
@@ -197,29 +219,40 @@ export class Hub {
     const changed = JSON.stringify(upstream) !== JSON.stringify(this.upstream);
     this.upstream = upstream;
     if (!changed) return;
-    for (const session of this.sessions.values()) this.send(session.socket, { t: "status", upstream });
+    for (const session of this.online.values()) this.send(session, { t: "status", upstream });
   }
 
   /** Drops a client's connection, for example after it was removed. */
   disconnect(clientId: string): void {
-    const session = this.sessions.get(clientId);
+    const session = this.online.get(clientId);
     if (!session) return;
-    this.sessions.delete(clientId);
+    this.online.delete(clientId);
+    this.turns.drop(session);
     this.fail(session.socket, "unauthorized", "client was removed", CLOSE_REMOVED);
   }
 
   closeAll(): void {
-    for (const session of this.sessions.values()) session.socket.close(1001, "server shutting down");
-    this.sessions.clear();
+    this.turns.stop();
+    for (const session of this.online.values()) session.socket.close(1001, "server shutting down");
+    this.online.clear();
   }
 
-  private send(socket: WebSocket, message: ServerMessage): void {
+  send(session: Session, message: ServerMessage): void {
+    this.sendTo(session.socket, message);
+  }
+
+  sendBinary(session: Session, data: Buffer): void {
+    if (session.socket.readyState !== session.socket.OPEN) return;
+    session.socket.send(data, { binary: true });
+  }
+
+  private sendTo(socket: WebSocket, message: ServerMessage): void {
     if (socket.readyState !== socket.OPEN) return;
     socket.send(encodeServerMessage(message));
   }
 
   private fail(socket: WebSocket, code: ErrorCode, message: string, closeCode: number): void {
-    this.send(socket, { t: "error", code, message: clip(message), fatal: true });
+    this.sendTo(socket, { t: "error", code, message: clip(message), fatal: true });
     socket.close(closeCode, code);
   }
 }

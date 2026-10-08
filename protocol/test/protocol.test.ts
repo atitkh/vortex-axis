@@ -26,6 +26,7 @@ const clientSamples: ClientMessage[] = [
     capabilities: ["mic", "speaker", "screen"],
     settingsVersion: 0,
     maxFrameBytes: 4096,
+    audioBufferMs: 6000,
   },
   { t: "wake", wakeId: "w1", score: 0.92, level: 0.4 },
   { t: "audio.start", turnId: "t1", format: UPSTREAM_AUDIO_FORMAT, wakeId: "w1" },

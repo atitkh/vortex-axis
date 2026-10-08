@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** early. The client protocol has a first draft, and the server handles pairing, connections and settings. Voice turns and the OpenClaw link are next. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** early. The server handles pairing, settings and a full voice or text turn (speech recognition, agent, speech synthesis). There is no client yet, and the agent cannot yet reach clients on its own. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -68,15 +68,27 @@ Out, for later:
 
 ## Running it
 
-What exists today: client pairing, per-client tokens, the client socket handshake, and settings sync. Voice turns and the OpenClaw link are not built yet.
+What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, and voice and text turns. Not built yet: any client (web or firmware), and Axis registering with OpenClaw as a node so the agent can speak or ask through it unprompted.
 
 ```bash
-cp .env.example .env      # then set AXIS_ADMIN_TOKEN
+cp .env.example .env      # then fill in the token and the three upstream addresses
 docker compose up -d --build
 curl http://localhost:8440/healthz
 ```
 
 Axis is one container with one data volume. Everything host-specific is an environment variable, so moving hosts means copying the volume and the `.env` file.
+
+### Upstream services
+
+Axis reaches all three through OpenAI-style HTTP endpoints, so each one can be swapped by changing an address in `.env`:
+
+| Service | Setting | Endpoint shape |
+| --- | --- | --- |
+| Speech recognition | `AXIS_STT_URL` | `/v1/audio/transcriptions` |
+| Speech synthesis | `AXIS_TTS_URL` | `/v1/audio/speech`, asked for raw PCM |
+| Agent | `AXIS_AGENT_URL` | `/v1/chat/completions`, streaming |
+
+For OpenClaw, turn on `gateway.http.endpoints.chatCompletions` and use the gateway's address and token. A service left unset is reported to clients as down.
 
 ### Admin API
 

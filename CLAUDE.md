@@ -10,7 +10,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles pairing, tokens, the socket handshake, settings sync and the admin API. Not built yet: wake arbitration, the voice turn (STT, agent, TTS), the OpenClaw gateway client, and `web/`.
+Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles pairing, tokens, the socket handshake, settings sync, the admin API, wake arbitration, and voice and text turns (speech recognition, agent, speech synthesis, paced audio out).
+
+Not built yet: the OpenClaw node link (so the agent can call `axis.say`, `axis.ask` and the other commands in design section 6), `ask` and `command` flows to clients, and `web/`.
 
 ## Rules that are settled
 
@@ -77,7 +79,13 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/store.ts`: everything on disk (clients, pairing codes, settings). Tokens and codes are stored as hashes only.
 - `server/src/hub.ts`: connected clients and the client protocol. Live state stays in memory.
 - `server/src/http.ts`: pairing, health and the admin API.
-- `server/src/app.ts`: wires them together. Tests start a real server on a free port through `startApp`.
+- `server/src/turns.ts`: one turn from input to spoken reply, plus pacing of audio to the client.
+- `server/src/wake.ts`: picks one client when several hear the wake word.
+- `server/src/sentences.ts`: cuts a streaming reply into pieces to synthesize one at a time.
+- `server/src/speech.ts`, `server/src/agent.ts`: upstream clients behind small interfaces. Tests pass fakes through `startApp`'s third argument.
+- `server/src/app.ts`: wires them together. Tests start a real server on a free port through `startApp`, using `server/test/harness.ts`.
+
+The agent is reached through an OpenAI-style chat endpoint, not the gateway WebSocket. The WebSocket is still needed for the node role.
 
 ## Conventions
 

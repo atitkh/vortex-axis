@@ -18,6 +18,13 @@ OpenClaw has no sub-device concept: a node is one WebSocket connection with one 
 
 Consequence: OpenClaw sees only "Axis" as online. Per-client presence is available through an Axis command, not through OpenClaw's node list.
 
+### 2.1.1 Two links to OpenClaw
+
+- **Turns** go out over OpenClaw's OpenAI-style chat endpoint (`/v1/chat/completions`, streaming), with a fixed session key so all clients share one conversation. This is plain HTTP and works with any OpenAI-style backend, which keeps the agent swappable. Built.
+- **Commands from the agent** (section 6) need Axis to register as a node over the gateway WebSocket. Not built yet.
+
+The chat endpoint's token is the gateway's own and grants full operator access. It lives only in the environment file.
+
 ### 2.2 Clients are types with capabilities
 
 A client is described by what it can do: `mic`, `speaker`, `screen`, `buttons`, `vibration`, `sensors`. A client type is a named set of capabilities plus shared defaults, for example "desk speaker" (mic, speaker, screen) or "watch" (screen, buttons, vibration, sensors).
@@ -29,7 +36,7 @@ Axis routes on capabilities. A spoken reply needs a speaker. A yes/no question c
 All clients share one OpenClaw session, so a question asked at one client can be followed up from another. Axis gives the agent context in three ways:
 
 - **Session prompt (stable):** what Axis is, that replies may be spoken, and that client tools exist. OpenClaw applies this only when a session is created, so changing it starts a new session. Keep it small and change it rarely.
-- **Message header (per turn):** one short line added to each message naming the source client, its room and its capabilities.
+- **Message header (per turn):** one short line added to each message naming the source client, its room and its capabilities, for example `[from: Desk, type: esp32s3-speaker, room: office, can: mic+speaker+screen]`. Built.
 - **Client list tool (on demand):** returns registered clients, which are online and what each can do.
 
 ## 3. Client protocol
@@ -59,11 +66,15 @@ The wake word runs on the client, offline. When two clients hear it at once:
 2. Axis collects wake events for about 200 ms, grants the best-scoring client and tells the others to stand down.
 3. The granted client sends its buffered audio, so speech during the wait is not lost.
 
-If only one client is online, Axis grants immediately.
+If only one client with a microphone is online, Axis grants immediately. Scores tie-break on loudness. Audio that names a wake is accepted only from the client that was granted it.
 
 ### 3.3 Interrupting
 
 In version 1 a tap, a button press or a repeated wake word stops playback. Interrupting by speaking over the reply needs echo cancellation on the client and is left for later.
+
+### 3.4 Audio out
+
+Replies are synthesized sentence by sentence while the agent is still writing, and each sentence's audio is sent as soon as it exists. Axis cuts audio into frames no larger than the client asked for and paces them so it is never further ahead of real time than the client's stated buffer (`audioBufferMs`, 2 seconds by default). After the last frame Axis waits for the client to report that playback finished before marking the turn idle.
 
 ## 4. Settings
 
@@ -137,7 +148,8 @@ SQLite, one file in one Docker volume, through Node's built-in `node:sqlite`.
 
 ## 12. Open items
 
-- A target for time to first sound. The reference device measured about 8 seconds before it began speaking sentence by sentence, so Axis streams replies from the start. The target is set once there are measurements.
+- A target for time to first sound. The reference device measured about 8 seconds before it began speaking sentence by sentence, so Axis streams replies from the start. First measurements against the live services on 2026-10-07: speech recognition about 3.5 seconds for a 2 second clip once warm (about 30 seconds on a cold start), speech synthesis about 1.7 seconds to first audio. The agent's own time comes on top.
+- Whether to send the agent a stable session prompt through the chat endpoint, and how OpenClaw treats a system message there.
 - Final command names (section 6).
 - Whether a plain `system.notify` aimed at Axis should be routed to the current output client.
 - How the Bangle.js 2 reaches Axis (it has Bluetooth only, so it needs a phone or a relay).
