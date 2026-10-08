@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
+import type { Activity } from "./activity.js";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
 import type { Hub } from "./hub.js";
@@ -83,6 +84,10 @@ export interface HttpDeps {
   config: Config;
   store: Store;
   hub: Hub;
+  /** Turns, connections and changes, for the activity and overview pages. */
+  activity?: Activity;
+  /** When this process started, for uptime. */
+  startedAt?: number;
   version?: string;
   gateway: GatewayClient;
   services: Services;
@@ -93,7 +98,8 @@ export interface HttpDeps {
 
 /** Builds the request handler for pairing, health and the admin API. */
 export function createHttpHandler(deps: HttpDeps) {
-  const { config, store, hub, gateway, services } = deps;
+  const { config, store, hub, gateway, services, activity } = deps;
+  const startedAt = deps.startedAt ?? Date.now();
   const web = loadWebFiles(config.webDir);
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
@@ -175,9 +181,26 @@ export function createHttpHandler(deps: HttpDeps) {
       checkAgainstSchema(client.type, body.values);
     }
     if (scope === "type") checkAgainstSchema(scopeId, body.values);
+    const before = store.getLayer(scope, scopeId);
     const version = store.patchLayer(scope, scopeId, body.values);
+    recordSettingsChange(scope, scopeId, before, body.values);
     hub.pushSettings();
     return { version, values: store.getLayer(scope, scopeId) };
+  }
+
+  /** Notes a settings change in the event list, old value to new, so it can be traced later. */
+  function recordSettingsChange(scope: SettingsScope, scopeId: string, before: ScalarMap, values: ScalarMap) {
+    if (!activity) return;
+    const show = (v: Scalar | undefined) => (v === undefined || v === null ? "unset" : JSON.stringify(v));
+    const changes = Object.entries(values)
+      .filter(([key, value]) => (before[key] ?? null) !== value)
+      .map(([key, value]) => (value === null ? `${key} back to shared (was ${show(before[key])})` : `${key} ${show(before[key])} → ${show(value)}`));
+    if (!changes.length) return;
+    const where =
+      scope === "global" ? "All devices"
+      : scope === "type" ? `All ${scopeId} devices`
+      : store.getClient(scopeId)?.name ?? scopeId;
+    activity.note("settings", scope === "global" ? "" : scopeId, `${where}: ${changes.join("; ")}`);
   }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -213,6 +236,7 @@ export function createHttpHandler(deps: HttpDeps) {
       const paired = store.pair(body);
       if (!paired) throw new HttpError(403, "pairing code is wrong, expired or already used");
       const reply: PairResponse = { clientId: paired.client.id, token: paired.token, name: paired.client.name };
+      activity?.note("admin", paired.client.id, `${paired.client.name} paired (${paired.client.type})`);
       return sendJson(res, 200, reply);
     }
 
@@ -265,10 +289,13 @@ export function createHttpHandler(deps: HttpDeps) {
           // A connected client keeps its record in its session; the next turn's header uses the new name.
           const session = hub.session(id);
           if (session) session.client = renamed;
+          activity?.note("admin", id, `Renamed to ${renamed.name}`);
           return sendJson(res, 200, describeClient(id));
         }
         if (method === "DELETE") {
+          const removing = store.getClient(id);
           if (!store.removeClient(id)) throw new HttpError(404, "no such client");
+          activity?.note("admin", id, `${removing?.name ?? id} removed`, "warn");
           hub.disconnect(id);
           return sendJson(res, 200, { removed: id });
         }
@@ -279,6 +306,8 @@ export function createHttpHandler(deps: HttpDeps) {
           upstream: hub.upstreamStatus(),
           clientsOnline: [...hub.sessions()].length,
           clientsKnown: store.listClients().length,
+          startedAt,
+          uptimeMs: Date.now() - startedAt,
         });
       }
       if (parts[1] === "config") {
@@ -294,6 +323,7 @@ export function createHttpHandler(deps: HttpDeps) {
             throw new HttpError(400, (error as Error).message);
           }
           deps.reloadServices();
+          activity?.note("admin", "", "Speech or agent settings saved");
           return sendJson(res, 200, publicRuntimeConfig(saved));
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "test") {
@@ -308,7 +338,10 @@ export function createHttpHandler(deps: HttpDeps) {
           if (!isTextOrNull(body.agentId) || !isTextOrNull(body.url)) {
             throw new HttpError(400, "body must be { agentId?: string | null, url?: string | null }");
           }
-          if (body.agentId !== undefined) gateway.setAgentId((body.agentId as string | null) ?? undefined);
+          if (body.agentId !== undefined && (body.agentId || null) !== (gateway.agentId() ?? null)) {
+            gateway.setAgentId((body.agentId as string | null) || undefined);
+            activity?.note("admin", "", `Agent set to ${body.agentId || "the gateway default"}`);
+          }
           if (body.url !== undefined) {
             try {
               gateway.setUrl((body.url as string | null) || undefined);
@@ -328,6 +361,7 @@ export function createHttpHandler(deps: HttpDeps) {
           } catch (error) {
             throw new HttpError(400, (error as Error).message);
           }
+          activity?.note("admin", "", "Gateway setup code given");
           return sendJson(res, 202, gateway.status());
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "retry") {
@@ -339,6 +373,14 @@ export function createHttpHandler(deps: HttpDeps) {
           const agents = await gateway.listAgents().catch(() => []);
           return sendJson(res, 200, { agents, selected: gateway.agentId() ?? null });
         }
+      }
+      if (method === "GET" && parts.length === 2 && parts[1] === "activity") {
+        if (!activity) throw new HttpError(404, "not found");
+        const hours = Number(url.searchParams.get("hours") ?? 24);
+        if (!Number.isFinite(hours) || hours <= 0) throw new HttpError(400, "hours must be a positive number");
+        const client = url.searchParams.get("client") ?? undefined;
+        if (client && !store.getClient(client)) throw new HttpError(404, "no such client");
+        return sendJson(res, 200, activity.summary(hours, client));
       }
       if (parts[1] === "settings") {
         const scope = parts[2];

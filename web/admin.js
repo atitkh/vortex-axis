@@ -5,15 +5,20 @@
 // device's page shows only where that one device differs. The three layers underneath
 // (all devices, type, device) are the server's; this page only presents them.
 
+import { clock, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
+
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "axis-admin-token";
 let token = sessionStorage.getItem(TOKEN_KEY) || "";
 let timer;
 // What is on screen, and the last data fetched.
-let view = { name: "clients", id: "" };
+let view = { name: "overview", id: "" };
 let lastClients = [];
 let lastTypes = {};
 let lastGlobal = {};
+let lastStatus;
+let lastGateway;
+let lastConfig;
 
 /** Builds an element. Text always goes in as text, never as markup. */
 function h(tag, attrs = {}, ...children) {
@@ -160,6 +165,7 @@ async function refresh() {
     lastClients = clients.clients;
     lastTypes = clients.types || {};
     lastGlobal = settings.values;
+    lastStatus = status;
     renderSummary(status);
     renderGateway(gateway);
     renderNavTypes();
@@ -188,6 +194,7 @@ let agentTouched = false;
 let stepsOpened = false;
 
 function renderGateway(gw) {
+  lastGateway = gw;
   const link = (name, l) => {
     const [label, kind] = LINK_STATES[l.state] || [l.state, ""];
     return stat(`${name}: ${label}`, kind);
@@ -248,6 +255,7 @@ function showBackend() {
 $("agent-backend").addEventListener("change", showBackend);
 
 function fillConfig(config) {
+  lastConfig = config;
   $("stt-url").value = config.stt.url;
   $("stt-model").value = config.stt.model;
   $("stt-key-state").textContent = config.stt.apiKeySet ? "(set)" : "";
@@ -332,13 +340,13 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["clients", "pair", "settings", "type", "openclaw", "agent", "speech"];
+const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
   const [first, ...rest] = location.hash.slice(1).split("/");
   const id = decodeURIComponent(rest.join("/"));
-  let name = VIEWS.includes(first) ? first : "clients";
+  let name = VIEWS.includes(first) ? first : "overview";
   if (name === "clients" && id) name = "device";
   if (name === "type" && !id) name = "settings";
   if (name !== view.name || id !== view.id) $("device-note").textContent = "";
@@ -354,6 +362,9 @@ window.addEventListener("hashchange", () => {
 });
 
 function renderView() {
+  if (["overview", "activity", "device"].includes(view.name)) loadActivity();
+  if (view.name === "overview") renderOverview();
+  if (view.name === "activity") renderActivity();
   if (view.name === "device") renderDevice();
   if (view.name === "type") renderType();
   if (view.name === "settings") renderAllDevices();
@@ -714,6 +725,7 @@ function renderDevice() {
   );
 
   renderReadings(client);
+  renderDeviceHistory();
 
   const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
   const own = defs.filter((d) => client.layers.device[d.key] !== undefined);
@@ -1074,6 +1086,283 @@ $("set-add").addEventListener("click", (event) =>
     await refresh();
   }),
 );
+
+// --- activity: overview, activity page, a device's history ---------------------------
+
+// The summary is fetched for what is on screen and kept a few seconds; it changes slowly.
+let activityRange = 24;
+let activityData = { key: "", at: 0, data: undefined, loading: false };
+const ACTIVITY_FRESH_MS = 10_000;
+
+function activityKey() {
+  if (view.name === "device") return `24:${view.id}`;
+  if (view.name === "activity") return `${activityRange}:`;
+  return "24:";
+}
+
+async function loadActivity(force = false) {
+  const key = activityKey();
+  const fresh = activityData.key === key && Date.now() - activityData.at < ACTIVITY_FRESH_MS;
+  if ((fresh && !force) || activityData.loading) return;
+  activityData.loading = true;
+  const [hours, client] = key.split(":");
+  try {
+    const data = await api("GET", `/admin/activity?hours=${hours}${client ? `&client=${encodeURIComponent(client)}` : ""}`);
+    activityData = { key, at: Date.now(), data, loading: false };
+    if (activityKey() === key) {
+      if (view.name === "overview") renderOverview();
+      if (view.name === "activity") renderActivity();
+      if (view.name === "device") renderDeviceHistory();
+    }
+  } catch (error) {
+    activityData.loading = false;
+    if (error.status === 401) signOut("That token was not accepted.");
+  }
+}
+
+/** The summary for what is on screen, or undefined while it loads. */
+const currentActivity = () => (activityData.key === activityKey() ? activityData.data : undefined);
+
+const tile = (label, value, detail, kind = "") =>
+  h("div", { class: `tile ${kind}`.trim() }, h("div", { class: "tile-label" }, label), h("div", { class: "tile-value" }, value), detail ? h("div", { class: "tile-detail" }, detail) : null);
+
+/** Rows of uptime strips with a name and availability on the left and one time axis below. */
+function strips(rows, from, to) {
+  return h(
+    "div",
+    { class: "strips" },
+    rows.map((r) =>
+      h(
+        "div",
+        { class: "strip-row" },
+        h("div", { class: "strip-name" }, r.href ? h("a", { href: r.href }, r.label) : r.label),
+        h("div", { class: "strip-cell" }, strip(r.segments, from, to)),
+        h("div", { class: "strip-avail", title: "Share of the recorded time it was working" }, percent(r.availability)),
+      ),
+    ),
+    h("div", { class: "strip-row" }, h("div", {}), stripAxis(from, to), h("div", {})),
+    stateLegend(rows.flatMap((r) => r.segments.map((s) => s.state))),
+  );
+}
+
+function uptimeRows(data) {
+  return [
+    { label: "Axis", segments: data.axis.segments, availability: data.axis.availability },
+    ...data.services
+      // The gateway links only matter when the gateway answers turns or has been paired.
+      .filter((s) => !["operator", "node"].includes(s.key) || lastConfig?.agent.backend !== "openai" || s.segments.some((g) => g.state !== "unconfigured" && g.state !== "unknown" && g.state !== "axis_down"))
+      .map((s) => ({ label: s.label, segments: s.segments, availability: s.availability, href: s.key === "stt" || s.key === "tts" ? "#speech" : "#openclaw" })),
+  ];
+}
+
+const clientRows = (data) =>
+  data.clients
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => ({ label: c.name, segments: c.segments, availability: c.availability, href: `#clients/${encodeURIComponent(c.id)}` }));
+
+const LEVEL_MARK = { bad: "bad", warn: "warn", info: "" };
+
+function eventList(events, limit) {
+  if (!events.length) return h("p", { class: "empty" }, "Nothing recorded yet.");
+  return h(
+    "table",
+    { class: "events" },
+    h(
+      "tbody",
+      {},
+      events.slice(0, limit).map((e) =>
+        h(
+          "tr",
+          { class: e.level === "info" ? "" : e.level },
+          h("td", { class: "tight sub", title: new Date(e.at).toLocaleString() }, clock(e.at, Date.now() - e.at > 20 * 3_600_000)),
+          h("td", { class: "tight" }, h("span", { class: `stat ${LEVEL_MARK[e.level]}`.trim() }, e.kind)),
+          h("td", {}, e.text),
+        ),
+      ),
+    ),
+  );
+}
+
+/** Things to look at now, worst first. Each links to where it is fixed. */
+function attentionItems(data) {
+  const items = [];
+  const add = (level, text, href) => items.push({ level, text, href });
+  const up = lastStatus?.upstream ?? {};
+  const usesGateway = lastConfig?.agent.backend !== "openai";
+  if (up.openclaw === "down") add("bad", usesGateway ? "The agent cannot be reached: OpenClaw is not connected." : "The agent endpoint is not answering.", usesGateway ? "#openclaw" : "#agent");
+  if (up.stt === "down") add("bad", "Speech recognition is down or not set up. Spoken turns fail.", "#speech");
+  if (up.tts === "down") add("bad", "Speech synthesis is down or not set up. Replies are shown but not spoken.", "#speech");
+  if (lastGateway) {
+    if (lastGateway.setupCodePending) add("warn", "A gateway approval is waiting: approve Axis on the gateway.", "#openclaw");
+    else if (usesGateway && lastGateway.node.state !== "connected" && lastGateway.operator.state === "connected")
+      add("warn", "The gateway command link is not connected, so agents cannot speak through Axis.", "#openclaw");
+  }
+  for (const c of lastClients) {
+    if (c.online) continue;
+    if (!c.lastSeenAt) add("warn", `${c.name} has never connected.`, `#clients/${encodeURIComponent(c.id)}`);
+    else if (Date.now() - c.lastSeenAt > 10 * 60_000) add("warn", `${c.name} has been offline for ${duration(Date.now() - c.lastSeenAt)}.`, `#clients/${encodeURIComponent(c.id)}`);
+  }
+  if (data) {
+    const lastHour = data.turns.buckets.at(-1);
+    if (lastHour?.failed) add("bad", `${lastHour.failed} ${lastHour.failed === 1 ? "turn" : "turns"} failed in the last hour.`, "#activity");
+    const crashes = data.events.filter((e) => /without shutting down/.test(e.text)).length;
+    if (crashes) add("warn", `Axis stopped without shutting down ${crashes === 1 ? "once" : `${crashes} times`} in the last 24 hours.`, "#activity");
+    const drops = data.events.filter((e) => e.kind === "client" && /stopped answering/.test(e.text)).length;
+    if (drops >= 3) add("warn", `Devices dropped off without saying so ${drops} times today. Check Wi-Fi and power.`, "#activity");
+  }
+  return items.sort((a, b) => (a.level === b.level ? 0 : a.level === "bad" ? -1 : 1));
+}
+
+function renderOverview() {
+  const data = currentActivity();
+  const items = attentionItems(data);
+  $("nav-overview").textContent = items.length ? String(items.length) : "";
+  $("nav-overview").className = `count ${items.some((i) => i.level === "bad") ? "bad" : items.length ? "warn" : ""}`.trim();
+  $("attention").replaceChildren(
+    ...(items.length
+      ? items.map((i) => h("li", { class: i.level }, h("span", { class: `stat ${i.level}` }, i.level === "bad" ? "problem" : "check"), " ", h("a", { href: i.href }, i.text)))
+      : [h("li", { class: "ok" }, h("span", { class: "stat good" }, "all good"), " Nothing needs attention.")]),
+  );
+
+  const online = lastClients.filter((c) => c.online).length;
+  const t = data?.turns;
+  $("overview-tiles").replaceChildren(
+    tile("Axis running for", lastStatus?.uptimeMs !== undefined ? duration(lastStatus.uptimeMs) : "–", data ? `${percent(data.axis.availability)} of the last 24 h` : null),
+    tile("Devices online", `${online} of ${lastClients.length}`, lastClients.length - online ? `${lastClients.length - online} offline` : "all of them", online < lastClients.length ? "warn" : ""),
+    tile("Turns, last 24 h", t ? String(t.count) : "–", t ? (t.failed ? `${t.failed} failed` : "none failed") : null, t?.failed ? "bad" : ""),
+    tile("Time to first sound", t ? ms(t.firstAudioP50) : "–", t?.firstAudioP95 !== null && t ? `worst 5 %: ${ms(t.firstAudioP95)}` : "no turns yet"),
+  );
+  if (!data) return;
+  $("overview-strips").replaceChildren(strips([...uptimeRows(data), ...clientRows(data)], data.from, data.to));
+  $("overview-events").replaceChildren(eventList(data.events, 8));
+}
+
+for (const b of $("activity-range").querySelectorAll("button")) {
+  b.addEventListener("click", () => {
+    activityRange = Number(b.dataset.hours);
+    renderActivity();
+    loadActivity(true);
+  });
+}
+$("event-filter").addEventListener("change", () => renderActivity());
+
+const EVENT_FILTERS = {
+  problems: (e) => e.level !== "info",
+  client: (e) => e.kind === "client",
+  service: (e) => e.kind === "service" || e.kind === "axis",
+  changes: (e) => e.kind === "settings" || e.kind === "admin",
+};
+
+const OUTCOMES = {
+  answered: ["answered", "good"],
+  silent: ["no reply", ""],
+  no_speech: ["nothing heard", ""],
+  interrupted: ["interrupted", "warn"],
+  failed: ["failed", "bad"],
+};
+const KINDS = { voice: "spoken", text: "typed", say: "agent spoke" };
+
+function renderActivity() {
+  for (const b of $("activity-range").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.hours) === activityRange);
+  const data = currentActivity();
+  $("activity").classList.toggle("stale", !data);
+  if (!data) return;
+  const t = data.turns;
+  const span = activityRange === 24 ? "24 hours" : activityRange === 72 ? "3 days" : "7 days";
+  $("activity-tiles").replaceChildren(
+    tile(`Turns, last ${span}`, String(t.count), t.count ? `${t.answered} answered · ${t.heard} heard to the end` : null),
+    tile("Failed", String(t.failed), t.interrupted ? `${t.interrupted} interrupted` : null, t.failed ? "bad" : ""),
+    tile("Typical first sound", ms(t.firstAudioP50), "half of turns were faster"),
+    tile("Slowest 5 %", ms(t.firstAudioP95), "took at least this long"),
+  );
+
+  const width = $("chart-latency").clientWidth || 600;
+  $("chart-latency").replaceChildren(
+    t.firstAudioP50 === null
+      ? h("p", { class: "empty" }, "No spoken replies in this period yet.")
+      : lineChart(t.buckets, data.bucketMs, [
+          { key: "firstAudioP50", label: "typical", color: "--s1" },
+          { key: "firstAudioP95", label: "slowest 5 %", color: "--s2" },
+        ], width),
+  );
+  const turnBuckets = t.buckets.map((b) => ({ ...b, ok: b.count - b.failed }));
+  $("chart-turns").replaceChildren(
+    t.count
+      ? columnChart(turnBuckets, data.bucketMs, [
+          { key: "ok", label: "went through", color: "--s1" },
+          { key: "failed", label: "failed", color: "--st-bad" },
+        ], $("chart-turns").clientWidth || 600)
+      : h("p", { class: "empty" }, "No turns in this period yet."),
+  );
+  $("chart-parts").replaceChildren(
+    partsBar([
+      { label: "Speech recognition", value: t.sttP50, color: "--s1" },
+      { label: "Agent's first words", value: t.agentP50, color: "--s2" },
+      { label: "Synthesis to first audio", value: t.synthesisP50, color: "--s3" },
+    ]),
+  );
+
+  $("activity-strips").replaceChildren(strips([...uptimeRows(data), ...clientRows(data)], data.from, data.to));
+
+  $("activity-turns").replaceChildren(
+    data.recentTurns.length
+      ? h(
+          "table",
+          { class: "numbers" },
+          h(
+            "thead",
+            {},
+            h("tr", {}, ...["When", "Device", "Kind", "Outcome", "Spoke", "Recognition", "Agent", "First sound", "Total"].map((c, i) => h("th", { class: i >= 4 ? "num" : "" }, c))),
+          ),
+          h(
+            "tbody",
+            {},
+            data.recentTurns.slice(0, 40).map((r) => {
+              const [label, kind] = OUTCOMES[r.outcome] ?? [r.outcome, ""];
+              return h(
+                "tr",
+                {},
+                h("td", { class: "tight sub", title: new Date(r.at).toLocaleString() }, clock(r.at, activityRange > 24)),
+                h("td", {}, h("a", { href: `#clients/${encodeURIComponent(r.clientId)}` }, r.clientName)),
+                h("td", { class: "sub" }, KINDS[r.kind] ?? r.kind),
+                h("td", { title: r.error ?? "" }, h("span", { class: `stat ${kind}`.trim() }, label), r.outcome === "answered" && !r.heard && r.kind !== "text" ? h("span", { class: "sub" }, " · not confirmed heard") : null),
+                ...[r.speechMs, r.sttMs, r.agentMs, r.firstAudioMs, r.totalMs].map((v) => h("td", { class: "num" }, ms(v))),
+              );
+            }),
+          ),
+        )
+      : h("p", { class: "empty" }, "No turns in this period yet."),
+  );
+
+  const filter = EVENT_FILTERS[$("event-filter").value];
+  $("activity-events").replaceChildren(eventList(filter ? data.events.filter(filter) : data.events, 150));
+}
+
+function renderDeviceHistory() {
+  const data = currentActivity();
+  const line = data?.clients[0];
+  if (!line || line.id !== view.id) return void $("device-history").replaceChildren(h("p", { class: "help" }, "Loading…"));
+  $("device-history").replaceChildren(
+    h(
+      "div",
+      { class: "tiles small" },
+      tile("Online", percent(line.availability), `${line.connects} ${line.connects === 1 ? "connection" : "connections"}`),
+      tile("Turns", String(line.turns), null),
+      tile("Typical first sound", ms(line.firstAudioP50), null),
+    ),
+    strips([{ label: "Online", segments: line.segments, availability: line.availability }], data.from, data.to),
+    h("p", { class: "group" }, "Events"),
+    eventList(data.events, 12),
+  );
+}
+
+// Charts are drawn to the width they have, so a resize redraws them.
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => view.name === "activity" && renderActivity(), 150);
+});
 
 if (token) signIn();
 else route();

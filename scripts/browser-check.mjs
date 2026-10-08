@@ -217,6 +217,15 @@ try {
   await admin.front();
   step("client listed", await admin.until(`document.querySelector('#client-table tbody tr')?.textContent.replace(/\\s+/g, ' ').slice(0, 80)`, "the client row"));
   step("name shown as text, not markup", await admin.run(`document.querySelectorAll('#client-table b').length === 0`));
+  // The overview and the activity page, after the turns above.
+  await admin.run(`location.hash = '#overview'`);
+  step("overview", await admin.until(`${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ').trim() && document.querySelector('#overview-strips .strip') && ${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ')`, "the overview"));
+  step("attention", await admin.run(`[...document.querySelectorAll('#attention li')].map(l => l.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`));
+  await admin.run(`location.hash = '#activity'`);
+  step("activity turns", await admin.until(`document.querySelectorAll('#activity-turns tbody tr').length >= 2 && [...document.querySelectorAll('#activity-turns tbody tr')].map(r => r.children[2].textContent + ':' + r.children[3].textContent.trim()).join(', ')`, "the turns on the activity page"));
+  step("activity chart drawn", await admin.until(`document.querySelector('#chart-turns svg') && 'yes'`, "the turns chart"));
+  step("no words stored", await admin.run(`!/what time is it|nine o'clock/.test(document.body.textContent)`));
+  await admin.run(`location.hash = '#clients'`);
   // The device editor. A real board describes its settings itself; here the schema is stored directly.
   app.store.saveSchema("web", {
     settings: [

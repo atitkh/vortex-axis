@@ -39,6 +39,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     pairingCodeTtlMs: 60_000,
     helloTimeoutMs: 2_000,
     pingIntervalMs: 0,
+    activityDays: 7,
     wakeWindowMs: 60,
     maxUtteranceMs: 30_000,
     healthIntervalMs: 0,

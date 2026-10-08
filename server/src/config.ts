@@ -19,6 +19,8 @@ export interface Config {
    * 0 turns pinging off.
    */
   pingIntervalMs: number;
+  /** How many days of turns and events the admin page's activity keeps. */
+  activityDays: number;
   /** How long wake arbitration waits for other clients to report. */
   wakeWindowMs: number;
   /** Longest utterance accepted from a client. */
@@ -69,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pairingCodeTtlMs: integer("AXIS_PAIRING_CODE_TTL_MS", env.AXIS_PAIRING_CODE_TTL_MS, 10 * 60 * 1000),
     helloTimeoutMs: integer("AXIS_HELLO_TIMEOUT_MS", env.AXIS_HELLO_TIMEOUT_MS, 10 * 1000),
     pingIntervalMs: integer("AXIS_PING_INTERVAL_MS", env.AXIS_PING_INTERVAL_MS, 15 * 1000),
+    activityDays: Math.max(1, integer("AXIS_ACTIVITY_DAYS", env.AXIS_ACTIVITY_DAYS, 7)),
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),

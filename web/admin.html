@@ -26,6 +26,8 @@
   </header>
 
   <nav class="side">
+    <a href="#overview" data-view="overview">Overview <span class="count" id="nav-overview"></span></a>
+    <a href="#activity" data-view="activity">Activity</a>
     <a href="#clients" data-view="clients">Clients <span class="count" id="nav-clients"></span></a>
     <a href="#pair" data-view="pair">Add a device</a>
     <span class="navhead">Settings</span>
@@ -38,6 +40,63 @@
   </nav>
 
   <main>
+    <!-- Overview: is everything all right? -->
+    <section class="view" id="overview">
+      <div class="head"><h2>Overview</h2></div>
+      <ul class="attention" id="attention"></ul>
+      <div class="tiles" id="overview-tiles"></div>
+      <h3>Last 24 hours</h3>
+      <div id="overview-strips"></div>
+      <h3>Recent events <a class="more" href="#activity">All activity</a></h3>
+      <div id="overview-events"></div>
+    </section>
+
+    <!-- Activity: turns, response times, uptime, events -->
+    <section class="view" id="activity">
+      <div class="head">
+        <h2>Activity</h2>
+        <div class="seg" id="activity-range">
+          <button data-hours="24">24 hours</button><button data-hours="72">3 days</button><button data-hours="168">7 days</button>
+        </div>
+      </div>
+      <div class="tiles" id="activity-tiles"></div>
+
+      <div class="charts">
+        <div class="chartbox">
+          <h4>Time to first sound</h4>
+          <p class="help">From Axis having the request to the first audio going out. A spoken turn also includes recognition.</p>
+          <div id="chart-latency"></div>
+        </div>
+        <div class="chartbox">
+          <h4>Turns</h4>
+          <div id="chart-turns"></div>
+        </div>
+      </div>
+      <div class="chartbox">
+        <h4>Where the wait goes, typical turn</h4>
+        <div id="chart-parts"></div>
+      </div>
+
+      <h3>Uptime</h3>
+      <div id="activity-strips"></div>
+
+      <h3>Recent turns</h3>
+      <p class="help">Timings and outcomes only. What was said is never stored.</p>
+      <div id="activity-turns"></div>
+
+      <h3>Events</h3>
+      <div class="inline filterrow">
+        <select id="event-filter">
+          <option value="">Everything</option>
+          <option value="problems">Problems only</option>
+          <option value="client">Connections</option>
+          <option value="service">Services</option>
+          <option value="changes">Changes by an admin</option>
+        </select>
+      </div>
+      <div id="activity-events"></div>
+    </section>
+
     <!-- Clients -->
     <section class="view" id="clients">
       <div class="head">
@@ -66,6 +125,9 @@
       <div id="device-settings"></div>
 
       <div id="device-readings"></div>
+
+      <h3>Last 24 hours</h3>
+      <div id="device-history"></div>
 
       <h3>Remove</h3>
       <p class="help">Its token stops working at once. It has to be paired again to come back.</p>

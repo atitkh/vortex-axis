@@ -359,3 +359,73 @@ describe("wake arbitration", () => {
     expect(Date.now() - sent).toBeLessThan(50);
   });
 });
+
+describe("the activity log of turns", () => {
+  const activity = async (query = "") => (await admin("GET", `/admin/activity?hours=1${query}`)).body;
+
+  it("keeps a spoken turn's timings and outcome, but not its words", async () => {
+    const { identity, client } = await ready(["mic", "speaker", "screen"], { name: "Desk" });
+    client.send({ t: "audio.start", turnId: "t1", format: UPSTREAM_AUDIO_FORMAT });
+    client.sendAudio(pcm(500));
+    client.send({ t: "audio.end", turnId: "t1", reason: "silence" });
+    await client.next("speak.end");
+    client.send({ t: "playback", turnId: "t1", state: "finished" });
+    await client.turn("t1", "idle");
+
+    const body = await activity();
+    expect(body.turns).toMatchObject({ count: 1, answered: 1, heard: 1 });
+    const [turn] = body.recentTurns;
+    expect(turn).toMatchObject({ clientId: identity.clientId, clientName: "Desk", kind: "voice", outcome: "answered", heard: true, speechMs: 500 });
+    expect(turn.sttMs).toBeGreaterThanOrEqual(0);
+    expect(turn.agentMs).toBeGreaterThanOrEqual(0);
+    expect(turn.firstAudioMs).toBeGreaterThanOrEqual(turn.agentMs);
+    expect(JSON.stringify(body)).not.toMatch(/what time is it|eight o'clock/);
+  });
+
+  it("tells a silent reply, a failure and an interruption apart", async () => {
+    const { client } = await ready(["mic", "speaker", "screen"]);
+    fakes.reply = ["NO_REPLY"];
+    client.send({ t: "text", turnId: "t1", text: "hush" });
+    await client.turn("t1", "idle");
+
+    fakes.failAgent = true;
+    client.send({ t: "text", turnId: "t2", text: "hello" });
+    await client.turn("t2", "error");
+
+    fakes.failAgent = false;
+    fakes.reply = ["One. ", "Two. ", "Three."];
+    fakes.agentDelayMs = 100;
+    client.send({ t: "text", turnId: "t3", text: "count" });
+    await client.next("speak.start");
+    client.send({ t: "interrupt", turnId: "t3" });
+    await client.turn("t3", "idle");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const body = await activity();
+    expect(body.recentTurns.map((t: { outcome: string }) => t.outcome)).toEqual(["interrupted", "failed", "silent"]);
+    expect(body.events.some((e: { text: string }) => /failed: agent answered HTTP 502/.test(e.text))).toBe(true);
+  });
+
+  it("records connections and settings changes, and filters by client", async () => {
+    const { identity, client } = await ready(["speaker"], { name: "Kitchen" });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { volume: 40 } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { volume: null } });
+    client.close();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const body = await activity(`&client=${identity.clientId}`);
+    const texts = body.events.map((e: { text: string }) => e.text).reverse();
+    expect(texts).toEqual([
+      "Kitchen paired (web)",
+      "Kitchen connected (web 0.1.0)",
+      "Kitchen: volume unset → 40",
+      "Kitchen: volume back to shared (was 40)",
+      "Kitchen disconnected",
+    ]);
+    expect(body.clients).toHaveLength(1);
+    // Unknown before this Axis started, offline until the client connected, online, then offline.
+    expect(body.clients[0].segments.map((s: { state: string }) => s.state)).toEqual(["unknown", "offline", "online", "offline"]);
+    expect((await admin("GET", "/admin/activity?client=c_nobody")).status).toBe(404);
+    expect((await admin("GET", "/admin/activity?hours=-1")).status).toBe(400);
+  });
+});

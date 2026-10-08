@@ -3,6 +3,7 @@ import type { Agent } from "./agent.js";
 import type { Session } from "./hub.js";
 import { SentenceSplitter } from "./sentences.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
+import type { TurnRecord } from "./store.js";
 import { WakeArbiter } from "./wake.js";
 
 /** The upstream services a turn needs. Any of them may be missing. */
@@ -29,6 +30,8 @@ export interface TurnOptions {
   maxUtteranceMs: number;
   /** Extra time allowed for a client to report that playback finished. */
   playbackGraceMs?: number;
+  /** Told about every turn once it ends: timings and outcome, never the words. */
+  record?: (turn: TurnRecord, session: Session) => void;
 }
 
 type TurnMessage = Extract<
@@ -342,6 +345,17 @@ export class TurnManager {
     outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
+    // Timings for the activity log, filled in as the turn goes.
+    const started = Date.now();
+    const record: TurnRecord = {
+      at: started,
+      clientId: id,
+      kind: "say" in input ? "say" : "pcm" in input ? "voice" : "text",
+      outcome: "answered",
+      totalMs: 0,
+      heard: false,
+      ...("pcm" in input ? { speechMs: Math.round(input.pcm.length / ((input.format.sampleRate * 2) / 1000)) } : {}),
+    };
     let finish!: () => void;
     const turn: ActiveTurn = {
       turnId,
@@ -363,9 +377,12 @@ export class TurnManager {
       } else if ("pcm" in input) {
         if (!stt) throw new TurnFailure("upstream_down", "speech recognition is not set up");
         state("transcribing");
+        const sttStarted = Date.now();
         text = await stt.transcribe(input.pcm, input.format, signal);
+        record.sttMs = Date.now() - sttStarted;
         if (signal.aborted) return "interrupted";
         if (!text) {
+          record.outcome = "no_speech";
           state("idle", "no speech heard");
           return undefined;
         }
@@ -397,6 +414,7 @@ export class TurnManager {
         if (!speaker || !tts) return;
         for await (const chunk of tts.synthesize(piece, { voice }, signal)) {
           if (signal.aborted) return;
+          record.firstAudioMs ??= Date.now() - started;
           await speaker.write(chunk);
         }
         await speaker.flush();
@@ -406,8 +424,10 @@ export class TurnManager {
       // while the text so far could still become one. Said words are never held back.
       const fromAgent = !("say" in input);
       const held: string[] = [];
+      const asked = Date.now();
       for await (const delta of source) {
         if (signal.aborted) return "interrupted";
+        if (fromAgent && delta) record.agentMs ??= Date.now() - asked;
         full += delta;
         for (const piece of splitter.push(delta)) held.push(piece);
         if (fromAgent && mayBeSilent(full)) continue;
@@ -419,6 +439,7 @@ export class TurnManager {
       const rest = splitter.flush();
       if (rest) held.push(rest);
       const silent = fromAgent && isSilent(full);
+      if (silent) record.outcome = "silent";
       if (!silent) {
         while (held.length) {
           await emit(held.shift()!);
@@ -450,6 +471,8 @@ export class TurnManager {
         error instanceof TurnFailure
           ? error
           : new TurnFailure("upstream_down", error instanceof Error ? error.message : "turn failed");
+      record.outcome = "failed";
+      record.error = failure.message.slice(0, 200);
       this.port.send(session, { t: "stop", turnId });
       this.port.send(session, { t: "turn", turnId, state: "error", detail: failure.message.slice(0, 256) });
       this.port.send(session, { t: "error", code: failure.code, message: failure.message.slice(0, 256) });
@@ -458,6 +481,14 @@ export class TurnManager {
       if (this.active.get(id) === turn) this.active.delete(id);
       if (outcome) outcome.heard = Boolean(turn.heard);
       finish();
+      if (signal.aborted && record.outcome !== "failed") record.outcome = "interrupted";
+      record.heard = Boolean(turn.heard);
+      record.totalMs = Date.now() - started;
+      try {
+        this.options.record?.(record, session);
+      } catch {
+        // Losing one row of the activity log must never break a conversation.
+      }
     }
   }
 }

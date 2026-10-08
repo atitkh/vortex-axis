@@ -130,9 +130,18 @@ Where agent-started output goes: a named client, else a named room, else the cli
 
 SQLite, one file in one data folder bind-mounted from the host, through Node's built-in `node:sqlite`. It uses a rollback journal instead of write-ahead logging so the folder can live on network storage.
 
-- Stored: clients (name, type, room, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and a short log of recent turns for debugging.
+- Stored: clients (name, type, room, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and the activity log described below.
 - In memory only: who is online, the current output client, the active turn.
 - Not stored: audio and conversation history.
+
+### 8.1 Activity log
+
+Built 2026-10-08, for the admin page's overview and activity pages (`server/src/activity.ts`).
+
+- **Turns:** one row per turn with the device, the kind (spoken, typed, said by an agent), the outcome (answered, no reply, nothing heard, interrupted, failed, with the error), how long the person spoke, and the time taken by recognition, by the agent to its first words, to the first audio sent, and in total. Never the words.
+- **Events:** clients connecting and dropping (a dropped ping is told apart from a clean close), each service and gateway link changing state, Axis starting and stopping, settings changes with old and new values, and admin actions (pairing, renaming, removing, saving speech or agent settings, choosing the agent).
+- Uptime timelines are drawn from the events with a state. Axis notes once a minute that it is running, so after a crash the time it was down shows.
+- Kept for `AXIS_ACTIVITY_DAYS` (7 by default), pruned hourly. Writes are one row per turn or change plus one small write a minute, which is fine on network storage.
 
 ## 9. Deployment
 

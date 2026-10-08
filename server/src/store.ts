@@ -65,7 +65,64 @@ const MIGRATIONS: string[] = [
   );
   INSERT INTO meta (key, value) VALUES ('settings_version', '1');
   `,
+  // What happened, for the admin page's activity and uptime. Timings and outcomes only:
+  // never audio, never what anybody said. Rows older than the retention period are pruned.
+  `
+  CREATE TABLE turns (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    client_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    error TEXT,
+    speech_ms INTEGER,
+    stt_ms INTEGER,
+    agent_ms INTEGER,
+    first_audio_ms INTEGER,
+    total_ms INTEGER NOT NULL,
+    heard INTEGER NOT NULL
+  );
+  CREATE INDEX turns_at ON turns (at);
+  CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    state TEXT,
+    level TEXT NOT NULL,
+    text TEXT NOT NULL
+  );
+  CREATE INDEX events_at ON events (at);
+  CREATE INDEX events_subject ON events (kind, subject, at);
+  `,
 ];
+
+interface TurnRow {
+  at: number;
+  client_id: string;
+  kind: string;
+  outcome: string;
+  error: string | null;
+  speech_ms: number | null;
+  stt_ms: number | null;
+  agent_ms: number | null;
+  first_audio_ms: number | null;
+  total_ms: number;
+  heard: number;
+}
+
+interface EventRow {
+  at: number;
+  kind: string;
+  subject: string;
+  state: string | null;
+  level: string;
+  text: string;
+}
+
+function toEvent(r: EventRow): EventRecord {
+  return { at: r.at, kind: r.kind, subject: r.subject, state: r.state ?? undefined, level: r.level as EventRecord["level"], text: r.text };
+}
 
 function toRecord(row: ClientRow): ClientRecord {
   return {
@@ -77,6 +134,38 @@ function toRecord(row: ClientRow): ClientRecord {
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
   };
+}
+
+/** One turn as the activity log keeps it. Durations are milliseconds; absent when that stage did not run. */
+export interface TurnRecord {
+  at: number;
+  clientId: string;
+  /** voice: spoken; text: typed; say: started by an agent. */
+  kind: "voice" | "text" | "say";
+  outcome: "answered" | "silent" | "no_speech" | "interrupted" | "failed";
+  error?: string | undefined;
+  /** How long the person spoke. */
+  speechMs?: number | undefined;
+  sttMs?: number | undefined;
+  /** From asking the agent to its first words. */
+  agentMs?: number | undefined;
+  /** From Axis starting on the turn to the first audio sent to the client. */
+  firstAudioMs?: number | undefined;
+  totalMs: number;
+  /** The client confirmed it played the reply to the end. */
+  heard: boolean;
+}
+
+/** Something that happened. Events with a `state` draw the uptime timelines. */
+export interface EventRecord {
+  at: number;
+  /** axis, service, client, settings or admin. */
+  kind: string;
+  /** What it is about: a client id, a service name, or "" for Axis itself. */
+  subject: string;
+  state?: string | undefined;
+  level: "info" | "warn" | "bad";
+  text: string;
 }
 
 /** Everything Axis keeps on disk. Live state (who is online) is not stored here. */
@@ -228,6 +317,68 @@ export class Store {
   getSchema(type: string): ClientSchema | undefined {
     const text = this.getMeta(`schema:${type}`);
     return text ? (JSON.parse(text) as ClientSchema) : undefined;
+  }
+
+  // --- activity -------------------------------------------------------------
+
+  addTurn(t: TurnRecord): void {
+    this.db
+      .prepare(
+        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(t.at, t.clientId, t.kind, t.outcome, t.error ?? null, t.speechMs ?? null, t.sttMs ?? null, t.agentMs ?? null,
+        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0);
+  }
+
+  /** Turns that started in [from, to), oldest first. */
+  turnsBetween(from: number, to: number, clientId?: string): TurnRecord[] {
+    const rows = (
+      clientId
+        ? this.db.prepare("SELECT * FROM turns WHERE at >= ? AND at < ? AND client_id = ? ORDER BY at").all(from, to, clientId)
+        : this.db.prepare("SELECT * FROM turns WHERE at >= ? AND at < ? ORDER BY at").all(from, to)
+    ) as unknown as TurnRow[];
+    return rows.map((r) => ({
+      at: r.at,
+      clientId: r.client_id,
+      kind: r.kind as TurnRecord["kind"],
+      outcome: r.outcome as TurnRecord["outcome"],
+      error: r.error ?? undefined,
+      speechMs: r.speech_ms ?? undefined,
+      sttMs: r.stt_ms ?? undefined,
+      agentMs: r.agent_ms ?? undefined,
+      firstAudioMs: r.first_audio_ms ?? undefined,
+      totalMs: r.total_ms,
+      heard: r.heard === 1,
+    }));
+  }
+
+  addEvent(e: EventRecord): void {
+    this.db
+      .prepare("INSERT INTO events (at, kind, subject, state, level, text) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(e.at, e.kind, e.subject, e.state ?? null, e.level, e.text);
+  }
+
+  /** Events in [from, to), oldest first. */
+  eventsBetween(from: number, to: number): EventRecord[] {
+    const rows = this.db.prepare("SELECT * FROM events WHERE at >= ? AND at < ? ORDER BY at, id").all(from, to) as unknown as EventRow[];
+    return rows.map(toEvent);
+  }
+
+  /** The last event with a state for each subject of `kind` before `at`: where a timeline starts. */
+  statesBefore(kind: string, at: number): Map<string, EventRecord> {
+    const rows = this.db
+      .prepare(
+        "SELECT e.* FROM events e JOIN (SELECT subject, MAX(id) AS id FROM events WHERE kind = ? AND state IS NOT NULL AND at < ? GROUP BY subject) last ON e.id = last.id",
+      )
+      .all(kind, at) as unknown as EventRow[];
+    return new Map(rows.map((r) => [r.subject, toEvent(r)]));
+  }
+
+  /** Removes turns and events older than `before`. */
+  pruneActivity(before: number): void {
+    this.db.prepare("DELETE FROM turns WHERE at < ?").run(before);
+    this.db.prepare("DELETE FROM events WHERE at < ?").run(before);
   }
 
   // --- small named values --------------------------------------------------

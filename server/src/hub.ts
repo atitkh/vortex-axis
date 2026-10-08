@@ -1,4 +1,5 @@
 import type { WebSocket } from "ws";
+import type { Activity } from "./activity.js";
 import {
   PROTOCOL_VERSION,
   DEFAULT_AUDIO_BUFFER_MS,
@@ -54,6 +55,8 @@ export interface HubOptions {
   helloTimeoutMs: number;
   /** How often each socket is pinged; one missed answer drops it. 0 or unset: never. */
   pingIntervalMs?: number;
+  /** Where connections, service health and turns are recorded for the admin page. */
+  activity?: Activity;
   services?: Services;
   wakeWindowMs?: number;
   maxUtteranceMs?: number;
@@ -72,6 +75,7 @@ export class Hub implements TurnPort {
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly pingIntervalMs: number;
+  private readonly activity: Activity | undefined;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly pending = new Map<string, PendingCommand>();
@@ -82,6 +86,7 @@ export class Hub implements TurnPort {
     this.store = options.store;
     this.helloTimeoutMs = options.helloTimeoutMs;
     this.pingIntervalMs = options.pingIntervalMs ?? 0;
+    this.activity = options.activity;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
     this.outputHoldMs = options.outputHoldMs ?? 10 * 60_000;
@@ -90,6 +95,7 @@ export class Hub implements TurnPort {
       wakeWindowMs: options.wakeWindowMs ?? 200,
       maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
+      record: (turn, session) => this.activity?.turn(turn, session.client.name),
     });
   }
 
@@ -173,11 +179,13 @@ export class Hub implements TurnPort {
     // A device that loses power or Wi-Fi never closes its socket, and the operating system
     // can take hours to notice. A ping it has not answered by the next one ends the socket.
     let answered = true;
+    let silent = false;
     const pingTimer =
       this.pingIntervalMs > 0
         ? setInterval(() => {
             if (!answered) {
               if (session) this.log(`client ${session.client.id} stopped answering pings`);
+              silent = true;
               socket.terminate();
               return;
             }
@@ -223,6 +231,14 @@ export class Hub implements TurnPort {
         this.abandonCommands(session);
         this.store.touch(session.client.id);
         this.log(`client ${session.client.id} disconnected`);
+        const name = session.client.name;
+        this.activity?.state(
+          "client",
+          session.client.id,
+          "offline",
+          silent ? `${name} stopped answering (lost power or network?)` : `${name} disconnected`,
+          silent ? "warn" : "info",
+        );
       }
     });
 
@@ -261,6 +277,7 @@ export class Hub implements TurnPort {
     };
     this.online.set(client.id, session);
     this.log(`client ${client.id} (${client.name}) connected`);
+    this.activity?.state("client", client.id, "online", `${client.name} connected (${client.type} ${hello.version})`);
 
     const settingsVersion = this.store.settingsVersion();
     this.send(session, {
@@ -359,6 +376,11 @@ export class Hub implements TurnPort {
 
   /** Records upstream health and tells connected clients when it changes. */
   setUpstream(upstream: Status["upstream"]): void {
+    const names = { openclaw: "Agent", stt: "Speech recognition", tts: "Speech synthesis" } as const;
+    for (const key of ["openclaw", "stt", "tts"] as const) {
+      const state = upstream[key];
+      this.activity?.state("service", key, state, `${names[key]} ${state}`, state === "down" ? "bad" : "info");
+    }
     const changed = JSON.stringify(upstream) !== JSON.stringify(this.upstream);
     this.upstream = upstream;
     if (!changed) return;

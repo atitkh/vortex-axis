@@ -138,7 +138,8 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `GET /admin/clients/:id` | One client. |
 | `PATCH /admin/clients/:id` | Body `{ name }`. Renames a client (1 to 60 characters). 409 when another client already has that name, ignoring case. |
 | `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
-| `GET /admin/status` | Version, upstream health and client counts. |
+| `GET /admin/status` | Version, upstream health, client counts, and when Axis started (`startedAt`, `uptimeMs`). |
+| `GET /admin/activity` | `?hours=24` (up to the retention period) and optionally `&client=<id>`. Turn counts, outcomes and timings (typical and slowest 5 %), per-bucket figures for charts, uptime timelines for Axis, each service and each client, the recent turns (timings only, never words) and recent events. |
 | `GET` or `PATCH /admin/config` | Speech and agent settings. Secrets are accepted but never returned. |
 | `POST /admin/config/test` | Synthesizes a sentence and transcribes it back, with timings. |
 | `GET /admin/gateway` | State of both gateway links, the device id and the chosen agent. |

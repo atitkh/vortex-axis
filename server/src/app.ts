@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
+import { Activity } from "./activity.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
@@ -14,6 +15,7 @@ import { applyRuntimeConfig, loadRuntimeConfig } from "./upstream.js";
 
 export interface App {
   store: Store;
+  activity: Activity;
   hub: Hub;
   /** The OpenClaw gateway link. It exists even when another agent answers turns. */
   gateway: GatewayClient;
@@ -38,6 +40,20 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const log = options.log ?? (() => {});
   const startedAt = Date.now();
   const store = new Store(config.dataDir);
+  const activity = new Activity(store, { retentionMs: config.activityDays * 86_400_000 });
+  activity.start();
+
+  // The gateway's two links each get an uptime timeline.
+  const LINK_NAMES = { operator: "Gateway turn link", node: "Gateway command link" } as const;
+  const recordLinks = () => {
+    const status = gateway.status();
+    for (const key of ["operator", "node"] as const) {
+      const state = status[key].state;
+      const bad = state === "auth_failed" || state === "unreachable";
+      const detail = status[key].error ? `: ${status[key].error}` : "";
+      activity.state("service", key, state, `${LINK_NAMES[key]} ${state.replace(/_/g, " ")}${bad ? detail : ""}`, bad ? "bad" : state === "connected" ? "info" : "warn");
+    }
+  };
 
   const gateway = new GatewayClient({
     store,
@@ -49,7 +65,10 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     commands: [...NODE_COMMANDS],
     tools: NODE_TOOLS,
     log,
-    onStateChange: () => void checkHealth(),
+    onStateChange: () => {
+      recordLinks();
+      void checkHealth();
+    },
     ...(options.gatewayTiming ? { timing: options.gatewayTiming } : {}),
   });
 
@@ -70,6 +89,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     wakeWindowMs: config.wakeWindowMs,
     maxUtteranceMs: config.maxUtteranceMs,
     outputHoldMs: config.outputHoldMs,
+    activity,
     log,
   });
   gateway.onInvokeCommand(createInvokeHandler({ hub, store, version: AXIS_VERSION, startedAt }));
@@ -91,7 +111,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     healthTimer.unref();
   }
 
-  const server = createServer(createHttpHandler({ config, store, hub, gateway, services, reloadServices, version: AXIS_VERSION }));
+  const server = createServer(
+    createHttpHandler({ config, store, hub, gateway, activity, services, reloadServices, version: AXIS_VERSION, startedAt }),
+  );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
   server.on("upgrade", (req, socket, head) => {
@@ -113,9 +135,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   const port = (server.address() as AddressInfo).port;
   gateway.start();
+  recordLinks();
 
   return {
     store,
+    activity,
     hub,
     gateway,
     server,
@@ -127,6 +151,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       sockets.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeAllConnections();
+      activity.stop();
       store.close();
     },
   };
