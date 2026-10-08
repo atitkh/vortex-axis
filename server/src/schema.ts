@@ -23,6 +23,17 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     group: "Axis",
     help: "Voice for this device's speech. Empty uses the default voice in the Speech section.",
   },
+  {
+    key: "sentencePauseMs",
+    label: "Pause between sentences",
+    kind: "number",
+    group: "Axis",
+    min: 0,
+    max: 1500,
+    unit: "ms",
+    default: 300,
+    help: "Silence Axis puts between spoken sentences. Half of it after a comma, one and a half times at a new paragraph.",
+  },
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };

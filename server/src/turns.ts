@@ -1,7 +1,7 @@
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
 import type { Session } from "./hub.js";
-import { SentenceSplitter } from "./sentences.js";
+import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
 import type { TurnRecord } from "./store.js";
 import { WakeArbiter } from "./wake.js";
@@ -99,6 +99,8 @@ class Speaker {
   private carry: Buffer = Buffer.alloc(0);
   private startedAt = 0;
   private sentMs = 0;
+  /** Samples of near-silence at the end of what was sent so far. */
+  private quietTail = 0;
   started = false;
 
   constructor(
@@ -147,12 +149,169 @@ class Speaker {
     if (rest.length && !this.signal.aborted) await this.sendFrame(rest);
   }
 
+  /**
+   * Silence until the end of what was sent is `ms` quiet. Speech engines differ in how much
+   * silence they leave at the end of a clip, so only the difference is added: the pause comes
+   * out the same whichever engine is used.
+   */
+  async pause(ms: number): Promise<void> {
+    await this.flush();
+    const tailMs = (this.quietTail * 2) / this.bytesPerMs;
+    const missing = Math.round(ms - tailMs);
+    if (missing <= 0 || this.signal.aborted) return;
+    const bytes = Math.round(missing * this.bytesPerMs);
+    await this.write(Buffer.alloc(bytes - (bytes % 2)));
+    await this.flush();
+  }
+
   private async sendFrame(frame: Buffer): Promise<void> {
     const over = this.aheadMs() - this.session.audioBufferMs;
     if (over > 0) await sleep(over, this.signal);
     if (this.signal.aborted) return;
     this.port.sendBinary(this.session, frame);
     this.sentMs += frame.length / this.bytesPerMs;
+    this.measureTail(frame);
+  }
+
+  /** Below about -44 dBFS counts as quiet. */
+  private measureTail(frame: Buffer): void {
+    const samples = frame.length >> 1;
+    let quiet = 0;
+    while (quiet < samples && Math.abs(frame.readInt16LE((samples - 1 - quiet) * 2)) < QUIET_SAMPLE) quiet++;
+    this.quietTail = quiet === samples ? this.quietTail + quiet : quiet;
+  }
+}
+
+const QUIET_SAMPLE = 200;
+
+/** The pause after a piece, as a share of the sentence pause. */
+const PAUSE_SHARE: Record<Piece["end"], number> = { sentence: 1, clause: 0.5, paragraph: 1.5, none: 0.25 };
+
+/** One sentence being synthesized: its audio arrives here as the speech service sends it. */
+interface SynthJob {
+  piece: Piece;
+  started: boolean;
+  chunks: Buffer[];
+  done: boolean;
+  failed: boolean;
+  error?: unknown;
+}
+
+/**
+ * Speaks a reply sentence by sentence. A sentence's synthesis starts as soon as the sentence
+ * is known, up to one sentence ahead of the one being played, so the next is ready when the
+ * last ends. Between sentences a deliberate pause goes in, so the rhythm is the same whether
+ * the speech service is quick or slow.
+ */
+class SpeechQueue {
+  private readonly jobs: SynthJob[] = [];
+  private playing = 0;
+  private closed = false;
+  private loop: Promise<void> | undefined;
+  private notify = () => {};
+  private changed = new Promise<void>((resolve) => (this.notify = resolve));
+  /** Set when synthesis failed; the turn stops with it. */
+  failure: unknown;
+  failed = false;
+
+  constructor(
+    private readonly speaker: Speaker,
+    private readonly tts: TextToSpeech,
+    private readonly options: {
+      voice: string | undefined;
+      signal: AbortSignal;
+      /** Base pause after a sentence, in milliseconds. */
+      pauseMs: number;
+      /** Called as a piece starts to play, to show its text. */
+      onPiece: (piece: Piece) => void;
+      /** Called with the first audio of the reply. */
+      onFirstAudio: () => void;
+      /** Sentences synthesized ahead of the one playing. */
+      lookahead?: number;
+    },
+  ) {}
+
+  /** Queues a piece. Never waits: the text keeps flowing while earlier pieces play. */
+  add(piece: Piece): void {
+    this.jobs.push({ piece, started: false, chunks: [], done: false, failed: false });
+    this.startDue();
+    this.wake();
+    this.loop ??= this.run().catch((error: unknown) => {
+      this.failed = true;
+      this.failure = error;
+    });
+  }
+
+  /** No more pieces. Resolves once everything has been sent, or throws what failed. */
+  async finish(): Promise<void> {
+    this.closed = true;
+    this.wake();
+    await this.loop;
+    if (this.failed) throw this.failure;
+  }
+
+  private wake(): void {
+    this.notify();
+  }
+
+  private async next(): Promise<void> {
+    await this.changed;
+    // A new promise before anything is checked again, so a change that lands now is not missed.
+    this.changed = new Promise<void>((resolve) => (this.notify = resolve));
+  }
+
+  private startDue(): void {
+    const last = Math.min(this.jobs.length - 1, this.playing + (this.options.lookahead ?? 1));
+    for (let i = this.playing; i <= last; i++) if (!this.jobs[i]!.started) this.synthesize(this.jobs[i]!);
+  }
+
+  private synthesize(job: SynthJob): void {
+    job.started = true;
+    void (async () => {
+      try {
+        for await (const chunk of this.tts.synthesize(job.piece.text, { voice: this.options.voice }, this.options.signal)) {
+          job.chunks.push(chunk);
+          this.wake();
+        }
+      } catch (error) {
+        job.failed = true;
+        job.error = error;
+      } finally {
+        job.done = true;
+        this.wake();
+      }
+    })();
+  }
+
+  private async run(): Promise<void> {
+    const { signal } = this.options;
+    for (let i = 0; ; i++) {
+      while (i >= this.jobs.length) {
+        if (this.closed || signal.aborted) return;
+        await this.next();
+      }
+      this.playing = i;
+      this.startDue();
+      const job = this.jobs[i]!;
+      // The pause belongs between sentences: none before the first, none after the last.
+      if (i > 0) await this.speaker.pause(this.options.pauseMs * PAUSE_SHARE[this.jobs[i - 1]!.piece.end]);
+      if (signal.aborted) return;
+      this.options.onPiece(job.piece);
+      let read = 0;
+      for (;;) {
+        if (signal.aborted) return;
+        if (read < job.chunks.length) {
+          this.options.onFirstAudio();
+          await this.speaker.write(job.chunks[read++]!);
+          continue;
+        }
+        if (job.failed) throw job.error;
+        if (job.done) break;
+        await this.next();
+      }
+      await this.speaker.flush();
+      job.chunks = [];
+    }
   }
 }
 
@@ -406,46 +565,50 @@ export class TurnManager {
         caps.includes("speaker") && tts ? new Speaker(this.port, session, turnId, tts.format, signal) : undefined;
       const settings = this.port.settings(session);
       const voice = typeof settings.voice === "string" && settings.voice ? settings.voice : undefined;
+      const pauseMs = typeof settings.sentencePauseMs === "number" ? Math.min(1500, Math.max(0, settings.sentencePauseMs)) : 300;
       const splitter = new SentenceSplitter();
       let full = "";
 
-      const emit = async (piece: string) => {
-        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece, final: false });
-        if (!speaker || !tts) return;
-        for await (const chunk of tts.synthesize(piece, { voice }, signal)) {
-          if (signal.aborted) return;
-          record.firstAudioMs ??= Date.now() - started;
-          await speaker.write(chunk);
-        }
-        await speaker.flush();
+      const showPiece = (piece: Piece) => {
+        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece.text, final: false });
+      };
+      // With a speaker, each sentence's text goes out as its audio starts; without, at once.
+      const queue =
+        speaker && tts
+          ? new SpeechQueue(speaker, tts, {
+              voice,
+              signal,
+              pauseMs,
+              onPiece: showPiece,
+              onFirstAudio: () => (record.firstAudioMs ??= Date.now() - started),
+            })
+          : undefined;
+      const emit = (piece: Piece) => {
+        if (queue) queue.add(piece);
+        else showPiece(piece);
+        if (queue?.failed) throw queue.failure;
       };
 
       // An agent reply that turns out to be "NO_REPLY" must not be spoken, so nothing goes out
       // while the text so far could still become one. Said words are never held back.
       const fromAgent = !("say" in input);
-      const held: string[] = [];
+      const held: Piece[] = [];
       const asked = Date.now();
       for await (const delta of source) {
         if (signal.aborted) return "interrupted";
         if (fromAgent && delta) record.agentMs ??= Date.now() - asked;
         full += delta;
-        for (const piece of splitter.push(delta)) held.push(piece);
+        for (const piece of splitter.pushPieces(delta)) held.push(piece);
         if (fromAgent && mayBeSilent(full)) continue;
-        while (held.length) {
-          await emit(held.shift()!);
-          if (signal.aborted) return "interrupted";
-        }
+        while (held.length) emit(held.shift()!);
       }
-      const rest = splitter.flush();
+      const rest = splitter.flushPiece();
       if (rest) held.push(rest);
       const silent = fromAgent && isSilent(full);
       if (silent) record.outcome = "silent";
-      if (!silent) {
-        while (held.length) {
-          await emit(held.shift()!);
-          if (signal.aborted) return "interrupted";
-        }
-      }
+      if (!silent) while (held.length) emit(held.shift()!);
+      // Everything queued has been spoken (or the turn was stopped) once this returns.
+      await queue?.finish();
       if (signal.aborted) return "interrupted";
 
       if (hasScreen) {

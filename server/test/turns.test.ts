@@ -15,6 +15,12 @@ class Fakes {
   audioBytes = 1000;
   agentDelayMs = 0;
   failAgent = false;
+  /** Delay before each chunk of synthesized audio, to make synthesis slow. */
+  ttsChunkDelayMs = 0;
+  /** When each synthesis started and finished, by text. */
+  ttsTimes: { text: string; started: number; finished: number }[] = [];
+  /** Silence the speech engine leaves at the end of each clip, in bytes. */
+  trailingSilenceBytes = 0;
 
   stt: SpeechToText = {
     transcribe: async (pcm, format) => {
@@ -30,9 +36,15 @@ class Fakes {
       const self = this;
       return (async function* () {
         self.spoken.push({ text, voice: options.voice });
+        const times = { text, started: Date.now(), finished: 0 };
+        self.ttsTimes.push(times);
         // Deliberately odd-sized chunks, to exercise frame assembly.
-        const total = Buffer.alloc(self.audioBytes, 1);
-        for (let at = 0; at < total.length; at += 333) yield total.subarray(at, at + 333);
+        const total = Buffer.concat([Buffer.alloc(self.audioBytes, 1), Buffer.alloc(self.trailingSilenceBytes)]);
+        for (let at = 0; at < total.length; at += 333) {
+          if (self.ttsChunkDelayMs) await new Promise((r) => setTimeout(r, self.ttsChunkDelayMs));
+          yield total.subarray(at, at + 333);
+        }
+        times.finished = Date.now();
       })();
     },
     healthy: async () => true,
@@ -96,7 +108,8 @@ describe("a voice turn", () => {
     ]);
 
     expect((await client.next("speak.start")).format.sampleRate).toBe(24000);
-    expect(Buffer.concat(client.audio).length).toBe(2000);
+    // Two sentences of 1000 bytes, with a 300 ms pause between them (14400 bytes at 24 kHz).
+    expect(Buffer.concat(client.audio).length).toBe(2000 + 14400);
   });
 
   it("starts speaking before the agent has finished", async () => {
@@ -118,7 +131,7 @@ describe("a voice turn", () => {
     await client.next("speak.end");
 
     expect(client.audio.every((frame) => frame.length <= 512 && frame.length % 2 === 0)).toBe(true);
-    expect(Buffer.concat(client.audio).length).toBe(2000);
+    expect(Buffer.concat(client.audio).length).toBe(2000 + 14400);
   });
 
   it("paces speech to what the client can buffer", async () => {
@@ -427,5 +440,77 @@ describe("the activity log of turns", () => {
     expect(body.clients[0].segments.map((s: { state: string }) => s.state)).toEqual(["unknown", "offline", "online", "offline"]);
     expect((await admin("GET", "/admin/activity?client=c_nobody")).status).toBe(404);
     expect((await admin("GET", "/admin/activity?hours=-1")).status).toBe(400);
+  });
+});
+
+describe("speaking a reply sentence by sentence", () => {
+  /** Silence runs in the audio sent, in milliseconds at 24 kHz, longer than 20 ms. */
+  const pauses = (audio: Buffer[]) => {
+    const all = Buffer.concat(audio);
+    const runs: number[] = [];
+    let run = 0;
+    for (let i = 0; i + 1 < all.length; i += 2) {
+      if (all.readInt16LE(i) === 0) run++;
+      else {
+        if (run) runs.push(run);
+        run = 0;
+      }
+    }
+    if (run) runs.push(run);
+    return runs.map((samples) => Math.round(samples / 24)).filter((ms) => ms > 20);
+  };
+
+  it("synthesizes the next sentence while the one before is still being spoken", async () => {
+    fakes.reply = ["The first sentence is here. ", "The second one follows. ", "And a third."];
+    fakes.ttsChunkDelayMs = 40; // each sentence takes about 120 ms to synthesize
+    const { client } = await ready(["speaker"]);
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+
+    const [first, second, third] = fakes.ttsTimes;
+    expect(second!.started).toBeLessThan(first!.finished);
+    // Only one sentence ahead: the third waits until the second is the one playing.
+    expect(third!.started).toBeGreaterThanOrEqual(first!.finished);
+  });
+
+  it("pauses between sentences, shorter after a comma and longer at a new paragraph, none at the ends", async () => {
+    fakes.reply = ["First sentence here. ", "Then a long clause that runs on and on, " + "x".repeat(200) + " ", "end.\nA new paragraph starts."];
+    const { client } = await ready(["speaker"]);
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+    expect(pauses(client.audio)).toEqual([300, 150, 450]);
+  });
+
+  it("counts silence the speech engine already left at the end of a clip", async () => {
+    fakes.reply = ["First sentence here. ", "Second sentence here."];
+    fakes.trailingSilenceBytes = 4800; // 100 ms
+    const { client } = await ready(["speaker"]);
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+    // 300 ms in all: the engine's 100 ms and 200 ms added. The last clip keeps its own 100 ms.
+    expect(pauses(client.audio)).toEqual([300, 100]);
+  });
+
+  it("uses the device's pause setting, and none at all when it is 0", async () => {
+    fakes.reply = ["First sentence here. ", "Second sentence here."];
+    const { identity, client } = await ready(["speaker"]);
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { sentencePauseMs: 0 } });
+    await client.next("settings");
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+    expect(pauses(client.audio)).toEqual([]);
+    expect(Buffer.concat(client.audio).length).toBe(2000);
+  });
+
+  it("shows each sentence as its audio starts", async () => {
+    fakes.reply = ["First sentence here. ", "Second sentence here."];
+    const { client } = await ready(["speaker", "screen"]);
+    client.send({ t: "text", turnId: "t1", text: "go" });
+    await client.next("speak.end");
+    const order = client.timeline.map((m) => (m.t === "reply.text" ? `text:${(m as { final: boolean }).final}` : m.t));
+    const firstText = order.indexOf("text:false");
+    const secondText = order.indexOf("text:false", firstText + 1);
+    // The second sentence's text comes after the first sentence's audio, not before it.
+    expect(order.slice(firstText, secondText)).toContain("<audio>");
   });
 });
