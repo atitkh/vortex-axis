@@ -83,7 +83,7 @@ function showTip(event, title, rows) {
   tip.style.left = `${Math.max(4, x)}px`;
   tip.style.top = `${Math.max(4, event.clientY - tip.offsetHeight - 10)}px`;
 }
-function hideTip() {
+export function hideTip() {
   if (tip) tip.style.display = "none";
 }
 

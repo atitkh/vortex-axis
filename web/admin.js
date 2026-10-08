@@ -5,7 +5,7 @@
 // device's page shows only where that one device differs. The three layers underneath
 // (all devices, type, device) are the server's; this page only presents them.
 
-import { clock, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
+import { clock, hideTip, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "axis-admin-token";
@@ -355,6 +355,9 @@ function route() {
   const navKey = name === "device" ? "clients" : name === "type" ? `type:${id}` : name;
   for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navKey);
   renderView();
+  // Opening a page draws its history at once from what was last fetched.
+  if (name === "overview") renderOverview();
+  if (name === "activity") renderActivity();
 }
 window.addEventListener("hashchange", () => {
   route();
@@ -363,8 +366,7 @@ window.addEventListener("hashchange", () => {
 
 function renderView() {
   if (["overview", "activity", "device"].includes(view.name)) loadActivity();
-  if (view.name === "overview") renderOverview();
-  if (view.name === "activity") renderActivity();
+  if (view.name === "overview") renderOverview(false);
   if (view.name === "device") renderDevice();
   if (view.name === "type") renderType();
   if (view.name === "settings") renderAllDevices();
@@ -725,7 +727,7 @@ function renderDevice() {
   );
 
   renderReadings(client);
-  renderDeviceHistory();
+  if ($("device-history").dataset.drawn !== `${view.id}:${activityData.at}`) renderDeviceHistory();
 
   const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
   const own = defs.filter((d) => client.layers.device[d.key] !== undefined);
@@ -1092,6 +1094,8 @@ $("set-add").addEventListener("click", (event) =>
 // The summary is fetched for what is on screen and kept a few seconds; it changes slowly.
 let activityRange = 24;
 let activityData = { key: "", at: 0, data: undefined, loading: false };
+// When the charts were last drawn from fetched data. A route change draws at once from the cache.
+let lastDrawn = 0;
 const ACTIVITY_FRESH_MS = 10_000;
 
 function activityKey() {
@@ -1112,6 +1116,7 @@ async function loadActivity(force = false) {
     if (activityKey() === key) {
       if (view.name === "overview") renderOverview();
       if (view.name === "activity") renderActivity();
+      lastDrawn = activityData.at;
       if (view.name === "device") renderDeviceHistory();
     }
   } catch (error) {
@@ -1214,7 +1219,8 @@ function attentionItems(data) {
   return items.sort((a, b) => (a.level === b.level ? 0 : a.level === "bad" ? -1 : 1));
 }
 
-function renderOverview() {
+/** `withHistory` false redraws only the parts that follow the 3 s poll, not the strips and events. */
+function renderOverview(withHistory = true) {
   const data = currentActivity();
   const items = attentionItems(data);
   $("nav-overview").textContent = items.length ? String(items.length) : "";
@@ -1233,7 +1239,8 @@ function renderOverview() {
     tile("Turns, last 24 h", t ? String(t.count) : "–", t ? (t.failed ? `${t.failed} failed` : "none failed") : null, t?.failed ? "bad" : ""),
     tile("Time to first sound", t ? ms(t.firstAudioP50) : "–", t?.firstAudioP95 !== null && t ? `worst 5 %: ${ms(t.firstAudioP95)}` : "no turns yet"),
   );
-  if (!data) return;
+  if (!data || (!withHistory && lastDrawn === activityData.at && $("overview-strips").childElementCount)) return;
+  hideTip();
   $("overview-strips").replaceChildren(strips([...uptimeRows(data), ...clientRows(data)], data.from, data.to));
   $("overview-events").replaceChildren(eventList(data.events, 8));
 }
@@ -1264,6 +1271,7 @@ const OUTCOMES = {
 const KINDS = { voice: "spoken", text: "typed", say: "agent spoke" };
 
 function renderActivity() {
+  hideTip();
   for (const b of $("activity-range").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.hours) === activityRange);
   const data = currentActivity();
   $("activity").classList.toggle("stale", !data);
@@ -1343,6 +1351,8 @@ function renderDeviceHistory() {
   const data = currentActivity();
   const line = data?.clients[0];
   if (!line || line.id !== view.id) return void $("device-history").replaceChildren(h("p", { class: "help" }, "Loading…"));
+  $("device-history").dataset.drawn = `${view.id}:${activityData.at}`;
+  hideTip();
   $("device-history").replaceChildren(
     h(
       "div",
