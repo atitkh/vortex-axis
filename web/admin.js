@@ -620,7 +620,7 @@ function renderClients() {
       { class: `link-row${c.online ? "" : " off"}`, onclick: (event) => event.target.closest("a") || (location.hash = deviceHref(c)) },
       h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
       h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
-      h("td", {}, h("a", { href: typeHref(c.type), class: "mono plainlink" }, c.type)),
+      h("td", {}, h("a", { href: typeHref(c.type), class: typeName(c.type) === c.type ? "mono plainlink" : "plainlink", title: c.type }, typeName(c.type))),
       h("td", {}, c.settings.room || h("span", { class: "sub" }, "none")),
       h("td", { class: "hide-narrow sub", title: own.join(", ") }, own.length ? plural(own.length, "own value") : "shared"),
       h("td", { class: "hide-narrow mono sub" }, c.version),
@@ -700,7 +700,8 @@ function renderDevice() {
     ...row("Room", roomInput),
     ...row(
       "Type",
-      h("a", { href: typeHref(client.type), class: "mono" }, client.type),
+      h("a", { href: typeHref(client.type), class: typeName(client.type) === client.type ? "mono" : "" }, typeName(client.type)),
+      typeName(client.type) === client.type ? null : h("span", { class: "sub mono" }, ` ${client.type}`),
       h("span", { class: "sub" }, ` · version ${client.version} `),
       (() => {
         const held = lastFirmware.find((f) => f.type === client.type);
@@ -776,7 +777,7 @@ function renderDevice() {
       ? `${client.name} has ${plural(own.length, "value")} of its own (${own.map((d) => d.label).join(", ")}). `
       : `${client.name} uses the shared settings. `,
     "Changing a value here changes it for this device only. To change it for every ",
-    h("span", { class: "mono" }, client.type),
+    h("span", {}, typeName(client.type)),
     " device, use ",
     h("a", { href: typeHref(client.type) }, "its type's settings"),
     ".",
@@ -799,12 +800,12 @@ function renderDevice() {
               "button",
               {
                 class: "small",
-                title: `Make ${showValue(def, value)} the shared value for every ${client.type} device`,
+                title: `Make ${showValue(def, value)} the shared value for every ${typeName(client.type)} device`,
                 onclick: (event) =>
                   act(event.target, null, async () => {
                     await api("PATCH", `/admin/settings/type/${encodeURIComponent(client.type)}`, { values: { [def.key]: value } });
                     await api("PATCH", devicePath, { values: { [def.key]: null } });
-                    toast(`${def.label} ${showValue(def, value)} is now shared by every ${client.type} device.`);
+                    toast(`${def.label} ${showValue(def, value)} is now shared by every ${typeName(client.type)} device.`);
                     await refresh();
                   }),
               },

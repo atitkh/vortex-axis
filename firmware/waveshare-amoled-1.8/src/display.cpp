@@ -13,7 +13,20 @@ namespace {
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 // Newer boards carry a CO5300 panel driver. Older ones (SH8601) need the other class.
-Arduino_CO5300 *gfx = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, LCD_WIDTH, LCD_HEIGHT, 16, 0, 0, 0);
+// The driver with its column offset left adjustable. The offset is where the
+// panel's first visible column sits in the controller's memory. It differs
+// between revisions of this board: with it too large the whole picture sits to
+// one side and whatever is drawn at the far edge comes back in at the near one.
+class Panel : public Arduino_CO5300 {
+  public:
+    using Arduino_CO5300::Arduino_CO5300;
+    void setColumnOffset(uint8_t offset) {
+        COL_OFFSET1 = offset;
+        _xStart = offset;
+    }
+};
+Panel *gfx = new Panel(bus, GFX_NOT_DEFINED, 0, LCD_WIDTH, LCD_HEIGHT, 16, 0, 0, 0);
+int columnOffset = 16;
 
 const int BAND_MAX_HEIGHT = 56;
 // Space left around each pill button inside its cell.
@@ -68,6 +81,26 @@ void setRotation(int degrees) {
 }
 
 void setBrightness(uint8_t level) { gfx->setBrightness(level); }
+void setColumnOffset(int offset) {
+    offset = constrain(offset, 0, 40);
+    if (offset == columnOffset) return;
+    // Black out under the old offset first, so nothing drawn there is left behind.
+    clear();
+    columnOffset = offset;
+    gfx->setColumnOffset((uint8_t)offset);
+    clear();
+}
+void edges(uint16_t color) {
+    // Two pixels along each side of the panel, and a cross in the middle.
+    for (int i = 0; i < 2; i++) {
+        gfx->drawFastHLine(0, i, LCD_WIDTH, color);
+        gfx->drawFastHLine(0, LCD_HEIGHT - 1 - i, LCD_WIDTH, color);
+        gfx->drawFastVLine(i, 0, LCD_HEIGHT, color);
+        gfx->drawFastVLine(LCD_WIDTH - 1 - i, 0, LCD_HEIGHT, color);
+    }
+    gfx->drawFastHLine(LCD_WIDTH / 2 - 30, LCD_HEIGHT / 2, 60, color);
+    gfx->drawFastVLine(LCD_WIDTH / 2, LCD_HEIGHT / 2 - 30, 60, color);
+}
 
 int width() { return rotation == 0 || rotation == 180 ? LCD_WIDTH : LCD_HEIGHT; }
 int height() { return rotation == 0 || rotation == 180 ? LCD_HEIGHT : LCD_WIDTH; }

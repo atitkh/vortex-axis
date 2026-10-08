@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added the Firmware page and kept builds (firmware 0.9.1). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that made the picture offset a setting (firmware 0.9.2). Update this line whenever you change this section.
 
 Built and running:
 
@@ -33,7 +33,7 @@ Built 2026-10-08 after milestone 5: protections for a public address (design 9.0
 
 Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, wake word models sent from Axis, firmware built in CI on a tag. The owner asked about these on 2026-10-08; they were discussed, not started.
 
-Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.1 at that commit. 0.9.1 corrects auto-rotate, which 0.9.0 had a quarter turn out; the owner has not yet confirmed the correction.
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.2 at that commit. The owner confirmed the 0.9.1 rotation directions. 0.9.2 makes the panel's column offset a setting (`screenOffset`; this board is set to 0, the firmware default stays 16): the owner saw the picture off-centre in portrait and its edge wrapping round in flipped landscape. Whether 0 is right for this board is NOT yet confirmed; the "Show screen edges" action is how to check.
 
 Loose ends, not yet done:
 

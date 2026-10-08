@@ -13,6 +13,14 @@ bool begin();
 /** 0, 90, 180 or 270. The panel cannot rotate itself, so this is done in software. */
 void setRotation(int degrees);
 void setBrightness(uint8_t level);
+/**
+ * Where the panel's first visible column sits in the controller's memory, 0 to
+ * 40. Revisions of this board differ. Too large and the picture sits to one
+ * side, with its far edge coming back in at the near one. Clears the screen.
+ */
+void setColumnOffset(int offset);
+/** Draws a thin frame along all four sides of the panel and a cross in its middle, to check the offset by eye. */
+void edges(uint16_t color);
 
 int width();
 int height();

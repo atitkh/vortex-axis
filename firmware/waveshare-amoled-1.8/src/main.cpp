@@ -27,6 +27,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"autoRotate", "Turn with the device", "toggle", "Screen", "The picture follows whichever way up the device is standing. Lying flat, it stays as it was.", "1", 0, 0, nullptr, nullptr},
     {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "90", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
+    {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Boards of different revisions need different values. Use the \"Show screen edges\" action: all four sides of the frame should be visible, with the cross in the middle.", "16", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", "The microphone clips on the board's own voice above about 50.", "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
     {"wakeListen", "Wake word", "toggle", "Listening", "Off leaves tap-to-talk as the only way in.", "1", 0, 0, nullptr, nullptr},
@@ -42,6 +43,7 @@ static const axis::ActionDef ACTIONS[] = {
     {"chime", "Play chime", "The two-note boot chime.", false},
     {"talk", "Start listening", "Same as tapping the screen while idle.", false},
     {"mic", "Microphone levels", "Room level, speech threshold and wake word statistics.", false},
+    {"edges", "Show screen edges", "Draws a frame along the edges of the screen for ten seconds, to set the picture offset by.", false},
     {"motion", "Which way up", "Gravity along the board's axes in thousandths of g, and the rotation it calls for.", false},
 };
 static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
@@ -177,7 +179,13 @@ static int wantedRotation() {
     return standing >= 0 ? standing : (int)client.settingInt("rotation", 90);
 }
 
+// While this is in the future the screen shows only a frame along its edges.
+static uint32_t edgesUntil = 0;
+static bool edgesDrawn = false;
+
 static void applySettings() {
+    display::setColumnOffset((int)client.settingInt("screenOffset", 16));
+    edgesDrawn = false;
     display::setRotation(wantedRotation());
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     speaker::setVolume((int)client.settingInt("volume", 60));
@@ -533,6 +541,12 @@ void setup() {
             payload["started"] = client.startListening();
             return true;
         }
+        if (!strcmp(name, "edges")) {
+            edgesUntil = millis() + 10000;
+            edgesDrawn = false;
+            payload["offset"] = client.settingInt("screenOffset", 16);
+            return true;
+        }
         if (!strcmp(name, "motion")) {
             int x = 0, y = 0, z = 0;
             imu::read(x, y, z);
@@ -598,7 +612,23 @@ void loop() {
             applySettings();
         }
     }
-    // Text also depends on time (messages that expire), so it is rechecked a few times a second.
+    // The edge frame for setting the picture offset has the screen to itself while it shows.
+    if (edgesUntil) {
+        if ((int32_t)(millis() - edgesUntil) < 0) {
+            if (!edgesDrawn) {
+                display::clear();
+                display::edges(COLOR_HEAD);
+                edgesDrawn = true;
+            }
+            return;
+        }
+        edgesUntil = 0;
+        display::clear();
+        redrawAll = true;
+        askDrawn = "";
+        faceY = -1;
+    }
+
     // Turning the device over turns the picture, once it has stayed that way for a moment.
     imu::tick();
     static int shownRotation = -1;
@@ -628,6 +658,7 @@ void loop() {
         faceY = faceTop();
         vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
     } else {
+        // Text also depends on time (messages that expire), so it is rechecked a few times a second.
         if (changed || started - lastText > 250) {
             lastText = started;
             present();
