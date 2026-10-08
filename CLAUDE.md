@@ -14,7 +14,9 @@ Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handle
 
 `web/` holds the admin page and the web client.
 
-Not built yet: `vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and firmware.
+`firmware/` has a bring-up project for the Waveshare ESP32-S3-Touch-AMOLED-1.8 that builds but has not been flashed. See `firmware/README.md`.
+
+Not built yet: `vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and the firmware client itself.
 
 The gateway link has paired with a real gateway once (2026-10-07). What that taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` was changed to behave the same way. Agent turns and agent commands over a real gateway are still unproven.
 

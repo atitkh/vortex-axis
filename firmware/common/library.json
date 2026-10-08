@@ -1,0 +1,7 @@
+{
+  "name": "axis-client",
+  "version": "0.1.0",
+  "description": "Shared client core for VorteX Axis devices",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
