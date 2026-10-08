@@ -480,7 +480,7 @@ async function startCapture() {
   source.connect(node);
 
   const turnId = newTurnId();
-  capture = { stream, context, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0 };
+  capture = { stream, context, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0, last: 0 };
   const step = context.sampleRate / MIC_RATE;
 
   node.port.onmessage = (event) => {
@@ -489,12 +489,15 @@ async function startCapture() {
 
     // Resample to 16 kHz by linear interpolation, carrying the position across blocks, and
     // write straight into the outgoing frame: no growing arrays, so the main thread stays free.
+    // A step can land just before this batch (position -1 to 0): that point lies between the
+    // previous batch's last sample and this batch's first, so the last sample is kept for it.
     let energy = 0;
     let count = 0;
     let at = capture.position;
     for (; at < input.length - 1; at += step) {
       const a = Math.floor(at);
-      const sample = input[a] + (input[a + 1] - input[a]) * (at - a);
+      const left = a < 0 ? capture.last : input[a];
+      const sample = left + (input[a + 1] - left) * (at - a);
       energy += sample * sample;
       count++;
       capture.frame[capture.filled++] = Math.max(-1, Math.min(1, sample)) * 32767;
@@ -505,7 +508,10 @@ async function startCapture() {
       }
     }
     capture.position = at - input.length;
+    capture.last = input[input.length - 1];
     const level = Math.sqrt(energy / Math.max(1, count));
+    // The room level carries from batch to batch, so one bad reading must never get into it.
+    if (!Number.isFinite(level)) return;
 
     // The face follows the voice above the room's own level, as on the board, so a fan or a
     // hum does not make it twitch. The room level follows quiet moments quickly, loud ones slowly.
