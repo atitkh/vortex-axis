@@ -75,6 +75,7 @@ npm run typecheck
 npm run build
 npm run schema --workspace protocol   # regenerate protocol/schema/*.json
 npm run browser-check                 # both pages in headless Chrome; set TTS and STT to include real speech
+AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis (uses the real agent)
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
 docker compose up -d --build          # needs .env, see .env.example
 ```
@@ -110,3 +111,4 @@ The gateway's device tokens and the setup code are stored in the SQLite `meta` t
 - Keep docs current: a decision that changes behavior goes into `docs/design.md` in the same change.
 - No secrets, tokens or internal addresses in the repository.
 - Releases are git tags.
+- `.gitea/workflows/test.yml` runs the type check, the tests and a schema freshness check on every push to `main`.

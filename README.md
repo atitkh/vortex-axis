@@ -82,7 +82,13 @@ Then open:
 - `http://<host>:8440/admin` to set Axis up: pair with OpenClaw, pick the agent, point it at the speech services and test them, create pairing codes, manage clients and shared settings.
 - `http://<host>:8440/` for the web client: pair this browser with a code, then type or speak.
 
-Browsers only allow the microphone on `https` or on `localhost`. Over plain `http` from another machine the web client still works by typing. Put Axis behind a reverse proxy with TLS (and WebSocket support) to speak to it from other devices.
+Browsers only allow the microphone on `https` or on `localhost`. Over plain `http` from another machine the web client still works by typing. To speak to it from other devices, give Axis an HTTPS address. Either works:
+
+- **Tailscale**, reachable only from your own tailnet, with a real certificate and nothing to configure in Axis:
+  `sudo tailscale serve --bg --https=8444 http://127.0.0.1:8440`, then open `https://<machine>.<tailnet>.ts.net:8444/`.
+- **A reverse proxy** such as Nginx Proxy Manager: point a host name at port 8440 and turn on WebSocket support, since clients hold a socket on `/v1/client`.
+
+Whichever you use, think about `/admin`: it is protected by the admin token only, so do not put it on a public address.
 
 Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there.
 
@@ -150,6 +156,7 @@ npm install
 npm test
 npm run build && AXIS_ADMIN_TOKEN=dev npm start
 npm run browser-check     # drives both pages in headless Chrome; needs google-chrome
+AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis
 ```
 
 Needs Node 24 or newer (the server uses Node's built-in SQLite).

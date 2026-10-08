@@ -13,7 +13,8 @@
     "pretypecheck": "npm run build --workspace protocol",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "start": "node server/dist/index.js",
-    "browser-check": "npm run build && node scripts/browser-check.mjs"
+    "browser-check": "npm run build && node scripts/browser-check.mjs",
+    "latency-probe": "node scripts/latency-probe.mjs"
   },
   "engines": {
     "node": ">=24"

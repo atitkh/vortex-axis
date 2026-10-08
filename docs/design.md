@@ -164,7 +164,7 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 
 ## 12. Open items
 
-- A target for time to first sound. The reference device measured about 8 seconds before it began speaking sentence by sentence, so Axis streams replies from the start. First measurements against the live services on 2026-10-07: speech recognition about 3.5 seconds for a 2 second clip once warm (about 30 seconds on a cold start), speech synthesis about 1.7 seconds to first audio. The agent's own time comes on top.
+- A target for time to first sound. Measured on 2026-10-07 through the live gateway with `scripts/latency-probe.mjs` (typed turns, the `vertex` agent, speech services on the Orange Pi, median of three): first reply text after 2.1 seconds, first audio after 3.2 seconds. A spoken turn adds speech recognition (about 0.15 seconds for a 2 second clip) and the client's wait for silence. The agent is the largest share, then synthesis at about 1.1 to 1.4 seconds to first audio. No target is set yet.
 - Whether to send the agent a stable session prompt (`extraSystemPrompt` on the `agent` method), and when OpenClaw applies it.
 - Approvals raised during a turn are not shown to clients yet.
 - Final command names (section 6).

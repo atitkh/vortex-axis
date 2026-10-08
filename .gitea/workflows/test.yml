@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: linux
+    steps:
+      - uses: actions/checkout@v4
+
+      # The server uses Node's built-in SQLite, which needs Node 24 or newer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Builds the protocol package first, then runs every workspace's tests.
+      - run: npm test
+
+      # The committed schema must match the message definitions it is generated from.
+      - name: Check the generated schema is up to date
+        run: |
+          npm run schema --workspace protocol
+          git diff --exit-code -- protocol/schema
