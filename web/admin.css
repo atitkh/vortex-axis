@@ -468,3 +468,8 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
   .strip-axis span:nth-child(even):not(.now) { display: none; }
   table.numbers { display: block; overflow-x: auto; }
 }
+
+/* Event lists scroll in their own box instead of growing the page. */
+.scrollbox { max-height: 380px; overflow-y: auto; border: 1px solid var(--line); background: var(--surface); }
+.scrollbox table { border: none; }
+#overview-events .scrollbox { max-height: 300px; }

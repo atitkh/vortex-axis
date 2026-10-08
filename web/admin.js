@@ -1178,23 +1178,17 @@ const LEVEL_MARK = { bad: "bad", warn: "warn", info: "" };
 
 function eventList(events, limit) {
   if (!events.length) return h("p", { class: "empty" }, "Nothing recorded yet.");
-  return h(
-    "table",
-    { class: "events" },
+  const rows = events.slice(0, limit).map((e) =>
     h(
-      "tbody",
-      {},
-      events.slice(0, limit).map((e) =>
-        h(
-          "tr",
-          { class: e.level === "info" ? "" : e.level },
-          h("td", { class: "tight sub", title: new Date(e.at).toLocaleString() }, clock(e.at, Date.now() - e.at > 20 * 3_600_000)),
-          h("td", { class: "tight" }, h("span", { class: `stat ${LEVEL_MARK[e.level]}`.trim() }, e.kind)),
-          h("td", {}, e.text),
-        ),
-      ),
+      "tr",
+      { class: e.level === "info" ? "" : e.level },
+      h("td", { class: "tight sub", title: new Date(e.at).toLocaleString() }, clock(e.at, Date.now() - e.at > 20 * 3_600_000)),
+      h("td", { class: "tight" }, h("span", { class: `stat ${LEVEL_MARK[e.level]}`.trim() }, e.kind)),
+      h("td", {}, e.text),
     ),
   );
+  // A long list scrolls inside its own box, so the page below it stays in reach.
+  return h("div", { class: "scrollbox" }, h("table", { class: "events" }, h("tbody", {}, rows)));
 }
 
 /** Things to look at now, worst first. Each links to where it is fixed. */
@@ -1250,7 +1244,7 @@ function renderOverview(withHistory = true) {
   if (!data || (!withHistory && lastDrawn === activityData.at && $("overview-strips").childElementCount)) return;
   hideTip();
   $("overview-strips").replaceChildren(strips([...uptimeRows(data), ...clientRows(data)], data.from, data.to));
-  $("overview-events").replaceChildren(eventList(data.events, 8));
+  $("overview-events").replaceChildren(eventList(data.events, 50));
 }
 
 for (const b of $("activity-range").querySelectorAll("button")) {
@@ -1371,7 +1365,7 @@ function renderDeviceHistory() {
     ),
     strips([{ label: "Online", segments: line.segments, availability: line.availability }], data.from, data.to),
     h("p", { class: "group" }, "Events"),
-    eventList(data.events, 12),
+    eventList(data.events, 100),
   );
 }
 
