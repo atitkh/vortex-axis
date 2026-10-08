@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 export interface Config {
   /** Interface to listen on. */
   host: string;
@@ -38,6 +40,8 @@ export interface Config {
   };
   /** How long the last client spoken to stays the default place to answer. */
   outputHoldMs: number;
+  /** Folder holding the web pages. Undefined serves none. */
+  webDir: string | undefined;
 }
 
 function integer(name: string, raw: string | undefined, fallback: number): number {
@@ -88,5 +92,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       displayName: env.AXIS_NODE_NAME || "VorteX Axis",
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
+    // The compiled server sits in server/dist, two levels below the repository root.
+    webDir: env.AXIS_WEB_DIR || fileURLToPath(new URL("../../web", import.meta.url)),
   };
 }

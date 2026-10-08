@@ -1,0 +1,188 @@
+import { describe, expect, it } from "vitest";
+import type { Agent } from "../src/agent.js";
+import type { SpeechToText, TextToSpeech } from "../src/speech.js";
+import { resample } from "../src/upstream.js";
+import { admin, ctx, ready, restart, useServer } from "./harness.js";
+
+useServer();
+
+const page = async (path: string) => {
+  const res = await fetch(`${ctx.base}${path}`);
+  return { status: res.status, type: res.headers.get("content-type") ?? "", body: await res.text() };
+};
+
+describe("web pages", () => {
+  it("serves the client and admin pages without a token", async () => {
+    const client = await page("/");
+    expect(client.status).toBe(200);
+    expect(client.type).toMatch(/text\/html/);
+    expect(client.body).toContain("/web/client.js");
+
+    const adminPage = await page("/admin");
+    expect(adminPage.status).toBe(200);
+    expect(adminPage.body).toContain("/web/admin.js");
+    expect((await page("/web/admin.js")).type).toMatch(/javascript/);
+    expect((await page("/web/style.css")).type).toMatch(/css/);
+  });
+
+  it("serves nothing outside its list of files", async () => {
+    expect((await page("/web/nope.js")).status).toBe(404);
+    expect((await page("/web/..%2Fpackage.json")).status).toBe(404);
+    expect((await page("/web/%2e%2e%2f%2e%2e%2fREADME.md")).status).toBe(404);
+  });
+
+  it("still guards the API behind the page", async () => {
+    expect((await fetch(`${ctx.base}/admin/status`)).status).toBe(401);
+    expect((await admin("GET", "/admin/status")).body).toMatchObject({ version: "0.1.0", clientsOnline: 0, clientsKnown: 0 });
+  });
+});
+
+describe("runtime settings", () => {
+  it("starts from the environment and never returns secrets", async () => {
+    await restart({
+      stt: { url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKey: "stt-secret" },
+      tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: undefined, sampleRate: 22050, apiKey: undefined },
+    });
+    const res = await admin("GET", "/admin/config");
+    expect(res.body).toEqual({
+      stt: { url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true },
+      tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false },
+      agent: { backend: "gateway", url: "", model: "", tokenSet: false },
+    });
+    expect(JSON.stringify(res.body)).not.toContain("stt-secret");
+  });
+
+  it("saves a change, keeps untouched secrets, and survives a restart", async () => {
+    await admin("PATCH", "/admin/config", { stt: { url: "http://a.test/t", apiKey: "k1" } });
+    const second = await admin("PATCH", "/admin/config", { stt: { model: "parakeet" }, tts: { url: "http://b.test/s", voice: "nova" } });
+    expect(second.body.stt).toEqual({ url: "http://a.test/t", model: "parakeet", apiKeySet: true });
+    expect(second.body.tts).toMatchObject({ url: "http://b.test/s", voice: "nova", sampleRate: 24000 });
+
+    await restart();
+    expect((await admin("GET", "/admin/config")).body.stt).toEqual({ url: "http://a.test/t", model: "parakeet", apiKeySet: true });
+
+    const cleared = await admin("PATCH", "/admin/config", { stt: { apiKey: "", url: "" } });
+    expect(cleared.body.stt).toEqual({ url: "", model: "parakeet", apiKeySet: false });
+  });
+
+  it("rejects values it cannot use", async () => {
+    const bad = async (body: unknown) => (await admin("PATCH", "/admin/config", body)).status;
+    expect(await bad({ stt: { url: "ftp://x" } })).toBe(400);
+    expect(await bad({ stt: { url: "not a url" } })).toBe(400);
+    expect(await bad({ tts: { sampleRate: 100 } })).toBe(400);
+    expect(await bad({ agent: { backend: "magic" } })).toBe(400);
+    expect(await bad({ other: {} })).toBe(400);
+    expect(await bad({ stt: "x" })).toBe(400);
+  });
+
+  it("applies a change to the next turn without a restart", async () => {
+    // A tiny OpenAI-style chat endpoint, to stand in for "another harness".
+    const { createServer } = await import("node:http");
+    const seen: any[] = [];
+    const chat = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        if (req.method !== "POST") return void res.writeHead(200, { "content-type": "application/json" }).end("{}");
+        seen.push({ auth: req.headers.authorization, body: JSON.parse(body) });
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "From the other " } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "harness." } }] })}\n\ndata: [DONE]\n\n`);
+        res.end();
+      });
+    });
+    await new Promise<void>((r) => chat.listen(0, "127.0.0.1", () => r()));
+    const url = `http://127.0.0.1:${(chat.address() as any).port}/v1/chat/completions`;
+
+    try {
+      const { client } = await ready(["screen"], { name: "Panel" });
+      client.send({ t: "text", turnId: "t1", text: "hi" });
+      expect((await client.turn("t1", "error")).detail).toBe("not connected to OpenClaw");
+
+      await admin("PATCH", "/admin/config", { agent: { backend: "openai", url, model: "m1", token: "tok" } });
+      client.send({ t: "text", turnId: "t2", text: "hi again" });
+      expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("From the other harness.");
+      expect(seen[0].auth).toBe("Bearer tok");
+      expect(seen[0].body).toMatchObject({ model: "m1", stream: true, user: "vortex-axis" });
+      expect(seen[0].body.messages[0].content).toMatch(/^\[from: Panel.*\]\nhi again$/);
+
+      await admin("PATCH", "/admin/config", { agent: { backend: "gateway" } });
+      client.send({ t: "text", turnId: "t3", text: "back" });
+      expect((await client.turn("t3", "error")).detail).toBe("not connected to OpenClaw");
+    } finally {
+      chat.close();
+    }
+  });
+
+  it("changes the gateway address at runtime", async () => {
+    const changed = await admin("PATCH", "/admin/gateway", { url: "http://gw.test:18789" });
+    expect(changed.body.url).toBe("ws://gw.test:18789/");
+    expect(changed.body.commands).toContain("axis.say");
+    expect((await admin("PATCH", "/admin/gateway", { url: "ftp://nope" })).status).toBe(400);
+    expect((await admin("PATCH", "/admin/gateway", { url: null })).body.url ?? null).toBeNull();
+  });
+});
+
+describe("speech test", () => {
+  const agent: Agent = { reply: async function* () {}, healthy: async () => true };
+
+  it("synthesizes a sentence and transcribes it back", async () => {
+    let heardBytes = 0;
+    const tts: TextToSpeech = {
+      format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
+      synthesize: () =>
+        (async function* () {
+          yield Buffer.alloc(24000, 1); // half a second
+          yield Buffer.alloc(24001, 1); // plus a stray byte
+        })(),
+      healthy: async () => true,
+    };
+    const stt: SpeechToText = {
+      transcribe: async (pcm, format) => {
+        heardBytes = pcm.length;
+        expect(format.sampleRate).toBe(16000);
+        return "Testing one two three";
+      },
+      healthy: async () => true,
+    };
+    await restart({}, { stt, tts, agent });
+
+    const report = (await admin("POST", "/admin/config/test")).body;
+    expect(report.tts).toMatchObject({ ok: true, audioSeconds: 1 });
+    expect(report.stt).toMatchObject({ ok: true, heard: "Testing one two three" });
+    expect(report.agent.ok).toBe(true);
+    expect(heardBytes).toBe(32000); // one second at 16 kHz
+  });
+
+  it("says what is missing or broken", async () => {
+    const report = (await admin("POST", "/admin/config/test")).body;
+    expect(report.tts).toEqual({ ok: false, error: "not set" });
+    expect(report.stt).toEqual({ ok: false, error: "not set" });
+    expect(report.agent.ok).toBe(false);
+
+    const broken: TextToSpeech = {
+      format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
+      synthesize: () =>
+        (async function* (): AsyncGenerator<Buffer> {
+          throw new Error("speech synthesis answered HTTP 500");
+        })(),
+      healthy: async () => false,
+    };
+    await restart({}, { tts: broken, stt: { transcribe: async () => "", healthy: async () => true } });
+    const second = (await admin("POST", "/admin/config/test")).body;
+    expect(second.tts).toEqual({ ok: false, error: "speech synthesis answered HTTP 500" });
+    expect(second.stt.ok).toBe(true);
+  });
+});
+
+describe("resample", () => {
+  it("keeps the duration and the level", () => {
+    const input = Buffer.alloc(48000);
+    for (let i = 0; i < 24000; i++) input.writeInt16LE(1000, i * 2);
+    const output = resample(input, 24000, 16000);
+    expect(output.length).toBe(32000);
+    expect(output.readInt16LE(0)).toBe(1000);
+    expect(output.readInt16LE(output.length - 2)).toBe(1000);
+    expect(resample(input, 16000, 16000)).toBe(input);
+  });
+});

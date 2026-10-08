@@ -12,7 +12,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles client pairing, tokens, settings sync, the admin API, wake arbitration, voice and text turns, and the OpenClaw gateway link: an operator link that sends turns to a named agent, and a node link that declares the command list, publishes tools and carries out `axis.say`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag` and `system.notify`.
 
-Not built yet: `axis.ask`, `axis.timer`, `axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and `web/`.
+`web/` holds the admin page and the web client.
+
+Not built yet: `axis.ask`, `axis.timer`, `axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and firmware.
 
 The gateway link has only run against the stand-in gateway in `server/test/fake-gateway.ts`. Expect surprises on the first real pairing.
 
@@ -24,6 +26,7 @@ The gateway link has only run against the stand-in gateway in `server/test/fake-
 - The wake word and silence detection run on the client. Axis never receives audio before a wake event.
 - Axis is the source of truth for settings: global, then client type, then device.
 - The web client is a normal client. It pairs and uses the same socket as firmware, with no private shortcuts.
+- Pages put untrusted text (client names, replies) into the page as text, never as markup.
 - Name things `vortex-axis`, never plain `axis`, in hostnames, containers and Home Assistant entities. Plain `axis` collides with Axis Communications cameras and Home Assistant's `axis` integration.
 - No host-specific values in code. Addresses come from environment variables.
 - Version 1 scope is in the README. Do not build the "later" items without being asked.
@@ -38,7 +41,7 @@ The gateway link has only run against the stand-in gateway in `server/test/fake-
 - Tooling: npm workspaces, TypeScript 5.9, TypeBox for message schemas, Vitest for tests.
 - Server: Node's built-in `node:http` and `node:sqlite` (needs Node 24 or newer), plus `ws` for WebSockets. No web framework on the server; keep dependencies few.
 
-The web client's framework is not chosen yet. Ask before picking one.
+- Web: plain HTML, CSS and browser JavaScript modules in `web/`, with no framework and no build step. The server reads the folder into memory at startup and serves only those files. Keep it that way unless asked.
 
 ## Layout
 
@@ -70,6 +73,7 @@ npm test          # all workspaces
 npm run typecheck
 npm run build
 npm run schema --workspace protocol   # regenerate protocol/schema/*.json
+npm run browser-check                 # both pages in headless Chrome; set TTS and STT to include real speech
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
 docker compose up -d --build          # needs .env, see .env.example
 ```
@@ -92,7 +96,11 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/gateway/client.ts`: both links, credentials, agent turns, node commands.
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
 
-The agent is an OpenClaw gateway reached over its WebSocket. Setting `AXIS_AGENT_URL` swaps in any OpenAI-style chat endpoint instead and turns the gateway link off.
+- `server/src/upstream.ts`: the speech and agent settings an admin can change at runtime, and the speech test.
+
+The agent is an OpenClaw gateway reached over its WebSocket, or any OpenAI-style chat endpoint when the admin picks that. The gateway client always exists, so its node link keeps working either way.
+
+Speech and agent settings come from the environment first and from the `meta` table after an admin saves them; the saved value wins. `app.ts` keeps one `services` object for the life of the process and replaces its fields in place, which is how a change reaches the next turn.
 
 The gateway's device tokens and the setup code are stored in the SQLite `meta` table as plain text, because Axis has to present them. Treat the data volume as secret.
 

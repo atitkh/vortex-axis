@@ -157,7 +157,8 @@ export class GatewayClient implements Agent, Credentials {
   // --- credentials ----------------------------------------------------------
 
   url(): string | undefined {
-    const raw = this.options.url ?? this.store.getMeta(META.url);
+    // An address saved at runtime wins over the one from the environment.
+    const raw = this.store.getMeta(META.url) ?? this.options.url;
     try {
       return raw ? toSocketUrl(raw) : undefined;
     } catch {
@@ -211,7 +212,7 @@ export class GatewayClient implements Agent, Credentials {
     const decoded = decodeSetupCode(code);
     // The address in the code is a convenience and is often a name this host
     // cannot resolve. An address given by hand or by the environment wins.
-    const chosen = url ?? this.options.url ?? decoded.urls[0] ?? this.store.getMeta(META.url);
+    const chosen = url ?? this.store.getMeta(META.url) ?? this.options.url ?? decoded.urls[0];
     if (!chosen) throw new Error("the setup code has no gateway address; pass one with it");
     const socketUrl = toSocketUrl(chosen);
     this.store.setMeta(META.url, chosen);
@@ -224,6 +225,13 @@ export class GatewayClient implements Agent, Credentials {
   retryNow(): void {
     this.operator.retryNow();
     this.node.retryNow();
+  }
+
+  /** Changes the gateway address and reconnects. Undefined goes back to the environment's. */
+  setUrl(url: string | undefined): void {
+    if (url) toSocketUrl(url); // throws on an address that cannot be used
+    this.store.setMeta(META.url, url || undefined);
+    this.retryNow();
   }
 
   /** The agent every turn goes to. Undefined means the gateway's default agent. */
@@ -246,6 +254,8 @@ export class GatewayClient implements Agent, Credentials {
       agentId: this.agentId() ?? null,
       sessionKey: this.options.sessionKey,
       setupCodePending: Boolean(this.bootstrapToken()),
+      /** Commands the node declares, which the gateway has to allow. */
+      commands: this.options.commands,
       operator: link(this.operator),
       node: link(this.node),
     };

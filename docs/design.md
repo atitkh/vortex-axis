@@ -27,7 +27,7 @@ Axis joins the gateway over its WebSocket with one device identity (an Ed25519 k
 
 Pairing uses a setup code from `openclaw qr`, given to Axis at runtime. A person then approves the device on the gateway. Each role redeems the code for its own token, so the code is kept until both links are connected.
 
-The gateway's OpenAI-style chat endpoint is not used. Axis can still talk to any OpenAI-style chat endpoint in place of a gateway (`AXIS_AGENT_URL`), which is useful for testing without OpenClaw.
+The gateway's OpenAI-style chat endpoint is not used. Axis can still have any OpenAI-style chat endpoint answer turns instead, chosen on the admin page, which is useful for trying other agent harnesses. The node link keeps running either way.
 
 ### 2.2 Clients are types with capabilities
 
@@ -138,6 +138,14 @@ SQLite, one file in one Docker volume, through Node's built-in `node:sqlite`.
 - All host-specific addresses (OpenClaw gateway, STT, TTS) are environment variables. Moving hosts means copying the volume and the environment file.
 - TLS is terminated by a reverse proxy in front of Axis.
 - Axis will be reachable on a public domain for portable clients. Only the client endpoint is public. The admin page stays on the local network. Version 1 is built local-only, with the auth designed for public exposure.
+
+### 9.1 Setup and the web pages
+
+Only the admin token comes from the environment. The gateway address and setup code, the agent, and the speech service addresses, models, voice and keys are set on the admin page, stored in the data volume, and applied to the next turn without a restart. Environment values are the starting point and are overridden by anything saved.
+
+The admin page and the web client are plain files served by the hub. The pages hold no secrets: every action goes through the same endpoints, with the same checks, as any other caller. The admin token is kept in the browser tab only.
+
+The web client is a normal client with the capabilities `speaker`, `screen`, `buttons`, and `mic` when the browser allows the microphone (https or localhost only). It has no wake word: a click starts listening and silence ends it.
 
 ## 10. Firmware
 

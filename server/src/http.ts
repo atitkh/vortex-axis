@@ -1,10 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type ScalarMap } from "@vortex-axis/protocol";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
 import type { Hub } from "./hub.js";
 import type { SettingsScope, Store } from "./store.js";
+import type { Services } from "./turns.js";
+import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const PAIR_ATTEMPTS_PER_MINUTE = 10;
@@ -50,17 +54,46 @@ function isScalarMap(value: unknown): value is ScalarMap {
   );
 }
 
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+};
+
+/** Reads the web pages into memory once. Only files in this flat list can ever be served. */
+function loadWebFiles(dir: string | undefined): Map<string, { type: string; body: Buffer }> {
+  const files = new Map<string, { type: string; body: Buffer }>();
+  if (!dir) return files;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return files;
+  }
+  for (const name of names) {
+    const type = CONTENT_TYPES[extname(name)];
+    if (type && /^[\w.-]+$/.test(name)) files.set(name, { type, body: readFileSync(join(dir, name)) });
+  }
+  return files;
+}
+
 export interface HttpDeps {
   config: Config;
   store: Store;
   hub: Hub;
-  gateway?: GatewayClient | undefined;
+  version?: string;
+  gateway: GatewayClient;
+  services: Services;
+  /** Rebuilds the upstream clients after the saved settings changed. */
+  reloadServices: () => void;
   now?: () => number;
 }
 
 /** Builds the request handler for pairing, health and the admin API. */
 export function createHttpHandler(deps: HttpDeps) {
-  const { config, store, hub, gateway } = deps;
+  const { config, store, hub, gateway, services } = deps;
+  const web = loadWebFiles(config.webDir);
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
 
@@ -118,6 +151,21 @@ export function createHttpHandler(deps: HttpDeps) {
       return sendJson(res, 200, { ok: true });
     }
 
+    // The pages themselves hold no secrets. Everything they do goes through
+    // the same endpoints, with the same checks, as any other caller.
+    if (method === "GET") {
+      const file =
+        url.pathname === "/" ? web.get("index.html")
+        : url.pathname === "/admin" ? web.get("admin.html")
+        : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
+        : undefined;
+      if (file) {
+        res.writeHead(200, { "content-type": file.type, "content-length": file.body.length, "cache-control": "no-cache" });
+        res.end(file.body);
+        return;
+      }
+    }
+
     if (method === "POST" && url.pathname === PAIR_PATH) {
       if (!allowPairAttempt(req.socket.remoteAddress ?? "unknown")) {
         throw new HttpError(429, "too many pairing attempts, wait a minute");
@@ -148,15 +196,49 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, { removed: id });
         }
       }
+      if (method === "GET" && parts.length === 2 && parts[1] === "status") {
+        return sendJson(res, 200, {
+          version: deps.version ?? "",
+          upstream: hub.upstreamStatus(),
+          clientsOnline: [...hub.sessions()].length,
+          clientsKnown: store.listClients().length,
+        });
+      }
+      if (parts[1] === "config") {
+        if (method === "GET" && parts.length === 2) {
+          return sendJson(res, 200, publicRuntimeConfig(loadRuntimeConfig(store, config)));
+        }
+        if (method === "PATCH" && parts.length === 2) {
+          let saved;
+          try {
+            saved = saveRuntimeConfig(store, config, await readJson(req));
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            throw new HttpError(400, (error as Error).message);
+          }
+          deps.reloadServices();
+          return sendJson(res, 200, publicRuntimeConfig(saved));
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "test") {
+          return sendJson(res, 200, await testServices(services));
+        }
+      }
       if (parts[1] === "gateway") {
-        if (!gateway) throw new HttpError(409, "the OpenClaw gateway link is off: another agent backend is configured");
         if (method === "GET" && parts.length === 2) return sendJson(res, 200, gateway.status());
         if (method === "PATCH" && parts.length === 2) {
-          const body = (await readJson(req)) as { agentId?: unknown };
-          if (body.agentId !== null && typeof body.agentId !== "string") {
-            throw new HttpError(400, "body must be { agentId: string | null }");
+          const body = (await readJson(req)) as { agentId?: unknown; url?: unknown };
+          const isTextOrNull = (v: unknown) => v === undefined || v === null || typeof v === "string";
+          if (!isTextOrNull(body.agentId) || !isTextOrNull(body.url)) {
+            throw new HttpError(400, "body must be { agentId?: string | null, url?: string | null }");
           }
-          gateway.setAgentId(body.agentId ?? undefined);
+          if (body.agentId !== undefined) gateway.setAgentId((body.agentId as string | null) ?? undefined);
+          if (body.url !== undefined) {
+            try {
+              gateway.setUrl((body.url as string | null) || undefined);
+            } catch (error) {
+              throw new HttpError(400, (error as Error).message);
+            }
+          }
           return sendJson(res, 200, gateway.status());
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "setup-code") {
@@ -176,11 +258,9 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 202, gateway.status());
         }
         if (method === "GET" && parts.length === 3 && parts[2] === "agents") {
-          try {
-            return sendJson(res, 200, { agents: await gateway.listAgents(), selected: gateway.agentId() ?? null });
-          } catch (error) {
-            throw new HttpError(502, (error as Error).message);
-          }
+          // Before pairing there is nobody to ask. An empty list says so without an error.
+          const agents = await gateway.listAgents().catch(() => []);
+          return sendJson(res, 200, { agents, selected: gateway.agentId() ?? null });
         }
       }
       if (parts[1] === "settings") {

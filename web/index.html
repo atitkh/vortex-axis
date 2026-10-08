@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VorteX Axis</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>VorteX Axis <span>web client</span></h1>
+    <div class="pills" id="pills"></div>
+  </header>
+
+  <section class="card hidden" id="pair">
+    <h2>Pair this browser</h2>
+    <p class="hint">Get a pairing code from the <a href="/admin">admin page</a>. This browser then becomes one of the hub's clients.</p>
+    <form class="row" id="pair-form">
+      <div style="flex:0 1 170px"><label for="pair-code">Pairing code</label><input id="pair-code" class="mono" placeholder="123-456" autocomplete="off" required></div>
+      <div class="grow"><label for="pair-name">Name for this client</label><input id="pair-name" placeholder="Laptop" maxlength="64"></div>
+      <button class="primary" type="submit">Pair</button>
+    </form>
+    <p class="note bad" id="pair-error"></p>
+  </section>
+
+  <section class="card hidden" id="talk">
+    <div class="log" id="log"></div>
+    <form class="row center" id="say-form">
+      <button type="button" class="mic" id="mic" title="Speak">&#127908;</button>
+      <div class="grow"><input id="say" placeholder="Type a message" autocomplete="off" maxlength="4000"></div>
+      <button class="primary" type="submit">Send</button>
+      <button type="button" id="stop">Stop</button>
+    </form>
+    <p class="note" id="hint"></p>
+  </section>
+
+  <p class="note hidden" id="footer"><span id="who"></span> · <button class="small" id="forget">Forget this pairing</button></p>
+</main>
+<script type="module" src="/web/client.js"></script>
+</body>
+</html>

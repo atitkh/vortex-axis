@@ -12,7 +12,8 @@
     "test": "npm run test --workspaces --if-present",
     "pretypecheck": "npm run build --workspace protocol",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "start": "node server/dist/index.js"
+    "start": "node server/dist/index.js",
+    "browser-check": "npm run build && node scripts/browser-check.mjs"
   },
   "engines": {
     "node": ">=24"

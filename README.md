@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** early. The server handles client pairing, settings, full voice and text turns, and the link to an OpenClaw gateway in both directions. There is no client yet (web or firmware), and none of it has run against a real gateway. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** early. The hub handles client pairing, settings, full voice and text turns, and the link to an OpenClaw gateway in both directions. It has an admin page and a web client. There is no firmware client yet, and the gateway link has not run against a real gateway. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -40,7 +40,7 @@ Planned layout. Folders appear as the work reaches them.
 | Path | Contents |
 | --- | --- |
 | `server/` | Axis itself (TypeScript, Node). |
-| `web/` | The web client and the admin page, served by the Axis container. |
+| `web/` | The web client and the admin page: plain HTML and JavaScript, served by the Axis container. |
 | `protocol/` | The one versioned definition of every client-to-Axis message. |
 | `firmware/common/` | Shared client core: Wi-Fi setup, pairing, socket, settings sync, audio framing, updates. |
 | `firmware/<type>/` | One folder per device type holding only board-specific code. |
@@ -68,13 +68,20 @@ Out, for later:
 
 ## Running it
 
-What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, and the OpenClaw gateway link (turns to an agent, and agents speaking through Axis). Not built yet: any client (web or firmware), and the `axis.ask`, `axis.timer` and `axis.admin` commands.
+What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an admin page and a web client. Not built yet: firmware clients, and the `axis.ask`, `axis.timer` and `axis.admin` commands.
 
 ```bash
-cp .env.example .env      # then fill in the token and the three upstream addresses
+cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page
 docker compose up -d --build
 curl http://localhost:8440/healthz
 ```
+
+Then open:
+
+- `http://<host>:8440/admin` to set Axis up: pair with OpenClaw, pick the agent, point it at the speech services and test them, create pairing codes, manage clients and shared settings.
+- `http://<host>:8440/` for the web client: pair this browser with a code, then type or speak.
+
+Browsers only allow the microphone on `https` or on `localhost`. Over plain `http` from another machine the web client still works by typing. Put Axis behind a reverse proxy with TLS (and WebSocket support) to speak to it from other devices.
 
 Axis is one container with one data volume. Everything host-specific is an environment variable, so moving hosts means copying the volume and the `.env` file.
 
@@ -89,9 +96,11 @@ Axis reaches speech recognition and synthesis through OpenAI-style HTTP endpoint
 
 A service left unset is reported to clients as down. In the code both sit behind small interfaces (`server/src/speech.ts`), so an engine running inside Axis could replace either later.
 
+The addresses in `.env` are starting points. Anything saved on the admin page is stored in the data volume and wins from then on, and it applies to the next turn without a restart. The admin page's "Test both" button synthesizes a sentence and has recognition transcribe it back, with timings.
+
 ### Pairing Axis with OpenClaw
 
-Axis joins the gateway the way a device does: one identity, an operator link for turns and a node link for commands.
+Axis joins the gateway the way a device does: one identity, an operator link for turns and a node link for commands. The admin page does steps 2 and 5 for you; the calls below are what it uses.
 
 1. On the gateway host, print a setup code: `openclaw qr --setup-code-only`
 2. Give it to Axis:
@@ -104,7 +113,9 @@ Axis joins the gateway the way a device does: one identity, an operator link for
 4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `axis.say`, `axis.ask`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag`, `axis.timer`, `axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
 5. Check: `GET /admin/gateway` should show both links `connected`.
 
-Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime with `PATCH /admin/gateway` and `{"agentId": "name"}`. With neither, the gateway's default agent answers.
+Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime on the admin page (`PATCH /admin/gateway` with `{"agentId": "name"}`). With neither, the gateway's default agent answers.
+
+To have something other than OpenClaw answer, choose "Another OpenAI-style chat endpoint" on the admin page and give its address. That is useful for trying other agent harnesses. The gateway link keeps running if it is paired.
 
 ### Admin API
 
@@ -116,9 +127,12 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `GET /admin/clients` | Lists clients, whether each is online, and its resolved settings. |
 | `GET /admin/clients/:id` | One client. |
 | `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
+| `GET /admin/status` | Version, upstream health and client counts. |
+| `GET` or `PATCH /admin/config` | Speech and agent settings. Secrets are accepted but never returned. |
+| `POST /admin/config/test` | Synthesizes a sentence and transcribes it back, with timings. |
 | `GET /admin/gateway` | State of both gateway links, the device id and the chosen agent. |
 | `POST /admin/gateway/setup-code` | Starts pairing with `{"code": "...", "url": "optional address"}`. |
-| `PATCH /admin/gateway` | Chooses the agent: `{"agentId": "name"}`, or `null` for the gateway default. |
+| `PATCH /admin/gateway` | Chooses the agent (`{"agentId": "name"}`, `null` for the gateway default) or sets the gateway address (`{"url": "..."}`). |
 | `GET /admin/gateway/agents` | Lists the agents the gateway offers. |
 | `POST /admin/gateway/retry` | Reconnects now, skipping any backoff. |
 | `GET` or `PATCH /admin/settings/global` | Reads or changes settings for every client. |
@@ -133,6 +147,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 npm install
 npm test
 npm run build && AXIS_ADMIN_TOKEN=dev npm start
+npm run browser-check     # drives both pages in headless Chrome; needs google-chrome
 ```
 
 Needs Node 24 or newer (the server uses Node's built-in SQLite).

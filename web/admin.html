@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VorteX Axis admin</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>VorteX Axis <span>admin</span></h1>
+    <div class="pills" id="summary"></div>
+  </header>
+
+  <section class="card" id="signin">
+    <h2>Sign in</h2>
+    <p class="hint">Enter the admin token from the hub's <code>.env</code> file (<code>AXIS_ADMIN_TOKEN</code>). It is kept in this tab only.</p>
+    <form class="row" id="signin-form">
+      <div class="grow"><label for="token">Admin token</label><input id="token" type="password" autocomplete="off" required></div>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+    <p class="note bad" id="signin-error"></p>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="card" id="openclaw">
+      <h2>OpenClaw</h2>
+      <p class="hint">Axis joins your gateway as one device with two links: one sends turns to an agent, the other lets agents speak through Axis.</p>
+      <div class="pills" id="gw-pills"></div>
+      <p class="note" id="gw-note"></p>
+
+      <div class="row">
+        <div class="grow"><label for="gw-url">Gateway address</label><input id="gw-url" placeholder="ws://host:18789" spellcheck="false"></div>
+        <button id="gw-url-save">Save address</button>
+        <button id="gw-retry">Reconnect</button>
+      </div>
+
+      <div class="row">
+        <div class="grow"><label for="gw-code">Setup code</label><textarea id="gw-code" class="mono" spellcheck="false" placeholder="Paste the output of: openclaw qr --setup-code-only"></textarea></div>
+        <button class="primary" id="gw-pair">Pair</button>
+      </div>
+      <ol class="steps">
+        <li>On the gateway host run <code>openclaw qr --setup-code-only</code>, paste the result above and press Pair.</li>
+        <li>Approve the device on the gateway: <code>openclaw devices list</code>, then <code>openclaw devices approve &lt;id&gt;</code>. Axis retries every 10 seconds.</li>
+        <li>Allow Axis's commands in the gateway config under <code>gateway.nodes.commands.allow</code>: <code id="gw-commands"></code></li>
+      </ol>
+      <p class="note mono" id="gw-device"></p>
+    </section>
+
+    <section class="card" id="agent">
+      <h2>Agent</h2>
+      <p class="hint">Who answers when someone speaks to a client.</p>
+      <div class="row">
+        <div class="grow">
+          <label for="agent-backend">Answered by</label>
+          <select id="agent-backend">
+            <option value="gateway">OpenClaw gateway</option>
+            <option value="openai">Another OpenAI-style chat endpoint</option>
+          </select>
+        </div>
+        <div class="grow" id="agent-gateway">
+          <label for="agent-id">OpenClaw agent</label>
+          <input id="agent-id" list="agent-list" placeholder="gateway default" spellcheck="false">
+          <datalist id="agent-list"></datalist>
+        </div>
+      </div>
+      <div id="agent-openai" class="hidden">
+        <div class="row">
+          <div class="grow"><label for="agent-url">Chat endpoint</label><input id="agent-url" placeholder="http://host:11434/v1/chat/completions" spellcheck="false"></div>
+          <div class="grow"><label for="agent-model">Model</label><input id="agent-model" spellcheck="false"></div>
+        </div>
+        <div class="row">
+          <div class="grow"><label for="agent-token">Token <span id="agent-token-state"></span></label><input id="agent-token" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
+        </div>
+      </div>
+      <div class="row"><button class="primary" id="agent-save">Save agent</button><span class="note" id="agent-note"></span></div>
+    </section>
+
+    <section class="card" id="speech">
+      <h2>Speech</h2>
+      <p class="hint">OpenAI-style endpoints. Recognition is <code>/v1/audio/transcriptions</code>; synthesis is <code>/v1/audio/speech</code>, asked for raw PCM.</p>
+      <div class="row">
+        <div class="grow"><label for="stt-url">Speech recognition address</label><input id="stt-url" placeholder="http://host:8090/v1/audio/transcriptions" spellcheck="false"></div>
+        <div style="flex:0 1 180px"><label for="stt-model">Model</label><input id="stt-model" spellcheck="false"></div>
+        <div style="flex:0 1 180px"><label for="stt-key">Key <span id="stt-key-state"></span></label><input id="stt-key" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
+      </div>
+      <div class="row">
+        <div class="grow"><label for="tts-url">Speech synthesis address</label><input id="tts-url" placeholder="http://host:8092/v1/audio/speech" spellcheck="false"></div>
+        <div style="flex:0 1 180px"><label for="tts-model">Model</label><input id="tts-model" spellcheck="false"></div>
+        <div style="flex:0 1 180px"><label for="tts-key">Key <span id="tts-key-state"></span></label><input id="tts-key" type="password" autocomplete="off" placeholder="leave empty to keep"></div>
+      </div>
+      <div class="row">
+        <div style="flex:0 1 220px"><label for="tts-voice">Default voice</label><input id="tts-voice" placeholder="service default" spellcheck="false"></div>
+        <div style="flex:0 1 160px"><label for="tts-rate">PCM sample rate</label><input id="tts-rate" type="number" min="8000" max="48000" step="1"></div>
+        <button class="primary" id="speech-save">Save speech</button>
+        <button id="speech-test">Test both</button>
+      </div>
+      <p class="note" id="speech-note"></p>
+    </section>
+
+    <section class="card" id="clients">
+      <h2>Clients</h2>
+      <p class="hint">Devices paired with this hub. Room and volume are stored here and sent to the device.</p>
+      <div id="client-table"></div>
+      <div class="row center">
+        <button class="primary" id="code-new">New pairing code</button>
+        <span class="code-big" id="code-value"></span>
+        <span class="note" id="code-note"></span>
+      </div>
+      <p class="note">To try it from a browser, open the <a href="/" target="_blank" rel="noopener">web client</a> and enter a code.</p>
+    </section>
+
+    <section class="card" id="settings">
+      <h2>Shared settings</h2>
+      <p class="hint">Apply to every client unless a client has its own value. Common keys: <code>voice</code>, <code>wakeWord</code>, <code>defaultClient</code>.</p>
+      <div id="settings-table"></div>
+      <div class="row">
+        <div style="flex:0 1 200px"><label for="set-key">Key</label><input id="set-key" spellcheck="false"></div>
+        <div class="grow"><label for="set-value">Value</label><input id="set-value" spellcheck="false"></div>
+        <button id="set-add">Set</button>
+      </div>
+    </section>
+
+    <p class="note"><button class="small" id="signout">Sign out</button></p>
+  </div>
+</main>
+<script type="module" src="/web/admin.js"></script>
+</body>
+</html>

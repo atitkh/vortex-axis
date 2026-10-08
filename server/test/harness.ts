@@ -1,5 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
 import WebSocket from "ws";
@@ -45,6 +46,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     agent: undefined,
     gateway: { url: undefined, agentId: undefined, sessionKey: "vortex-axis", displayName: "VorteX Axis" },
     outputHoldMs: 600_000,
+    webDir: fileURLToPath(new URL("../../web", import.meta.url)),
     ...overrides,
   };
 }
