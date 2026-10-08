@@ -10,13 +10,13 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, after the admin page redesign (firmware 0.6.0, unchanged). Update this line whenever you change this section.
+Last updated: 2026-10-08, after fleet-first settings on the admin page (firmware 0.6.0, unchanged). Update this line whenever you change this section.
 
 Built and running:
 
 - `protocol/`: version 1 draft, including the `describe` message a device uses to declare its settings, actions and links.
 - `server/`: client pairing, tokens, three-layer settings sync, the admin API, wake arbitration, voice and text turns, and the OpenClaw gateway link (an operator link that sends turns to a named agent, and a node link that declares the command list, publishes tools and carries out `vortex.axis.say`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.diag` and `system.notify`). An empty or `NO_REPLY` answer is held back: nothing is spoken or shown and no follow-up opens.
-- `web/`: the web client and the admin page. The admin page (`admin.html`, `admin.js`, its own `admin.css`; the web client keeps `style.css`) has a sidebar and shows one section at a time, chosen by the address hash: `#clients`, `#clients/<id>`, `#pair`, `#settings`, `#openclaw`, `#agent`, `#speech`. The client list filters and sorts online first. Each device has its own page: facts, actions, announce, settings at three layers (this device, this type, all devices) and remove. Light and dark follow the system. Checked with `npm run browser-check` (admin steps) and screenshots at desktop and phone width; not yet looked at by a person against the live hub.
+- `web/`: the web client and the admin page. The admin page (`admin.html`, `admin.js`, its own `admin.css`; the web client keeps `style.css`) has a sidebar and shows one section at a time, chosen by the address hash: `#clients`, `#clients/<id>`, `#type/<type>`, `#settings` (all devices), `#pair`, `#openclaw`, `#agent`, `#speech`. Settings are managed fleet first: each client type in use gets a settings page (what all its devices share, which devices differ, actions run on every online device), and a device's page shows each setting's value and where it comes from, with "Use shared" and "Share with type". A value equal to what the layers below give is removed instead of stored, so it keeps following. Name and room are edited at the top of a device's page (`PATCH /admin/clients/:id` renames). Adding a device notices when the new code is used. Checked with `npm run browser-check` (admin steps) and screenshots at desktop and phone width; not yet looked at by a person against the live hub.
 - `firmware/`: a working client for the Waveshare ESP32-S3-Touch-AMOLED-1.8, flashed and used by a person: setup network, pairing, socket, face, speaker, microphone with tap-to-talk, on-device "Hey Vortex" wake word, follow-up listening, listen cue, a log page at `/logs` on the device. See `firmware/README.md`.
 
 Proven with a real gateway, a real board and a real voice: pairing, typed and spoken turns, `vortex.axis.say`, tap-to-talk, wake word, follow-up.

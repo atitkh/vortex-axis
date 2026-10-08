@@ -172,3 +172,22 @@ describe("announcing on a device", () => {
   });
 });
 
+
+describe("renaming a client", () => {
+  it("changes the name, also for a connected client", async () => {
+    const { identity } = await board();
+    const result = await admin("PATCH", `/admin/clients/${identity.clientId}`, { name: "  Kitchen  " });
+    expect(result.status).toBe(200);
+    expect(result.body.name).toBe("Kitchen");
+    expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body).toMatchObject({ name: "Kitchen", online: true });
+  });
+
+  it("refuses an empty name, a name another client has, and an unknown client", async () => {
+    const first = await newPairedClient({ name: "Desk" });
+    const second = await newPairedClient({ name: "Hall" });
+    expect((await admin("PATCH", `/admin/clients/${second.clientId}`, { name: " " })).status).toBe(400);
+    expect((await admin("PATCH", `/admin/clients/${second.clientId}`, { name: "desk" })).status).toBe(409);
+    expect((await admin("PATCH", `/admin/clients/${first.clientId}`, { name: "Desk" })).status).toBe(200);
+    expect((await admin("PATCH", "/admin/clients/c_nobody", { name: "X" })).status).toBe(404);
+  });
+});

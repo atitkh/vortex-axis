@@ -1,15 +1,19 @@
 // Admin page for VorteX Axis. Plain browser JavaScript, no build step.
 // Everything it does goes through the same /admin endpoints any caller can use.
+//
+// Settings are managed fleet first: a type's page sets what all its devices share, and a
+// device's page shows only where that one device differs. The three layers underneath
+// (all devices, type, device) are the server's; this page only presents them.
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "axis-admin-token";
 let token = sessionStorage.getItem(TOKEN_KEY) || "";
 let timer;
-// The device being edited, which layer of settings the editor is on, and the last data fetched.
-let selectedId = "";
-let layerTab = "device";
+// What is on screen, and the last data fetched.
+let view = { name: "clients", id: "" };
 let lastClients = [];
 let lastTypes = {};
+let lastGlobal = {};
 
 /** Builds an element. Text always goes in as text, never as markup. */
 function h(tag, attrs = {}, ...children) {
@@ -17,10 +21,12 @@ function h(tag, attrs = {}, ...children) {
   for (const [key, value] of Object.entries(attrs)) {
     if (key === "class") el.className = value;
     else if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
-    else if (value !== undefined && value !== false) el.setAttribute(key, value === true ? "" : value);
+    else if (key === "value") el.value = value;
+    else if (key === "checked") el.checked = Boolean(value);
+    else if (value !== undefined && value !== false && value !== null) el.setAttribute(key, value === true ? "" : value);
   }
   for (const child of children.flat()) {
-    if (child !== null && child !== undefined) el.append(child instanceof Node ? child : String(child));
+    if (child !== null && child !== undefined && child !== false) el.append(child instanceof Node ? child : String(child));
   }
   return el;
 }
@@ -49,14 +55,25 @@ function note(id, text, kind = "") {
   el.className = `msg ${kind}`.trim();
 }
 
-/** Runs an action from a button, showing failure next to it. */
+/** A short message at the bottom of the screen, for saves that happen where the person is looking. */
+let toastTimer;
+function toast(text, kind = "good") {
+  const el = $("toast");
+  el.textContent = text;
+  el.className = `toast ${kind}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), kind === "bad" ? 8000 : 3500);
+}
+
+/** Runs an action from a button, showing failure next to it (or as a toast when there is no place). */
 async function act(button, noteId, fn) {
   button.disabled = true;
   try {
     await fn();
   } catch (error) {
     if (error.status === 401) return signOut("That token was not accepted.");
-    note(noteId, error.message, "bad");
+    if (noteId) note(noteId, error.message, "bad");
+    else toast(error.message, "bad");
   } finally {
     button.disabled = false;
   }
@@ -74,6 +91,13 @@ function ago(at) {
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   return new Date(at).toLocaleDateString();
 }
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const typeHref = (type) => `#type/${encodeURIComponent(type)}`;
+const deviceHref = (c) => `#clients/${encodeURIComponent(c.id)}`;
+
+/** True while someone is typing or choosing inside `box`, so a poll does not redraw under them. */
+const busy = (box) => box.contains(document.activeElement) && ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
 
 const LINK_STATES = {
   connected: ["connected", "good"],
@@ -133,13 +157,16 @@ async function refresh() {
       api("GET", "/admin/clients"),
       api("GET", "/admin/settings/global"),
     ]);
-    renderSummary(status);
-    renderGateway(gateway);
-    renderClients(clients.clients);
     lastClients = clients.clients;
     lastTypes = clients.types || {};
-    renderDevice();
-    renderSettings(settings.values);
+    lastGlobal = settings.values;
+    renderSummary(status);
+    renderGateway(gateway);
+    renderNavTypes();
+    renderClients();
+    renderRooms();
+    renderPairDone();
+    renderView();
   } catch (error) {
     if (error.status === 401) signOut("That token was not accepted.");
   }
@@ -302,38 +329,239 @@ $("agent-save").addEventListener("click", (event) =>
   }),
 );
 
+
 // --- sections ----------------------------------------------------------------
 
-/** Shows one section, picked by the address: #clients, #clients/<id>, #pair, #settings, ... */
+const VIEWS = ["clients", "pair", "settings", "type", "openclaw", "agent", "speech"];
+
+/** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
-  const [name, id] = location.hash.slice(1).split("/").map(decodeURIComponent);
-  let view = ["clients", "pair", "settings", "openclaw", "agent", "speech"].includes(name) ? name : "clients";
-  if (view === "clients" && id) {
-    view = "device";
-    if (id !== selectedId) {
-      selectedId = id;
-      layerTab = "device";
-      $("device-note").textContent = "";
-      $("device-note").className = "msg";
-    }
-  } else {
-    selectedId = "";
-  }
-  for (const section of document.querySelectorAll(".view")) section.classList.toggle("on", section.id === view);
-  const navFor = view === "device" ? "clients" : view;
-  for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navFor);
-  if (view === "device") renderDevice();
+  const [first, ...rest] = location.hash.slice(1).split("/");
+  const id = decodeURIComponent(rest.join("/"));
+  let name = VIEWS.includes(first) ? first : "clients";
+  if (name === "clients" && id) name = "device";
+  if (name === "type" && !id) name = "settings";
+  if (name !== view.name || id !== view.id) $("device-note").textContent = "";
+  view = { name, id };
+  for (const section of document.querySelectorAll(".view")) section.classList.toggle("on", section.id === name);
+  const navKey = name === "device" ? "clients" : name === "type" ? `type:${id}` : name;
+  for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navKey);
+  renderView();
 }
 window.addEventListener("hashchange", () => {
   route();
   window.scrollTo(0, 0);
 });
 
+function renderView() {
+  if (view.name === "device") renderDevice();
+  if (view.name === "type") renderType();
+  if (view.name === "settings") renderAllDevices();
+}
+
+/** Every client type that has a device, with how many are online. */
+function typesInUse() {
+  const types = new Map();
+  for (const c of lastClients) {
+    const t = types.get(c.type) || { type: c.type, total: 0, online: 0 };
+    t.total++;
+    if (c.online) t.online++;
+    types.set(c.type, t);
+  }
+  return [...types.values()].sort((a, b) => a.type.localeCompare(b.type));
+}
+
+function renderNavTypes() {
+  $("nav-types").replaceChildren(
+    ...typesInUse().map((t) =>
+      h(
+        "a",
+        { href: typeHref(t.type), "data-view": `type:${t.type}`, class: view.name === "type" && view.id === t.type ? "on" : "", title: `Settings shared by every ${t.type} device` },
+        h("span", { class: "typename" }, t.type),
+        h("span", { class: "count" }, String(t.total)),
+      ),
+    ),
+  );
+}
+
+/** Rooms already in use, offered when typing a room so one room is not spelled two ways. */
+function renderRooms() {
+  const rooms = [...new Set(lastClients.map((c) => c.settings.room).filter(Boolean))].sort();
+  $("room-list").replaceChildren(...rooms.map((r) => h("option", { value: r })));
+}
+
+// --- settings: one editor for every layer ---------------------------------------
+
+/** Keys whose place is the device's own header, not a settings table. */
+const DEVICE_ONLY = new Set(["room"]);
+const OWN_LABEL = { device: "this device", type: "this type", global: "all devices" };
+const FROM_LABEL = { type: "type", global: "all devices", default: "default" };
+
+function showValue(def, value) {
+  if (value === undefined || value === null || value === "") return "not set";
+  if (def.kind === "toggle") return Number(value) ? "on" : "off";
+  if (def.kind === "client") return clientName(value) ?? String(value);
+  return `${value}${def.unit && def.kind === "number" ? ` ${def.unit}` : ""}`;
+}
+
+/** What the layers below `tab` give a setting, and which one gives it. */
+function inherited(def, layers, tab) {
+  const below = { device: ["type", "global"], type: ["global"], global: [] }[tab];
+  for (const name of below) if (layers[name][def.key] !== undefined) return { source: name, value: layers[name][def.key] };
+  return { source: "default", value: def.default };
+}
+
+/** Which layer decides a setting, and what it says. */
+const effective = (def, layers) => (layers.device[def.key] !== undefined ? { source: "device", value: layers.device[def.key] } : inherited(def, layers, "device"));
+
+/** Clients that set their own value for `key`. */
+const differing = (clients, key) => clients.filter((c) => c.layers.device[key] !== undefined);
+
+/**
+ * Saves one value on one layer. A value equal to what the layers below already give is
+ * removed instead of stored, so the setting keeps following the shared value.
+ */
+async function saveSetting({ path, def, value, below, what }) {
+  const same = value !== null && below.value !== undefined && String(value) === String(below.value);
+  const sent = same ? null : value;
+  document.activeElement?.blur?.();
+  try {
+    await api("PATCH", path, { values: { [def.key]: sent } });
+    toast(
+      sent === null
+        ? `${def.label} on ${what} now follows ${below.source === "default" ? "the default" : FROM_LABEL[below.source]} (${showValue(def, below.value)}).`
+        : `${def.label} set to ${showValue(def, sent)} on ${what}.`,
+    );
+  } catch (error) {
+    if (error.status === 401) return signOut("That token was not accepted.");
+    toast(`${def.label}: ${error.message}`, "bad");
+  }
+  await refresh();
+}
+
+/** An input for one setting, showing `value` and calling `commit` with the new value (null for empty). */
+function editorFor(def, value, commit) {
+  if (def.kind === "toggle") {
+    const box = h("input", { type: "checkbox", "data-edit": def.key, checked: Number(value) === 1 });
+    box.addEventListener("change", () => commit(box.checked ? 1 : 0));
+    return h("label", { class: "switch" }, box, h("span", {}, Number(value) === 1 ? "on" : "off"));
+  }
+  if (def.kind === "choice" || def.kind === "client") {
+    const options =
+      def.kind === "client"
+        ? lastClients.map((c) => [c.id, c.name])
+        : (def.options || []).map((o) => [o, String(o)]);
+    const current = def.kind === "client" ? clientId(value) : value;
+    const select = h(
+      "select",
+      { "data-edit": def.key },
+      def.kind === "client" || value === undefined || value === null ? h("option", { value: "" }, def.kind === "client" ? "not set" : "choose") : null,
+      options.map(([v, label]) => h("option", { value: String(v), ...(current !== undefined && current !== null && String(current) === String(v) ? { selected: true } : {}) }, label)),
+    );
+    select.addEventListener("change", () => {
+      // Numeric choices are stored as numbers, the way the firmware reads them.
+      const numeric = def.kind === "choice" && (def.options || []).every((o) => typeof o === "number");
+      commit(select.value === "" ? null : numeric ? Number(select.value) : select.value);
+    });
+    return select;
+  }
+  const input = h("input", {
+    type: def.kind === "number" ? "number" : "text",
+    value: value ?? "",
+    placeholder: def.placeholder ?? "not set",
+    "data-edit": def.key,
+    spellcheck: "false",
+    ...(def.kind === "number" && def.min !== undefined ? { min: def.min } : {}),
+    ...(def.kind === "number" && def.max !== undefined ? { max: def.max } : {}),
+  });
+  input.addEventListener("change", () => {
+    const raw = input.value.trim();
+    commit(raw === "" ? null : def.kind === "number" ? Number(raw) : raw);
+  });
+  input.addEventListener("keydown", (event) => event.key === "Enter" && input.blur());
+  if (def.kind === "number" && def.unit) return h("span", { class: "unit" }, input, h("span", {}, def.unit));
+  return input;
+}
+
+/**
+ * A table of settings edited on one layer. Each row shows the value that applies at that
+ * layer, where it comes from, and a way back to the shared value when it is set here.
+ */
+function settingsTable({ defs, layers, tab, path, what, extra }) {
+  const groups = new Map();
+  for (const def of defs) {
+    const name = def.group || "Other";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(def);
+  }
+  return [...groups].map(([name, list]) =>
+    h(
+      "div",
+      { class: "setgroup" },
+      groups.size > 1 ? h("p", { class: "group" }, name) : null,
+      h(
+        "table",
+        { class: "settings" },
+        h(
+          "tbody",
+          {},
+          list.map((def) => {
+            const own = layers[tab][def.key];
+            const below = inherited(def, layers, tab);
+            const mine = own !== undefined;
+            const commit = (value) => saveSetting({ path, def, value, below, what });
+            return h(
+              "tr",
+              { class: mine ? "mine" : "follows", "data-key": def.key },
+              h(
+                "td",
+                {},
+                h("div", {}, def.label, " ", h("span", { class: "mono sub" }, def.key)),
+                def.help ? h("div", { class: "sub" }, def.help) : null,
+              ),
+              h("td", {}, editorFor(def, mine ? own : below.value, commit)),
+              h(
+                "td",
+                { class: "src" },
+                mine ? h("span", { class: "tag" }, OWN_LABEL[tab]) : h("span", {}, below.value === undefined ? "not set" : FROM_LABEL[below.source]),
+              ),
+              h(
+                "td",
+                { class: "tight right" },
+                extra?.(def, own),
+                mine
+                  ? h(
+                      "button",
+                      { class: "small", title: `Remove this value. It goes back to ${showValue(def, below.value)} (${FROM_LABEL[below.source]}).`, onclick: () => commit(null) },
+                      tab === "global" ? "Clear" : below.source === "default" ? "Use default" : "Use shared",
+                    )
+                  : null,
+              ),
+            );
+          }),
+        ),
+      ),
+    ),
+  );
+}
+
 // --- clients ---------------------------------------------------------------
 
-const deviceHref = (c) => `#clients/${encodeURIComponent(c.id)}`;
+const clientName = (idOrName) => {
+  const c = lastClients.find((c) => c.id === idOrName || c.name.toLowerCase() === String(idOrName).toLowerCase());
+  return c?.name;
+};
+const clientId = (idOrName) => {
+  if (idOrName === undefined || idOrName === null) return idOrName;
+  const c = lastClients.find((c) => c.id === idOrName || c.name.toLowerCase() === String(idOrName).toLowerCase());
+  return c?.id ?? idOrName;
+};
 
-function renderClients(clients) {
+/** Settings a device sets for itself, room excepted (it is shown on its own). */
+const ownKeys = (c) => Object.keys(c.layers.device).filter((k) => !DEVICE_ONLY.has(k));
+
+function renderClients() {
+  const clients = lastClients;
   if (!clients.length) {
     $("client-table").replaceChildren(
       h("p", { class: "empty" }, "No clients yet. ", h("a", { href: "#pair" }, "Add a device"), " to get started."),
@@ -349,19 +577,20 @@ function renderClients(clients) {
     $("client-table").replaceChildren(h("p", { class: "empty" }, "No client matches that filter."));
     return;
   }
-  const rows = shown.map((c) =>
-    h(
+  const rows = shown.map((c) => {
+    const own = ownKeys(c);
+    return h(
       "tr",
       { class: `link-row${c.online ? "" : " off"}`, onclick: (event) => event.target.closest("a") || (location.hash = deviceHref(c)) },
       h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
       h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
-      h("td", { class: "mono" }, c.type),
+      h("td", {}, h("a", { href: typeHref(c.type), class: "mono plainlink" }, c.type)),
       h("td", {}, c.settings.room || h("span", { class: "sub" }, "none")),
-      h("td", { class: "hide-narrow sub" }, c.capabilities.join(", ") || "nothing"),
+      h("td", { class: "hide-narrow sub", title: own.join(", ") }, own.length ? plural(own.length, "own value") : "shared"),
       h("td", { class: "hide-narrow mono sub" }, c.version),
       h("td", { class: "hide-narrow sub tight" }, c.online ? "now" : ago(c.lastSeenAt)),
-    ),
-  );
+    );
+  });
   $("client-table").replaceChildren(
     h(
       "table",
@@ -376,7 +605,7 @@ function renderClients(clients) {
           h("th", {}, "Name"),
           h("th", {}, "Type"),
           h("th", {}, "Room"),
-          h("th", { class: "hide-narrow" }, "Can"),
+          h("th", { class: "hide-narrow" }, "Settings"),
           h("th", { class: "hide-narrow" }, "Version"),
           h("th", { class: "hide-narrow tight" }, "Last seen"),
         ),
@@ -386,114 +615,60 @@ function renderClients(clients) {
   );
 }
 
-$("client-filter").addEventListener("input", () => renderClients(lastClients));
+$("client-filter").addEventListener("input", renderClients);
 
-// --- one device: settings in three layers, actions and its own pages -----------
-
-const SOURCE_NAMES = { device: "this device", type: "type", global: "all devices", default: "default" };
-
-function showValue(def, value) {
-  if (value === undefined || value === null || value === "") return "not set";
-  if (def.kind === "toggle") return Number(value) ? "on" : "off";
-  return `${value}${def.unit && def.kind === "number" ? ` ${def.unit}` : ""}`;
-}
-
-/** Which layer decides a setting for this device, and what it says. */
-function effective(def, layers) {
-  for (const name of ["device", "type", "global"]) {
-    if (layers[name][def.key] !== undefined) return { source: name, value: layers[name][def.key] };
-  }
-  return { source: "default", value: def.default };
-}
-
-/** What the layers BELOW the one being edited would give. */
-function inherited(def, layers, tab) {
-  const below = { device: ["type", "global"], type: ["global"], global: [] }[tab];
-  for (const name of below) if (layers[name][def.key] !== undefined) return { source: name, value: layers[name][def.key] };
-  return { source: "default", value: def.default };
-}
-
-function layerPath(client, tab) {
-  if (tab === "global") return "/admin/settings/global";
-  if (tab === "type") return `/admin/settings/type/${encodeURIComponent(client.type)}`;
-  return `/admin/settings/device/${encodeURIComponent(client.id)}`;
-}
-
-async function saveSetting(client, tab, key, value) {
-  try {
-    await api("PATCH", layerPath(client, tab), { values: { [key]: value } });
-    note("device-note", `Saved ${key}. Connected devices have it now.`, "good");
-  } catch (error) {
-    if (error.status === 401) return signOut("That token was not accepted.");
-    note("device-note", `${key}: ${error.message}`, "bad");
-  }
-  if (document.activeElement?.dataset?.edit) document.activeElement.blur();
-  await refresh();
-}
-
-function settingEditor(client, def, layers, tab) {
-  const own = layers[tab][def.key];
-  const below = inherited(def, layers, tab);
-  const placeholder = showValue(def, below.value);
-  const choose = (raw) => (raw === "" ? null : def.kind === "number" ? Number(raw) : raw);
-  if (def.kind === "toggle" || def.kind === "choice") {
-    const options = def.kind === "toggle" ? [[1, "on"], [0, "off"]] : (def.options || []).map((o) => [o, String(o)]);
-    const select = h(
-      "select",
-      { "data-edit": def.key },
-      h("option", { value: "" }, `inherit (${placeholder})`),
-      options.map(([value, label]) => h("option", { value: String(value), ...(own !== undefined && String(own) === String(value) ? { selected: true } : {}) }, label)),
-    );
-    select.addEventListener("change", () => {
-      const raw = select.value;
-      // Toggles and numeric choices are stored as numbers, the way the firmware reads them.
-      const numeric = def.kind === "toggle" || (def.options || []).every((o) => typeof o === "number");
-      saveSetting(client, tab, def.key, raw === "" ? null : numeric ? Number(raw) : raw);
-    });
-    return select;
-  }
-  const input = h("input", {
-    type: def.kind === "number" ? "number" : "text",
-    value: own ?? "",
-    placeholder: `inherit (${placeholder})`,
-    "data-edit": def.key,
-    spellcheck: "false",
-    ...(def.kind === "number" && def.min !== undefined ? { min: def.min } : {}),
-    ...(def.kind === "number" && def.max !== undefined ? { max: def.max } : {}),
-  });
-  input.addEventListener("change", () => saveSetting(client, tab, def.key, choose(input.value.trim())));
-  return input;
-}
+// --- one device ----------------------------------------------------------------
 
 function renderDevice() {
-  if (!selectedId || !$("device").classList.contains("on")) return;
-  const client = lastClients.find((c) => c.id === selectedId);
+  const client = lastClients.find((c) => c.id === view.id);
   if (!client) {
     $("device-title").textContent = lastClients.length ? "No such client" : "Loading";
-    for (const id of ["device-state", "device-head", "device-actions", "device-tabs", "device-settings", "device-readings"]) $(id).replaceChildren();
+    for (const id of ["device-state", "device-head", "device-actions", "device-settings", "device-readings", "device-settings-help"]) $(id).replaceChildren();
     $("device-remove").disabled = true;
     return;
   }
-  // Leave the page alone while someone is typing in it.
-  const active = document.activeElement;
-  if ($("device").contains(active) && ["INPUT", "SELECT"].includes(active.tagName)) return;
+  if (busy($("device"))) return;
 
   const schema = lastTypes[client.type] || { settings: [], actions: [], links: [] };
+  const devicePath = `/admin/settings/device/${encodeURIComponent(client.id)}`;
   $("device-title").textContent = client.name;
   $("device-state").replaceChildren(stat(client.online ? "online" : `offline, last seen ${ago(client.lastSeenAt)}`, client.online ? "good" : ""));
   $("device-remove").disabled = false;
 
+  // Name and room are this device's alone, so they sit at the top and save as they change.
+  const nameInput = h("input", { value: client.name, spellcheck: "false", maxlength: 60, "data-edit": "name" });
+  nameInput.addEventListener("change", async () => {
+    const name = nameInput.value.trim();
+    nameInput.blur();
+    if (!name || name === client.name) return renderDevice();
+    try {
+      await api("PATCH", `/admin/clients/${encodeURIComponent(client.id)}`, { name });
+      toast(`Renamed to ${name}. Agents address it by this name now.`);
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+    refresh();
+  });
+  nameInput.addEventListener("keydown", (event) => event.key === "Enter" && nameInput.blur());
+  const roomDef = { key: "room", label: "Room", kind: "text" };
+  const roomInput = h("input", { value: client.layers.device.room ?? "", placeholder: "none", list: "room-list", spellcheck: "false", "data-edit": "room" });
+  roomInput.addEventListener("change", () =>
+    saveSetting({ path: devicePath, def: roomDef, value: roomInput.value.trim() || null, below: { source: "default", value: undefined }, what: client.name }),
+  );
+  roomInput.addEventListener("keydown", (event) => event.key === "Enter" && roomInput.blur());
+
   const base = client.address ? `http://${client.address}` : "";
-  const fact = (term, ...value) => [h("dt", {}, term), h("dd", {}, ...value)];
+  const row = (label, ...value) => [h("label", {}, label), h("div", { class: "value" }, ...value)];
   $("device-head").replaceChildren(
-    ...fact("Type", h("span", { class: "mono" }, client.type), `, version ${client.version}`),
-    ...fact("Room", client.settings.room || "none"),
-    ...fact("Can", client.capabilities.join(", ") || "nothing"),
-    ...(client.address ? fact("Address", h("span", { class: "mono" }, client.address)) : []),
+    ...row("Name", nameInput),
+    ...row("Room", roomInput),
+    ...row("Type", h("a", { href: typeHref(client.type), class: "mono" }, client.type), h("span", { class: "sub" }, ` · version ${client.version}`)),
+    ...row("Can", client.capabilities.join(", ") || "nothing"),
+    ...(client.address ? row("Address", h("span", { class: "mono" }, client.address)) : []),
     ...(client.online && base && schema.links.length
-      ? fact("Pages", ...schema.links.flatMap((l, i) => [i ? " · " : "", h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label)]))
+      ? row("Pages", ...schema.links.flatMap((l, i) => [i ? " · " : "", h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label)]))
       : []),
-    ...fact("Id", h("span", { class: "mono" }, client.id)),
+    ...row("Id", h("span", { class: "mono sub" }, client.id)),
   );
 
   // Actions: the device's own, plus announce for anything that can speak or show text.
@@ -523,9 +698,8 @@ function renderDevice() {
                 onclick: async (event) => {
                   if (a.confirm && !confirm(`${a.label} on ${client.name}?`)) return;
                   await act(event.target, "device-note", async () => {
-                    const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/commands/${encodeURIComponent(a.name)}`);
-                    const detail = Object.entries(result.payload || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
-                    note("device-note", result.ok ? `${a.label}: done${detail ? ` · ${detail}` : ""}` : `${a.label}: ${result.error || "failed"}`, result.ok ? "good" : "bad");
+                    const result = await runCommand(client, a);
+                    note("device-note", result.text, result.ok ? "good" : "bad");
                   });
                 },
               },
@@ -533,87 +707,67 @@ function renderDevice() {
             ),
           ),
         )
-      : h("p", { class: "help" }, "This device offers no actions."),
+      : h("p", { class: "help" }, client.online ? "This device offers no actions." : "Actions appear once the device has connected."),
     canSay
       ? h("div", { class: "inline", style: "margin-top:8px" }, announceInput, h("button", { disabled: !client.online, onclick: announce }, "Announce"))
       : null,
   );
 
-  const LAYER_HELP = {
-    device: "Values set here apply to this device only. Empty fields inherit.",
-    type: `Values set here apply to every ${client.type} device that has no value of its own.`,
-    global: "Values set here apply to every device of every type, unless a more specific layer sets one.",
-  };
-  $("device-tabs").replaceChildren(
-    ...["device", "type", "global"].map((name) =>
-      h(
-        "button",
-        {
-          class: name === layerTab ? "on" : "",
-          onclick: () => {
-            layerTab = name;
-            renderDevice();
-          },
-        },
-        name === "device" ? "This device" : name === "type" ? `All ${client.type} devices` : "All devices",
-      ),
-    ),
-  );
-  $("device-layer-help").textContent = LAYER_HELP[layerTab];
-
   renderReadings(client);
 
-  const groups = new Map();
-  for (const def of schema.settings) {
-    const name = def.group || "Other";
-    if (!groups.has(name)) groups.set(name, []);
-    groups.get(name).push(def);
-  }
-  if (!groups.size) {
+  const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
+  const own = defs.filter((d) => client.layers.device[d.key] !== undefined);
+  $("device-settings-help").replaceChildren(
+    own.length
+      ? `${client.name} has ${plural(own.length, "value")} of its own (${own.map((d) => d.label).join(", ")}). `
+      : `${client.name} uses the shared settings. `,
+    "Changing a value here changes it for this device only. To change it for every ",
+    h("span", { class: "mono" }, client.type),
+    " device, use ",
+    h("a", { href: typeHref(client.type) }, "its type's settings"),
+    ".",
+  );
+  if (!defs.length) {
     $("device-settings").replaceChildren(h("p", { class: "empty" }, "This device has not described its settings yet. It does so each time it connects."));
     return;
   }
-  const layers = client.layers;
   $("device-settings").replaceChildren(
-    ...[...groups].map(([name, defs]) =>
-      h(
-        "div",
-        {},
-        groups.size > 1 ? h("p", { class: "group" }, name) : null,
-        h(
-          "table",
-          { class: "settings" },
-          h(
-            "tbody",
-            {},
-            defs.map((def) => {
-              const now = effective(def, layers);
-              const own = layers[layerTab][def.key];
-              return h(
-                "tr",
-                { class: own === undefined ? "" : "mine" },
-                h(
-                  "td",
-                  {},
-                  h("div", {}, def.label, " ", h("span", { class: "mono sub" }, def.key)),
-                  def.help ? h("div", { class: "sub" }, def.help) : null,
-                ),
-                h("td", {}, settingEditor(client, def, layers, layerTab)),
-                h("td", { class: "eff" }, showValue(def, now.value), " ", h("span", { class: "from" }, `(${SOURCE_NAMES[now.source]})`)),
-                h(
-                  "td",
-                  { class: "tight" },
-                  own === undefined
-                    ? null
-                    : h("button", { class: "small", title: "Remove this value so the next layer applies", onclick: () => saveSetting(client, layerTab, def.key, null) }, "Reset"),
-                ),
-              );
-            }),
-          ),
-        ),
-      ),
-    ),
+    ...settingsTable({
+      defs,
+      layers: client.layers,
+      tab: "device",
+      path: devicePath,
+      what: client.name,
+      extra: (def, value) =>
+        value === undefined
+          ? null
+          : h(
+              "button",
+              {
+                class: "small",
+                title: `Make ${showValue(def, value)} the shared value for every ${client.type} device`,
+                onclick: (event) =>
+                  act(event.target, null, async () => {
+                    await api("PATCH", `/admin/settings/type/${encodeURIComponent(client.type)}`, { values: { [def.key]: value } });
+                    await api("PATCH", devicePath, { values: { [def.key]: null } });
+                    toast(`${def.label} ${showValue(def, value)} is now shared by every ${client.type} device.`);
+                    await refresh();
+                  }),
+              },
+              "Share with type",
+            ),
+    }),
   );
+}
+
+/** Runs one of a device's actions and words the answer. */
+async function runCommand(client, action) {
+  const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/commands/${encodeURIComponent(action.name)}`);
+  const detail = Object.entries(result.payload || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  return {
+    ok: result.ok,
+    text: result.ok ? `${action.label}: done${detail ? ` · ${detail}` : ""}` : `${action.label}: ${result.error || "failed"}`,
+  };
 }
 
 /** Sensor readings the device reported, if any. */
@@ -630,27 +784,149 @@ function renderReadings(client) {
 }
 
 $("device-remove").addEventListener("click", (event) => {
-  const client = lastClients.find((c) => c.id === selectedId);
+  const client = lastClients.find((c) => c.id === view.id);
   if (!client || !confirm(`Remove ${client.name}? Its token stops working and it must pair again.`)) return;
   act(event.target, "device-note", async () => {
     await api("DELETE", `/admin/clients/${encodeURIComponent(client.id)}`);
+    toast(`${client.name} removed.`);
     location.hash = "#clients";
     await refresh();
   });
 });
 
+// --- one type: what its devices share --------------------------------------------
+
+function renderType() {
+  const type = view.id;
+  const members = lastClients.filter((c) => c.type === type).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+  $("type-title").textContent = type;
+  if (!members.length) {
+    $("type-help").textContent = lastClients.length ? "No device of this type is paired." : "Loading";
+    for (const id of ["type-devices", "type-actions", "type-settings"]) $(id).replaceChildren();
+    return;
+  }
+  if (busy($("type"))) return;
+  const schema = lastTypes[type] || { settings: [], actions: [], links: [] };
+  const online = members.filter((c) => c.online);
+  $("type-help").textContent = `${plural(members.length, "device")}, ${online.length} online. Settings here apply to all of them, except where a device has its own value.`;
+
+  $("type-devices").replaceChildren(
+    h(
+      "table",
+      {},
+      h(
+        "tbody",
+        {},
+        members.map((c) => {
+          const own = ownKeys(c);
+          return h(
+            "tr",
+            { class: `link-row${c.online ? "" : " off"}`, onclick: (event) => event.target.closest("a") || (location.hash = deviceHref(c)) },
+            h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
+            h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
+            h("td", { class: "sub" }, c.settings.room || "no room"),
+            h("td", { class: "sub" }, own.length ? `own: ${own.map((k) => labelFor(schema, k)).join(", ")}` : "all shared"),
+          );
+        }),
+      ),
+    ),
+  );
+
+  // An action runs on every online device of the type, one after the other.
+  $("type-actions-box").classList.toggle("hidden", !schema.actions.length);
+  $("type-actions").replaceChildren(
+    h(
+      "div",
+      { class: "inline" },
+      schema.actions.map((a) =>
+        h(
+          "button",
+          {
+            title: a.help || "",
+            disabled: !online.length,
+            onclick: (event) => {
+              if (!confirm(`${a.label} on ${plural(online.length, "online device")}?`)) return;
+              act(event.target, null, async () => {
+                const results = [];
+                for (const c of online) {
+                  const r = await runCommand(c, a).catch((error) => ({ ok: false, text: error.message }));
+                  results.push({ name: c.name, ...r });
+                }
+                const failed = results.filter((r) => !r.ok);
+                toast(
+                  failed.length
+                    ? `${a.label}: ${results.length - failed.length} of ${results.length} done. ${failed.map((r) => `${r.name}: ${r.text}`).join("; ")}`
+                    : `${a.label}: done on ${plural(results.length, "device")}.`,
+                  failed.length ? "bad" : "good",
+                );
+              });
+            },
+          },
+          a.label,
+        ),
+      ),
+    ),
+  );
+
+  const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
+  if (!defs.length) {
+    $("type-settings").replaceChildren(h("p", { class: "empty" }, "No device of this type has described its settings yet. They do so each time they connect."));
+    return;
+  }
+  // The type and global layers are the same for every member; the device layer is empty here.
+  const layers = { global: members[0].layers.global, type: members[0].layers.type, device: {} };
+  $("type-settings").replaceChildren(
+    ...settingsTable({
+      defs,
+      layers,
+      tab: "type",
+      path: `/admin/settings/type/${encodeURIComponent(type)}`,
+      what: `every ${type} device`,
+      extra: (def) => {
+        const odd = differing(members, def.key);
+        if (!odd.length) return null;
+        return h(
+          "span",
+          { class: "differ", title: "These devices have their own value, so a change here does not reach them" },
+          `${odd.length === 1 ? "differs on" : `${odd.length} differ:`} `,
+          odd.flatMap((c, i) => [i ? ", " : "", h("a", { href: deviceHref(c) }, `${c.name} (${showValue(def, c.layers.device[def.key])})`)]),
+        );
+      },
+    }),
+  );
+}
+
+const labelFor = (schema, key) => schema.settings.find((d) => d.key === key)?.label ?? key;
+
 // --- pairing -----------------------------------------------------------------
+
+// Clients that existed when the last code was made, to notice the one that pairs with it.
+let pairBaseline;
 
 $("code-new").addEventListener("click", (event) =>
   act(event.target, "code-note", async () => {
     const { code, expiresAt } = await api("POST", "/admin/pairing-codes");
+    pairBaseline = new Set(lastClients.map((c) => c.id));
+    $("pair-done").replaceChildren();
     $("code-value").textContent = code;
     renderSetupString();
     const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60000));
     const until = new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    note("code-note", `Works once, for ${minutes} minute${minutes === 1 ? "" : "s"} (until ${until}).`);
+    note("code-note", `Works once, for ${minutes} minute${minutes === 1 ? "" : "s"} (until ${until}). This page notices when a device uses it.`);
   }),
 );
+
+function renderPairDone() {
+  if (!pairBaseline) return;
+  const fresh = lastClients.find((c) => !pairBaseline.has(c.id));
+  if (!fresh) return;
+  pairBaseline = undefined;
+  $("code-value").textContent = "";
+  $("setup-string").value = "";
+  note("code-note", "That code has been used.");
+  $("pair-done").replaceChildren(`${fresh.name} (${fresh.type}) paired. `, h("a", { href: deviceHref(fresh) }, "Open it"), " to name it and set its room.");
+  toast(`${fresh.name} paired.`);
+}
 
 $("setup-copy").addEventListener("click", async (event) => {
   const value = $("setup-string").value;
@@ -685,100 +961,119 @@ $("device-address").addEventListener("input", () => {
 });
 $("setup-string").addEventListener("focus", (event) => event.target.select());
 
-// --- shared settings -------------------------------------------------------
+// --- all devices -------------------------------------------------------------
 
-/** Settings Axis itself reads, with what happens when each is left empty. */
-const KNOWN_SETTINGS = [
-  { key: "voice", label: "Voice", fallback: "the default voice in the Speech section, or the speech service's own default" },
-  { key: "defaultClient", label: "Default client", fallback: "the client last spoken to, then any client that can speak or show text" },
-  { key: "wakeWord", label: "Wake word", fallback: "each device's built-in wake word (the web client has none)" },
+/** Settings Axis itself reads from the base layer. */
+const AXIS_SETTINGS = [
+  {
+    key: "voice",
+    label: "Voice",
+    kind: "text",
+    group: "Axis",
+    placeholder: "the Speech section's default voice",
+    help: "Voice for every device's speech. A type or a device can pick its own.",
+  },
+  {
+    key: "defaultClient",
+    label: "Default client",
+    kind: "client",
+    group: "Axis",
+    help: "Where an agent's unprompted speech goes when nobody has spoken lately. Not set: any client that can speak or show text.",
+  },
 ];
 
-function renderKnownSettings(values) {
-  const box = $("settings-known");
-  // Leave the fields alone while someone is typing in one.
-  if (box.contains(document.activeElement)) return;
-  box.replaceChildren(
-    h(
-      "table",
-      { class: "settings" },
-      h(
-        "tbody",
-        {},
-        KNOWN_SETTINGS.map(({ key, label, fallback }) => {
-          const input = h("input", { value: values[key] ?? "", placeholder: "not set", spellcheck: "false" });
-          input.addEventListener("change", async () => {
-            const raw = input.value.trim();
-            await api("PATCH", "/admin/settings/global", { values: { [key]: raw === "" ? null : raw } }).catch(() => {});
-            input.blur();
-            refresh();
-          });
-          return h(
-            "tr",
-            {},
-            h("td", {}, h("div", {}, label, " ", h("span", { class: "mono sub" }, key)), h("div", { class: "sub" }, `When empty: ${fallback}.`)),
-            h("td", {}, input),
-          );
-        }),
-      ),
-    ),
-  );
-}
-
-function renderSettings(all) {
-  renderKnownSettings(all);
-  const known = new Set(KNOWN_SETTINGS.map((s) => s.key));
-  const values = Object.fromEntries(Object.entries(all).filter(([key]) => !known.has(key)));
-  const keys = Object.keys(values);
-  if (!keys.length) {
-    $("settings-table").replaceChildren(h("p", { class: "empty" }, "No other keys set."));
-    return;
+/** Device settings declared alike by more than one type: the only ones worth setting for everything. */
+function sharedDeviceSettings() {
+  const byKey = new Map();
+  for (const [type, schema] of Object.entries(lastTypes)) {
+    for (const def of schema.settings) {
+      if (DEVICE_ONLY.has(def.key) || AXIS_SETTINGS.some((s) => s.key === def.key)) continue;
+      const entry = byKey.get(def.key) || { def, types: [] };
+      entry.types.push(type);
+      byKey.set(def.key, entry);
+    }
   }
+  return [...byKey.values()].filter((e) => e.types.length > 1);
+}
+
+function renderAllDevices() {
+  if (busy($("settings"))) return;
+  const layers = { global: lastGlobal, type: {}, device: {} };
+  const path = "/admin/settings/global";
+  $("settings-known").replaceChildren(...settingsTable({ defs: AXIS_SETTINGS, layers, tab: "global", path, what: "all devices" }));
+
+  const shared = sharedDeviceSettings();
+  $("settings-shared").replaceChildren(
+    ...(shared.length
+      ? [
+          h("h3", {}, "Settings several device types share"),
+          h("p", { class: "help" }, "A value here applies to every type that has the setting, unless the type sets its own."),
+          ...settingsTable({ defs: shared.map((e) => ({ ...e.def, group: undefined, help: `Used by ${e.types.join(", ")}.` })), layers, tab: "global", path, what: "all devices" }),
+        ]
+      : []),
+  );
+
+  // Anything else on this layer: keys no type describes, or left over from before.
+  const shown = new Set([...AXIS_SETTINGS.map((s) => s.key), ...shared.map((e) => e.def.key)]);
+  const others = Object.keys(lastGlobal).filter((k) => !shown.has(k));
+  $("settings-other-count").textContent = others.length ? String(others.length) : "";
+  if (others.length && !$("settings-advanced").dataset.seen) $("settings-advanced").open = $("settings-advanced").dataset.seen = "1";
+  const describedBy = (key) => Object.entries(lastTypes).filter(([, s]) => s.settings.some((d) => d.key === key)).map(([t]) => t);
   $("settings-table").replaceChildren(
-    h(
-      "table",
-      {},
-      h(
-        "tbody",
-        {},
-        keys.map((key) =>
+    others.length
+      ? h(
+          "table",
+          {},
           h(
-            "tr",
+            "tbody",
             {},
-            h("td", { class: "mono" }, key),
-            h("td", {}, String(values[key])),
-            h(
-              "td",
-              { class: "tight" },
-              h(
-                "button",
-                {
-                  class: "small",
-                  onclick: async () => {
-                    await api("PATCH", "/admin/settings/global", { values: { [key]: null } }).catch(() => {});
-                    refresh();
-                  },
-                },
-                "Clear",
-              ),
-            ),
+            others.map((key) => {
+              const types = describedBy(key);
+              return h(
+                "tr",
+                {},
+                h("td", { class: "mono" }, key),
+                h("td", {}, String(lastGlobal[key])),
+                h("td", { class: "sub" }, types.length ? `also on ${types.join(", ")}'s page` : ""),
+                h(
+                  "td",
+                  { class: "tight" },
+                  h(
+                    "button",
+                    {
+                      class: "small",
+                      onclick: (event) =>
+                        act(event.target, null, async () => {
+                          await api("PATCH", path, { values: { [key]: null } });
+                          toast(`${key} cleared.`);
+                          await refresh();
+                        }),
+                    },
+                    "Clear",
+                  ),
+                ),
+              );
+            }),
           ),
-        ),
-      ),
-    ),
+        )
+      : h("p", { class: "empty" }, "No other keys set."),
   );
 }
 
-$("set-add").addEventListener("click", async () => {
-  const key = $("set-key").value.trim();
-  const raw = $("set-value").value.trim();
-  if (!key) return;
-  // Numbers and true/false are stored as such, everything else as text.
-  const value = raw === "true" ? true : raw === "false" ? false : raw !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : raw;
-  await api("PATCH", "/admin/settings/global", { values: { [key]: value } }).catch(() => {});
-  $("set-key").value = "";
-  $("set-value").value = "";
-  refresh();
-});
+$("set-add").addEventListener("click", (event) =>
+  act(event.target, null, async () => {
+    const key = $("set-key").value.trim();
+    const raw = $("set-value").value.trim();
+    if (!key) return;
+    // Numbers and true/false are stored as such, everything else as text.
+    const value = raw === "true" ? true : raw === "false" ? false : raw !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : raw;
+    await api("PATCH", "/admin/settings/global", { values: { [key]: value } });
+    $("set-key").value = "";
+    $("set-value").value = "";
+    toast(`${key} set for all devices.`);
+    await refresh();
+  }),
+);
 
 if (token) signIn();
+else route();

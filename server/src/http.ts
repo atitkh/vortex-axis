@@ -255,6 +255,18 @@ export function createHttpHandler(deps: HttpDeps) {
       if (parts.length === 3 && parts[1] === "clients") {
         const id = parts[2]!;
         if (method === "GET") return sendJson(res, 200, describeClient(id));
+        if (method === "PATCH") {
+          const body = (await readJson(req)) as { name?: unknown };
+          const name = typeof body.name === "string" ? body.name.trim() : "";
+          if (!name || name.length > 60) throw new HttpError(400, "name must be 1 to 60 characters");
+          const renamed = store.renameClient(id, name);
+          if (renamed === "taken") throw new HttpError(409, `another client is already called ${name}`);
+          if (!renamed) throw new HttpError(404, "no such client");
+          // A connected client keeps its record in its session; the next turn's header uses the new name.
+          const session = hub.session(id);
+          if (session) session.client = renamed;
+          return sendJson(res, 200, describeClient(id));
+        }
         if (method === "DELETE") {
           if (!store.removeClient(id)) throw new HttpError(404, "no such client");
           hub.disconnect(id);

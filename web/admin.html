@@ -28,7 +28,9 @@
   <nav class="side">
     <a href="#clients" data-view="clients">Clients <span class="count" id="nav-clients"></span></a>
     <a href="#pair" data-view="pair">Add a device</a>
-    <a href="#settings" data-view="settings">Shared settings</a>
+    <span class="navhead">Settings</span>
+    <a href="#settings" data-view="settings">All devices</a>
+    <div class="navgroup" id="nav-types"></div>
     <span class="navhead">Hub</span>
     <a href="#openclaw" data-view="openclaw">OpenClaw <span class="count" id="nav-openclaw"></span></a>
     <a href="#agent" data-view="agent">Agent</a>
@@ -53,17 +55,14 @@
         <h2 id="device-title">Device</h2>
         <span id="device-state"></span>
       </div>
-      <dl class="facts" id="device-head"></dl>
+      <div class="form compact" id="device-head"></div>
 
       <h3>Actions</h3>
       <div id="device-actions"></div>
       <p class="msg" id="device-note"></p>
 
       <h3>Settings</h3>
-      <div class="layers">
-        <div class="seg" id="device-tabs"></div>
-        <span class="help" id="device-layer-help"></span>
-      </div>
+      <p class="help" id="device-settings-help"></p>
       <div id="device-settings"></div>
 
       <div id="device-readings"></div>
@@ -71,6 +70,24 @@
       <h3>Remove</h3>
       <p class="help">Its token stops working at once. It has to be paired again to come back.</p>
       <button class="danger" id="device-remove">Remove this client</button>
+    </section>
+
+    <!-- One client type: the settings its devices share -->
+    <section class="view" id="type">
+      <p class="crumb">Settings /</p>
+      <div class="head"><h2 id="type-title">Type</h2></div>
+      <p class="help" id="type-help"></p>
+
+      <h3>Devices</h3>
+      <div id="type-devices"></div>
+
+      <div id="type-actions-box">
+        <h3>Run on every online device</h3>
+        <div id="type-actions"></div>
+      </div>
+
+      <h3>Settings</h3>
+      <div id="type-settings"></div>
     </section>
 
     <!-- Pairing -->
@@ -104,22 +121,26 @@
         <label>A browser</label>
         <p class="help">Open the <a href="/" target="_blank" rel="noopener">web client</a> and type the code.</p>
       </div>
+      <p class="msg good" id="pair-done"></p>
     </section>
 
-    <!-- Shared settings -->
+    <!-- Settings for every client -->
     <section class="view" id="settings">
-      <div class="head"><h2>Shared settings</h2></div>
-      <p class="help">These apply to every client unless a client type or a device sets its own. Device-specific settings are edited on the device's page.</p>
-      <h3>Read by Axis</h3>
+      <div class="head"><h2>All devices</h2></div>
+      <p class="help">The base for every client of every type. A type's settings page, and then a single device, can set their own value on top.</p>
       <div id="settings-known"></div>
-      <h3>Other keys</h3>
-      <p class="help">Passed to every client as is, for firmware with its own options.</p>
-      <div id="settings-table"></div>
-      <div class="inline add">
-        <input id="set-key" class="mono" placeholder="key" spellcheck="false">
-        <input id="set-value" placeholder="value" spellcheck="false">
-        <button id="set-add">Set</button>
-      </div>
+      <div id="settings-shared"></div>
+
+      <details id="settings-advanced">
+        <summary>Other keys <span class="count" id="settings-other-count"></span></summary>
+        <p class="help">Passed to every client as is, for firmware with options it does not describe.</p>
+        <div id="settings-table"></div>
+        <div class="inline add">
+          <input id="set-key" class="mono" placeholder="key" spellcheck="false">
+          <input id="set-value" placeholder="value" spellcheck="false">
+          <button id="set-add">Set</button>
+        </div>
+      </details>
     </section>
 
     <!-- OpenClaw -->
@@ -226,6 +247,9 @@
     </section>
   </main>
 </div>
+
+<div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+<datalist id="room-list"></datalist>
 
 <script type="module" src="/web/admin.js"></script>
 </body>

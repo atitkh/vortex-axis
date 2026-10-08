@@ -136,6 +136,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/clients/:id/commands/:name` | Sends one of the actions the device offered and returns its answer (`{ok, payload, error}`). 409 when offline, 504 when it does not answer. |
 | `POST /admin/clients/:id/announce` | Body `{ text }`. Speaks or shows it on that device and returns `{heard}`. |
 | `GET /admin/clients/:id` | One client. |
+| `PATCH /admin/clients/:id` | Body `{ name }`. Renames a client (1 to 60 characters). 409 when another client already has that name, ignoring case. |
 | `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
 | `GET /admin/status` | Version, upstream health and client counts. |
 | `GET` or `PATCH /admin/config` | Speech and agent settings. Secrets are accepted but never returned. |

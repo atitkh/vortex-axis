@@ -150,6 +150,7 @@ try {
   step("speech test", await admin.until(`(t => /Synthesis/.test(t) && t)(${byId("speech-note")}.textContent)`, "the speech test", 60000));
   await admin.run(`${byId("gw-code")}.value = 'junk'; ${byId("gw-pair")}.click()`);
   step("bad setup code", await admin.until(`${byId("gw-note")}.textContent`, "the setup code error"));
+  await admin.run(`location.hash = '#settings'`);
   step("known settings listed", await admin.until(`[...document.querySelectorAll('#settings-known .mono')].map(e => e.textContent).join(', ')`, "the known settings"));
   await admin.run(`(i => { i.value = 'nova'; i.dispatchEvent(new Event('change')); })(document.querySelector('#settings-known input'))`);
   await admin.until(`document.querySelector('#settings-known input').value === 'nova' && document.activeElement !== document.querySelector('#settings-known input')`, "the voice setting to save");
@@ -228,16 +229,38 @@ try {
   });
   await admin.run(`document.querySelector('#client-table tbody a').click()`);
   step("device editor", await admin.until(`${byId("device")}.classList.contains('on') && (t => /volume/.test(t) && t)([...document.querySelectorAll('#device-settings .mono')].map(e => e.textContent).join(', '))`, "the device settings (the page polls every 3 s)"));
-  // Volume on the device layer, then check where it comes from on each layer.
-  await admin.run(`(i => { i.value = '35'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
-  step("device value", await admin.until(`(t => /\\(this device\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Volume/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the volume to save"));
-  await admin.run(`(i => { i.value = '150'; i.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings input[data-edit=volume]'))`);
-  step("range refused", await admin.until(`(t => /at most 100/.test(t) && t)(${byId("device-note")}.textContent)`, "the range error"));
-  await admin.run(`[...document.querySelectorAll('#device-tabs button')].find(b => /web devices/.test(b.textContent)).click()`);
-  await admin.run(`(s => { s.value = '0'; s.dispatchEvent(new Event('change')); })(document.querySelector('#device-settings select[data-edit=listenCue]'))`);
-  step("type layer toggle", await admin.until(`(t => /off \\(type\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the type toggle to save"));
-  await admin.run(`[...document.querySelectorAll('#device-settings button')].find(b => b.textContent === 'Reset').click()`);
-  step("reset", await admin.until(`(t => /on \\(default\\)/.test(t) && t)([...document.querySelectorAll('#device-settings tr')].find(r => /Listening cue/.test(r.textContent))?.textContent.replace(/\\s+/g, ' '))`, "the reset"));
+  const row = (box, key) => `document.querySelector('${box} tr[data-key=${key}]')?.textContent.replace(/\\s+/g, ' ')`;
+  // Where a value comes from: "this device", "this type", "type", "all devices" or "default".
+  const source = (box, key) => `document.querySelector('${box} tr[data-key=${key}] td.src')?.textContent`;
+  const change = (selector, value) => `(i => { if (i.type === 'checkbox') i.checked = ${JSON.stringify(value)}; else i.value = ${JSON.stringify(value)}; i.dispatchEvent(new Event('change')); })(document.querySelector('${selector}'))`;
+  // A value on this device only, then one the server refuses.
+  await admin.run(change("#device-settings input[data-edit=volume]", "35"));
+  step("device value", await admin.until(`${source("#device-settings", "volume")} === 'this device' && ${row("#device-settings", "volume")}`, "the volume to save"));
+  await admin.run(change("#device-settings input[data-edit=volume]", "150"));
+  step("range refused", await admin.until(`(t => /at most 100/.test(t) && t)(${byId("toast")}.textContent)`, "the range error"));
+  // Rename and room, at the top of the device page.
+  await admin.run(change("#device-head input[data-edit=name]", "Browser renamed"));
+  step("renamed", await admin.until(`(t => t === 'Browser renamed' && t)(${byId("device-title")}.textContent)`, "the new name"));
+  await admin.run(change("#device-head input[data-edit=room]", "office"));
+  step("room", await admin.until(`(t => /office/.test(t) && t)(document.querySelector('#client-table tbody tr')?.textContent)`, "the room in the list"));
+  // The type page: a value every web device shares, which the device then shows as coming from its type.
+  await admin.run(`location.hash = '#type/web'`);
+  await admin.until(`document.querySelector('#type-settings input[data-edit=listenCue]')`, "the type page");
+  step("type page lists the device", await admin.run(`${byId("type-devices")}.textContent.replace(/\\s+/g, ' ')`));
+  step("type page shows who differs", await admin.until(`(t => /differs on/.test(t) && t)(${row("#type-settings", "volume")})`, "the volume override on the type page"));
+  await admin.run(change("#type-settings input[data-edit=listenCue]", false));
+  step("type layer toggle", await admin.until(`${source("#type-settings", "listenCue")} === 'this type' && ${row("#type-settings", "listenCue")}`, "the type toggle to save"));
+  await admin.run(`history.back()`);
+  step("device follows its type", await admin.until(`${source("#device-settings", "listenCue")} === 'type' && ${row("#device-settings", "listenCue")}`, "the device to show the type's value"));
+  // Back to shared: the device's volume, then the type's cue.
+  await admin.run(`document.querySelector('#device-settings tr[data-key=volume] button[title^="Remove"]').click()`);
+  step("device back to shared", await admin.until(`${source("#device-settings", "volume")} === 'default' && ${row("#device-settings", "volume")}`, "the volume to follow the default again"));
+  await admin.run(`location.hash = '#type/web'`);
+  await admin.until(`${byId("type")}.classList.contains('on') && document.querySelector('#type-settings tr[data-key=listenCue] button')`, "the type page again");
+  await admin.run(`document.querySelector('#type-settings tr[data-key=listenCue] button').click()`);
+  step("type reset", await admin.until(`${source("#type-settings", "listenCue")} === 'default' && ${row("#type-settings", "listenCue")}`, "the type reset"));
+  await admin.run(`history.back()`);
+  await admin.until(`${byId("device")}.classList.contains('on') && !${byId("device-remove")}.disabled`, "the device page again");
   await admin.run(`window.confirm = () => true; ${byId("device-remove")}.click()`);
   await client.front();
   step("client after removal", await client.until(`${byId("pair-error")}.textContent`, "the client to notice", 10000));

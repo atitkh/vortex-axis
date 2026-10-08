@@ -199,6 +199,17 @@ export class Store {
     this.db.prepare("UPDATE clients SET last_seen_at = ? WHERE id = ?").run(this.now(), id);
   }
 
+  /**
+   * Gives a client a new name. Names are matched without regard to case when agents
+   * address a client, so two clients may not differ only in case.
+   */
+  renameClient(id: string, name: string): ClientRecord | "taken" | undefined {
+    const clash = this.db.prepare("SELECT 1 FROM clients WHERE lower(name) = lower(?) AND id != ?").get(name, id);
+    if (clash) return "taken";
+    const changed = this.db.prepare("UPDATE clients SET name = ? WHERE id = ?").run(name, id);
+    return changed.changes === 1 ? this.getClient(id) : undefined;
+  }
+
   /** Removes a client and its device settings. Its token stops working at once. */
   removeClient(id: string): boolean {
     const removed = this.db.prepare("DELETE FROM clients WHERE id = ?").run(id);
