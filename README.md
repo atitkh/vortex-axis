@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** design agreed, no code yet. See [docs/design.md](docs/design.md).
+**Status:** design agreed. The client protocol has a first draft; the server does not exist yet. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -68,4 +68,4 @@ Out, for later:
 
 ## Running it
 
-Nothing to run yet. Axis will ship as a single Docker container with one data volume, configured entirely through environment variables so it can move between hosts.
+Nothing to run yet beyond the protocol tests (`npm install && npm test`). Axis will ship as a single Docker container with one data volume, configured entirely through environment variables so it can move between hosts.

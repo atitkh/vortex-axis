@@ -1,0 +1,1047 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VorteX Axis client protocol",
+  "protocolVersion": 1,
+  "clientToAxis": {
+    "hello": {
+      "$id": "hello",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "protocol",
+        "clientId",
+        "token",
+        "type",
+        "version",
+        "capabilities",
+        "settingsVersion"
+      ],
+      "properties": {
+        "t": {
+          "const": "hello",
+          "type": "string"
+        },
+        "protocol": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "clientId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "token": {
+          "minLength": 1,
+          "maxLength": 256,
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "maxLength": 32,
+          "type": "string"
+        },
+        "capabilities": {
+          "uniqueItems": true,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "$id": "Capability",
+            "anyOf": [
+              {
+                "const": "mic",
+                "type": "string"
+              },
+              {
+                "const": "speaker",
+                "type": "string"
+              },
+              {
+                "const": "screen",
+                "type": "string"
+              },
+              {
+                "const": "buttons",
+                "type": "string"
+              },
+              {
+                "const": "vibration",
+                "type": "string"
+              },
+              {
+                "const": "sensors",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "settingsVersion": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxFrameBytes": {
+          "minimum": 512,
+          "maximum": 1048576,
+          "type": "integer"
+        }
+      }
+    },
+    "wake": {
+      "$id": "wake",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "wakeId",
+        "score",
+        "level"
+      ],
+      "properties": {
+        "t": {
+          "const": "wake",
+          "type": "string"
+        },
+        "wakeId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "score": {
+          "minimum": 0,
+          "maximum": 1,
+          "type": "number"
+        },
+        "level": {
+          "minimum": 0,
+          "maximum": 1,
+          "type": "number"
+        }
+      }
+    },
+    "audio.start": {
+      "$id": "audio.start",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "format"
+      ],
+      "properties": {
+        "t": {
+          "const": "audio.start",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "format": {
+          "$id": "AudioFormat",
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "encoding",
+            "sampleRate",
+            "channels"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "pcm_s16le",
+              "type": "string"
+            },
+            "sampleRate": {
+              "minimum": 8000,
+              "maximum": 48000,
+              "type": "integer"
+            },
+            "channels": {
+              "const": 1,
+              "type": "number"
+            }
+          }
+        },
+        "wakeId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "audio.end": {
+      "$id": "audio.end",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "reason"
+      ],
+      "properties": {
+        "t": {
+          "const": "audio.end",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "const": "silence",
+              "type": "string"
+            },
+            {
+              "const": "max",
+              "type": "string"
+            },
+            {
+              "const": "cancel",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    "text": {
+      "$id": "text",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "text"
+      ],
+      "properties": {
+        "t": {
+          "const": "text",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "maxLength": 4000,
+          "type": "string"
+        }
+      }
+    },
+    "interrupt": {
+      "$id": "interrupt",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t"
+      ],
+      "properties": {
+        "t": {
+          "const": "interrupt",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "answer": {
+      "$id": "answer",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "askId",
+        "choice"
+      ],
+      "properties": {
+        "t": {
+          "const": "answer",
+          "type": "string"
+        },
+        "askId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "choice": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "playback": {
+      "$id": "playback",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "playback",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "const": "started",
+              "type": "string"
+            },
+            {
+              "const": "finished",
+              "type": "string"
+            },
+            {
+              "const": "stopped",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    "sense": {
+      "$id": "sense",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "readings"
+      ],
+      "properties": {
+        "t": {
+          "const": "sense",
+          "type": "string"
+        },
+        "readings": {
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "settings.get": {
+      "$id": "settings.get",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "have"
+      ],
+      "properties": {
+        "t": {
+          "const": "settings.get",
+          "type": "string"
+        },
+        "have": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "command.result": {
+      "$id": "command.result",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "id",
+        "ok"
+      ],
+      "properties": {
+        "t": {
+          "const": "command.result",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "payload": {
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "error": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "axisToClient": {
+    "welcome": {
+      "$id": "welcome",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "protocol",
+        "clientId",
+        "serverTime",
+        "settingsVersion"
+      ],
+      "properties": {
+        "t": {
+          "const": "welcome",
+          "type": "string"
+        },
+        "protocol": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "clientId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "serverTime": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "settingsVersion": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "settings": {
+      "$id": "settings",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "version",
+        "values"
+      ],
+      "properties": {
+        "t": {
+          "const": "settings",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "values": {
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "wake.result": {
+      "$id": "wake.result",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "wakeId",
+        "granted"
+      ],
+      "properties": {
+        "t": {
+          "const": "wake.result",
+          "type": "string"
+        },
+        "wakeId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "granted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "turn": {
+      "$id": "turn",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "state"
+      ],
+      "properties": {
+        "t": {
+          "const": "turn",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "state": {
+          "$id": "TurnState",
+          "anyOf": [
+            {
+              "const": "idle",
+              "type": "string"
+            },
+            {
+              "const": "listening",
+              "type": "string"
+            },
+            {
+              "const": "transcribing",
+              "type": "string"
+            },
+            {
+              "const": "thinking",
+              "type": "string"
+            },
+            {
+              "const": "speaking",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "type": "string"
+            }
+          ]
+        },
+        "detail": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      }
+    },
+    "transcript": {
+      "$id": "transcript",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "text"
+      ],
+      "properties": {
+        "t": {
+          "const": "transcript",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "type": "string"
+        }
+      }
+    },
+    "reply.text": {
+      "$id": "reply.text",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "text",
+        "final"
+      ],
+      "properties": {
+        "t": {
+          "const": "reply.text",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "type": "string"
+        },
+        "final": {
+          "type": "boolean"
+        }
+      }
+    },
+    "speak.start": {
+      "$id": "speak.start",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "format"
+      ],
+      "properties": {
+        "t": {
+          "const": "speak.start",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "format": {
+          "$id": "AudioFormat",
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "encoding",
+            "sampleRate",
+            "channels"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "pcm_s16le",
+              "type": "string"
+            },
+            "sampleRate": {
+              "minimum": 8000,
+              "maximum": 48000,
+              "type": "integer"
+            },
+            "channels": {
+              "const": 1,
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "speak.end": {
+      "$id": "speak.end",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId"
+      ],
+      "properties": {
+        "t": {
+          "const": "speak.end",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "ask": {
+      "$id": "ask",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "askId",
+        "question",
+        "choices",
+        "timeoutMs"
+      ],
+      "properties": {
+        "t": {
+          "const": "ask",
+          "type": "string"
+        },
+        "askId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "question": {
+          "minLength": 1,
+          "maxLength": 500,
+          "type": "string"
+        },
+        "choices": {
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "timeoutMs": {
+          "minimum": 1000,
+          "maximum": 600000,
+          "type": "integer"
+        }
+      }
+    },
+    "stop": {
+      "$id": "stop",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t"
+      ],
+      "properties": {
+        "t": {
+          "const": "stop",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "status": {
+      "$id": "status",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "upstream"
+      ],
+      "properties": {
+        "t": {
+          "const": "status",
+          "type": "string"
+        },
+        "upstream": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "openclaw",
+            "stt",
+            "tts"
+          ],
+          "properties": {
+            "openclaw": {
+              "anyOf": [
+                {
+                  "const": "up",
+                  "type": "string"
+                },
+                {
+                  "const": "down",
+                  "type": "string"
+                },
+                {
+                  "const": "unknown",
+                  "type": "string"
+                }
+              ]
+            },
+            "stt": {
+              "anyOf": [
+                {
+                  "const": "up",
+                  "type": "string"
+                },
+                {
+                  "const": "down",
+                  "type": "string"
+                },
+                {
+                  "const": "unknown",
+                  "type": "string"
+                }
+              ]
+            },
+            "tts": {
+              "anyOf": [
+                {
+                  "const": "up",
+                  "type": "string"
+                },
+                {
+                  "const": "down",
+                  "type": "string"
+                },
+                {
+                  "const": "unknown",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "command": {
+      "$id": "command",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "id",
+        "name"
+      ],
+      "properties": {
+        "t": {
+          "const": "command",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "params": {
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "$id": "error",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "t": {
+          "const": "error",
+          "type": "string"
+        },
+        "code": {
+          "$id": "ErrorCode",
+          "anyOf": [
+            {
+              "const": "bad_message",
+              "type": "string"
+            },
+            {
+              "const": "unsupported_protocol",
+              "type": "string"
+            },
+            {
+              "const": "unauthorized",
+              "type": "string"
+            },
+            {
+              "const": "busy",
+              "type": "string"
+            },
+            {
+              "const": "upstream_down",
+              "type": "string"
+            },
+            {
+              "const": "timeout",
+              "type": "string"
+            },
+            {
+              "const": "not_supported",
+              "type": "string"
+            },
+            {
+              "const": "internal",
+              "type": "string"
+            }
+          ]
+        },
+        "message": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "fatal": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "http": {
+    "PairRequest": {
+      "$id": "PairRequest",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "type",
+        "version",
+        "capabilities"
+      ],
+      "properties": {
+        "code": {
+          "minLength": 4,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "maxLength": 32,
+          "type": "string"
+        },
+        "capabilities": {
+          "uniqueItems": true,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "$id": "Capability",
+            "anyOf": [
+              {
+                "const": "mic",
+                "type": "string"
+              },
+              {
+                "const": "speaker",
+                "type": "string"
+              },
+              {
+                "const": "screen",
+                "type": "string"
+              },
+              {
+                "const": "buttons",
+                "type": "string"
+              },
+              {
+                "const": "vibration",
+                "type": "string"
+              },
+              {
+                "const": "sensors",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "name": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "PairResponse": {
+      "$id": "PairResponse",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "clientId",
+        "token",
+        "name"
+      ],
+      "properties": {
+        "clientId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "token": {
+          "minLength": 1,
+          "maxLength": 256,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    }
+  }
+}

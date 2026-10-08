@@ -45,6 +45,8 @@ The protocol carries a version number. Axis keeps accepting the previous version
 
 Every client reports its type and firmware version when it connects.
 
+The first draft of the message set is in [`protocol/`](../protocol/README.md).
+
 ### 3.1 Pairing
 
 A new client is given Wi-Fi credentials, the Axis address and a one-time pairing code. Axis exchanges the code for a long-lived token that belongs to that client and can be revoked. After that the client configures itself from Axis.

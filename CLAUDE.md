@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Design agreed on 2026-10-07. No code yet. The first work is `protocol/`, then `server/`, then `web/`.
+Design agreed on 2026-10-07. `protocol/` has a first draft (version 1, untested against a real server). Next is `server/`, then `web/`.
 
 ## Rules that are settled
 
@@ -31,7 +31,9 @@ Design agreed on 2026-10-07. No code yet. The first work is `protocol/`, then `s
 - Client transport: one WebSocket per client, JSON for control and binary frames for audio.
 - Firmware: PlatformIO, one shared core in `firmware/common/` and one folder per device type.
 
-Package manager, web framework and test runner are not chosen yet. Ask before picking one.
+- Tooling: npm workspaces, TypeScript 5.9, TypeBox for message schemas, Vitest for tests.
+
+The web framework and the HTTP/WebSocket server library are not chosen yet. Ask before picking one.
 
 ## Layout
 
@@ -45,7 +47,7 @@ clients/           non-firmware clients
 docs/              design and decisions
 ```
 
-`protocol/` is the single definition of the client messages. Server, web and firmware follow it. Change the protocol there first, bump its version, and keep the server accepting the previous version.
+`protocol/` is the single definition of the client messages. Server, web and firmware follow it. Change the protocol there first, bump its version, and keep the server accepting the previous version. Regenerate and commit `protocol/schema/` in the same change. `protocol/README.md` explains the protocol in prose; keep it in step with `src/messages.ts`.
 
 ## OpenClaw gateway
 
@@ -55,7 +57,17 @@ The command surface in section 6 is declared in full at first pairing. Adding a 
 
 ## Commands
 
-None yet. Add build, test and run commands here as they come into existence.
+Run from the repository root:
+
+```bash
+npm install
+npm test          # all workspaces
+npm run typecheck
+npm run build
+npm run schema --workspace protocol   # regenerate protocol/schema/*.json
+```
+
+Add run commands here as the server comes into existence.
 
 ## Conventions
 
