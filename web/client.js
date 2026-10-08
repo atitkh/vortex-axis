@@ -98,9 +98,21 @@ function renderFace() {
 }
 
 // The face swells with the voice: the microphone while listening, the reply while speaking.
-function followLevel() {
+// Like the board, it rises at once and falls over about a tenth of a second, so it follows
+// syllables without shaking from one frame to the next.
+let shownLevel = 0;
+let lastLevelAt = 0;
+function followLevel(time) {
   requestAnimationFrame(followLevel);
-  face.setLevel(capture ? Math.min(1, capture.level * 7) : player.turnId ? player.level() : -1);
+  const dt = Math.min(0.1, lastLevelAt ? (time - lastLevelAt) / 1000 : 0);
+  lastLevelAt = time;
+  const target = capture ? capture.voice : player.turnId ? player.level() : -1;
+  if (target < 0) {
+    shownLevel = 0;
+    return face.setLevel(-1);
+  }
+  shownLevel = target > shownLevel ? shownLevel + (target - shownLevel) * Math.min(1, dt / 0.03) : shownLevel + (target - shownLevel) * (1 - Math.exp(-dt / 0.1));
+  face.setLevel(shownLevel);
 }
 requestAnimationFrame(followLevel);
 
@@ -468,34 +480,38 @@ async function startCapture() {
   source.connect(node);
 
   const turnId = newTurnId();
-  capture = { stream, context, turnId, pending: [], pendingLength: 0, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, level: 0 };
+  capture = { stream, context, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0 };
   const step = context.sampleRate / MIC_RATE;
 
   node.port.onmessage = (event) => {
     if (!capture || capture.turnId !== turnId) return;
     const input = event.data;
 
-    // Resample to 16 kHz by linear interpolation, carrying the position across blocks.
-    const out = [];
+    // Resample to 16 kHz by linear interpolation, carrying the position across blocks, and
+    // write straight into the outgoing frame: no growing arrays, so the main thread stays free.
+    let energy = 0;
+    let count = 0;
     let at = capture.position;
     for (; at < input.length - 1; at += step) {
       const a = Math.floor(at);
-      out.push(input[a] + (input[a + 1] - input[a]) * (at - a));
+      const sample = input[a] + (input[a + 1] - input[a]) * (at - a);
+      energy += sample * sample;
+      count++;
+      capture.frame[capture.filled++] = Math.max(-1, Math.min(1, sample)) * 32767;
+      if (capture.filled === MIC_FRAME) {
+        if (socket?.readyState === WebSocket.OPEN) socket.send(capture.frame.buffer);
+        capture.frame = new Int16Array(MIC_FRAME);
+        capture.filled = 0;
+      }
     }
     capture.position = at - input.length;
+    const level = Math.sqrt(energy / Math.max(1, count));
 
-    let energy = 0;
-    for (const sample of out) energy += sample * sample;
-    const level = Math.sqrt(energy / Math.max(1, out.length));
-    capture.level = level;
-
-    capture.pending.push(...out);
-    while (capture.pending.length >= MIC_FRAME) {
-      const frame = capture.pending.splice(0, MIC_FRAME);
-      const pcm = new Int16Array(frame.length);
-      for (let i = 0; i < frame.length; i++) pcm[i] = Math.max(-1, Math.min(1, frame[i])) * 32767;
-      if (socket?.readyState === WebSocket.OPEN) socket.send(pcm.buffer);
-    }
+    // The face follows the voice above the room's own level, as on the board, so a fan or a
+    // hum does not make it twitch. The room level follows quiet moments quickly, loud ones slowly.
+    capture.room = capture.room === undefined ? level : level < capture.room ? capture.room * 0.7 + level * 0.3 : capture.room * 0.995 + level * 0.005;
+    // Square root: ordinary speech fills most of the range, not the bottom of it.
+    capture.voice = Math.sqrt(Math.min(1, Math.max(0, (level - capture.room * 1.3 - 0.002) / 0.08)));
 
     // Stop on our own once the speaker goes quiet, or at the length limit.
     const now = Date.now();
