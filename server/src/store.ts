@@ -202,6 +202,31 @@ export class Store {
     return true;
   }
 
+  // --- small named values --------------------------------------------------
+
+  getMeta(key: string): string | undefined {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  /** Stores a named value. Passing undefined removes it. */
+  setMeta(key: string, value: string | undefined): void {
+    if (value === undefined) this.db.prepare("DELETE FROM meta WHERE key = ?").run(key);
+    else {
+      this.db
+        .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        .run(key, value);
+    }
+  }
+
+  /** Finds a client by id, or by name without regard to case. */
+  findClient(idOrName: string): ClientRecord | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM clients WHERE id = ? OR lower(name) = lower(?) ORDER BY id = ? DESC LIMIT 1")
+      .get(idOrName, idOrName, idOrName) as ClientRow | undefined;
+    return row ? toRecord(row) : undefined;
+  }
+
   // --- settings -----------------------------------------------------------
 
   settingsVersion(): number {

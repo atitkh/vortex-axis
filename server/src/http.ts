@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type ScalarMap } from "@vortex-axis/protocol";
 import type { Config } from "./config.js";
+import type { GatewayClient } from "./gateway/client.js";
 import type { Hub } from "./hub.js";
 import type { SettingsScope, Store } from "./store.js";
 
@@ -53,12 +54,13 @@ export interface HttpDeps {
   config: Config;
   store: Store;
   hub: Hub;
+  gateway?: GatewayClient | undefined;
   now?: () => number;
 }
 
 /** Builds the request handler for pairing, health and the admin API. */
 export function createHttpHandler(deps: HttpDeps) {
-  const { config, store, hub } = deps;
+  const { config, store, hub, gateway } = deps;
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
 
@@ -144,6 +146,41 @@ export function createHttpHandler(deps: HttpDeps) {
           if (!store.removeClient(id)) throw new HttpError(404, "no such client");
           hub.disconnect(id);
           return sendJson(res, 200, { removed: id });
+        }
+      }
+      if (parts[1] === "gateway") {
+        if (!gateway) throw new HttpError(409, "the OpenClaw gateway link is off: another agent backend is configured");
+        if (method === "GET" && parts.length === 2) return sendJson(res, 200, gateway.status());
+        if (method === "PATCH" && parts.length === 2) {
+          const body = (await readJson(req)) as { agentId?: unknown };
+          if (body.agentId !== null && typeof body.agentId !== "string") {
+            throw new HttpError(400, "body must be { agentId: string | null }");
+          }
+          gateway.setAgentId(body.agentId ?? undefined);
+          return sendJson(res, 200, gateway.status());
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "setup-code") {
+          const body = (await readJson(req)) as { code?: unknown; url?: unknown };
+          if (typeof body.code !== "string" || (body.url !== undefined && typeof body.url !== "string")) {
+            throw new HttpError(400, "body must be { code: string, url?: string }");
+          }
+          try {
+            gateway.applySetupCode(body.code, body.url);
+          } catch (error) {
+            throw new HttpError(400, (error as Error).message);
+          }
+          return sendJson(res, 202, gateway.status());
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "retry") {
+          gateway.retryNow();
+          return sendJson(res, 202, gateway.status());
+        }
+        if (method === "GET" && parts.length === 3 && parts[2] === "agents") {
+          try {
+            return sendJson(res, 200, { agents: await gateway.listAgents(), selected: gateway.agentId() ?? null });
+          } catch (error) {
+            throw new HttpError(502, (error as Error).message);
+          }
         }
       }
       if (parts[1] === "settings") {

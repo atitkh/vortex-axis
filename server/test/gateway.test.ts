@@ -1,0 +1,318 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DeviceIdentity, authPayload, decodeSetupCode, toSocketUrl } from "../src/gateway/wire.js";
+import { NODE_COMMANDS } from "../src/commands.js";
+import type { SpeechToText, TextToSpeech } from "../src/speech.js";
+import { FakeGateway } from "./fake-gateway.js";
+import { admin, ctx, ready, restart, useServer } from "./harness.js";
+
+const tts: TextToSpeech = {
+  format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
+  synthesize: () =>
+    (async function* () {
+      yield Buffer.alloc(400, 1);
+    })(),
+  healthy: async () => true,
+};
+const stt: SpeechToText = { transcribe: async () => "hello", healthy: async () => true };
+
+let gateway: FakeGateway;
+useServer(() => ({ stt, tts }));
+beforeEach(async () => {
+  gateway = new FakeGateway();
+  await gateway.listening();
+});
+afterEach(async () => {
+  await gateway.close();
+});
+
+async function until(check: () => boolean | Promise<boolean>, what: string, ms = 3000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
+
+const status = async () => (await admin("GET", "/admin/gateway")).body;
+const bothConnected = async () => {
+  const s = await status();
+  return s.operator.state === "connected" && s.node.state === "connected";
+};
+
+/** Pastes a setup code and approves the device, as a person would. */
+async function pairWithGateway(): Promise<void> {
+  const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode() });
+  expect(res.status).toBe(202);
+  gateway.approved.add(res.body.deviceId);
+  await until(bothConnected, "both links to connect");
+}
+
+describe("wire helpers", () => {
+  it("derives a stable device id and survives a restart", () => {
+    const identity = DeviceIdentity.generate();
+    const restored = DeviceIdentity.restore(identity.serialize());
+    expect(restored.deviceId).toBe(identity.deviceId);
+    expect(identity.deviceId).toMatch(/^[0-9a-f]{64}$/);
+    expect(Buffer.from(identity.publicKey, "base64")).toHaveLength(32);
+  });
+
+  it("builds the signed text field by field", () => {
+    expect(
+      authPayload({ deviceId: "dev", role: "operator", scopes: ["a", "b"], signedAtMs: 5, token: "tok", nonce: "n" }),
+    ).toBe("v3|dev|cli|cli|operator|a,b|5|tok|n|linux|");
+    expect(authPayload({ deviceId: "dev", role: "node", scopes: [], signedAtMs: 5, token: "", nonce: "n" })).toBe(
+      "v3|dev|node-host|node|node||5||n|linux|",
+    );
+  });
+
+  it("decodes a setup code and rejects junk", () => {
+    const code = Buffer.from(JSON.stringify({ url: "ws://a:1", urls: ["ws://a:1", "ws://b:2"], bootstrapToken: "t" })).toString("base64url");
+    expect(decodeSetupCode(`  openclaw://${code}/ `)).toEqual({ bootstrapToken: "t", urls: ["ws://a:1", "ws://b:2"] });
+    expect(() => decodeSetupCode("")).toThrow(/empty/);
+    expect(() => decodeSetupCode("not a code")).toThrow(/not valid/);
+    expect(() => decodeSetupCode(Buffer.from("{}").toString("base64url"))).toThrow(/bootstrap token/);
+  });
+
+  it("accepts http and bare addresses", () => {
+    expect(toSocketUrl("http://host:18789")).toBe("ws://host:18789/");
+    expect(toSocketUrl("https://host")).toBe("wss://host/");
+    expect(toSocketUrl("host:18789")).toBe("ws://host:18789/");
+  });
+});
+
+describe("pairing with the gateway", () => {
+  it("starts unconfigured and connects nothing", async () => {
+    const s = await status();
+    expect(s.operator.state).toBe("unconfigured");
+    expect(s.node.state).toBe("unconfigured");
+    expect(s.setupCodePending).toBe(false);
+    expect(gateway.connects).toEqual([]);
+  });
+
+  it("waits for approval, then connects both roles and retires the setup code", async () => {
+    const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode() });
+    await until(async () => (await status()).operator.state === "pairing_required", "pairing to be requested");
+    expect((await status()).setupCodePending).toBe(true);
+
+    gateway.approved.add(res.body.deviceId);
+    await until(bothConnected, "both links to connect");
+
+    const s = await status();
+    expect(s.setupCodePending).toBe(false);
+    expect(gateway.connected("operator")?.deviceId).toBe(s.deviceId);
+    expect(gateway.connected("node")?.deviceId).toBe(s.deviceId);
+  });
+
+  it("declares the full command list and publishes tools and presence", async () => {
+    await pairWithGateway();
+    const node = gateway.connects.filter((c) => c.role === "node").at(-1);
+    expect(node.client).toMatchObject({ id: "node-host", mode: "node", platform: "linux", displayName: "VorteX Axis", version: "0.1.0" });
+    expect(node.commands).toEqual([...NODE_COMMANDS]);
+    expect(node.scopes).toEqual([]);
+
+    await until(() => gateway.nodeRequests.some((r) => r.method === "node.event"), "presence");
+    const methods = gateway.nodeRequests.map((r) => r.method);
+    expect(methods.slice(0, 3)).toEqual(["node.pluginTools.update", "node.pluginSurface.refresh", "node.event"]);
+    const tools = gateway.nodeRequests[0]!.params.tools;
+    expect(tools.map((t: any) => t.name)).toEqual(["axis_say", "axis_clients", "axis_config", "axis_sense", "axis_diag"]);
+    expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
+    expect(gateway.nodeRequests[2]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "linux" } });
+  });
+
+  it("reconnects with its stored tokens after a restart, without a setup code", async () => {
+    await pairWithGateway();
+    await restart();
+    await until(bothConnected, "both links to reconnect");
+    const last = gateway.connects.slice(-2);
+    expect(last.every((c) => c.auth.deviceToken && !c.auth.bootstrapToken)).toBe(true);
+  });
+
+  it("reconnects when the gateway drops the connection", async () => {
+    await pairWithGateway();
+    gateway.dropAll();
+    await until(async () => !(await bothConnected()), "the drop to be noticed");
+    await until(bothConnected, "both links to reconnect");
+  });
+
+  it("reports a spent setup code instead of retrying forever", async () => {
+    const code = gateway.setupCode();
+    gateway.bootstrapTokens.clear();
+    await admin("POST", "/admin/gateway/setup-code", { code });
+    await until(async () => (await status()).operator.state === "auth_failed", "the code to be refused");
+    const s = await status();
+    expect(s.operator.error).toMatch(/new one is needed/);
+    expect(s.setupCodePending).toBe(false);
+    const attempts = gateway.connects.length;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(gateway.connects.length).toBe(attempts);
+  });
+
+  it("uses the address given with the code over the one inside it", async () => {
+    const code = gateway.setupCode(["ws://name-that-does-not-resolve.invalid:1"]);
+    const res = await admin("POST", "/admin/gateway/setup-code", { code, url: gateway.url });
+    gateway.approved.add(res.body.deviceId);
+    await until(bothConnected, "both links to connect");
+  });
+
+  it("rejects a malformed setup code", async () => {
+    const res = await admin("POST", "/admin/gateway/setup-code", { code: "nonsense" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not valid/);
+  });
+
+  it("tells clients when OpenClaw comes up", async () => {
+    const { client } = await ready();
+    expect((await client.next("status")).upstream.openclaw).toBe("unknown");
+    await pairWithGateway();
+    expect((await client.next("status", 0, (m) => m.upstream.openclaw === "up")).upstream).toEqual({ openclaw: "up", stt: "up", tts: "up" });
+  });
+});
+
+describe("agent turns over the gateway", () => {
+  it("sends the turn to the chosen agent in one shared session", async () => {
+    await pairWithGateway();
+    expect((await admin("PATCH", "/admin/gateway", { agentId: "vertex" })).body.agentId).toBe("vertex");
+
+    const { client } = await ready(["mic", "speaker", "screen"], { name: "Desk" });
+    client.send({ t: "text", turnId: "t1", text: "hi there" });
+
+    expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("Hello from the agent.");
+    const request = gateway.agentRequests[0];
+    expect(request).toMatchObject({ agentId: "vertex", sessionKey: "vortex-axis" });
+    expect(request.message).toBe("[from: Desk, type: web, room: unknown, can: mic+speaker+screen]\nhi there");
+    expect(request.idempotencyKey).toMatch(/^axis-/);
+    expect(Object.keys(request).sort()).toEqual(["agentId", "idempotencyKey", "message", "sessionKey"]);
+  });
+
+  it("falls back to the gateway's default agent", async () => {
+    await pairWithGateway();
+    const { client } = await ready();
+    client.send({ t: "text", turnId: "t1", text: "hi" });
+    await client.next("speak.end");
+    expect(gateway.agentRequests[0].agentId).toBe("main");
+  });
+
+  it("lists agents and takes the agent from the environment", async () => {
+    await pairWithGateway();
+    await restart({ gateway: { url: undefined, agentId: "vertex", sessionKey: "desk-test", displayName: "VorteX Axis" } });
+    await until(bothConnected, "both links to reconnect");
+    const agents = (await admin("GET", "/admin/gateway/agents")).body;
+    expect(agents).toEqual({ agents: [{ id: "main", default: true }, { id: "vertex", default: false }], selected: "vertex" });
+
+    const { client } = await ready();
+    client.send({ t: "text", turnId: "t1", text: "hi" });
+    await client.next("speak.end");
+    expect(gateway.agentRequests[0]).toMatchObject({ agentId: "vertex", sessionKey: "desk-test" });
+  });
+
+  it("reports an agent the gateway does not have", async () => {
+    await pairWithGateway();
+    await admin("PATCH", "/admin/gateway", { agentId: "nobody" });
+    const { client } = await ready();
+    client.send({ t: "text", turnId: "t1", text: "hi" });
+    expect((await client.turn("t1", "error")).detail).toMatch(/unknown agent nobody/);
+  });
+
+  it("fails a turn cleanly while unpaired", async () => {
+    const { client } = await ready();
+    client.send({ t: "text", turnId: "t1", text: "hi" });
+    expect((await client.turn("t1", "error")).detail).toBe("not connected to OpenClaw");
+  });
+});
+
+describe("commands from an agent", () => {
+  it("speaks on the client last spoken to", async () => {
+    await pairWithGateway();
+    const desk = await ready(["mic", "speaker"], { name: "Desk" });
+    const kitchen = await ready(["mic", "speaker"], { name: "Kitchen" });
+    kitchen.client.send({ t: "text", turnId: "t1", text: "hi" });
+    await kitchen.client.next("speak.end");
+    kitchen.client.send({ t: "playback", turnId: "t1", state: "finished" });
+    await kitchen.client.turn("t1", "idle");
+
+    const pending = gateway.invoke("axis.say", { text: "The build finished." });
+    const start = await kitchen.client.next("speak.start", 0, (m) => m.turnId.startsWith("say-"));
+    await kitchen.client.next("speak.end", 0, (m) => m.turnId === start.turnId);
+    kitchen.client.send({ t: "playback", turnId: start.turnId, state: "finished" });
+
+    expect(await pending).toMatchObject({ ok: true, payload: { delivered: "Kitchen" } });
+    expect(desk.client.types()).not.toContain("speak.start");
+  });
+
+  it("speaks in a named room or on a named client", async () => {
+    await pairWithGateway();
+    const desk = await ready(["speaker"], { name: "Desk" });
+    const bed = await ready(["speaker"], { name: "Bedside" });
+    await admin("PATCH", `/admin/settings/device/${bed.identity.clientId}`, { values: { room: "Bedroom" } });
+
+    const finish = async (c: typeof desk.client) => {
+      const end = await c.next("speak.end");
+      c.send({ t: "playback", turnId: end.turnId, state: "finished" });
+    };
+    const byRoom = gateway.invoke("axis.say", { text: "Good night.", room: "bedroom" });
+    await finish(bed.client);
+    expect((await byRoom).payload).toEqual({ delivered: "Bedside" });
+
+    const byName = gateway.invoke("axis.say", { text: "Still up?", client: "desk" });
+    await finish(desk.client);
+    expect((await byName).payload).toEqual({ delivered: "Desk" });
+  });
+
+  it("treats system.notify as speech", async () => {
+    await pairWithGateway();
+    const { client } = await ready(["screen"], { name: "Panel" });
+    const result = await gateway.invoke("system.notify", { title: "Build finished", body: "All tests pass" });
+    expect(result).toMatchObject({ ok: true, payload: { delivered: "Panel" } });
+    expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("Build finished. All tests pass");
+  });
+
+  it("refuses when nothing can take the message", async () => {
+    await pairWithGateway();
+    expect(await gateway.invoke("axis.say", { text: "hello" })).toMatchObject({
+      ok: false,
+      error: { message: "no client that can speak or show text is online" },
+    });
+    expect((await gateway.invoke("axis.say", { text: "hello", client: "Ghost" })).error.message).toMatch(/no client called "Ghost"/);
+    expect((await gateway.invoke("axis.say", {})).error.message).toMatch(/nothing to say/);
+  });
+
+  it("lists clients with what they can do", async () => {
+    await pairWithGateway();
+    const { identity } = await ready(["mic", "speaker"], { name: "Desk" });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { room: "office" } });
+    const result = await gateway.invoke("axis.clients", {});
+    expect(result.payload.clients).toEqual([
+      { id: identity.clientId, name: "Desk", type: "web", room: "office", can: ["mic", "speaker"], online: true },
+    ]);
+  });
+
+  it("reads and changes a client's settings", async () => {
+    await pairWithGateway();
+    const { client } = await ready(["speaker"], { name: "Desk" });
+    await admin("PATCH", "/admin/settings/global", { values: { volume: 50 } });
+    const seen = client.received.length;
+
+    const changed = await gateway.invoke("axis.config", { client: "Desk", key: "volume", value: 80 });
+    expect(changed.payload).toEqual({ client: "Desk", settings: { volume: 80 } });
+    expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ volume: 80 });
+
+    expect((await gateway.invoke("axis.config", { client: "Desk" })).payload.settings).toEqual({ volume: 80 });
+    expect((await gateway.invoke("axis.config", { client: "Desk", key: "volume", value: [1] })).ok).toBe(false);
+  });
+
+  it("reports sensor readings and hub health", async () => {
+    await pairWithGateway();
+    const { client } = await ready(["sensors", "screen"], { name: "Watch" });
+    client.send({ t: "sense", readings: { battery: 0.7 } });
+    await until(async () => (await gateway.invoke("axis.sense", { client: "Watch" })).payload.readings[0]?.readings.battery === 0.7, "the reading");
+
+    const diag = (await gateway.invoke("axis.diag", {})).payload;
+    expect(diag).toMatchObject({ version: "0.1.0", clientsOnline: 1, clientsKnown: 1, upstream: { openclaw: "up" } });
+  });
+
+  it("says plainly that a command is not built yet", async () => {
+    await pairWithGateway();
+    expect((await gateway.invoke("axis.ask", { question: "?" })).error.message).toBe("axis.ask is not built yet");
+    expect((await gateway.invoke("made.up", {})).error.message).toBe("unknown command made.up");
+  });
+});

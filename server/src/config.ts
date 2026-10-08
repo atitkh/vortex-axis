@@ -21,7 +21,23 @@ export interface Config {
   tts:
     | { url: string; model: string; voice: string | undefined; sampleRate: number; apiKey: string | undefined }
     | undefined;
+  /**
+   * An OpenAI-style chat endpoint to use as the agent instead of an OpenClaw
+   * gateway. Leave unset to use the gateway link.
+   */
   agent: { url: string; model: string; token: string | undefined; sessionKey: string | undefined } | undefined;
+  gateway: {
+    /** Gateway address. When unset, the address inside the setup code is used. */
+    url: string | undefined;
+    /** Agent to send turns to. When unset, the gateway's default agent. */
+    agentId: string | undefined;
+    /** Keeps every client in one conversation. */
+    sessionKey: string;
+    /** Name the hub shows up under on the gateway. */
+    displayName: string;
+  };
+  /** How long the last client spoken to stays the default place to answer. */
+  outputHoldMs: number;
 }
 
 function integer(name: string, raw: string | undefined, fallback: number): number {
@@ -65,5 +81,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           sessionKey: env.AXIS_AGENT_SESSION_KEY || "vortex-axis",
         }
       : undefined,
+    gateway: {
+      url: env.AXIS_GATEWAY_URL || undefined,
+      agentId: env.AXIS_AGENT_ID || undefined,
+      sessionKey: env.AXIS_AGENT_SESSION_KEY || "vortex-axis",
+      displayName: env.AXIS_NODE_NAME || "VorteX Axis",
+    },
+    outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
   };
 }

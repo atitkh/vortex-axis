@@ -7,6 +7,9 @@ services:
     env_file: .env
     environment:
       AXIS_PORT: "8440"
+    # Lets the container reach services on the Docker host, such as the gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${AXIS_PORT:-8440}:8440"
     volumes:

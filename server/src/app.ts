@@ -3,7 +3,10 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
 import { ChatCompletionsAgent } from "./agent.js";
+import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import type { Config } from "./config.js";
+import { GatewayClient } from "./gateway/client.js";
+import type { LinkOptions } from "./gateway/link.js";
 import { createHttpHandler } from "./http.js";
 import { Hub } from "./hub.js";
 import { OpenAiSpeechToText, OpenAiTextToSpeech } from "./speech.js";
@@ -13,13 +16,17 @@ import type { Services } from "./turns.js";
 export interface App {
   store: Store;
   hub: Hub;
+  /** The OpenClaw gateway link. Undefined when another agent backend is configured. */
+  gateway: GatewayClient | undefined;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
   close(): Promise<void>;
 }
 
-/** Builds the upstream clients the configuration names. Anything not configured is left out. */
+export const AXIS_VERSION = "0.1.0";
+
+/** Builds the speech clients the configuration names. Anything not configured is left out. */
 export function servicesFromConfig(config: Config): Services {
   return {
     stt: config.stt ? new OpenAiSpeechToText(config.stt) : undefined,
@@ -28,29 +35,58 @@ export function servicesFromConfig(config: Config): Services {
   };
 }
 
+export interface StartOptions {
+  log?: (line: string) => void;
+  /** Replaces the upstream clients, for tests. */
+  services?: Services;
+  /** Delays for the gateway link, for tests. */
+  gatewayTiming?: LinkOptions["timing"];
+}
+
 /** Wires the store, the hub and the HTTP server together and starts listening. */
-export async function startApp(
-  config: Config,
-  log: (line: string) => void = () => {},
-  services: Services = servicesFromConfig(config),
-): Promise<App> {
+export async function startApp(config: Config, options: StartOptions = {}): Promise<App> {
+  const log = options.log ?? (() => {});
+  const startedAt = Date.now();
   const store = new Store(config.dataDir);
+  const services: Services = { ...(options.services ?? servicesFromConfig(config)) };
+
+  // The agent is an OpenClaw gateway unless another backend was configured.
+  let gateway: GatewayClient | undefined;
+  if (!services.agent) {
+    gateway = new GatewayClient({
+      store,
+      url: config.gateway.url,
+      agentId: config.gateway.agentId,
+      sessionKey: config.gateway.sessionKey,
+      displayName: config.gateway.displayName,
+      version: AXIS_VERSION,
+      commands: [...NODE_COMMANDS],
+      tools: NODE_TOOLS,
+      log,
+      onStateChange: () => void checkHealth(),
+      ...(options.gatewayTiming ? { timing: options.gatewayTiming } : {}),
+    });
+    services.agent = gateway;
+  }
+
   const hub = new Hub({
     store,
     helloTimeoutMs: config.helloTimeoutMs,
     services,
     wakeWindowMs: config.wakeWindowMs,
     maxUtteranceMs: config.maxUtteranceMs,
+    outputHoldMs: config.outputHoldMs,
     log,
   });
+  gateway?.onInvokeCommand(createInvokeHandler({ hub, store, version: AXIS_VERSION, startedAt }));
 
   // A service that is not configured counts as down, so clients can say so.
-  const checkHealth = async () => {
+  async function checkHealth(): Promise<void> {
     const check = (service: { healthy(): Promise<boolean> } | undefined) =>
       service ? service.healthy().then((ok) => (ok ? "up" : "down") as "up" | "down") : Promise.resolve("down" as const);
     const [openclaw, stt, tts] = await Promise.all([check(services.agent), check(services.stt), check(services.tts)]);
     hub.setUpstream({ openclaw, stt, tts });
-  };
+  }
   let healthTimer: NodeJS.Timeout | undefined;
   if (config.healthIntervalMs > 0) {
     void checkHealth();
@@ -58,7 +94,7 @@ export async function startApp(
     healthTimer.unref();
   }
 
-  const server = createServer(createHttpHandler({ config, store, hub }));
+  const server = createServer(createHttpHandler({ config, store, hub, gateway }));
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
   server.on("upgrade", (req, socket, head) => {
@@ -79,14 +115,17 @@ export async function startApp(
     });
   });
   const port = (server.address() as AddressInfo).port;
+  gateway?.start();
 
   return {
     store,
     hub,
+    gateway,
     server,
     port,
     async close() {
       if (healthTimer) clearInterval(healthTimer);
+      gateway?.stop();
       hub.closeAll();
       sockets.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

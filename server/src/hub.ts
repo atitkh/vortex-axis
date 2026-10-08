@@ -39,6 +39,8 @@ export interface HubOptions {
   wakeWindowMs?: number;
   maxUtteranceMs?: number;
   playbackGraceMs?: number;
+  /** How long the last client spoken to stays the default place to answer. */
+  outputHoldMs?: number;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -47,6 +49,7 @@ export interface HubOptions {
 export class Hub implements TurnPort {
   private readonly online = new Map<string, Session>();
   private readonly turns: TurnManager;
+  private readonly outputHoldMs: number;
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly now: () => number;
@@ -58,6 +61,7 @@ export class Hub implements TurnPort {
     this.helloTimeoutMs = options.helloTimeoutMs;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
+    this.outputHoldMs = options.outputHoldMs ?? 10 * 60_000;
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
       wakeWindowMs: options.wakeWindowMs ?? 200,
@@ -72,6 +76,59 @@ export class Hub implements TurnPort {
 
   settings(session: Session): ScalarMap {
     return this.store.resolveSettings(session.client);
+  }
+
+  upstreamStatus(): Status["upstream"] {
+    return this.upstream;
+  }
+
+  /** Says something an agent started on one client. Resolves when it has been played or shown. */
+  say(session: Session, text: string): Promise<void> {
+    return this.turns.say(session, text);
+  }
+
+  /**
+   * Chooses where agent-started output goes. A named client or room wins.
+   * Otherwise it is the client last spoken to, then the configured default
+   * client, then any client that can speak or show text.
+   */
+  pickOutput(target: { client?: string | undefined; room?: string | undefined }): Session {
+    const canOutput = (s: Session) =>
+      s.client.capabilities.includes("speaker") || s.client.capabilities.includes("screen");
+    // A client that can speak is preferred over one that can only show text.
+    const best = (sessions: Session[]) =>
+      sessions.find((s) => s.client.capabilities.includes("speaker")) ?? sessions[0];
+
+    if (target.client) {
+      const client = this.store.findClient(target.client);
+      if (!client) throw new Error(`there is no client called "${target.client}"`);
+      const session = this.online.get(client.id);
+      if (!session) throw new Error(`${client.name} is offline`);
+      if (!canOutput(session)) throw new Error(`${client.name} can neither speak nor show text`);
+      return session;
+    }
+
+    const able = [...this.online.values()].filter(canOutput);
+    if (target.room) {
+      const room = target.room.toLowerCase();
+      const inRoom = able.filter((s) => String(this.settings(s).room ?? "").toLowerCase() === room);
+      const session = best(inRoom);
+      if (!session) throw new Error(`no client that can speak or show text is online in "${target.room}"`);
+      return session;
+    }
+
+    const recent = this.turns.recentInput(this.outputHoldMs);
+    const fromRecent = recent ? able.find((s) => s.client.id === recent) : undefined;
+    if (fromRecent) return fromRecent;
+
+    const configured = this.store.getLayer("global", "").defaultClient;
+    const preferred = typeof configured === "string" ? this.store.findClient(configured) : undefined;
+    const fromDefault = preferred ? able.find((s) => s.client.id === preferred.id) : undefined;
+    if (fromDefault) return fromDefault;
+
+    const session = best(able);
+    if (!session) throw new Error("no client that can speak or show text is online");
+    return session;
   }
 
   isOnline(clientId: string): boolean {

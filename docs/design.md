@@ -20,10 +20,14 @@ Consequence: OpenClaw sees only "Axis" as online. Per-client presence is availab
 
 ### 2.1.1 Two links to OpenClaw
 
-- **Turns** go out over OpenClaw's OpenAI-style chat endpoint (`/v1/chat/completions`, streaming), with a fixed session key so all clients share one conversation. This is plain HTTP and works with any OpenAI-style backend, which keeps the agent swappable. Built.
-- **Commands from the agent** (section 6) need Axis to register as a node over the gateway WebSocket. Not built yet.
+Axis joins the gateway over its WebSocket with one device identity (an Ed25519 key) and two connections, because a connection carries one role:
 
-The chat endpoint's token is the gateway's own and grants full operator access. It lives only in the environment file.
+- **Operator link:** sends each turn to an agent with the `agent` method and reads the reply from the `agent` event stream, matched by run id. The agent is chosen by name (`AXIS_AGENT_ID`, or at runtime through the admin API); with none chosen, the gateway's default agent answers. A fixed session key puts all clients in one conversation.
+- **Node link:** declares the commands in section 6, publishes the tools agents see, reports presence every minute, and carries out commands agents send.
+
+Pairing uses a setup code from `openclaw qr`, given to Axis at runtime. A person then approves the device on the gateway. Each role redeems the code for its own token, so the code is kept until both links are connected.
+
+The gateway's OpenAI-style chat endpoint is not used. Axis can still talk to any OpenAI-style chat endpoint in place of a gateway (`AXIS_AGENT_URL`), which is useful for testing without OpenClaw.
 
 ### 2.2 Clients are types with capabilities
 
@@ -110,7 +114,9 @@ OpenClaw filters node commands through an allowlist, and widening a node's decla
 | `axis.timer` | Set and manage timers on a client. |
 | `axis.admin` | Reboot, re-pair and similar actions. |
 
-Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect.
+Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect. Only commands that work get a tool. Built: `axis.say`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag`, and `system.notify` (spoken as a message). Declared but not built: `axis.ask`, `axis.timer`, `axis.admin`.
+
+Where agent-started output goes: a named client, else a named room, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. A client in a conversation is waited for, up to 20 seconds.
 
 ## 7. Failure behavior
 
@@ -149,7 +155,8 @@ SQLite, one file in one Docker volume, through Node's built-in `node:sqlite`.
 ## 12. Open items
 
 - A target for time to first sound. The reference device measured about 8 seconds before it began speaking sentence by sentence, so Axis streams replies from the start. First measurements against the live services on 2026-10-07: speech recognition about 3.5 seconds for a 2 second clip once warm (about 30 seconds on a cold start), speech synthesis about 1.7 seconds to first audio. The agent's own time comes on top.
-- Whether to send the agent a stable session prompt through the chat endpoint, and how OpenClaw treats a system message there.
+- Whether to send the agent a stable session prompt (`extraSystemPrompt` on the `agent` method), and when OpenClaw applies it.
+- Approvals raised during a turn are not shown to clients yet.
 - Final command names (section 6).
 - Whether a plain `system.notify` aimed at Axis should be routed to the current output client.
 - How the Bangle.js 2 reaches Axis (it has Bluetooth only, so it needs a phone or a relay).

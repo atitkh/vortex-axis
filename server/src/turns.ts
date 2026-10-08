@@ -47,6 +47,8 @@ interface Capture {
 interface ActiveTurn {
   turnId: string;
   abort: AbortController;
+  /** Resolves when the turn is over, however it ended. */
+  finished: Promise<void>;
   /** Resolves when the client reports that playback ended. */
   playbackDone?: (() => void) | undefined;
 }
@@ -142,6 +144,8 @@ export class TurnManager {
   private readonly wake: WakeArbiter;
   private readonly services: Services;
   private readonly playbackGraceMs: number;
+  private lastInput: { clientId: string; at: number } | undefined;
+  private sayCount = 0;
 
   constructor(private readonly port: TurnPort, private readonly options: TurnOptions) {
     this.services = options.services;
@@ -166,6 +170,7 @@ export class TurnManager {
 
       case "audio.start": {
         if (!this.requireMic(session)) return;
+        this.lastInput = { clientId: id, at: Date.now() };
         if (message.wakeId !== undefined && !this.wake.consume(id, message.wakeId)) {
           this.port.send(session, { t: "error", code: "busy", message: "that wake was not granted" });
           return;
@@ -196,6 +201,7 @@ export class TurnManager {
       }
 
       case "text":
+        this.lastInput = { clientId: id, at: Date.now() };
         this.captures.delete(id);
         this.cancelActive(session, true);
         void this.run(session, message.turnId, { text: message.text });
@@ -232,6 +238,32 @@ export class TurnManager {
     const chunk = data.length > room ? data.subarray(0, room - (room % 2)) : data;
     capture.chunks.push(Buffer.from(chunk));
     capture.bytes += chunk.length;
+  }
+
+  /** The client that most recently gave input, if that was within `withinMs`. */
+  recentInput(withinMs: number): string | undefined {
+    if (!this.lastInput || Date.now() - this.lastInput.at > withinMs) return undefined;
+    return this.lastInput.clientId;
+  }
+
+  /** True while the client is recording or a turn of its own is running. */
+  busy(session: Session): boolean {
+    return this.captures.has(session.client.id) || this.active.has(session.client.id);
+  }
+
+  /**
+   * Says something the agent started, with no input from the client. Waits up
+   * to `waitMs` behind a live conversation, then resolves once the client has
+   * played or shown it.
+   */
+  async say(session: Session, text: string, waitMs = 20_000): Promise<void> {
+    const deadline = Date.now() + waitMs;
+    while (this.busy(session)) {
+      if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
+      await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
+    }
+    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text });
+    if (failure) throw new Error(failure);
   }
 
   /** Forgets a client that disconnected. */
@@ -277,13 +309,19 @@ export class TurnManager {
     return `[from: ${name}, type: ${type}, room: ${room}, can: ${capabilities.join("+") || "nothing"}]`;
   }
 
+  /** Runs one turn. Resolves with a failure message, or undefined when it went through. */
   private async run(
     session: Session,
     turnId: string,
-    input: { pcm: Buffer; format: AudioFormat } | { text: string },
-  ): Promise<void> {
+    input: { pcm: Buffer; format: AudioFormat } | { text: string } | { say: string },
+  ): Promise<string | undefined> {
     const id = session.client.id;
-    const turn: ActiveTurn = { turnId, abort: new AbortController() };
+    let finish!: () => void;
+    const turn: ActiveTurn = {
+      turnId,
+      abort: new AbortController(),
+      finished: new Promise<void>((resolve) => (finish = resolve)),
+    };
     this.active.set(id, turn);
     const signal = turn.abort.signal;
     const { stt, tts, agent } = this.services;
@@ -293,23 +331,33 @@ export class TurnManager {
       this.port.send(session, { t: "turn", turnId, state: s, ...(detail ? { detail } : {}) });
 
     try {
-      let text: string;
-      if ("pcm" in input) {
+      let text = "";
+      if ("say" in input) {
+        // Nothing to transcribe and nobody to ask: the words are already here.
+      } else if ("pcm" in input) {
         if (!stt) throw new TurnFailure("upstream_down", "speech recognition is not set up");
         state("transcribing");
         text = await stt.transcribe(input.pcm, input.format, signal);
-        if (signal.aborted) return;
+        if (signal.aborted) return "interrupted";
         if (!text) {
           state("idle", "no speech heard");
-          return;
+          return undefined;
         }
         if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: text.slice(0, 4000) });
       } else {
         text = input.text;
       }
 
-      if (!agent) throw new TurnFailure("upstream_down", "the agent is not set up");
-      state("thinking");
+      let source: AsyncIterable<string>;
+      if ("say" in input) {
+        source = (async function* (words: string) {
+          yield words;
+        })(input.say);
+      } else {
+        if (!agent) throw new TurnFailure("upstream_down", "the agent is not set up");
+        state("thinking");
+        source = agent.reply(`${this.header(session)}\n${text}`, signal);
+      }
 
       const speaker =
         caps.includes("speaker") && tts ? new Speaker(this.port, session, turnId, tts.format, signal) : undefined;
@@ -328,17 +376,17 @@ export class TurnManager {
         await speaker.flush();
       };
 
-      for await (const delta of agent.reply(`${this.header(session)}\n${text}`, signal)) {
-        if (signal.aborted) return;
+      for await (const delta of source) {
+        if (signal.aborted) return "interrupted";
         full += delta;
         for (const piece of splitter.push(delta)) {
           await emit(piece);
-          if (signal.aborted) return;
+          if (signal.aborted) return "interrupted";
         }
       }
       const rest = splitter.flush();
       if (rest) await emit(rest);
-      if (signal.aborted) return;
+      if (signal.aborted) return "interrupted";
 
       if (hasScreen) {
         this.port.send(session, { t: "reply.text", turnId, text: full.trim().slice(0, 16000), final: true });
@@ -350,13 +398,14 @@ export class TurnManager {
           new Promise<void>((resolve) => (turn.playbackDone = resolve)),
           sleep(speaker.aheadMs() + this.playbackGraceMs, signal),
         ]);
-        if (signal.aborted) return;
+        if (signal.aborted) return "interrupted";
       } else if (caps.includes("speaker") && !tts) {
         this.port.send(session, { t: "error", code: "upstream_down", message: "speech synthesis is not set up" });
       }
       state("idle");
+      return undefined;
     } catch (error) {
-      if (signal.aborted) return;
+      if (signal.aborted) return "interrupted";
       const failure =
         error instanceof TurnFailure
           ? error
@@ -364,8 +413,10 @@ export class TurnManager {
       this.port.send(session, { t: "stop", turnId });
       this.port.send(session, { t: "turn", turnId, state: "error", detail: failure.message.slice(0, 256) });
       this.port.send(session, { t: "error", code: failure.code, message: failure.message.slice(0, 256) });
+      return failure.message;
     } finally {
       if (this.active.get(id) === turn) this.active.delete(id);
+      finish();
     }
   }
 }

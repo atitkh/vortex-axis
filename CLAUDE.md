@@ -10,9 +10,11 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles pairing, tokens, the socket handshake, settings sync, the admin API, wake arbitration, and voice and text turns (speech recognition, agent, speech synthesis, paced audio out).
+Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles client pairing, tokens, settings sync, the admin API, wake arbitration, voice and text turns, and the OpenClaw gateway link: an operator link that sends turns to a named agent, and a node link that declares the command list, publishes tools and carries out `axis.say`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag` and `system.notify`.
 
-Not built yet: the OpenClaw node link (so the agent can call `axis.say`, `axis.ask` and the other commands in design section 6), `ask` and `command` flows to clients, and `web/`.
+Not built yet: `axis.ask`, `axis.timer`, `axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and `web/`.
+
+The gateway link has only run against the stand-in gateway in `server/test/fake-gateway.ts`. Expect surprises on the first real pairing.
 
 ## Rules that are settled
 
@@ -85,7 +87,14 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/speech.ts`, `server/src/agent.ts`: upstream clients behind small interfaces. Tests pass fakes through `startApp`'s third argument.
 - `server/src/app.ts`: wires them together. Tests start a real server on a free port through `startApp`, using `server/test/harness.ts`.
 
-The agent is reached through an OpenAI-style chat endpoint, not the gateway WebSocket. The WebSocket is still needed for the node role.
+- `server/src/gateway/wire.ts`: frames, the device identity and the signed connect text.
+- `server/src/gateway/link.ts`: one gateway connection in one role, with its retry rules.
+- `server/src/gateway/client.ts`: both links, credentials, agent turns, node commands.
+- `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
+
+The agent is an OpenClaw gateway reached over its WebSocket. Setting `AXIS_AGENT_URL` swaps in any OpenAI-style chat endpoint instead and turns the gateway link off.
+
+The gateway's device tokens and the setup code are stored in the SQLite `meta` table as plain text, because Axis has to present them. Treat the data volume as secret.
 
 ## Conventions
 

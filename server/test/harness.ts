@@ -43,6 +43,8 @@ export function config(overrides: Partial<Config> = {}): Config {
     stt: undefined,
     tts: undefined,
     agent: undefined,
+    gateway: { url: undefined, agentId: undefined, sessionKey: "vortex-axis", displayName: "VorteX Axis" },
+    outputHoldMs: 600_000,
     ...overrides,
   };
 }
@@ -51,7 +53,11 @@ export function config(overrides: Partial<Config> = {}): Config {
 export async function restart(overrides: Partial<Config> = {}, services: Services = ctx.services): Promise<void> {
   if (ctx.app) await ctx.app.close();
   ctx.services = services;
-  ctx.app = await startApp(config(overrides), () => {}, services);
+  ctx.app = await startApp(config(overrides), {
+    services,
+    // Short delays so tests of the gateway link do not wait.
+    gatewayTiming: { reconnectMs: 60, pairingRetryMs: 60, authBackoffStartMs: 80, authBackoffMaxMs: 200 },
+  });
   ctx.base = `http://127.0.0.1:${ctx.app.port}`;
 }
 

@@ -4,7 +4,7 @@ import { loadConfig } from "./config.js";
 const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
 
 const config = loadConfig();
-const app = await startApp(config, log);
+const app = await startApp(config, { log });
 
 log(`VorteX Axis listening on ${config.host}:${app.port}`);
 if (!config.adminToken) log("admin API is disabled: set AXIS_ADMIN_TOKEN to enable it");

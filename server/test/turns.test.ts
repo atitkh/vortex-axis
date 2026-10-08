@@ -263,7 +263,7 @@ describe("failures", () => {
     await restart({}, {});
     const { client } = await ready();
     client.send({ t: "text", turnId: "t1", text: "hello" });
-    expect((await client.turn("t1", "error")).detail).toBe("the agent is not set up");
+    expect((await client.turn("t1", "error")).detail).toBe("not connected to OpenClaw");
 
     client.send({ t: "audio.start", turnId: "t2", format: UPSTREAM_AUDIO_FORMAT });
     client.sendAudio(pcm(100));
