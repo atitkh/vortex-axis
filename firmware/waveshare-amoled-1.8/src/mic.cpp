@@ -2,6 +2,7 @@
 
 #include "codec.h"
 #include "detector.h"
+#include "speaker.h"
 
 namespace mic {
 
@@ -11,17 +12,19 @@ namespace {
 const size_t BLOCK = 160;
 // A read that returns nothing this long means the stream stopped.
 const uint32_t STALL_MS = 300;
+// A wake score at which the speaker ducks to let the rest of the phrase through.
+const float DUCK_SCORE = 0.25f;
 
 axis::Client *client = nullptr;
 Print *logOut = nullptr;
 volatile bool wakeEnabled = true, bargeIn = true;
 volatile float currentLevel = 0;
+int16_t *capBuf = nullptr;
+volatile size_t capWant = 0, capGot = 0;
 volatile uint32_t blocks = 0, stalls = 0, ignored = 0;
 bool modelLoaded = false;
 
 /** Reads one block and keeps the left channel; the codec sends both. False when the stream stalls. */
-bool speakingNow() { return client->snapshot().turn == axis::Turn::Speaking; }
-
 bool readBlock(int16_t *mono) {
     static int16_t stereo[BLOCK * 2];
     const size_t need = BLOCK * 4;
@@ -47,7 +50,7 @@ void task(void *) {
     float recent = 0;
     // The room's own loudness, so the face moves with a voice and not with a fan.
     float room = 0;
-    uint32_t lastNearMiss = 0;
+    uint32_t lastNearMiss = 0, duckedAt = 0;
     for (;;) {
         if (!readBlock(block)) {
             stalls++;
@@ -55,6 +58,11 @@ void task(void *) {
             continue;
         }
         blocks++;
+        if (capBuf && capGot < capWant) {
+            const size_t n = min(BLOCK, capWant - capGot);
+            memcpy(capBuf + capGot, block, n * sizeof(int16_t));
+            capGot += n;
+        }
         uint32_t sum = 0;
         for (size_t i = 0; i < BLOCK; i++) sum += abs((int)block[i]);
         const float now = min(1.0f, (sum / (float)BLOCK) / 3000.0f);
@@ -75,7 +83,14 @@ void task(void *) {
         if (!heard && score >= 0.3f && millis() - lastNearMiss > 700) {
             lastNearMiss = millis();
             if (logOut) logOut->printf("[wake] near miss: score %.2f of %u%%, %s\n", score, (unsigned)wake::cutoffPercent(),
-                                       client->listening() ? "recording" : speakingNow() ? "while speaking" : "quiet");
+                                       client->listening() ? "recording" : speaker::playing() ? "while speaking" : "quiet");
+        }
+        // Something that scores like the wake word while the device talks is probably somebody saying it
+        // over the speech. The speaker drowns the microphone, so go quiet for the rest of the phrase.
+        if (!heard && bargeIn && wakeEnabled && score >= DUCK_SCORE && speaker::playing() && !client->listening()) {
+            if (millis() > duckedAt + 1000 && logOut) logOut->printf("[wake] score %.2f over speech, ducking the speaker\n", score);
+            duckedAt = millis();
+            speaker::duck(1500);
         }
         if (!heard || !wakeEnabled) continue;
         if (client->listening()) {
@@ -105,6 +120,13 @@ bool begin(axis::Client &c, Print *log) {
     xTaskCreatePinnedToCore(task, "mic", 8192, nullptr, 4, nullptr, 0);
     return true;
 }
+
+void capture(int16_t *buffer, size_t samples) {
+    capGot = 0;
+    capBuf = buffer;
+    capWant = samples;
+}
+bool captureDone() { return capBuf && capGot >= capWant; }
 
 void setWakeEnabled(bool enabled) { wakeEnabled = enabled; }
 void setWakeSensitivity(uint8_t percent) { wake::setSensitivity(percent); }

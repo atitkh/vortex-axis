@@ -22,6 +22,10 @@ void setWakeSensitivity(uint8_t percent);
 /** Whether the wake word may interrupt speech. When false it is ignored while the speaker is playing. */
 void setBargeIn(bool enabled);
 
+/** Diagnostics: records the next `samples` raw mic samples into `buffer`. `captureDone()` turns true when full. */
+void capture(int16_t *buffer, size_t samples);
+bool captureDone();
+
 /** How loud the room is right now, 0 to 1, smoothed. */
 float level();
 

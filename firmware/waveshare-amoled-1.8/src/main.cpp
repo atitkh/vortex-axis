@@ -32,6 +32,89 @@ static const uint32_t KEEP_TEXT_MS = 15000;
 static const uint32_t UNREACHABLE_AFTER_MS = 5000;
 static const int MAX_BODY_LINES = 8;
 
+
+// ---- diagnostics: `probe HZ RATE [pause]` ------------------------------------------------
+static volatile bool facePaused = false;
+
+static float goertzelDb(const float *x, size_t n, float hz) {
+    const float w = 2.0f * PI * hz / 16000.0f, c = 2.0f * cosf(w);
+    float s1 = 0, s2 = 0;
+    for (size_t i = 0; i < n; i++) {
+        const float s = x[i] + c * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    const float power = s1 * s1 + s2 * s2 - c * s1 * s2;
+    return 10.0f * log10f(power + 1e-9f);
+}
+
+/**
+ * Plays a tone through the same path speech takes (so the resampler is included) and listens
+ * to it with the microphone, then prints what the microphone heard: the strongest frequencies
+ * and, around the tone, the sidebands a display or power-supply buzz would leave.
+ */
+static void probe(int hz, int rate, bool pauseFace) {
+    const size_t total = 32000, from = 6400, n = 16000;  // record 2 s, analyse the middle second
+    int16_t *rec = (int16_t *)heap_caps_malloc(total * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    float *x = (float *)heap_caps_malloc(n * sizeof(float), MALLOC_CAP_SPIRAM);
+    if (!rec || !x) {
+        logOut.println("[probe] no memory");
+        return;
+    }
+    facePaused = pauseFace;
+    mic::capture(rec, total);
+    if (hz > 0) {
+        axis::AudioSink *sink = speaker::sink();
+        sink->streamBegin(rate);
+        static int16_t chunk[2400];
+        float phase = 0;
+        const float step = 2.0f * PI * hz / rate;
+        for (int done = 0; done < rate * 16 / 10; done += 2400) {
+            for (int i = 0; i < 2400; i++, phase += step) chunk[i] = (int16_t)(12000.0f * sinf(phase));
+            sink->streamWrite((const uint8_t *)chunk, sizeof chunk);
+        }
+        sink->streamEnd();
+    }
+    const uint32_t until = millis() + 4000;
+    while (!mic::captureDone() && millis() < until) delay(10);
+    delay(300);
+    facePaused = false;
+    for (size_t i = 0; i < n; i++) {
+        const float w = 0.5f - 0.5f * cosf(2.0f * PI * i / (n - 1));
+        x[i] = rec[from + i] * w;
+    }
+    double sq = 0;
+    for (size_t i = 0; i < n; i++) sq += (double)rec[from + i] * rec[from + i];
+    logOut.printf("[probe] %d Hz at %d Hz rate, face %s: heard rms %.0f\n", hz, rate, pauseFace ? "paused" : "running", sqrt(sq / n));
+    // Coarse spectrum, 100 Hz steps, strongest few.
+    float db[80];
+    float best = -1e9f;
+    for (int k = 1; k < 80; k++) {
+        db[k] = goertzelDb(x, n, k * 100.0f);
+        best = max(best, db[k]);
+    }
+    float floorDb = 1e9f;
+    for (int k = 1; k < 80; k++) floorDb = min(floorDb, db[k]);
+    String top;
+    for (int pick = 0; pick < 6; pick++) {
+        int at = 1;
+        for (int k = 1; k < 80; k++) if (db[k] > db[at]) at = k;
+        top += String(at * 100) + "Hz:" + String(db[at] - best, 0) + " ";
+        db[at] = -1e9f;
+    }
+    logOut.printf("[probe] strongest (dB vs peak): %s| quietest bin %.0f dB\n", top.c_str(), floorDb - best);
+    if (hz > 0) {
+        const float peak = goertzelDb(x, n, hz);
+        String side;
+        const int offsets[] = {-120, -100, -60, -50, -33, -30, -20, 20, 30, 33, 50, 60, 100, 120};
+        for (int o : offsets) side += String(o) + ":" + String(goertzelDb(x, n, hz + o) - peak, 0) + " ";
+        const float h2 = goertzelDb(x, n, hz * 2.0f) - peak, h3 = goertzelDb(x, n, hz * 3.0f) - peak;
+        logOut.printf("[probe] around %d Hz (dB vs tone, offsets in Hz): %s| 2nd harmonic %.0f, 3rd %.0f\n", hz, side.c_str(), h2, h3);
+    }
+    heap_caps_free(rec);
+    heap_caps_free(x);
+}
+
 static axis::Client client;
 static axis::Snapshot state;
 static uint32_t seenRevision = 0, seenSettings = UINT32_MAX;
@@ -262,9 +345,17 @@ void setup() {
     logOut.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
     // Serial-only helpers for testing without anybody in the room.
-    client.onConsole([](const String &word, const String &) {
+    client.onConsole([](const String &word, const String &rest) {
         if (word == "chime") {
             speaker::chime();
+            return true;
+        }
+        if (word == "probe") {
+            // probe HZ RATE [pause]
+            int hz = 1000, rate = 16000;
+            char flag[16] = "";
+            sscanf(rest.c_str(), "%d %d %15s", &hz, &rate, flag);
+            probe(hz, rate, !strcmp(flag, "pause"));
             return true;
         }
         if (word == "cue") {
@@ -305,12 +396,14 @@ void loop() {
     if (touch::tapped()) onTap();
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
-    const uint32_t t0 = micros();
-    const uint16_t *frame = vortex::render(min(seconds, 0.1f));
-    renderMicros += micros() - t0;
-    display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
-    drawMicros += micros() - t0;
-    frames++;
+    if (!facePaused) {
+        const uint32_t t0 = micros();
+        const uint16_t *frame = vortex::render(min(seconds, 0.1f));
+        renderMicros += micros() - t0;
+        display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
+        drawMicros += micros() - t0;
+        frames++;
+    }
 
     if (started - lastReport >= 60000) {
         logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u)\n",

@@ -19,6 +19,8 @@ const size_t START_SAMPLES = RATE * 150 / 1000;
 const size_t CHUNK = 240;
 // What the I2S driver still holds after a write returns: 6 buffers of 240 frames.
 const size_t DRIVER_TAIL = 1440;
+// While the wake word may be being said over the speech, the speech drops to this fraction of its volume.
+const float DUCK_GAIN = 0.12f;
 
 // One writer (the Axis client's task) and one reader (the playback task).
 int16_t *ring = nullptr;
@@ -29,12 +31,37 @@ volatile bool wantStop = false;
 volatile bool isStarted = false, isDrained = true, isPlaying = false;
 volatile float currentLevel = 0;
 volatile int gainQ15 = 0;
+volatile uint32_t duckUntil = 0;
 volatile bool wantChime = false, wantCue = false;
 
-// Resampler state, carried across chunks so joins do not click.
+// Resampler: a windowed-sinc low-pass FIR, evaluated at the exact output time. Anything
+// above the output's Nyquist (8 kHz) must be removed BEFORE dropping samples, or it folds
+// down into the audible range as a harsh buzz. Linear interpolation does not do that.
+const int TAPS = 24, HALF = TAPS / 2, PHASES = 128;
+float firTable[PHASES][TAPS];
 uint32_t inRate = RATE;
 float position = 0;
-int32_t previous = 0, older = 0, lastOut = 0;
+// The last TAPS input samples twice over, so the newest window is always contiguous.
+float history[2 * TAPS];
+int historyAt = 0;
+
+/** Builds the filter for `rate`: cutoff just under the lower of the two Nyquist frequencies. */
+void buildFilter(uint32_t rate) {
+    const float fc = (rate > RATE ? (float)RATE / rate : 1.0f) * 0.88f;
+    for (int p = 0; p < PHASES; p++) {
+        const float pos = p / (float)PHASES;
+        float sum = 0;
+        for (int j = 0; j < TAPS; j++) {
+            const float d = j - (HALF - 1) - pos;
+            const float x = fc * d;
+            const float sinc = fabsf(x) < 1e-6f ? 1.0f : sinf(PI * x) / (PI * x);
+            const float window = fabsf(d) < HALF ? 0.5f + 0.5f * cosf(PI * d / HALF) : 0.0f;
+            firTable[p][j] = fc * sinc * window;
+            sum += firTable[p][j];
+        }
+        for (int j = 0; j < TAPS; j++) firTable[p][j] /= sum;  // unity gain at DC
+    }
+}
 
 size_t queued() { return (head + RING_SAMPLES - tail) % RING_SAMPLES; }
 
@@ -48,7 +75,12 @@ void push(int16_t sample) {
 /** Sends mono samples to the codec, which wants both channels. */
 void play(const int16_t *mono, size_t count) {
     static int16_t stereo[CHUNK * 2];
-    const int gain = gainQ15;
+    // Ducked: much quieter, eased in and out over a few chunks so it does not click.
+    static float eased = 0;
+    const float target = (int32_t)(duckUntil - millis()) > 0 ? gainQ15 * DUCK_GAIN : (float)gainQ15;
+    if (eased == 0) eased = target;
+    eased += (target - eased) * 0.5f;
+    const int gain = (int)eased;
     int peak = 0;
     for (size_t i = 0; i < count; i++) {
         peak = max(peak, abs((int)mono[i]));
@@ -170,9 +202,14 @@ class Sink : public axis::AudioSink {
   public:
     void streamBegin(uint32_t sampleRate) override {
         stop();
-        inRate = sampleRate >= 8000 ? sampleRate : RATE;
+        const uint32_t rate = sampleRate >= 8000 ? sampleRate : RATE;
+        if (rate != inRate) {
+            inRate = rate;
+            if (inRate != RATE) buildFilter(inRate);
+        }
         position = 0;
-        previous = older = lastOut = 0;
+        memset(history, 0, sizeof history);
+        historyAt = 0;
         isStarted = false;
         isDrained = false;
         streamOpen = true;
@@ -181,19 +218,23 @@ class Sink : public axis::AudioSink {
     void streamWrite(const uint8_t *data, size_t length) override {
         if (!streamOpen) return;
         const int16_t *samples = (const int16_t *)data;
+        if (inRate == RATE) {
+            for (size_t i = 0; i < length / 2; i++) push(samples[i]);
+            return;
+        }
         const float step = (float)inRate / RATE;
         for (size_t i = 0; i < length / 2; i++) {
-            // When slowing the rate down, blur slightly first; otherwise high sounds fold back as noise.
-            const int32_t raw = samples[i];
-            const int32_t current = inRate > RATE ? (older + 2 * previous + raw) / 4 : raw;
+            history[historyAt] = history[historyAt + TAPS] = samples[i];
+            historyAt = (historyAt + 1) % TAPS;
             while (position < 1.0f) {
-                push((int16_t)(lastOut + (current - lastOut) * position));
+                const float *h = firTable[(int)(position * PHASES)];
+                const float *w = &history[historyAt];  // oldest first, newest last
+                float acc = 0;
+                for (int j = 0; j < TAPS; j++) acc += w[j] * h[j];
+                push((int16_t)constrain((int)lroundf(acc), -32768, 32767));
                 position += step;
             }
             position -= 1.0f;
-            lastOut = current;
-            older = previous;
-            previous = raw;
         }
     }
 
@@ -236,6 +277,7 @@ void setVolume(int volume) {
 
 bool playing() { return isPlaying; }
 float level() { return currentLevel; }
+void duck(uint32_t ms) { duckUntil = millis() + ms; }
 void chime() { wantChime = true; }
 void cue() { wantCue = true; }
 

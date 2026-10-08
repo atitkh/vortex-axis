@@ -816,7 +816,6 @@ struct Client::Impl {
         const long waitMs = self.settingInt("followUpMs", 6000);
         if (waitMs <= 0 || !outRing || !self.online_) return;
         const VadLimits limits = vadLimits();
-        const size_t cue = cueSamples();
         bool started = false;
         xSemaphoreTake(audioLock, portMAX_DELAY);
         if (!self.recording_) {
@@ -826,16 +825,14 @@ struct Client::Impl {
             turnId = newTurnId();
             quietWanted = false;
             preFill = 0;
-            // The speaker's own tail and the cue must not count as the person answering.
-            settleLeft = TAIL_SETTLE_SAMPLES + cue;
+            // The speaker's own tail must not count as the person answering. No cue here: the
+            // face turning green is enough when the device was just talking.
+            settleLeft = TAIL_SETTLE_SAMPLES;
             self.recording_ = true;
             started = true;
         }
         xSemaphoreGive(audioLock);
-        if (started) {
-            logf("listening for a follow-up for %ld ms", waitMs);
-            playCue();
-        }
+        if (started) logf("listening for a follow-up for %ld ms", waitMs);
     }
 
     /** Moves the recording along over the network: wake, start, audio, end. Client task only. */

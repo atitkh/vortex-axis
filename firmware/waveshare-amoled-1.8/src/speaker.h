@@ -27,6 +27,9 @@ float level();
 /** How long the listening cue takes to leave the speaker, in milliseconds. The microphone must ignore this long. */
 const uint32_t CUE_MS = 240;
 
+/** Drops the speech volume for `ms`, so a wake word spoken over it can be heard. */
+void duck(uint32_t ms);
+
 /** A soft rising cue that says the device is now listening. */
 void cue();
 
