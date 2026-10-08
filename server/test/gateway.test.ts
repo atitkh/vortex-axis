@@ -147,7 +147,7 @@ describe("pairing with the gateway", () => {
     expect(methods.slice(0, 2)).toEqual(["node.pluginTools.update", "node.event"]);
     expect(methods).not.toContain("node.pluginSurface.refresh");
     const tools = gateway.nodeRequests[0]!.params.tools;
-    expect(tools.map((t: any) => t.name)).toEqual(["vortex_axis_say", "vortex_axis_clients", "vortex_axis_config", "vortex_axis_sense", "vortex_axis_diag"]);
+    expect(tools.map((t: any) => t.name)).toEqual(["vortex_axis_say", "vortex_axis_ask", "vortex_axis_timer", "vortex_axis_admin", "vortex_axis_clients", "vortex_axis_config", "vortex_axis_sense", "vortex_axis_diag"]);
     expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
     expect(gateway.nodeRequests[1]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "vortex-axis" } });
   });
@@ -363,9 +363,10 @@ describe("commands from an agent", () => {
     expect(diag).toMatchObject({ version: "0.1.0", clientsOnline: 1, clientsKnown: 1, upstream: { openclaw: "up" } });
   });
 
-  it("says plainly that a command is not built yet", async () => {
+  it("answers the newer commands over the gateway, and refuses one it does not know", async () => {
     await pairWithGateway();
-    expect((await gateway.invoke("vortex.axis.ask", { question: "?" })).error.message).toBe("vortex.axis.ask is not built yet");
+    expect((await gateway.invoke("vortex.axis.timer", {})).payload).toEqual({ timers: [] });
+    expect((await gateway.invoke("vortex.axis.ask", {})).error.message).toMatch(/nothing to ask/);
     expect((await gateway.invoke("made.up", {})).error.message).toBe("unknown command made.up");
   });
 });

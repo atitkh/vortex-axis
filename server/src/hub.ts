@@ -1,3 +1,4 @@
+import type { AskResult } from "./ask.js";
 import type { WebSocket } from "ws";
 import type { Activity } from "./activity.js";
 import {
@@ -80,6 +81,7 @@ export class Hub implements TurnPort {
   private readonly log: (line: string) => void;
   private readonly pending = new Map<string, PendingCommand>();
   private commandCount = 0;
+  private readonly connectListeners: Array<(session: Session) => void> = [];
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 
   constructor(options: HubOptions) {
@@ -114,6 +116,16 @@ export class Hub implements TurnPort {
   /** Says something an agent started on one client. Resolves when it has been played or shown. */
   say(session: Session, text: string): Promise<{ heard: boolean }> {
     return this.turns.say(session, text);
+  }
+
+  /** Puts a question to the person at a client. See `TurnManager.ask`. */
+  ask(session: Session, question: string, choices: string[], timeoutMs: number): Promise<AskResult> {
+    return this.turns.ask(session, question, choices, timeoutMs);
+  }
+
+  /** Called with every client as it connects, after its `welcome`. */
+  onConnect(listener: (session: Session) => void): void {
+    this.connectListeners.push(listener);
   }
 
   /**
@@ -289,6 +301,7 @@ export class Hub implements TurnPort {
     });
     if (hello.settingsVersion !== settingsVersion) this.sendSettings(session);
     this.send(session, { t: "status", upstream: this.upstream });
+    for (const listener of this.connectListeners) listener(session);
     return session;
   }
 
@@ -321,8 +334,6 @@ export class Hub implements TurnPort {
         return;
       }
       case "answer":
-        // Nothing asks questions yet, so there is nothing to match this to.
-        return;
       case "wake":
       case "audio.start":
       case "audio.end":

@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
 import { Activity } from "./activity.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
+import { Timers } from "./timers.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
@@ -19,6 +20,7 @@ export interface App {
   hub: Hub;
   /** The OpenClaw gateway link. It exists even when another agent answers turns. */
   gateway: GatewayClient;
+  timers: Timers;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -92,7 +94,10 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity,
     log,
   });
-  gateway.onInvokeCommand(createInvokeHandler({ hub, store, version: AXIS_VERSION, startedAt }));
+  const timers = new Timers({ store, hub, activity, log });
+  gateway.onInvokeCommand(
+    createInvokeHandler({ hub, store, timers, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+  );
 
   // A service that is not configured counts as down, so clients can say so.
   async function checkHealth(): Promise<void> {
@@ -135,6 +140,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   const port = (server.address() as AddressInfo).port;
   gateway.start();
+  timers.start();
   recordLinks();
 
   return {
@@ -142,10 +148,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity,
     hub,
     gateway,
+    timers,
     server,
     port,
     async close() {
       if (healthTimer) clearInterval(healthTimer);
+      timers.stop();
       gateway.stop();
       hub.closeAll();
       sockets.close();

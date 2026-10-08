@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** working, version 1 nearly complete. The hub handles pairing, settings, voice and text turns, and the link to an OpenClaw gateway in both directions, proven against a real gateway. There is an admin page (overview, activity and uptime, per-type and per-device settings) and a web client. The first firmware client runs on the Waveshare ESP32-S3-Touch-AMOLED-1.8 with an on-device "Hey Vortex" wake word, tap-to-talk and follow-up listening; see [firmware/README.md](firmware/README.md). Not built yet: the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands, firmware updates over Wi-Fi, and TLS from firmware. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** working, version 1 nearly complete. The hub handles pairing, settings, voice and text turns, and the link to an OpenClaw gateway in both directions, proven against a real gateway. There is an admin page (overview, activity and uptime, per-type and per-device settings) and a web client. The first firmware client runs on the Waveshare ESP32-S3-Touch-AMOLED-1.8 with an on-device "Hey Vortex" wake word, tap-to-talk and follow-up listening; see [firmware/README.md](firmware/README.md). Agents can also ask a question with choices and get the answer back, keep timers, and look after devices (`vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin`). Not built yet: firmware updates over Wi-Fi, and TLS from firmware. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -68,7 +68,7 @@ Out, for later:
 
 ## Running it
 
-What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an activity log with uptime, an admin page, a web client and a firmware client. Not built yet: the `vortex.axis.ask`, `vortex.axis.timer` and `vortex.axis.admin` commands.
+What exists today: client pairing, per-client tokens, settings sync, wake word arbitration, voice and text turns, the OpenClaw gateway link (turns to an agent, and agents speaking through Axis), an activity log with uptime, an admin page, a web client and a firmware client, and the whole agent command surface: say, ask, timer, admin, clients, config, sense and diag.
 
 ```bash
 cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page

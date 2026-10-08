@@ -903,7 +903,6 @@
           "type": "string"
         },
         "choices": {
-          "minItems": 1,
           "maxItems": 6,
           "uniqueItems": true,
           "type": "array",
@@ -917,6 +916,26 @@
           "minimum": 1000,
           "maximum": 600000,
           "type": "integer"
+        }
+      }
+    },
+    "ask.end": {
+      "$id": "ask.end",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "askId"
+      ],
+      "properties": {
+        "t": {
+          "const": "ask.end",
+          "type": "string"
+        },
+        "askId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
         }
       }
     },

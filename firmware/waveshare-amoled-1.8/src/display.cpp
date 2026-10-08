@@ -74,6 +74,22 @@ void clear() {
     for (int16_t y = 0; y < LCD_HEIGHT; y++) gfx->drawFastHLine(0, y, LCD_WIDTH, RGB565_BLACK);
 }
 
+void toLogical(int px, int py, int &x, int &y) {
+    // The reverse of how blitSquare and textLine place things.
+    if (rotation == 90) {
+        x = width() - 1 - py;
+        y = px;
+    } else if (rotation == 180) {
+        x = LCD_WIDTH - 1 - px;
+        y = LCD_HEIGHT - 1 - py;
+    } else if (rotation == 270) {
+        x = py;
+        y = height() - 1 - px;
+    } else {
+        x = px;
+        y = py;
+    }
+}
 void clearBand(int y, int rows) {
     // Lines run along the band, so this takes one write per row whatever the rotation.
     for (int i = 0; i < rows; i++) {

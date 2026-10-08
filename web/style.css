@@ -147,6 +147,19 @@ body.has-words .face { width: min(52vmin, 360px); }
 .stop { background: #2a2a28; color: var(--text); }
 body:not(.busy) .stop { display: none; }
 
+/* A question from the agent: its answers as buttons under the words. */
+.choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(36rem, 100%); }
+.choices button {
+  background: none;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 15px;
+}
+.choices button:hover, .choices button:focus-visible { border-color: var(--text); }
+.timer { color: var(--dim); font-size: 14px; margin: 0; font-variant-numeric: tabular-nums; }
+
 .notice { color: var(--warn); font-size: 13.5px; text-align: center; margin: 10px 0 0; }
 .notice button { background: none; border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 13px; margin-left: 4px; }
 

@@ -150,6 +150,8 @@ struct Client::Impl {
     size_t settleLeft = 0;
     /** The last turn this device recorded. A spoken reply to it is followed by a short listen. */
     String lastVoiceTurn;
+    /** When the device gives up on an open question by itself, in `millis()`. 0 with no question. */
+    uint32_t askDeadline = 0;
 
     explicit Impl(Client &client) : self(client) {}
 
@@ -502,6 +504,9 @@ struct Client::Impl {
             if (welcomed) logf("lost the connection to Axis");
             welcomed = false;
             cancelRecording();
+            // A question cannot be answered now, and Axis sends the timers again on the next connect.
+            endAsk();
+            update([](Snapshot &s) { s.timerCount = 0; });
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -592,6 +597,10 @@ struct Client::Impl {
             self.sink_->streamEnd();
         } else if (!strcmp(t, "wake.result")) {
             onWakeResult(doc["wakeId"] | "", doc["granted"] | false);
+        } else if (!strcmp(t, "ask")) {
+            onAsk(doc);
+        } else if (!strcmp(t, "ask.end")) {
+            if (state.askId == (doc["askId"] | "")) endAsk();
         } else if (!strcmp(t, "stop")) {
             quiet();
         } else if (!strcmp(t, "command")) {
@@ -731,6 +740,17 @@ struct Client::Impl {
             handled = true;
         } else if (!strcmp(name, "reboot")) {
             handled = true;
+        } else if (!strcmp(name, "timer.next")) {
+            // Axis keeps the timers and announces them. This is only for a countdown on a screen.
+            const uint32_t ms = doc["params"]["ms"] | 0;
+            const String label = doc["params"]["label"] | "";
+            const uint8_t count = ms ? (uint8_t)constrain((int)(doc["params"]["count"] | 1), 1, 255) : 0;
+            update([&](Snapshot &s) {
+                s.timerLabel = label;
+                s.timerEndsAt = millis() + ms;
+                s.timerCount = count;
+            });
+            handled = true;
         }
         if (self.commandHandler_ && self.commandHandler_(name, doc["params"], payload)) handled = true;
         result["ok"] = handled;
@@ -782,6 +802,20 @@ struct Client::Impl {
             doc["t"] = "interrupt";
             send(doc);
         }
+        if (self.wantAnswer_ >= 0) {
+            const int8_t index = self.wantAnswer_;
+            self.wantAnswer_ = -1;
+            if (!state.askId.isEmpty() && index < state.choiceCount) {
+                JsonDocument doc;
+                doc["t"] = "answer";
+                doc["askId"] = state.askId;
+                doc["choice"] = state.choices[index];
+                send(doc);
+                logf("answered: %s", state.choices[index].c_str());
+                endAsk();
+            }
+        }
+        if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
         if (millis() - lastSense > SENSE_INTERVAL_MS) {
             lastSense = millis();
             JsonDocument doc;
@@ -889,8 +923,53 @@ struct Client::Impl {
      */
     void startFollowUp() {
         const long waitMs = self.settingInt("followUpMs", 6000);
-        if (waitMs <= 0 || !outRing || !self.online_) return;
+        if (waitMs > 0) listenUnasked(waitMs, false);
+    }
+
+    /**
+     * Axis has spoken a question and now wants the answer. The choices go to
+     * the board to show; the microphone opens for a spoken answer, which Axis
+     * matches to a choice itself.
+     */
+    void onAsk(JsonDocument &doc) {
+        const uint32_t timeoutMs = doc["timeoutMs"] | 30000;
+        JsonArrayConst list = doc["choices"];
+        update([&](Snapshot &s) {
+            s.askId = doc["askId"] | "";
+            s.question = doc["question"] | "";
+            s.choiceCount = 0;
+            for (JsonVariantConst choice : list) {
+                if (s.choiceCount >= 6) break;
+                s.choices[s.choiceCount++] = choice.as<String>();
+            }
+        });
+        askDeadline = millis() + timeoutMs;
+        if (!askDeadline) askDeadline = 1;
+        logf("asked: %s (%u choices)", state.question.c_str(), (unsigned)state.choiceCount);
+        listenUnasked((long)min(timeoutMs, (uint32_t)20000), true);
+    }
+
+    /** The question is over. A recording nobody has spoken into goes with it. */
+    void endAsk() {
+        if (state.askId.isEmpty()) return;
+        askDeadline = 0;
+        update([](Snapshot &s) {
+            s.askId = "";
+            s.question = "";
+            s.choiceCount = 0;
+        });
+        if (!outRing) return;
+        xSemaphoreTake(audioLock, portMAX_DELAY);
+        const bool spoken = onset;
+        xSemaphoreGive(audioLock);
+        if (!spoken) self.stopListening(true);
+    }
+
+    /** Opens the microphone without a wake word or a tap, for `waitMs` of silence at most. Client task only. */
+    void listenUnasked(long waitMs, bool withCue) {
+        if (!outRing || !self.online_) return;
         const VadLimits limits = vadLimits();
+        const size_t cue = withCue ? cueSamples() : 0;
         bool started = false;
         xSemaphoreTake(audioLock, portMAX_DELAY);
         if (!self.recording_) {
@@ -900,14 +979,15 @@ struct Client::Impl {
             turnId = newTurnId();
             quietWanted = false;
             preFill = 0;
-            // The speaker's own tail must not count as the person answering. No cue here: the
-            // face turning green is enough when the device was just talking.
-            settleLeft = TAIL_SETTLE_SAMPLES;
+            // The speaker's own tail must not count as the person answering. A follow-up has no
+            // cue: the face turning green is enough when the device was just talking.
+            settleLeft = max((size_t)TAIL_SETTLE_SAMPLES, cue);
             self.recording_ = true;
             started = true;
         }
         xSemaphoreGive(audioLock);
-        if (started) logf("listening for a follow-up for %ld ms", waitMs);
+        if (started && cue > 0) playCue();
+        if (started) logf("listening unasked for %ld ms", waitMs);
     }
 
     /** Moves the recording along over the network: wake, start, audio, end. Client task only. */

@@ -95,7 +95,30 @@ const MIGRATIONS: string[] = [
   CREATE INDEX events_at ON events (at);
   CREATE INDEX events_subject ON events (kind, subject, at);
   `,
+  // Timers agents set. Kept on disk so a restart of Axis does not lose one.
+  `
+  CREATE TABLE timers (
+    id INTEGER PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    seconds INTEGER NOT NULL,
+    due_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ];
+
+/** A timer an agent set. It is announced on `clientId` when that client can be reached. */
+export interface TimerRecord {
+  id: number;
+  clientId: string;
+  /** What it is for, in a word or two. May be empty. */
+  label: string;
+  /** How long it was set for. */
+  seconds: number;
+  dueAt: number;
+  createdAt: number;
+}
 
 interface TurnRow {
   at: number;
@@ -305,6 +328,39 @@ export class Store {
     if (removed.changes !== 1) return false;
     this.db.prepare("DELETE FROM settings WHERE scope = 'device' AND scope_id = ?").run(id);
     return true;
+  }
+
+  // --- timers -------------------------------------------------------------
+
+  addTimer(timer: Omit<TimerRecord, "id">): TimerRecord {
+    const result = this.db
+      .prepare("INSERT INTO timers (client_id, label, seconds, due_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(timer.clientId, timer.label, timer.seconds, timer.dueAt, timer.createdAt);
+    return { ...timer, id: Number(result.lastInsertRowid) };
+  }
+
+  /** Every timer still running, soonest first. */
+  listTimers(): TimerRecord[] {
+    const rows = this.db.prepare("SELECT * FROM timers ORDER BY due_at, id").all() as unknown as Array<{
+      id: number;
+      client_id: string;
+      label: string;
+      seconds: number;
+      due_at: number;
+      created_at: number;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      clientId: r.client_id,
+      label: r.label,
+      seconds: r.seconds,
+      dueAt: r.due_at,
+      createdAt: r.created_at,
+    }));
+  }
+
+  removeTimer(id: number): boolean {
+    return this.db.prepare("DELETE FROM timers WHERE id = ?").run(id).changes === 1;
   }
 
   // --- what each client type offers ----------------------------------------

@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at commit `f935546` plus this handoff note (firmware 0.6.0, unchanged). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added ask, timer and admin (firmware 0.7.0). Update this line whenever you change this section.
 
 Built and running:
 
@@ -23,9 +23,11 @@ Proven with a real gateway, a real board and a real voice: pairing, typed and sp
 
 Known not working, accepted for now: saying the wake word over the device's own speech (barge-in). The board has no echo canceller. Tap interrupts instead. Do not build an echo canceller without being asked.
 
-Not built yet: `vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin` (declared, answered with "not built yet"), the `ask` flow to clients, firmware updates over Wi-Fi, TLS from firmware (`axis+tls://` is parsed but unusable).
+Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet tried by the owner on a real device or through a real agent: `vortex.axis.ask` (question with choices to tap or say, or an open question), `vortex.axis.timer` (timers kept on Axis, announced when due, counted down on a screen) and `vortex.axis.admin` (list and run device actions, rename, pairing code). Design section 6 says how each behaves. On the board, tapping a choice depends on the touch controller's coordinates matching the panel's, which nobody has watched; `firmware/README.md` tests 17 to 22 are the list for a person.
 
-Deployed: the owner rebuilt the container on the host after `f935546`; that is what runs. The board still runs firmware 0.6.0.
+Not built yet: firmware updates over Wi-Fi, TLS from firmware (`axis+tls://` is parsed but unusable).
+
+Deployed: the container was rebuilt and the board flashed with firmware 0.7.0 at the ask, timer and admin commit.
 
 Loose ends, not yet done:
 
@@ -35,7 +37,7 @@ Loose ends, not yet done:
 - Not watched yet: a board unplugged going offline within about 30 s; a long spoken answer after the fetch crash fix (`drain()`).
 - `browser-check` needs `google-chrome`, or `CHROME=<path>`; on the owner's Mac it was run with Brave.
 
-Next: the owner's choice between `vortex.axis.ask` and `vortex.axis.timer`, or milestone 5. For milestone 5, decide first: `README.md` lists "firmware updates delivered through Axis" as out of version 1 scope, while this file lists updates over Wi-Fi as next. Ask the owner which is meant before building either.
+Next: the owner's tests of ask and timer on the board, then milestone 5. For milestone 5, decide first: `README.md` lists "firmware updates delivered through Axis" as out of version 1 scope, while updates over Wi-Fi were planned for it. Ask the owner which is meant before building either.
 
 What a real gateway taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` behaves the same way.
 
@@ -130,6 +132,8 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/gateway/link.ts`: one gateway connection in one role, with its retry rules.
 - `server/src/gateway/client.ts`: both links, credentials, agent turns, node commands.
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
+- `server/src/ask.ts`: matches what a person said or typed to one of a question's choices. The question's life (speak it, send `ask`, take the answer from a tap, a recording or typed text, time out) is in `turns.ts`, because a spoken answer arrives as an ordinary recording and must be kept from the agent.
+- `server/src/timers.ts`: timers agents set. Kept in the `timers` table, announced with `hub.say` when due, retried while nobody can be reached, and told to screens with the `timer.next` command.
 
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.
 - `server/src/upstream.ts`: the speech and agent settings an admin can change at runtime, and the speech test.

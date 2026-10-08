@@ -251,6 +251,9 @@ function connect() {
     if (ws !== socket) return;
     online = false;
     turnState = "idle";
+    clearAsk();
+    nextTimer = undefined;
+    renderTimer();
     stopCapture(false);
     player.stop();
     renderPills();
@@ -327,6 +330,23 @@ function onMessage(message) {
       break;
     case "wake.result":
       break;
+    case "ask":
+      showAsk(message);
+      break;
+    case "ask.end":
+      if (ask?.askId === message.askId) clearAsk();
+      break;
+    case "command":
+      // The only thing Axis asks of this page: which timer is next, so it can count down.
+      if (message.name === "timer.next") {
+        const ms = Number(message.params?.ms) || 0;
+        nextTimer = ms > 0 ? { label: String(message.params.label ?? ""), endsAt: Date.now() + ms, count: Number(message.params.count) || 1 } : undefined;
+        renderTimer();
+        send({ t: "command.result", id: message.id, ok: true });
+      } else {
+        send({ t: "command.result", id: message.id, ok: false, error: "this client does not do that" });
+      }
+      break;
     case "error":
       // A turn that failed already shows its own message.
       if (turnState !== "error") {
@@ -337,6 +357,50 @@ function onMessage(message) {
   }
   renderPills();
 }
+
+// --- questions and timers --------------------------------------------------
+
+let ask;
+let nextTimer;
+
+/** Offers the answers to a question as buttons. Saying or typing an answer works too; Axis reads those. */
+function showAsk(message) {
+  clearAsk();
+  ask = { askId: message.askId, timer: setTimeout(clearAsk, message.timeoutMs) };
+  const box = $("choices");
+  for (const choice of message.choices) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = choice;
+    button.addEventListener("click", () => {
+      send({ t: "answer", askId: message.askId, choice });
+      bubble("you", choice);
+      clearAsk();
+    });
+    box.append(button);
+  }
+  box.classList.toggle("hidden", !message.choices.length);
+  $("say").placeholder = "Type your answer";
+}
+
+function clearAsk() {
+  if (ask) clearTimeout(ask.timer);
+  ask = undefined;
+  $("choices").replaceChildren();
+  $("choices").classList.add("hidden");
+  $("say").placeholder = "Or type here";
+}
+
+function renderTimer() {
+  const left = nextTimer ? Math.max(0, Math.ceil((nextTimer.endsAt - Date.now()) / 1000)) : 0;
+  const line = $("timer");
+  line.classList.toggle("hidden", !nextTimer || !online);
+  if (!nextTimer) return;
+  const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = String(left % 60).padStart(2, "0");
+  const clock = h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+  line.textContent = `${nextTimer.label} ${clock}${nextTimer.count > 1 ? ` (+${nextTimer.count - 1})` : ""}`;
+}
+setInterval(renderTimer, 1000);
 
 // --- speaking the reply ----------------------------------------------------
 

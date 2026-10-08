@@ -17,6 +17,8 @@ void setBrightness(uint8_t level);
 int width();
 int height();
 
+/** Turns a point in the panel's own coordinates, as the touch controller reports it, into logical ones. */
+void toLogical(int px, int py, int &x, int &y);
 /** Blacks out the whole panel. */
 void clear();
 

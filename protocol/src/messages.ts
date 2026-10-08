@@ -237,16 +237,25 @@ export const SpeakEnd = message("speak.end", {
   turnId: Id,
 });
 
-/** A question with choices. The client answers with `answer`. */
+/**
+ * A question, sent after Axis has spoken it. With choices, the client offers
+ * them and answers with `answer`. A client with a microphone also listens: a
+ * spoken answer goes up as an ordinary recording and Axis matches it. With no
+ * choices the question is open and only a spoken or typed answer ends it.
+ */
 export const Ask = message("ask", {
   askId: Id,
   question: Type.String({ minLength: 1, maxLength: 500 }),
   choices: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
-    minItems: 1,
     maxItems: 6,
     uniqueItems: true,
   }),
   timeoutMs: Type.Integer({ minimum: 1000, maximum: 600000 }),
+});
+
+/** The question is over, answered or not. The client takes the choices away and stops listening for it. */
+export const AskEnd = message("ask.end", {
+  askId: Id,
 });
 
 /** Stop playback and drop any buffered audio. */
@@ -306,6 +315,7 @@ export const SERVER_MESSAGE_SCHEMAS = [
   SpeakStart,
   SpeakEnd,
   Ask,
+  AskEnd,
   Stop,
   Status,
   Command,
@@ -337,6 +347,7 @@ export type ReplyText = Static<typeof ReplyText>;
 export type SpeakStart = Static<typeof SpeakStart>;
 export type SpeakEnd = Static<typeof SpeakEnd>;
 export type Ask = Static<typeof Ask>;
+export type AskEnd = Static<typeof AskEnd>;
 export type Stop = Static<typeof Stop>;
 export type Status = Static<typeof Status>;
 export type Command = Static<typeof Command>;

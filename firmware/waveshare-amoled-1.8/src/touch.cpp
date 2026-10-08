@@ -108,6 +108,11 @@ bool tapped() {
     return now - downAt <= TAP_MAX_MS && farthest <= TAP_MAX_MOVE;
 }
 
+void tapPoint(int &x, int &y) {
+    x = startX;
+    y = startY;
+}
+
 uint32_t idleMs() { return lastTouch ? millis() - lastTouch : UINT32_MAX; }
 
 }  // namespace touch

@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.6.0"
+#define AXIS_FIRMWARE_VERSION "0.7.0"
 
 namespace axis {
 
@@ -100,6 +100,15 @@ struct Snapshot {
     String note;
     String transcript;
     String reply;
+    /** A question Axis is waiting for an answer to. `askId` is empty when there is none. */
+    String askId, question;
+    /** The answers offered. None means the question is open and is answered by voice. */
+    String choices[6];
+    uint8_t choiceCount = 0;
+    /** The timer due soonest, as Axis last told it. `timerEndsAt` is in `millis()`; `timerCount` 0 means none. */
+    String timerLabel;
+    uint32_t timerEndsAt = 0;
+    uint8_t timerCount = 0;
 };
 
 /**
@@ -169,6 +178,8 @@ class Client {
 
     /** Asks Axis to stop the current reply. Safe to call from any task. */
     void interrupt() { wantInterrupt_ = true; }
+    /** Answers the open question with the choice at `index`, as picked on the screen. Safe to call from any task. */
+    void answer(uint8_t index) { wantAnswer_ = (int8_t)index; }
 
     // --- microphone ------------------------------------------------------
     // For boards with the `mic` capability. These may be called from the
@@ -204,6 +215,7 @@ class Client {
     Impl *impl_ = nullptr;
     volatile uint32_t revision_ = 0;
     volatile bool wantInterrupt_ = false;
+    volatile int8_t wantAnswer_ = -1;
     volatile bool recording_ = false;
     volatile bool online_ = false;
     /** True while the device is playing Axis's voice; its own sound must not pass for the room. */

@@ -47,6 +47,7 @@ static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3,
 static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
 static const uint16_t COLOR_WARN = 0xFD20;  // amber
+static const uint16_t COLOR_LISTEN = 0x4FEA;  // soft green, as the listening face
 static const uint32_t FRAME_MS = 33;
 // How long a finished exchange stays on screen before the face has it to itself again.
 static const uint32_t KEEP_TEXT_MS = 15000;
@@ -151,6 +152,13 @@ static bool redrawAll = true;
 // Where the top of the face is now. -1 until it has been placed once.
 static int faceY = -1;
 static bool hasSpeaker = false, hasMic = false;
+
+// A question with choices takes the whole screen: the question on top, each choice a band to tap.
+static bool askShown = false;
+static String askDrawn;
+static bool askDrawnListening = false;
+static const int ASK_TOP = 2 * (8 * 2 + 4) + 10;
+static String timerLine(uint32_t now);
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
@@ -278,17 +286,18 @@ static void present() {
     }
 
     // A recording starts before Axis has said so (a wake takes a moment to be answered), so show it from this side.
+    // An open question stays on the screen while the device waits for it to be answered.
     if (client.listening() && state.turn == Turn::Idle) {
         idleSince = 0;
         vortex::setMode(Mode::Listening);
-        return show("Listening", COLOR_HEAD, "");
+        return show("Listening", COLOR_HEAD, state.question);
     }
 
     if (state.turn != Turn::Idle) idleSince = 0;
     switch (state.turn) {
         case Turn::Listening:
             vortex::setMode(Mode::Listening);
-            return show("Listening", COLOR_HEAD, "");
+            return show("Listening", COLOR_HEAD, state.question);
         case Turn::Transcribing:
         case Turn::Thinking:
             vortex::setMode(Mode::Thinking);
@@ -314,7 +323,56 @@ static void present() {
     // Say which service is down, so a failed request is not a mystery.
     const char *down = !state.openclawUp ? "The agent is down" : !state.sttUp ? "Hearing is down" : !state.ttsUp ? "Voice is down" : nullptr;
     const bool keep = now - idleSince < KEEP_TEXT_MS && !state.reply.isEmpty();
-    show(down ? down : "", COLOR_WARN, keep ? state.reply : String(""));
+    // A running timer counts down above the words; a service that is down matters more.
+    show(down ? String(down) : timerLine(now), down ? COLOR_WARN : COLOR_HEAD, keep ? state.reply : String(""));
+}
+
+/** "pasta 4:32", or "pasta 1:04:32 (+1)" with more timers behind it. Empty with no timer. */
+static String timerLine(uint32_t now) {
+    if (!state.timerCount) return "";
+    const int32_t leftMs = (int32_t)(state.timerEndsAt - now);
+    const uint32_t left = leftMs > 0 ? (uint32_t)(leftMs + 999) / 1000 : 0;
+    char clock[20];
+    if (left >= 3600) snprintf(clock, sizeof clock, "%lu:%02lu:%02lu", (unsigned long)(left / 3600), (unsigned long)(left % 3600 / 60), (unsigned long)(left % 60));
+    else snprintf(clock, sizeof clock, "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
+    String line = state.timerLabel + " " + clock;
+    if (state.timerCount > 1) line += " (+" + String(state.timerCount - 1) + ")";
+    return line;
+}
+
+static int askRowHeight() { return (display::height() - ASK_TOP) / max(1, (int)state.choiceCount); }
+
+/** Draws the question and its choices. Only what changed is sent again. */
+static void drawAsk() {
+    const bool listening = client.listening();
+    if (redrawAll || askDrawn != state.askId || listening != askDrawnListening) {
+        // The question turns green while the microphone is open for a spoken answer.
+        String lines[2];
+        const int count = wrap(state.question, lines, 2);
+        for (int i = 0; i < 2; i++) {
+            display::textLine(4 + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
+        }
+        askDrawnListening = listening;
+    }
+    if (redrawAll || askDrawn != state.askId) {
+        const int row = askRowHeight();
+        for (int i = 0; i < state.choiceCount; i++) {
+            const uint8_t size = (int)state.choices[i].length() <= display::lineChars(3) ? 3 : 2;
+            display::textLine(ASK_TOP + i * row + (row - display::lineHeight(size)) / 2, size, COLOR_HEAD, state.choices[i]);
+        }
+        askDrawn = state.askId;
+    }
+    redrawAll = false;
+}
+
+/** A tap on a choice answers the question. A tap on the question itself does nothing. */
+static void onAskTap() {
+    int px = 0, py = 0, x = 0, y = 0;
+    touch::tapPoint(px, py);
+    display::toLogical(px, py, x, y);
+    const int index = y < ASK_TOP ? -1 : (y - ASK_TOP) / askRowHeight();
+    logOut.printf("[ask] tap at %d,%d (panel %d,%d): choice %d\n", x, y, px, py, index);
+    if (index >= 0 && index < state.choiceCount) client.answer((uint8_t)index);
 }
 
 /**
@@ -436,15 +494,29 @@ void loop() {
         }
     }
     // Text also depends on time (messages that expire), so it is rechecked a few times a second.
-    if (changed || started - lastText > 250) {
-        lastText = started;
-        present();
+    // A question with choices takes over the screen until it is answered or gives up.
+    const bool wantAsk = state.link == axis::Link::Online && state.choiceCount > 0;
+    if (wantAsk != askShown) {
+        askShown = wantAsk;
+        askDrawn = "";
+        display::clear();
+        redrawAll = true;
+        faceY = -1;
     }
-    layout();
-    if (touch::tapped()) onTap();
+    if (askShown) {
+        drawAsk();
+        if (touch::tapped()) onAskTap();
+    } else {
+        if (changed || started - lastText > 250) {
+            lastText = started;
+            present();
+        }
+        layout();
+        if (touch::tapped()) onTap();
+    }
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
-    if (!facePaused) {
+    if (!facePaused && !askShown) {
         const uint32_t t0 = micros();
         const uint16_t *frame = vortex::render(min(seconds, 0.1f));
         renderMicros += micros() - t0;

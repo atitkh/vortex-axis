@@ -1,5 +1,6 @@
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
+import { matchChoice, type AskResult } from "./ask.js";
 import type { Session } from "./hub.js";
 import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
@@ -36,8 +37,18 @@ export interface TurnOptions {
 
 type TurnMessage = Extract<
   ClientMessage,
-  { t: "wake" | "audio.start" | "audio.end" | "text" | "interrupt" | "playback" }
+  { t: "wake" | "audio.start" | "audio.end" | "text" | "interrupt" | "playback" | "answer" }
 >;
+
+/** A question a client has been asked and not yet answered. */
+interface PendingAsk {
+  askId: string;
+  choices: string[];
+  resolve: (result: AskResult) => void;
+  timer: NodeJS.Timeout;
+  /** When to stop waiting, even for somebody who is still talking. */
+  hardStop: number;
+}
 
 interface Capture {
   turnId: string;
@@ -332,6 +343,8 @@ export class TurnManager {
   private readonly playbackGraceMs: number;
   private lastInput: { clientId: string; at: number } | undefined;
   private sayCount = 0;
+  private readonly asks = new Map<string, PendingAsk>();
+  private askCount = 0;
 
   constructor(private readonly port: TurnPort, private readonly options: TurnOptions) {
     this.services = options.services;
@@ -386,9 +399,29 @@ export class TurnManager {
         return;
       }
 
+      case "answer": {
+        const pending = this.asks.get(id);
+        if (!pending || pending.askId !== message.askId || !pending.choices.includes(message.choice)) return;
+        this.lastInput = { clientId: id, at: Date.now() };
+        // A recording opened for the same question is no longer wanted.
+        const capture = this.captures.get(id);
+        if (capture) {
+          this.captures.delete(id);
+          this.port.send(session, { t: "turn", turnId: capture.turnId, state: "idle" });
+        }
+        this.endAsk(session, { answer: message.choice, how: "tap" });
+        return;
+      }
+
       case "text":
         this.lastInput = { clientId: id, at: Date.now() };
         this.captures.delete(id);
+        if (this.asks.has(id)) {
+          // Typed while a question is open: that is the answer, not something for the agent.
+          this.endAsk(session, this.answerFrom(id, message.text, "typed"));
+          this.port.send(session, { t: "turn", turnId: message.turnId, state: "idle" });
+          return;
+        }
         this.cancelActive(session, true);
         void this.run(session, message.turnId, { text: message.text });
         return;
@@ -438,9 +471,66 @@ export class TurnManager {
     return this.lastInput.clientId;
   }
 
-  /** True while the client is recording or a turn of its own is running. */
+  /** True while the client is recording, a turn of its own is running, or it has been asked something. */
   busy(session: Session): boolean {
-    return this.captures.has(session.client.id) || this.active.has(session.client.id);
+    const id = session.client.id;
+    return this.captures.has(id) || this.active.has(id) || this.asks.has(id);
+  }
+
+  /**
+   * Puts a question to the person at a client and waits for the answer. The
+   * question is spoken first (and shown). Then the client offers the choices
+   * and listens: a choice picked on the screen, something said or something
+   * typed all answer it. Resolves with `answer: null` when what was said
+   * matched no choice, or nobody answered within `timeoutMs`.
+   */
+  async ask(session: Session, question: string, choices: string[], timeoutMs: number): Promise<AskResult> {
+    const id = session.client.id;
+    const caps = session.client.capabilities;
+    // Somebody who cannot see the choices has to hear them.
+    const spoken =
+      choices.length && !caps.includes("screen") ? `${question} ${choices.join(", ")}?` : question;
+    await this.say(session, spoken);
+    if (this.port.session(id) !== session) throw new Error(`${session.client.name} disconnected`);
+    if (this.busy(session)) throw new Error(`${session.client.name} is busy with a conversation`);
+
+    const askId = `ask-${++this.askCount}`;
+    return new Promise<AskResult>((resolve) => {
+      const expire = () => {
+        const pending = this.asks.get(id);
+        if (!pending || pending.askId !== askId) return;
+        // Somebody in the middle of answering is given the time to finish.
+        if ((this.captures.has(id) || this.active.has(id)) && Date.now() < pending.hardStop) {
+          pending.timer = setTimeout(expire, 1000);
+          return;
+        }
+        this.endAsk(session, { answer: null, timedOut: true });
+      };
+      this.asks.set(id, {
+        askId,
+        choices,
+        resolve,
+        timer: setTimeout(expire, timeoutMs),
+        hardStop: Date.now() + timeoutMs + 30_000,
+      });
+      this.port.send(session, { t: "ask", askId, question: question.slice(0, 500), choices, timeoutMs });
+    });
+  }
+
+  /** Reads an answer out of what a person said or typed. */
+  private answerFrom(clientId: string, said: string, how: "voice" | "typed"): AskResult {
+    const choices = this.asks.get(clientId)?.choices ?? [];
+    return { answer: matchChoice(said, choices) ?? null, said: said.slice(0, 2000), how };
+  }
+
+  private endAsk(session: Session, result: AskResult, tellClient = true): void {
+    const id = session.client.id;
+    const pending = this.asks.get(id);
+    if (!pending) return;
+    this.asks.delete(id);
+    clearTimeout(pending.timer);
+    if (tellClient) this.port.send(session, { t: "ask.end", askId: pending.askId });
+    pending.resolve(result);
   }
 
   /**
@@ -467,6 +557,7 @@ export class TurnManager {
     this.captures.delete(id);
     this.active.get(id)?.abort.abort();
     this.active.delete(id);
+    this.endAsk(session, { answer: null }, false);
     this.wake.forget(id);
   }
 
@@ -554,6 +645,12 @@ export class TurnManager {
           return undefined;
         }
         if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: text.slice(0, 4000) });
+        if (this.asks.has(id)) {
+          // Said while a question is open: that is the answer, not something for the agent.
+          this.endAsk(session, this.answerFrom(id, text, "voice"));
+          state("idle");
+          return undefined;
+        }
       } else {
         text = input.text;
       }

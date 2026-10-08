@@ -61,6 +61,8 @@ const serverSamples: ServerMessage[] = [
   { t: "speak.start", turnId: "t1", format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 } },
   { t: "speak.end", turnId: "t1" },
   { t: "ask", askId: "a1", question: "Turn off the lights?", choices: ["Yes", "No"], timeoutMs: 30000 },
+  { t: "ask", askId: "a2", question: "What should I call it?", choices: [], timeoutMs: 30000 },
+  { t: "ask.end", askId: "a1" },
   { t: "stop" },
   { t: "status", upstream: { openclaw: "up", stt: "down", tts: "up" } },
   { t: "command", id: "k1", name: "config.set", params: { key: "volume", value: 60 } },
@@ -98,7 +100,7 @@ describe("client messages", () => {
 
 describe("server messages", () => {
   it("has a sample for every message type", () => {
-    expect(serverSamples.map((m) => m.t).sort()).toEqual([...SERVER_MESSAGE_TYPES].sort());
+    expect([...new Set(serverSamples.map((m) => m.t))].sort()).toEqual([...SERVER_MESSAGE_TYPES].sort());
   });
 
   it.each(serverSamples)("round-trips $t", (sample) => {

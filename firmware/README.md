@@ -116,6 +116,8 @@ Measured: the face is now sent to the panel four rows at a time (960 pixels, und
 
 Build order: (1) display, Wi-Fi setup, pairing and a face that follows Axis's state; (2) speaker; (3) microphone with tap-to-talk; (4) wake word; (5) polish and updates over Wi-Fi.
 
+Also built (0.7.0): questions from an agent with choices to tap or say, and a countdown for timers kept on Axis.
+
 Not built yet: updates over Wi-Fi, `axis+tls://`, choosing the wake word model from Axis instead of at build time.
 
 ## Tests for a person
@@ -143,6 +145,17 @@ Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 16. [x] Is the buzz gone or lighter (0.5.1 resampler)? No report back after the 0.5.1 resampler fix.
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
+
+Added in 0.7.0 (questions and timers), not yet tried by a person:
+
+17. [ ] Have the agent ask a question with choices ("ask me on the board whether I want tea or coffee"). It should speak the question, play the cue, and show the question with one choice per row filling the screen. Tap a choice: the agent should get exactly that one. Check the row you tapped is the one it took (the log line `[ask] tap at ...` shows where the tap landed); try it at another `rotation` too.
+18. [ ] The same question, answered by voice ("coffee", "the second one"). The question text turns green while it listens. The agent should get the choice, and the words must not be answered as a normal turn.
+19. [ ] An open question with no choices ("ask me what to call the new timer"): the face stays, the question shows under it, and the agent gets your words.
+20. [ ] Ask a question and say nothing: after the timeout the choices go away and the face comes back.
+21. [ ] Set a timer by voice ("set a two minute pasta timer"). "pasta 1:59" should count down above the face area while idle. When it is due: the chime, then "Your pasta timer is done." Set two and check "(+1)". Cancel one by voice.
+22. [ ] Unplug the board with a timer running and plug it back in before it is due: the countdown should come back.
+
+Questions: `ask` from Axis puts the question in the snapshot (`askId`, `question`, `choices`). The core opens the microphone with the cue for up to 20 seconds and leaves matching a spoken answer to Axis. With choices the board hides the face and draws the question (two lines) and one row per choice; a tap is turned from panel to logical coordinates (`display::toLogical`) and the row under it is sent with `client.answer(index)`. `ask.end`, the question's own timeout or a lost connection clears it. Timers live on Axis; the board only shows the one Axis names in the `timer.next` command.
 
 Added in 0.6.0 (device editor in the admin page): open the board under Clients. Its settings are grouped (Screen, Sound, Listening) with the three layers as tabs and "On this device: X (from ...)" next to each; actions are `Play listening cue`, `Play chime`, `Start listening`, `Microphone levels`, `Diagnostics`, `Reboot`; links open its log and setup page; Announce speaks a line on it.
 

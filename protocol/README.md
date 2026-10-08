@@ -80,7 +80,8 @@ Either way the client stops playback, drops buffered audio and reports `playback
 ## Agent-initiated output
 
 - **Speech:** Axis sends `speak.start`, audio and `speak.end` with a fresh `turnId` and no preceding client input.
-- **Questions:** Axis sends `ask` with up to six choices. The client shows or speaks them and replies with `answer`. If nothing arrives within `timeoutMs`, Axis treats the question as unanswered.
+- **Questions:** Axis speaks the question as agent-initiated speech, then sends `ask` with up to six choices. A client with a screen offers the choices and replies with `answer` when one is picked. A client with a microphone also listens straight away: what is said goes up as an ordinary recording (`audio.start`, audio, `audio.end`) and Axis matches it to a choice, so the client does not need to. Typed `text` is taken the same way. With no choices the question is open and whatever is said or typed is the answer. Axis sends `ask.end` when the question is over, answered or not; the client then takes the choices away and drops a recording nobody has spoken into. A client also gives up on its own after `timeoutMs`.
+- **Timers:** Axis keeps timers itself and announces them as speech. So a client can show a countdown, Axis sends the `command` `timer.next` with `label`, `ms` (time left on the timer due soonest; 0 when there is none) and `count`, on connect and whenever that client's timers change. A client that shows nothing answers `ok: false`.
 
 ## Settings
 
@@ -106,7 +107,7 @@ Command names and their parameters are not fixed in version 1. They are defined 
 
 Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `settings.get`, `command.result`, `describe`.
 
-Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `speak.start`, `speak.end`, `ask`, `stop`, `status`, `command`, `error`.
+Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `speak.start`, `speak.end`, `ask`, `ask.end`, `stop`, `status`, `command`, `error`.
 
 Field-level detail is in `src/messages.ts`.
 
