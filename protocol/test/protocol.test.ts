@@ -134,6 +134,13 @@ describe("rejections", () => {
     expect(bad(hello)).toMatch(/^hello: \/capabilities/);
   });
 
+  it("accepts every playback state", () => {
+    for (const state of ["started", "finished", "stopped", "blocked"]) {
+      expect(parseClientMessage({ t: "playback", turnId: "t1", state }).ok).toBe(true);
+    }
+    expect(bad({ t: "playback", turnId: "t1", state: "muted" })).toMatch(/^playback:/);
+  });
+
   it("rejects audio that is not 16-bit mono PCM", () => {
     const start = { t: "audio.start", turnId: "t1", format: { encoding: "opus", sampleRate: 16000, channels: 1 } };
     expect(bad(start)).toMatch(/^audio.start: \/format/);

@@ -88,6 +88,11 @@
           "minimum": 512,
           "maximum": 1048576,
           "type": "integer"
+        },
+        "audioBufferMs": {
+          "minimum": 200,
+          "maximum": 60000,
+          "type": "integer"
         }
       }
     },
@@ -313,6 +318,10 @@
             },
             {
               "const": "stopped",
+              "type": "string"
+            },
+            {
+              "const": "blocked",
               "type": "string"
             }
           ]

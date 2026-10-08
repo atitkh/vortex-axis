@@ -83,10 +83,19 @@ export const Answer = message("answer", {
   choice: Type.String({ minLength: 1, maxLength: 64 }),
 });
 
-/** Playback progress, so Axis knows when the client has actually finished. */
+/**
+ * Playback progress, so Axis knows when the client has actually finished.
+ * `blocked` means the client could not make sound at all, for example a
+ * browser page nobody has clicked on yet.
+ */
 export const Playback = message("playback", {
   turnId: Id,
-  state: Type.Union([Type.Literal("started"), Type.Literal("finished"), Type.Literal("stopped")]),
+  state: Type.Union([
+    Type.Literal("started"),
+    Type.Literal("finished"),
+    Type.Literal("stopped"),
+    Type.Literal("blocked"),
+  ]),
 });
 
 /** Sensor readings the client chooses to report. */

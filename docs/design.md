@@ -80,6 +80,8 @@ In version 1 a tap, a button press or a repeated wake word stops playback. Inter
 
 Replies are synthesized sentence by sentence while the agent is still writing, and each sentence's audio is sent as soon as it exists. Axis cuts audio into frames no larger than the client asked for and paces them so it is never further ahead of real time than the client's stated buffer (`audioBufferMs`, 2 seconds by default). After the last frame Axis waits for the client to report that playback finished before marking the turn idle.
 
+Only that report counts as "heard". When an agent speaks through Axis, the result says whether the client confirmed playback (`heard`) and whether the words were also put on a screen (`shown`). A client that cannot make sound, such as a browser page nobody has clicked on yet, reports `blocked` straight away, so Axis neither waits nor claims the person heard anything.
+
 ## 4. Settings
 
 Axis is the source of truth. Settings have three layers, with the more specific layer winning:

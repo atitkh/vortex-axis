@@ -51,6 +51,8 @@ interface ActiveTurn {
   finished: Promise<void>;
   /** Resolves when the client reports that playback ended. */
   playbackDone?: (() => void) | undefined;
+  /** Set once the client confirms it played the audio to the end. */
+  heard?: boolean;
 }
 
 class TurnFailure extends Error {
@@ -224,7 +226,13 @@ export class TurnManager {
         const turn = this.active.get(id);
         if (!turn || turn.turnId !== message.turnId) return;
         if (message.state === "stopped") this.cancelActive(session, false);
-        else if (message.state === "finished") turn.playbackDone?.();
+        else if (message.state === "finished") {
+          turn.heard = true;
+          turn.playbackDone?.();
+        } else if (message.state === "blocked") {
+          // The client cannot make sound. There is nothing to wait for.
+          turn.playbackDone?.();
+        }
         return;
       }
     }
@@ -254,16 +262,19 @@ export class TurnManager {
   /**
    * Says something the agent started, with no input from the client. Waits up
    * to `waitMs` behind a live conversation, then resolves once the client has
-   * played or shown it.
+   * played or shown it. `heard` is true only when the client confirmed that it
+   * played the audio to the end.
    */
-  async say(session: Session, text: string, waitMs = 20_000): Promise<void> {
+  async say(session: Session, text: string, waitMs = 20_000): Promise<{ heard: boolean }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
-    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text });
+    const outcome = { heard: false };
+    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text }, outcome);
     if (failure) throw new Error(failure);
+    return outcome;
   }
 
   /** Forgets a client that disconnected. */
@@ -314,6 +325,7 @@ export class TurnManager {
     session: Session,
     turnId: string,
     input: { pcm: Buffer; format: AudioFormat } | { text: string } | { say: string },
+    outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
     let finish!: () => void;
@@ -416,6 +428,7 @@ export class TurnManager {
       return failure.message;
     } finally {
       if (this.active.get(id) === turn) this.active.delete(id);
+      if (outcome) outcome.heard = Boolean(turn.heard);
       finish();
     }
   }

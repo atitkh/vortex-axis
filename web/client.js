@@ -111,6 +111,11 @@ $("forget").addEventListener("click", () => {
 
 // --- connection ------------------------------------------------------------
 
+// Any click or key press on the page is what the browser waits for before it allows sound.
+for (const type of ["pointerdown", "keydown"]) {
+  document.addEventListener(type, () => identity && player.ensure(), { passive: true });
+}
+
 function start() {
   show("pair", false);
   show("talk", true);
@@ -120,6 +125,9 @@ function start() {
   $("hint").textContent = micAvailable
     ? "Click the microphone, speak, and it stops when you go quiet. This page has no wake word."
     : "The microphone is off: browsers only allow it on https or on localhost. Typing still works.";
+  // Find out now whether sound is allowed, so the notice is there before anyone speaks.
+  player.ensure();
+  setTimeout(() => show("sound-note", !player.audible()), 300);
   connect();
 }
 
@@ -240,8 +248,15 @@ const player = {
       this.gain = this.context.createGain();
       this.gain.gain.value = this.volume;
       this.gain.connect(this.context.destination);
+      // Hide the notice as soon as the browser lets sound through.
+      this.context.addEventListener("statechange", () => this.audible() && show("sound-note", false));
     }
-    if (this.context.state === "suspended") this.context.resume();
+    if (this.context.state === "suspended") this.context.resume().catch(() => {});
+  },
+
+  /** False while the browser is holding sound back until someone clicks or types on the page. */
+  audible() {
+    return this.context?.state === "running";
   },
 
   /** `volume` setting is 0 to 100. */
@@ -256,7 +271,14 @@ const player = {
     this.rate = sampleRate;
     this.ended = false;
     this.nextAt = 0;
-    send({ t: "playback", turnId, state: "started" });
+    // Give the browser a moment to start the audio, then say honestly whether it did.
+    setTimeout(() => {
+      if (this.turnId !== turnId) return;
+      if (this.audible()) return send({ t: "playback", turnId, state: "started" });
+      show("sound-note", true);
+      send({ t: "playback", turnId, state: "blocked" });
+      this.stop();
+    }, 200);
   },
 
   push(arrayBuffer) {

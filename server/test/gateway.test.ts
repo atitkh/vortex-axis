@@ -270,7 +270,8 @@ describe("commands from an agent", () => {
     await kitchen.client.next("speak.end", 0, (m) => m.turnId === start.turnId);
     kitchen.client.send({ t: "playback", turnId: start.turnId, state: "finished" });
 
-    expect(await pending).toMatchObject({ ok: true, payload: { delivered: "Kitchen" } });
+    expect(await pending).toMatchObject({ ok: true, payload: { client: "Kitchen", heard: true, shown: false } });
+    expect((await pending).payload.note).toBeUndefined();
     expect(desk.client.types()).not.toContain("speak.start");
   });
 
@@ -286,19 +287,36 @@ describe("commands from an agent", () => {
     };
     const byRoom = gateway.invoke("vortex.axis.say", { text: "Good night.", room: "bedroom" });
     await finish(bed.client);
-    expect((await byRoom).payload).toEqual({ delivered: "Bedside" });
+    expect((await byRoom).payload).toMatchObject({ client: "Bedside", heard: true });
 
     const byName = gateway.invoke("vortex.axis.say", { text: "Still up?", client: "desk" });
     await finish(desk.client);
-    expect((await byName).payload).toEqual({ delivered: "Desk" });
+    expect((await byName).payload).toMatchObject({ client: "Desk", heard: true });
   });
 
   it("treats system.notify as speech", async () => {
     await pairWithGateway();
     const { client } = await ready(["screen"], { name: "Panel" });
     const result = await gateway.invoke("system.notify", { title: "Build finished", body: "All tests pass" });
-    expect(result).toMatchObject({ ok: true, payload: { delivered: "Panel" } });
+    // A screen has nothing to play, so the words count as shown and not as heard.
+    expect(result).toMatchObject({ ok: true, payload: { client: "Panel", heard: false, shown: true } });
+    expect(result.payload.note).toMatch(/shown on the client's screen/);
     expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("Build finished. All tests pass");
+  });
+
+  it("reports speech a client could not play as not heard, without waiting", async () => {
+    await pairWithGateway();
+    const { client } = await ready(["speaker"], { name: "Muted tab" });
+    const started = Date.now();
+    const pending = gateway.invoke("vortex.axis.say", { text: "Anyone there?" });
+    const start = await client.next("speak.start");
+    client.send({ t: "playback", turnId: start.turnId, state: "blocked" });
+
+    const result = await pending;
+    expect(result).toMatchObject({ ok: true, payload: { client: "Muted tab", heard: false, shown: false } });
+    expect(result.payload.note).toMatch(/no screen/);
+    expect(Date.now() - started).toBeLessThan(2000);
+    await client.turn(start.turnId, "idle");
   });
 
   it("refuses when nothing can take the message", async () => {

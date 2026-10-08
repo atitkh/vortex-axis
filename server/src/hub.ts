@@ -83,7 +83,7 @@ export class Hub implements TurnPort {
   }
 
   /** Says something an agent started on one client. Resolves when it has been played or shown. */
-  say(session: Session, text: string): Promise<void> {
+  say(session: Session, text: string): Promise<{ heard: boolean }> {
     return this.turns.say(session, text);
   }
 

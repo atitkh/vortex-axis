@@ -52,7 +52,8 @@ const chrome = spawn(
     "--disable-gpu",
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
-    "--autoplay-policy=no-user-gesture-required",
+    // The strict policy real browsers apply: no sound until someone clicks or types on the page.
+    "--autoplay-policy=document-user-activation-required",
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
     "about:blank",
@@ -118,7 +119,13 @@ async function openPage(url) {
   };
   await until("document.readyState === 'complete'", "page load");
   // The admin page stops polling in a background tab, so the page under test is brought forward.
-  return { run, until, front: () => call("Page.bringToFront", {}, sessionId) };
+  // A click sent through the debugger counts as a real one, which is what unlocks sound.
+  const click = async (x, y) => {
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 }, sessionId);
+    }
+  };
+  return { run, until, click, front: () => call("Page.bringToFront", {}, sessionId) };
 }
 
 const pills = (selector) =>
@@ -163,6 +170,23 @@ try {
   await client.until(`document.querySelector('#pills .pill')?.textContent === 'idle'`, "the client to connect");
   step("client state", await client.until(`(t => /agent=good/.test(t) && t)(${pills("#pills")})`, "client health"));
   step("microphone allowed", await client.run(`!${byId("mic")}.disabled`));
+
+  // Nobody has clicked on this page yet, so the browser holds its sound back.
+  await client.until(`!${byId("sound-note")}.classList.contains('hidden')`, "the sound notice");
+  step("sound notice shown before any click", true);
+  if (process.env.TTS) {
+    const session = [...app.hub.sessions()][0];
+    const muted = await app.hub.say(session, "Can anyone hear this?");
+    step("agent speech on an unclicked page", `heard=${muted.heard}`);
+    if (muted.heard) throw new Error("speech on a page nobody clicked was reported as heard");
+    await client.click(30, 30);
+    await client.until(`${byId("sound-note")}.classList.contains('hidden')`, "the sound notice to clear after a click");
+    const audible = await app.hub.say(session, "And now?");
+    step("agent speech after a click", `heard=${audible.heard}`);
+    if (!audible.heard) throw new Error("speech after a click was not reported as heard");
+  } else {
+    await client.click(30, 30);
+  }
 
   // Record what the page sends, to check the protocol side of each action.
   await client.run(`window.sent = []; window.micBytes = 0; (() => { const send = WebSocket.prototype.send;

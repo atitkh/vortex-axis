@@ -66,6 +66,8 @@ client                                   Axis
 - `transcript` and `reply.text` are sent only to clients with the `screen` capability. Each `reply.text` with `final: false` carries the next piece of the reply; the one with `final: true` carries the whole reply.
 - A client without the `speaker` capability gets no `speak.*` frames, only text.
 
+A client that cannot make sound at all reports `playback` with `blocked` instead of `started`. Axis then stops waiting and tells whoever asked that the words were not heard.
+
 ## Stopping
 
 - The user taps, presses a button or repeats the wake word: the client sends `interrupt`.

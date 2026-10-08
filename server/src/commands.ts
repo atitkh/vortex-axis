@@ -33,7 +33,8 @@ export const NODE_TOOLS: NodeTool[] = [
     description:
       "Speak a short message aloud, or show it, on one of the user's VorteX Axis devices. Use for timely " +
       "things the user should hear without looking at a screen. Keep it to one or two sentences, with no " +
-      "formatting. With no client or room, it goes to the device the user last spoke to.",
+      "formatting. With no client or room, it goes to the device the user last spoke to. The result says " +
+      "whether the device confirmed it was heard; if heard is false, do not assume the user got the message.",
     parameters: {
       type: "object",
       properties: { text: { type: "string", description: "What to say." }, ...TARGET_PROPERTIES },
@@ -132,8 +133,18 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             : [text(params.title), text(params.body)].filter(Boolean).join(". ") || undefined;
         if (!words) throw new Error("there is nothing to say: text is empty");
         const session = hub.pickOutput({ client: text(params.client), room: text(params.room) });
-        await hub.say(session, words);
-        return { delivered: session.client.name };
+        const { heard } = await hub.say(session, words);
+        const shown = session.client.capabilities.includes("screen");
+        // "heard" is the client's own confirmation that the audio played to the
+        // end. Without it the agent must not assume the person heard anything.
+        return {
+          client: session.client.name,
+          heard,
+          shown,
+          ...(heard
+            ? {}
+            : { note: shown ? "Not confirmed as heard. The text was shown on the client's screen." : "Not confirmed as heard, and this client has no screen." }),
+        };
       }
 
       case "vortex.axis.clients":
