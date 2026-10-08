@@ -67,6 +67,14 @@ interface ActiveTurn {
   playbackDone?: (() => void) | undefined;
   /** Set once the client confirms it played the audio to the end. */
   heard?: boolean;
+  /**
+   * True while the turn waits for the agent's first words. The agent may be
+   * busy calling a tool that speaks or asks on this very client, so the client
+   * is free for that; the turn carries on when the agent answers.
+   */
+  thinking?: boolean;
+  /** Set when the turn is over. */
+  done?: boolean;
 }
 
 class TurnFailure extends Error {
@@ -374,7 +382,8 @@ export class TurnManager {
           this.port.send(session, { t: "error", code: "busy", message: "that wake was not granted" });
           return;
         }
-        this.cancelActive(session, true);
+        // An answer to a question asked mid-turn must not cancel the turn that is waiting for it.
+        if (!this.asks.has(id)) this.cancelActive(session, true);
         const bytesPerMs = (message.format.sampleRate * 2) / 1000;
         this.captures.set(id, {
           turnId: message.turnId,
@@ -471,10 +480,16 @@ export class TurnManager {
     return this.lastInput.clientId;
   }
 
-  /** True while the client is recording, a turn of its own is running, or it has been asked something. */
+  /**
+   * True while the client is recording, speaking a reply or has been asked
+   * something. A turn that is only waiting for the agent does not count: an
+   * agent that asks a question in the middle of its own turn must not be told
+   * the client is busy with that turn.
+   */
   busy(session: Session): boolean {
     const id = session.client.id;
-    return this.captures.has(id) || this.active.has(id) || this.asks.has(id);
+    const turn = this.active.get(id);
+    return this.captures.has(id) || this.asks.has(id) || Boolean(turn && !turn.thinking);
   }
 
   /**
@@ -620,6 +635,8 @@ export class TurnManager {
       abort: new AbortController(),
       finished: new Promise<void>((resolve) => (finish = resolve)),
     };
+    // A turn still waiting for its agent stays alive underneath this one and gets the client back afterwards.
+    const outer = this.active.get(id);
     this.active.set(id, turn);
     const signal = turn.abort.signal;
     const { stt, tts, agent } = this.services;
@@ -663,6 +680,7 @@ export class TurnManager {
       } else {
         if (!agent) throw new TurnFailure("upstream_down", "the agent is not set up");
         state("thinking");
+        turn.thinking = true;
         source = agent.reply(`${this.header(session)}\n${text}`, signal);
       }
 
@@ -702,6 +720,14 @@ export class TurnManager {
       for await (const delta of source) {
         if (signal.aborted) return "interrupted";
         if (fromAgent && delta) record.agentMs ??= Date.now() - asked;
+        if (delta.trim() && turn.thinking) {
+          turn.thinking = false;
+          // The client may have been borrowed for a question meanwhile; say again whose turn it is.
+          if (this.active.get(id) !== turn) {
+            this.active.set(id, turn);
+            state("thinking");
+          }
+        }
         full += delta;
         for (const piece of splitter.pushPieces(delta)) held.push(piece);
         if (fromAgent && mayBeSilent(full)) continue;
@@ -746,7 +772,12 @@ export class TurnManager {
       this.port.send(session, { t: "error", code: failure.code, message: failure.message.slice(0, 256) });
       return failure.message;
     } finally {
-      if (this.active.get(id) === turn) this.active.delete(id);
+      turn.done = true;
+      turn.thinking = false;
+      if (this.active.get(id) === turn) {
+        if (outer && !outer.done && !outer.abort.signal.aborted) this.active.set(id, outer);
+        else this.active.delete(id);
+      }
       if (outcome) outcome.heard = Boolean(turn.heard);
       finish();
       if (signal.aborted && record.outcome !== "failed") record.outcome = "interrupted";

@@ -17,6 +17,8 @@ export interface TimersOptions {
   now?: () => number;
   log?: (line: string) => void;
   retryMs?: number;
+  /** How long a device's chime is given before the words start. */
+  chimeMs?: number;
 }
 
 /** "5 minute", "1 hour 30 minute", "45 second": a length of time as it is said before the word "timer". */
@@ -44,6 +46,7 @@ export class Timers {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly retryMs: number;
+  private readonly chimeMs: number;
   private wait: NodeJS.Timeout | undefined;
   /** When each overdue timer is next tried. */
   private readonly retryAt = new Map<number, number>();
@@ -57,6 +60,7 @@ export class Timers {
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
     this.retryMs = options.retryMs ?? RETRY_MS;
+    this.chimeMs = options.chimeMs ?? 900;
     this.hub.onConnect((session) => this.tell(session.client.id));
   }
 
@@ -152,7 +156,9 @@ export class Timers {
           : `Your ${this.name(timer)} timer is done.`;
       // A device with a chime plays it first, so the words are not the first thing heard.
       if (this.store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) {
-        await this.hub.command(session, "chime", undefined, 3000).catch(() => undefined);
+        const chimed = await this.hub.command(session, "chime", undefined, 3000).catch(() => undefined);
+        // Speech that starts while the chime is still sounding cuts it off, and can be cut off by it.
+        if (chimed?.ok) await new Promise((resolve) => setTimeout(resolve, this.chimeMs));
       }
       const { heard } = await this.hub.say(session, words);
       this.store.removeTimer(timer.id);
@@ -191,7 +197,8 @@ export class Timers {
     const mine = this.list(clientId);
     const next = mine[0];
     const params = next
-      ? { label: this.name(next), ms: Math.max(1, next.dueAt - this.now()), count: mine.length }
+      ? // An unnamed timer is shown as "Timer 0:42". Its length would read like a second timer starting.
+        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: mine.length }
       : { label: "", ms: 0, count: 0 };
     // A client that shows no countdown says so or says nothing; either is fine.
     this.hub.command(session, "timer.next", params, 3000).catch(() => undefined);

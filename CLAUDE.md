@@ -23,7 +23,7 @@ Proven with a real gateway, a real board and a real voice: pairing, typed and sp
 
 Known not working, accepted for now: saying the wake word over the device's own speech (barge-in). The board has no echo canceller. Tap interrupts instead. Do not build an echo canceller without being asked.
 
-Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet tried by the owner on a real device or through a real agent: `vortex.axis.ask` (question with choices to tap or say, or an open question), `vortex.axis.timer` (timers kept on Axis, announced when due, counted down on a screen) and `vortex.axis.admin` (list and run device actions, rename, pairing code). Design section 6 says how each behaves. On the board, tapping a choice depends on the touch controller's coordinates matching the panel's, which nobody has watched; `firmware/README.md` tests 17 to 22 are the list for a person.
+Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet tried by the owner on a real device or through a real agent: `vortex.axis.ask` (question with choices to tap or say, or an open question), `vortex.axis.timer` (timers kept on Axis, announced when due, counted down on a screen) and `vortex.axis.admin` (list and run device actions, rename, pairing code). Design section 6 says how each behaves. The owner has since tried them on the board (2026-10-08): tapping a choice works, and the timer tests passed. A fix after that, deployed but not yet retried by the owner: an agent asking mid-turn on the device it is talking to was refused as busy (see `thinking` in `turns.ts`). `firmware/README.md` tests 17 to 22 are the list for a person.
 
 Not built yet: firmware updates over Wi-Fi, TLS from firmware (`axis+tls://` is parsed but unusable).
 

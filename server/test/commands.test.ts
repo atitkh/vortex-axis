@@ -83,6 +83,34 @@ describe("vortex.axis.ask", () => {
     expect(await closed).toMatchObject({ answer: null, said: "purple", note: expect.stringMatching(/matched none/) });
   });
 
+  it("lets an agent ask in the middle of its own turn on the same client", async () => {
+    // The agent is asked something by voice, asks a question back before answering, and then answers.
+    let release!: (answer: string) => void;
+    const agent = {
+      reply: async function* () {
+        yield `You picked ${await new Promise<string>((resolve) => (release = resolve))}.`;
+      },
+      healthy: async () => true,
+    };
+    await restart({}, { stt: hears("Blue."), agent });
+    const { client } = await device("Desk");
+    client.send({ t: "text", turnId: "outer", text: "pick a colour for me" });
+    await client.turn("outer", "thinking");
+
+    const asking = invoke("vortex.axis.ask", { question: "Red or blue?", choices: ["Red", "Blue"], client: "Desk" });
+    await client.next("ask");
+    client.send({ t: "audio.start", turnId: "inner", format: UPSTREAM_AUDIO_FORMAT });
+    client.sendAudio(Buffer.alloc(3200));
+    client.send({ t: "audio.end", turnId: "inner", reason: "silence" });
+    const result = await asking;
+    expect(result).toMatchObject({ answer: "Blue", how: "voice" });
+
+    release(result.answer);
+    const reply = await client.next("reply.text", 0, (m) => m.turnId === "outer" && m.final);
+    expect(reply.text).toBe("You picked Blue.");
+    await client.turn("outer", "idle");
+  });
+
   it("gives up when nobody answers, and refuses a client that could not answer", async () => {
     const { client } = await device("Desk");
     const { hub } = ctx.app;
