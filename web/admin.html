@@ -38,6 +38,7 @@
     <a href="#agent" data-view="agent">Agent</a>
     <a href="#speech" data-view="speech">Speech</a>
     <a href="#firmware" data-view="firmware">Firmware <span class="count" id="nav-firmware"></span></a>
+    <a href="#wakewords" data-view="wakewords">Wake words</a>
   </nav>
 
   <main>
@@ -185,6 +186,43 @@
       </div>
 
       <div id="firmware-shelves"></div>
+    </section>
+
+    <!-- Wake words: the models devices can listen with -->
+    <section class="view" id="wakewords">
+      <div class="head"><h2>Wake words</h2></div>
+      <p class="help">The phrases a device can listen for. Every device has one built into its firmware. The ones stored here can be chosen in its place, for all devices, a type or one device, with the <b>Wake word</b> setting. A device fetches the model it is given, keeps it and restarts to use it; if the model will not load it goes back to its built-in one. There is no history: uploading a phrase that is already here replaces it.</p>
+
+      <div id="wakewords-list"></div>
+      <p class="msg" id="wakewords-note"></p>
+
+      <h3>Add a wake word</h3>
+      <div class="form">
+        <label for="wake-file">Model</label>
+        <div>
+          <input id="wake-file" type="file" accept=".tflite">
+          <p class="help">A microWakeWord streaming model (<code>.tflite</code>) with a 10 ms feature step.</p>
+        </div>
+        <label for="wake-manifest">Manifest</label>
+        <div>
+          <input id="wake-manifest" type="file" accept=".json">
+          <p class="help">Optional. The <code>.json</code> that came with the model; it fills in the three fields below.</p>
+        </div>
+        <label for="wake-name">Phrase</label>
+        <div><input id="wake-name" maxlength="60" spellcheck="false" placeholder="Hey Vortex"></div>
+        <label for="wake-cutoff">Cutoff</label>
+        <div>
+          <input id="wake-cutoff" type="number" min="50" max="99" value="90" style="max-width:7rem">
+          <p class="help">How sure the model must be, in percent. Lower wakes more easily, and more often by mistake. A device's own <b>Wake word cutoff</b> setting overrides it.</p>
+        </div>
+        <label for="wake-window">Window</label>
+        <div>
+          <input id="wake-window" type="number" min="1" max="12" value="5" style="max-width:7rem">
+          <p class="help">How many of the model's answers are averaged. Use the manifest's value unless you know better.</p>
+        </div>
+        <label></label>
+        <div class="inline"><button class="primary" id="wake-upload">Add</button><span class="msg" id="wake-note"></span></div>
+      </div>
     </section>
 
     <!-- Pairing -->

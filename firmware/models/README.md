@@ -9,4 +9,6 @@ Each model is two files with the same base name:
 
 A board names its model with `custom_wake_model = hey_vortex` in `platformio.ini`. At build time `tools/model_header.py` runs `tools/gen_model_header.py` to turn the pair into a C header (the model bytes, its name, cutoff and window), which `wake/` includes. The header is a build product and is not committed.
 
-To change the wake word: add the two files here, change `custom_wake_model`, rebuild. The model must be a microWakeWord streaming model with `feature_step_size` 10. The generator rejects a file that is not TFLite, a cutoff outside 50 to 99 and a window outside 1 to 12.
+A device can also be given a different wake word WITHOUT a rebuild: upload the model on the Axis admin page (Wake words) and choose it with the Wake word setting. The device keeps that model in its own storage and the built-in one stays as the fallback. The steps below change the built-in one.
+
+To change the built-in wake word: add the two files here, change `custom_wake_model`, rebuild. The model must be a microWakeWord streaming model with `feature_step_size` 10. The generator rejects a file that is not TFLite, a cutoff outside 50 to 99 and a window outside 1 to 12.

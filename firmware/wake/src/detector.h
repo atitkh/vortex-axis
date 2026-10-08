@@ -14,8 +14,29 @@
 
 namespace wake {
 
-/** Loads the built-in model. False when it does not fit in memory or is not usable. `log` is optional. */
-bool begin(Print *log = nullptr);
+/**
+ * A model that did not come with the firmware, for example one a device was
+ * sent and keeps in its own storage. `data` must stay where it is, unchanged,
+ * for as long as the detector runs.
+ */
+struct Model {
+    const uint8_t *data = nullptr;
+    size_t length = 0;
+    /** The phrase, for logs. */
+    const char *name = "";
+    /** Cutoff in percent, 50 to 99. */
+    uint8_t cutoffPercent = 90;
+    /** How many answers are averaged, 1 to 12. */
+    uint8_t window = 5;
+};
+
+/**
+ * Loads a model: `custom` when one is given and it loads, the built-in one
+ * otherwise. False when neither fits in memory or is usable. `log` is optional.
+ */
+bool begin(Print *log = nullptr, const Model *custom = nullptr);
+/** True when the model running is the one passed to `begin`, not the built-in. */
+bool usingCustom();
 bool ready();
 
 /**

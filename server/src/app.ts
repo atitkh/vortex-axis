@@ -5,6 +5,7 @@ import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
 import { Activity } from "./activity.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
+import { WakeWordStore, WakeWordSync } from "./wakewords.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
@@ -95,6 +96,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     log,
   });
   const timers = new Timers({ store, hub, activity, log });
+  const wakeWords = new WakeWordStore(config.dataDir);
+  const wakeWordSync = new WakeWordSync(wakeWords, store, hub);
   gateway.onInvokeCommand(
     createInvokeHandler({ hub, store, timers, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
   );
@@ -117,7 +120,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, timers, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, timers, wakeWords, wakeWordSync, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

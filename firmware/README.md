@@ -157,6 +157,13 @@ Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
 
+Added in 0.10.0 (wake words from Axis):
+
+26. [ ] On the admin page, Wake words: "Hey Vortex" is stored and this board is set to listen with the stored copy (`wakeWord` = `hey-vortex` on the device). It should wake exactly as before; the log's first `[wake]` line says `"Hey Vortex" loaded` without "(built-in)". Set Wake word back to `built-in` on the device's page: the board restarts within a few seconds of being idle and the log says "(built-in)" again.
+27. [ ] Upload a different microWakeWord model with its manifest, choose it, and say the new phrase.
+
+How it works: `axis::loadStoredWakeModel` (client core) reads `/wake.tflite` from the flash partition for files into PSRAM, checked against the checksum Axis gave, and `mic::loadWakeWord` hands it to `wake::begin`, which falls back to the built-in model if it will not load. The `wake.model` command from Axis fetches or drops the file and restarts the device when it is idle. Measured with the stored copy: 2.5 ms an inference, the same as the built-in.
+
 Added in 0.9.0, not yet seen by a person:
 
 23. [ ] The text. Everything is now drawn in FreeSans (headings bold, body regular, buttons a size up) and not the blocky built-in font. Check a long reply, a question with buttons, the timer line and the setup screens. Curly quotes, dashes and accented letters should come out as plain ones, and emoji as nothing.

@@ -2,6 +2,8 @@
 
 #include <DNSServer.h>
 #include <HTTPClient.h>
+#include <LittleFS.h>
+#include <MD5Builder.h>
 #include <Preferences.h>
 #include <Update.h>
 #include <WebServer.h>
@@ -96,6 +98,75 @@ Turn turnFromName(const char *name) {
 extern const uint8_t caBundleStart[] asm("_binary_x509_crt_bundle_start");
 extern const uint8_t caBundleEnd[] asm("_binary_x509_crt_bundle_end");
 
+// --- wake words kept on the device -----------------------------------------
+//
+// The model file lives in the flash partition the build sets aside for files,
+// and what Axis said about it (which one, its checksum, how to run it) in its
+// own corner of the preferences. "try" counts starts with this model that have
+// not yet reached Axis: a model that crashes the device is given up on after two.
+
+const char *const WAKE_FILE = "/wake.tflite";
+const char *const WAKE_PREFS = "axiswk";
+bool wakeModelsTaken = false, storedWakeRunning = false;
+
+bool mountFiles() {
+    static bool mounted = false;
+    if (!mounted) mounted = LittleFS.begin(true, "/files", 5, "spiffs");
+    return mounted;
+}
+
+String md5Of(const uint8_t *data, size_t length) {
+    MD5Builder md5;
+    md5.begin();
+    md5.add(data, length);
+    md5.calculate();
+    return md5.toString();
+}
+
+bool loadStoredWakeModel(StoredWakeModel &out, Print *log) {
+    wakeModelsTaken = true;
+    Preferences prefs;
+    prefs.begin(WAKE_PREFS, false);
+    const String id = prefs.getString("id", "");
+    if (id.isEmpty()) return false;
+    const uint8_t tries = prefs.getUChar("try", 0);
+    if (tries >= 2) {
+        if (log) log->printf("[wake] the stored wake word \"%s\" is set aside: it did not work\n", id.c_str());
+        return false;
+    }
+    if (!mountFiles() || !LittleFS.exists(WAKE_FILE)) {
+        if (log) log->println("[wake] a wake word is recorded but its file is missing");
+        return false;
+    }
+    File file = LittleFS.open(WAKE_FILE, "r");
+    const size_t length = file.size();
+    uint8_t *data = length ? (uint8_t *)heap_caps_aligned_alloc(16, length, MALLOC_CAP_SPIRAM) : nullptr;
+    const bool read = data && file.read(data, length) == length;
+    file.close();
+    if (!read || md5Of(data, length) != prefs.getString("md5", "")) {
+        if (log) log->println("[wake] the stored wake word file is damaged, using the built-in one");
+        if (data) heap_caps_free(data);
+        return false;
+    }
+    prefs.putUChar("try", tries + 1);
+    out.data = data;
+    out.length = length;
+    out.id = id;
+    out.name = prefs.getString("name", id);
+    out.cutoffPercent = prefs.getUChar("cut", 90);
+    out.window = prefs.getUChar("win", 5);
+    return true;
+}
+
+void reportWakeModel(bool storedIsRunning) {
+    storedWakeRunning = storedIsRunning;
+    if (storedIsRunning) return;
+    // The detector refused it. Do not try it again at every start.
+    Preferences prefs;
+    prefs.begin(WAKE_PREFS, false);
+    if (!prefs.getString("id", "").isEmpty()) prefs.putUChar("try", 2);
+}
+
 bool parseSetupString(const String &input, String &baseUrl, String &code) {
     String s = input;
     s.trim();
@@ -175,6 +246,15 @@ struct Client::Impl {
     uint32_t updateSize = 0;
     /** True while this firmware has just been installed and has not yet proved it can reach Axis. */
     bool unproven = false;
+
+    // --- wake word from Axis ---
+    /** Set by the `wake.model` command when another model has to be fetched. */
+    bool wakeFetchWanted = false;
+    String modelPath, modelId, modelName, modelMd5;
+    uint32_t modelSize = 0;
+    uint8_t modelCutoff = 90, modelWindow = 5;
+    /** The detector loads its model once, at start, so a change of wake word ends in a restart, taken when nothing is going on. */
+    bool restartWanted = false;
 
     explicit Impl(Client &client) : self(client) {}
 
@@ -567,6 +647,12 @@ struct Client::Impl {
             welcomed = true;
             lastSense = millis() - SENSE_INTERVAL_MS + 5000;
             logf("connected to Axis");
+            if (storedWakeRunning) {
+                // A stored wake word that let the device get this far is safe to start with again.
+                Preferences wk;
+                wk.begin(WAKE_PREFS, false);
+                if (wk.getUChar("try", 0) != 0) wk.putUChar("try", 0);
+            }
             if (unproven) {
                 // A freshly installed firmware that got this far is good enough to keep.
                 unproven = false;
@@ -651,6 +737,117 @@ struct Client::Impl {
                 setLink(Link::Unpaired, "Axis no longer knows this device. Pair it again.");
             }
         }
+    }
+
+    /**
+     * Axis says which wake word this device should be listening with. Nothing
+     * happens when it already is. Otherwise the model is fetched (or the stored
+     * one dropped, for the built-in) and the device restarts into it.
+     */
+    void onWakeModel(JsonVariantConst params, JsonObject payload) {
+        const String id = params["id"] | "";
+        Preferences wk;
+        wk.begin(WAKE_PREFS, false);
+        const String have = wk.getString("id", "");
+        const uint8_t cutoff = (uint8_t)constrain((int)(params["cutoff"] | 90), 50, 99);
+        const uint8_t window = (uint8_t)constrain((int)(params["window"] | 5), 1, 12);
+        if (id.isEmpty()) {
+            payload["using"] = "built-in";
+            if (!have.isEmpty()) {
+                wk.clear();
+                if (mountFiles()) LittleFS.remove(WAKE_FILE);
+                // Only a device actually running the stored one needs to restart to leave it.
+                restartWanted = storedWakeRunning;
+                payload["changing"] = restartWanted;
+            }
+            return;
+        }
+        if (id == have && wk.getString("md5", "") == (params["md5"] | "")) {
+            // The same model. Its tuning may have changed, which also takes a restart.
+            if (wk.getUChar("cut", 90) != cutoff || wk.getUChar("win", 5) != window) {
+                wk.putUChar("cut", cutoff);
+                wk.putUChar("win", window);
+                restartWanted = storedWakeRunning;
+                payload["changing"] = restartWanted;
+            }
+            payload["using"] = storedWakeRunning ? id : String("built-in");
+            if (!storedWakeRunning) payload["problem"] = "the stored model did not load on this device";
+            return;
+        }
+        modelPath = params["path"] | "";
+        modelId = id;
+        modelName = params["name"] | "";
+        modelMd5 = params["md5"] | "";
+        modelSize = params["size"] | 0;
+        modelCutoff = cutoff;
+        modelWindow = window;
+        wakeFetchWanted = modelPath.startsWith("/") && modelSize > 0 && modelSize <= 1024 * 1024;
+        payload["fetching"] = wakeFetchWanted;
+    }
+
+    /** Fetches the wake word Axis named, checks it and keeps it. The device restarts into it when it is next idle. */
+    void fetchWakeModel() {
+        logf("fetching the wake word \"%s\" (%u bytes)", modelName.c_str(), (unsigned)modelSize);
+        String problem;
+        uint8_t *data = (uint8_t *)heap_caps_malloc(modelSize, MALLOC_CAP_SPIRAM);
+        const bool wasEncrypted = encrypted();
+        if (wasEncrypted) stopSocket();  // no room for two encrypted connections
+        if (!data) {
+            problem = "no memory";
+        } else {
+            WiFiClient plain;
+            NetworkClientSecure tls;
+            HTTPClient http;
+            http.setConnectTimeout(8000);
+            http.setTimeout(10000);
+            if (!beginHttp(http, plain, tls, baseUrl + modelPath)) {
+                problem = "bad address";
+            } else {
+                http.addHeader("Authorization", "Bearer " + token);
+                http.addHeader("X-Axis-Client", clientId);
+                const int status = http.GET();
+                if (status != 200) problem = "Axis answered " + String(status);
+                else if ((uint32_t)http.getSize() != modelSize) problem = "the file is not the size Axis said";
+                else {
+                    WiFiClient *stream = http.getStreamPtr();
+                    uint32_t done = 0, lastData = millis();
+                    while (done < modelSize) {
+                        const int got = stream->read(data + done, modelSize - done);
+                        if (got > 0) {
+                            done += got;
+                            lastData = millis();
+                        } else if (!stream->connected() || millis() - lastData > 10000) {
+                            problem = "the download stopped";
+                            break;
+                        } else {
+                            delay(5);
+                        }
+                    }
+                    if (problem.isEmpty() && md5Of(data, modelSize) != modelMd5) problem = "the file did not check out";
+                }
+                http.end();
+            }
+        }
+        if (problem.isEmpty()) {
+            File file = mountFiles() ? LittleFS.open(WAKE_FILE, "w") : File();
+            if (!file || file.write(data, modelSize) != modelSize) problem = "it could not be saved";
+            if (file) file.close();
+        }
+        if (data) heap_caps_free(data);
+        if (!problem.isEmpty()) {
+            logf("wake word not changed: %s", problem.c_str());
+            return;
+        }
+        Preferences wk;
+        wk.begin(WAKE_PREFS, false);
+        wk.putString("id", modelId);
+        wk.putString("name", modelName);
+        wk.putString("md5", modelMd5);
+        wk.putUChar("cut", modelCutoff);
+        wk.putUChar("win", modelWindow);
+        wk.putUChar("try", 0);
+        logf("wake word \"%s\" saved; restarting into it when idle", modelName.c_str());
+        restartWanted = true;
     }
 
     /**
@@ -871,6 +1068,9 @@ struct Client::Impl {
             updateWanted = updatePath.startsWith("/") && updateSize > 0;
             if (updateWanted) payload["updating"] = updateVersion;
             handled = updateWanted;
+        } else if (!strcmp(name, "wake.model") && wakeModelsTaken) {
+            handled = true;
+            onWakeModel(doc["params"], payload);
         } else if (!strcmp(name, "timer.next")) {
             // Axis keeps the timers and announces them. This is only for a countdown on a screen.
             const uint32_t ms = doc["params"]["ms"] | 0;
@@ -954,6 +1154,18 @@ struct Client::Impl {
             }
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
+        if (wakeFetchWanted) {
+            wakeFetchWanted = false;
+            socket.loop();
+            fetchWakeModel();
+        }
+        // A restart for a new wake word waits until nobody is talking to the device.
+        if (restartWanted && state.turn == Turn::Idle && !self.recording_ && speakTurn.isEmpty() && state.askId.isEmpty()) {
+            logf("restarting to change the wake word");
+            socket.disconnect();
+            delay(300);
+            ESP.restart();
+        }
         if (updateWanted) {
             updateWanted = false;
             socket.loop();  // let the answer to the command out first
@@ -966,6 +1178,11 @@ struct Client::Impl {
             doc["readings"]["rssi"] = WiFi.RSSI();
             doc["readings"]["heap"] = ESP.getFreeHeap();
             doc["readings"]["uptimeS"] = millis() / 1000;
+            if (wakeModelsTaken) {
+                Preferences wk;
+                wk.begin(WAKE_PREFS, true);
+                doc["readings"]["wakeWord"] = storedWakeRunning ? wk.getString("id", "built-in") : String("built-in");
+            }
             send(doc);
         }
     }

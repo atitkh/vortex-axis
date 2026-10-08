@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that made the picture offset a setting (firmware 0.9.2). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added wake words from Axis (firmware 0.10.0). Update this line whenever you change this section.
 
 Built and running:
 
@@ -31,9 +31,9 @@ Built 2026-10-08 after milestone 5: protections for a public address (design 9.0
 
 `docs/client-guide.md` is the contract for a new client type: what each capability obliges a client to do, the shared setting keys, the commands every client answers, and a checklist. Read it before writing firmware for a new board, and change it in the same commit as any change to what clients must do.
 
-Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, wake word models sent from Axis, firmware built in CI on a tag. The owner asked about these on 2026-10-08; they were discussed, not started.
+Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, firmware built in CI on a tag. Wake words from Axis ARE built (design 7.3, `server/src/wakewords.ts`, the Wake words page, the `wake.model` command). The owner asked about these on 2026-10-08; they were discussed, not started.
 
-Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.2 at that commit. The owner confirmed the 0.9.1 rotation directions. 0.9.2 makes the panel's column offset a setting (`screenOffset`; this board is set to 0, the firmware default stays 16): the owner saw the picture off-centre in portrait and its edge wrapping round in flipped landscape. Whether 0 is right for this board is NOT yet confirmed; the "Show screen edges" action is how to check.
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.10.0 at that commit. The board is set to listen with the stored copy of "Hey Vortex" (`wakeWord` = `hey-vortex` on the device), which loaded and ran; the owner has not yet spoken to it in that state. `screenOffset` is 0 for the whole board type, set by the owner, which suggests 0 is right for this unit.
 
 Loose ends, not yet done:
 
@@ -139,6 +139,7 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
 - `server/src/ask.ts`: matches what a person said or typed to one of a question's choices. The question's life (speak it, send `ask`, take the answer from a tap, a recording or typed text, time out) is in `turns.ts`, because a spoken answer arrives as an ordinary recording and must be kept from the agent.
 - `server/src/firmware.ts`: the firmware builds kept per client type (the last five, one current) for updates over Wi-Fi. The routes are in `http.ts`; the admin page's Firmware section manages them.
+- `server/src/wakewords.ts`: wake word models kept for devices, and the sync that tells each microphone client which one its `wakeWord` setting chooses.
 - `server/src/timers.ts`: timers agents set. Kept in the `timers` table, announced with `hub.say` when due, retried while nobody can be reached, and told to screens with the `timer.next` command.
 
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.

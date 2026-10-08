@@ -110,7 +110,20 @@ void task(void *) {
 }  // namespace
 
 bool loadWakeWord(Print *log) {
-    modelLoaded = wake::begin(log);
+    // A wake word Axis sent, kept on the device, is tried first; the one built into the firmware is the fallback.
+    static axis::StoredWakeModel stored;
+    static wake::Model other;
+    const bool have = axis::loadStoredWakeModel(stored, log);
+    if (have) {
+        other.data = stored.data;
+        other.length = stored.length;
+        other.name = stored.name.c_str();
+        other.cutoffPercent = stored.cutoffPercent;
+        other.window = stored.window;
+    }
+    modelLoaded = wake::begin(log, have ? &other : nullptr);
+    axis::reportWakeModel(have && wake::usingCustom());
+    if (have && !wake::usingCustom()) heap_caps_free(stored.data);
     return modelLoaded;
 }
 

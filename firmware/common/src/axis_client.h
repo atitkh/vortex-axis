@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.9.2"
+#define AXIS_FIRMWARE_VERSION "0.10.0"
 
 namespace axis {
 
@@ -230,6 +230,30 @@ class Client {
     AudioSink *sink_ = nullptr;
     friend struct Impl;
 };
+
+/**
+ * A wake word model the device was sent by Axis and keeps in its own storage,
+ * read into memory. A board with a wake word asks for it at start, before
+ * `Client::begin`, and hands it to its detector.
+ */
+struct StoredWakeModel {
+    /** In PSRAM, aligned for the model reader. Stays allocated; free it only if the detector refuses it. */
+    uint8_t *data = nullptr;
+    size_t length = 0;
+    String id, name;
+    uint8_t cutoffPercent = 90, window = 5;
+};
+
+/**
+ * Reads the stored wake word, if there is one worth trying. False with
+ * nothing stored, with a file that does not match what Axis sent, or when the
+ * device has started with it twice without reaching Axis (it is then left
+ * alone until Axis sends another). Calling this is also what tells the client
+ * core that this board takes wake words from Axis at all.
+ */
+bool loadStoredWakeModel(StoredWakeModel &out, Print *log = nullptr);
+/** Tell the core how that went: true when the stored model is the one running, false when the detector fell back to its own. */
+void reportWakeModel(bool storedIsRunning);
 
 /** Splits "axis://host:port/CODE" into a base URL and a pairing code. */
 bool parseSetupString(const String &input, String &baseUrl, String &code);

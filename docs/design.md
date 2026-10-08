@@ -155,6 +155,17 @@ Built 2026-10-08 (brought into version 1 by the owner the same day).
 
 A setup string that starts `axis+tls://` makes the device pair, connect and update over TLS (port 443 unless given). It checks Axis's certificate against the certificate authorities the ESP32 core ships with, so the address needs a certificate from a public authority (Let's Encrypt behind a reverse proxy is fine); a self-signed one is refused. The serial command `tlscheck <https://...>` says whether a device can reach and trust an address before it is moved to it. An encrypted connection costs about 45 KB of the board's memory, so the socket is closed while an update downloads. Checked on the real board against public sites (trusted) and a self-signed one (refused); NOT yet used against a real Axis address, because Axis has no publicly certified address a LAN device can reach.
 
+### 7.3 Wake words from Axis
+
+Built 2026-10-08. Tried on the real board with a stored copy of "Hey Vortex".
+
+- Axis keeps wake word models in `<data folder>/wakewords/`, one per phrase and with no history (`server/src/wakewords.ts`). Each has an id made from its phrase (`hey-vortex`), a cutoff in percent and a window. `POST /admin/wakewords?name=&cutoff=&window=` with the `.tflite` as the body adds or replaces one; `PATCH` changes the cutoff or window; there are `GET` (list, and download one) and `DELETE`. The admin page's Wake words section does all of it and reads a model's manifest to fill in the fields.
+- Which one a device listens with is the `wakeWord` setting, a choice between `built-in` (the model inside its firmware) and the stored ids, set like any other setting for all devices, a type or one device. Axis makes this setting's choices from what is stored.
+- Axis sends every client with a microphone the `wake.model` command on connect and whenever a setting or a stored model changes: the id, name, checksum, size, cutoff, window and where to fetch it, or an empty id for the built-in. A device already on that model does nothing. Otherwise it fetches the file with its own token (`GET /v1/wakewords/:id`), checks it, keeps it in its own storage and restarts when nobody is talking to it, because the detector loads its model once at start.
+- Safety: the built-in model always remains. A stored model that the detector refuses, or that the device starts with twice without reaching Axis, is set aside until Axis sends another. A client with no wake word of its own answers `ok: false`, which is ignored.
+- Models must be microWakeWord streaming models with a 10 ms feature step and the same operations as the built-in one. Axis only checks that a file is TensorFlow Lite; the device finds out whether it can run it.
+- Not built: a wake word in the web client.
+
 ### 8.0 What is going on now
 
 `GET /admin/now` returns the timers running (label, client, when due) and what each client is in the middle of (listening, waiting for the agent, speaking, or asked a question, with the question). The admin overview draws it as the "Now" table, refreshed with the rest of the page, with a Cancel button per timer (`DELETE /admin/timers/:id`). Nothing here is stored beyond the timers themselves.

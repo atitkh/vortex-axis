@@ -21,6 +21,7 @@ let lastGateway;
 let lastNow;
 let lastFirmware = [];
 let lastShelves = [];
+let lastWakeWords = { wakeWords: [], builtInUsedBy: [] };
 let lastConfig;
 
 /** Builds an element. Text always goes in as text, never as markup. */
@@ -165,14 +166,16 @@ $("signout").addEventListener("click", () => signOut());
 
 async function refresh() {
   try {
-    const [status, gateway, clients, settings, now, firmware] = await Promise.all([
+    const [status, gateway, clients, settings, now, firmware, wake] = await Promise.all([
       api("GET", "/admin/status"),
       api("GET", "/admin/gateway"),
       api("GET", "/admin/clients"),
       api("GET", "/admin/settings/global"),
       api("GET", "/admin/now").catch(() => undefined),
       api("GET", "/admin/firmware").catch(() => undefined),
+      api("GET", "/admin/wakewords").catch(() => undefined),
     ]);
+    lastWakeWords = wake ?? { wakeWords: [], builtInUsedBy: [] };
     lastNow = now;
     lastFirmware = firmware?.firmware ?? [];
     lastShelves = firmware?.shelves ?? [];
@@ -355,7 +358,7 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware"];
+const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
@@ -388,6 +391,7 @@ function renderView() {
   if (view.name === "type") renderType();
   if (view.name === "settings") renderAllDevices();
   if (view.name === "firmware") renderFirmware();
+  if (view.name === "wakewords") renderWakeWords();
 }
 
 /** Every client type that has a device, with how many are online. */
@@ -982,6 +986,118 @@ function renderFirmware() {
     }),
   );
 }
+
+/** The Wake words page: what is stored, who listens with it, and the knobs that can be turned without uploading again. */
+function renderWakeWords() {
+  const box = $("wakewords-list");
+  const key = JSON.stringify(lastWakeWords);
+  if (box.dataset.drawn === key || busy($("wakewords"))) return;
+  box.dataset.drawn = key;
+  const users = (names) => (names.length ? names.join(", ") : "nobody online");
+  const tune = (word, field, min, max) => {
+    const input = h("input", { type: "number", min, max, value: word[field], style: "max-width:5rem" });
+    input.addEventListener("change", async () => {
+      try {
+        await api("PATCH", `/admin/wakewords/${encodeURIComponent(word.id)}`, { [field]: Number(input.value) });
+        note("wakewords-note", `${word.name}: ${field} is now ${input.value}. Devices using it restart to take it.`, "good");
+      } catch (error) {
+        note("wakewords-note", error.message, "bad");
+      }
+      box.dataset.drawn = "";
+      refresh();
+    });
+    return input;
+  };
+  box.replaceChildren(
+    h("table", { class: "numbers" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Phrase"), h("th", {}, "Name in settings"), h("th", {}, "Cutoff %"), h("th", {}, "Window"), h("th", { class: "num" }, "Size"), h("th", {}, "Listening with it"), h("th", {}))),
+      h("tbody", {},
+        h("tr", {},
+          h("td", {}, "The firmware's own"),
+          h("td", { class: "mono" }, "built-in"),
+          h("td", { class: "sub" }, "set in the build"),
+          h("td", {}),
+          h("td", {}),
+          h("td", {}, users(lastWakeWords.builtInUsedBy)),
+          h("td", {}),
+        ),
+        ...lastWakeWords.wakeWords.map((word) =>
+          h("tr", {},
+            h("td", {}, word.name),
+            h("td", { class: "mono" }, word.id),
+            h("td", {}, tune(word, "cutoff", 50, 99)),
+            h("td", {}, tune(word, "window", 1, 12)),
+            h("td", { class: "num" }, `${Math.round(word.size / 1024)} KB`),
+            h("td", {}, users(word.usedBy)),
+            h("td", { class: "num" },
+              h("div", { class: "inline", style: "justify-content:flex-end" },
+                h("button", {
+                  type: "button", class: "small",
+                  onclick: (event) => act(event.target, "wakewords-note", async () => {
+                    const res = await fetch(`/admin/wakewords/${encodeURIComponent(word.id)}`, { headers: { authorization: `Bearer ${token}` } });
+                    if (!res.ok) throw new ApiError(res.status, `download failed (${res.status})`);
+                    const link = h("a", { href: URL.createObjectURL(await res.blob()), download: `${word.id}.tflite` });
+                    document.body.append(link);
+                    link.click();
+                    link.remove();
+                  }),
+                }, "Download"),
+                h("button", {
+                  type: "button", class: "small",
+                  onclick: (event) => {
+                    if (!confirm(`Remove "${word.name}"? Devices listening with it go back to their built-in wake word.`)) return;
+                    act(event.target, "wakewords-note", async () => {
+                      await api("DELETE", `/admin/wakewords/${encodeURIComponent(word.id)}`);
+                      refresh();
+                    });
+                  },
+                }, "Remove"),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+    h("p", { class: "help" }, "To put a device on one of these, set ", h("b", {}, "Wake word"), " under Settings: for ", h("a", { href: "#settings" }, "all devices"), ", for a type, or on a device's own page."),
+  );
+}
+
+// A manifest fills in the phrase, cutoff and window, so they do not have to be copied by hand.
+$("wake-manifest").addEventListener("change", async () => {
+  const file = $("wake-manifest").files[0];
+  if (!file) return;
+  try {
+    const manifest = JSON.parse(await file.text());
+    if (manifest.wake_word) $("wake-name").value = manifest.wake_word;
+    if (manifest.micro?.probability_cutoff) $("wake-cutoff").value = Math.round(manifest.micro.probability_cutoff * 100);
+    if (manifest.micro?.sliding_window_size) $("wake-window").value = manifest.micro.sliding_window_size;
+    const step = manifest.micro?.feature_step_size;
+    note("wake-note", step && step !== 10 ? `This model uses a ${step} ms feature step; devices only run 10 ms models.` : "Filled in from the manifest.", step && step !== 10 ? "bad" : "");
+  } catch {
+    note("wake-note", "That manifest is not valid JSON.", "bad");
+  }
+});
+
+$("wake-upload").addEventListener("click", (event) =>
+  act(event.target, "wake-note", async () => {
+    const file = $("wake-file").files[0];
+    const name = $("wake-name").value.trim();
+    if (!file) throw new Error("Choose the .tflite model.");
+    if (!name) throw new Error("Say what the phrase is.");
+    const query = new URLSearchParams({ name, cutoff: $("wake-cutoff").value, window: $("wake-window").value });
+    const res = await fetch(`/admin/wakewords?${query}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `upload failed (${res.status})`);
+    note("wake-note", `"${data.name}" is stored as ${data.id}. Choose it with the Wake word setting.`, "good");
+    $("wake-file").value = "";
+    $("wake-manifest").value = "";
+    await refresh();
+  }),
+);
 
 $("firmware-upload").addEventListener("click", (event) =>
   act(event.target, "firmware-note", async () => {

@@ -8,6 +8,7 @@ import type { Activity } from "./activity.js";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
+import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
@@ -117,6 +118,9 @@ export interface HttpDeps {
   version?: string;
   gateway: GatewayClient;
   services: Services;
+  /** Wake word models, and the thing that keeps devices on the one their settings choose. */
+  wakeWords?: WakeWordStore;
+  wakeWordSync?: WakeWordSync;
   /** Timers agents set, shown and cancelled on the admin page. */
   timers?: Timers;
   /** Rebuilds the upstream clients after the saved settings changed. */
@@ -132,6 +136,7 @@ export function createHttpHandler(deps: HttpDeps) {
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
   const firmware = new FirmwareStore(config.dataDir);
+  const wakeIds = () => (deps.wakeWords?.list() ?? []).map((word) => word.id);
 
   function allowPairAttempt(address: string): boolean {
     const cutoff = now() - 60_000;
@@ -244,7 +249,7 @@ export function createHttpHandler(deps: HttpDeps) {
     for (const client of store.listClients()) {
       if (out[client.type]) continue;
       const label = store.getMeta(`type_label:${client.type}`);
-      out[client.type] = { ...withBuiltIns(store.getSchema(client.type)), ...(label ? { label } : {}) };
+      out[client.type] = { ...withBuiltIns(store.getSchema(client.type), wakeIds()), ...(label ? { label } : {}) };
     }
     return out;
   }
@@ -259,7 +264,7 @@ export function createHttpHandler(deps: HttpDeps) {
 
   /** Refuses a value the client's own schema does not allow. Unknown keys are allowed. */
   function checkAgainstSchema(type: string, values: Record<string, unknown>) {
-    const schema = withBuiltIns(store.getSchema(type));
+    const schema = withBuiltIns(store.getSchema(type), wakeIds());
     for (const [key, value] of Object.entries(values)) {
       const def = schema.settings.find((s) => s.key === key);
       const problem = def ? settingProblem(def, value as Scalar) : undefined;
@@ -339,6 +344,17 @@ export function createHttpHandler(deps: HttpDeps) {
       if (!info) throw new HttpError(404, "there is no firmware for this client type");
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": info.size, "x-md5": info.md5 });
       createReadStream(firmware.path(info.type, info.version)).pipe(res);
+      return;
+    }
+
+    // A device fetching the wake word its settings chose, again with its own token.
+    if (method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "wakewords") {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      if (!store.authenticate(String(req.headers["x-axis-client"] ?? ""), token)) throw new HttpError(401, "unknown client or wrong token");
+      const word = deps.wakeWords?.get(parts[2]!);
+      if (!word) throw new HttpError(404, "there is no such wake word");
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": word.size, "x-md5": word.md5 });
+      createReadStream(deps.wakeWords!.path(word.id)).pipe(res);
       return;
     }
 
@@ -430,6 +446,77 @@ export function createHttpHandler(deps: HttpDeps) {
         store.setMeta(`type_label:${type}`, label || undefined);
         activity?.note("admin", "", label ? `Client type ${type} is now shown as "${label}"` : `Client type ${type} is shown by its own name again`);
         return sendJson(res, 200, { type, label: label || null });
+      }
+      // Wake words: one model per phrase, chosen per device with the wakeWord setting.
+      if (parts[1] === "wakewords" && deps.wakeWords) {
+        const words = deps.wakeWords;
+        const id = parts[2] ?? "";
+        if (method === "GET" && parts.length === 2) {
+          // Which online devices each one is in use on, as their settings stand.
+          const users = new Map<string, string[]>();
+          for (const session of hub.sessions()) {
+            if (!session.client.capabilities.includes("mic")) continue;
+            const chosen = deps.wakeWordSync?.chosen(session)?.id ?? "built-in";
+            users.set(chosen, [...(users.get(chosen) ?? []), session.client.name]);
+          }
+          return sendJson(res, 200, {
+            wakeWords: words.list().map((word) => ({ ...word, usedBy: users.get(word.id) ?? [] })),
+            builtInUsedBy: users.get("built-in") ?? [],
+          });
+        }
+        if (method === "POST" && parts.length === 2) {
+          try {
+            const word = words.save(
+              {
+                name: url.searchParams.get("name") ?? "",
+                cutoff: Number(url.searchParams.get("cutoff") ?? 90),
+                window: Number(url.searchParams.get("window") ?? 5),
+              },
+              await readBytes(req, MAX_WAKE_WORD_BYTES),
+            );
+            activity?.note("admin", "", `Wake word "${word.name}" stored`);
+            deps.wakeWordSync?.tellAll();
+            return sendJson(res, 201, word);
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            throw new HttpError(400, (error as Error).message);
+          }
+        }
+        if (method === "GET" && parts.length === 3) {
+          const word = words.get(id);
+          if (!word) throw new HttpError(404, "there is no such wake word");
+          res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            "content-type": "application/octet-stream",
+            "content-length": word.size,
+            "content-disposition": `attachment; filename="${word.id}.tflite"`,
+          });
+          createReadStream(words.path(word.id)).pipe(res);
+          return;
+        }
+        if (method === "PATCH" && parts.length === 3) {
+          const body = (await readJson(req)) as { cutoff?: unknown; window?: unknown };
+          try {
+            const word = words.tune(id, {
+              cutoff: typeof body.cutoff === "number" ? body.cutoff : undefined,
+              window: typeof body.window === "number" ? body.window : undefined,
+            });
+            if (!word) throw new HttpError(404, "there is no such wake word");
+            activity?.note("admin", "", `Wake word "${word.name}": cutoff ${word.cutoff} %, window ${word.window}`);
+            deps.wakeWordSync?.tellAll();
+            return sendJson(res, 200, word);
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            throw new HttpError(400, (error as Error).message);
+          }
+        }
+        if (method === "DELETE" && parts.length === 3) {
+          const word = words.get(id);
+          if (!word || !words.remove(id)) throw new HttpError(404, "there is no such wake word");
+          activity?.note("admin", "", `Wake word "${word.name}" removed; devices that used it go back to their built-in one`);
+          deps.wakeWordSync?.tellAll();
+          return sendJson(res, 200, { removed: id });
+        }
       }
       // Firmware: the last few builds kept per client type, one of them current, sent to devices over Wi-Fi.
       if (parts[1] === "firmware") {

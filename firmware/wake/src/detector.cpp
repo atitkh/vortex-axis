@@ -38,6 +38,10 @@ uint32_t arenaBytes = 0, lastUs = 0, hits = 0;
 uint8_t sensitivity = 0, peak = 0;
 
 int windowLen = WW_BUILTIN_WINDOW;
+// Which model is running. The built-in one unless `begin` was given another that loaded.
+bool custom = false;
+char activeName[64] = WW_BUILTIN_NAME;
+uint8_t activeCutoff = WW_BUILTIN_CUTOFF_PCT;
 float window[WINDOW_MAX];
 int windowIdx = 0;
 bool latched = false;
@@ -46,7 +50,7 @@ int8_t slices[SLICES][FEATURE_SIZE];
 int sliceCount = 0;
 
 float cutoff() {
-    const uint8_t pct = sensitivity >= 50 && sensitivity <= 99 ? sensitivity : WW_BUILTIN_CUTOFF_PCT;
+    const uint8_t pct = sensitivity >= 50 && sensitivity <= 99 ? sensitivity : activeCutoff;
     return pct / 100.0f;
 }
 
@@ -62,15 +66,24 @@ bool shapeIsCompatible(TfLiteTensor *in, TfLiteTensor *out) {
     return in->dims->data[0] == 1 && in->dims->data[1] == SLICES && in->dims->data[2] == FEATURE_SIZE;
 }
 
-bool load() {
-    const tflite::Model *model = tflite::GetModel(ww_builtin_model);
+bool load(const uint8_t *data, size_t length, const char *name, uint8_t cutoffPct, int wantWindow) {
+    // A file that is not a TensorFlow Lite model must be turned away before anything reads into it.
+    if (!data || length < 1024 || memcmp(data + 4, "TFL3", 4) != 0) {
+        say("that is not a TensorFlow Lite model");
+        return false;
+    }
+    const tflite::Model *model = tflite::GetModel(data);
     if (model->version() != TFLITE_SCHEMA_VERSION) {
         if (logOut) logOut->printf("[wake] model schema %lu, expected %d\n", (unsigned long)model->version(), TFLITE_SCHEMA_VERSION);
         return false;
     }
 
     // Exactly the ops this model uses. TFLM wants each registered by hand, and a missing one only shows up in AllocateTensors.
+    // Registered once: a second model (the built-in one, after a stored one failed) uses the same list.
     static tflite::MicroMutableOpResolver<13> resolver;
+    static bool registered = false;
+    if (!registered) {
+    registered = true;
     resolver.AddCallOnce();
     resolver.AddVarHandle();
     resolver.AddReadVariable();
@@ -84,6 +97,7 @@ bool load() {
     resolver.AddFullyConnected();
     resolver.AddLogistic();
     resolver.AddQuantize();
+    }
 
     // One allocator over one arena, shared by the resource variables and the
     // interpreter. The allocator lives inside the arena, so a retry frees the
@@ -129,10 +143,12 @@ bool load() {
         interp = nullptr;
         return false;
     }
-    if (WW_BUILTIN_WINDOW >= 1 && WW_BUILTIN_WINDOW <= WINDOW_MAX) windowLen = WW_BUILTIN_WINDOW;
+    windowLen = wantWindow >= 1 && wantWindow <= WINDOW_MAX ? wantWindow : WW_BUILTIN_WINDOW;
+    activeCutoff = cutoffPct >= 50 && cutoffPct <= 99 ? cutoffPct : WW_BUILTIN_CUTOFF_PCT;
+    strlcpy(activeName, name, sizeof activeName);
     if (logOut) {
-        logOut->printf("[wake] \"%s\" loaded, cutoff %u%%, window %d, arena %u of %u bytes\n", WW_BUILTIN_NAME,
-                       (unsigned)WW_BUILTIN_CUTOFF_PCT, windowLen, (unsigned)interp->arena_used_bytes(), (unsigned)arenaBytes);
+        logOut->printf("[wake] \"%s\" loaded, cutoff %u%%, window %d, arena %u of %u bytes\n", activeName,
+                       (unsigned)activeCutoff, windowLen, (unsigned)interp->arena_used_bytes(), (unsigned)arenaBytes);
     }
     return true;
 }
@@ -169,13 +185,19 @@ bool accept(float p, float *score) {
 
 }  // namespace
 
-bool begin(Print *log) {
+bool begin(Print *log, const Model *other) {
     logOut = log;
     if (isReady) return true;
     if (!featuresBegin(log)) return false;
-    isReady = load();
+    if (other && other->data) {
+        custom = load(other->data, other->length, other->name, other->cutoffPercent, other->window);
+        if (!custom) say("the stored wake word would not load, using the built-in one");
+    }
+    isReady = custom || load(ww_builtin_model, WW_BUILTIN_LEN, WW_BUILTIN_NAME, WW_BUILTIN_CUTOFF_PCT, WW_BUILTIN_WINDOW);
     return isReady;
 }
+
+bool usingCustom() { return custom; }
 
 bool ready() { return isReady; }
 
@@ -210,7 +232,7 @@ void reset() {
     for (int i = 0; i < WINDOW_MAX; i++) window[i] = 0;
 }
 
-const char *modelName() { return WW_BUILTIN_NAME; }
+const char *modelName() { return activeName; }
 uint32_t lastInferenceUs() { return lastUs; }
 uint8_t peakPercent() { return peak; }
 uint32_t arenaSize() { return arenaBytes; }

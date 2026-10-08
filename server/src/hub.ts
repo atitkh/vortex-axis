@@ -82,6 +82,7 @@ export class Hub implements TurnPort {
   private readonly pending = new Map<string, PendingCommand>();
   private commandCount = 0;
   private readonly connectListeners: Array<(session: Session) => void> = [];
+  private readonly settingsListeners: Array<() => void> = [];
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 
   constructor(options: HubOptions) {
@@ -388,6 +389,12 @@ export class Hub implements TurnPort {
     for (const session of this.online.values()) {
       if (!filter || filter(session.client)) this.sendSettings(session);
     }
+    for (const listener of this.settingsListeners) listener();
+  }
+
+  /** Called after settings have gone out to clients, so anything derived from them can follow. */
+  onSettingsPushed(listener: () => void): void {
+    this.settingsListeners.push(listener);
   }
 
   /** Records upstream health and tells connected clients when it changes. */

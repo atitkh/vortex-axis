@@ -38,12 +38,32 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };
 
-/** A client's own settings after the ones Axis adds. A client cannot replace a built-in key. */
-export function withBuiltIns(schema: ClientSchema | undefined): ClientSchema {
-  const own = schema ?? EMPTY_SCHEMA;
-  const taken = new Set(BUILT_IN_SETTINGS.map((s) => s.key));
+/**
+ * The wake word setting. Its choices are whatever is on the Wake words page at
+ * the moment, so it is made on demand and not listed with the fixed ones.
+ */
+export function wakeWordSetting(ids: string[]): SettingDef {
   return {
-    settings: [...BUILT_IN_SETTINGS, ...own.settings.filter((s) => !taken.has(s.key))],
+    key: "wakeWord",
+    label: "Wake word",
+    kind: "choice",
+    group: "Axis",
+    options: ["built-in", ...ids],
+    default: "built-in",
+    help: "Which wake word a device listens for. \"built-in\" is the one inside its firmware; the others are on the Wake words page. A device restarts to change it, and only devices with their own wake word take notice.",
+  };
+}
+
+/**
+ * A client's own settings after the ones Axis adds. A client cannot replace a
+ * built-in key. `wakeWords` are the ids of the stored wake words to offer.
+ */
+export function withBuiltIns(schema: ClientSchema | undefined, wakeWords: string[] = []): ClientSchema {
+  const own = schema ?? EMPTY_SCHEMA;
+  const builtIn = [...BUILT_IN_SETTINGS, wakeWordSetting(wakeWords)];
+  const taken = new Set(builtIn.map((s) => s.key));
+  return {
+    settings: [...builtIn, ...own.settings.filter((s) => !taken.has(s.key))],
     actions: own.actions,
     links: own.links,
   };
