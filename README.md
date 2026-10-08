@@ -111,7 +111,7 @@ Axis joins the gateway the way a device does: one identity, an operator link for
      -H "Authorization: Bearer $AXIS_ADMIN_TOKEN" -H "content-type: application/json" \
      -d '{"code": "<setup code>"}'
    ```
-3. Approve the device on the gateway (`openclaw devices list`, then `openclaw devices approve <id>`, or Settings, Devices in the Control UI). Axis retries every 10 seconds until then.
+3. Approve the device on the gateway (`openclaw devices list`, then `openclaw devices approve <id>`, or Settings, Devices in the Control UI). Axis retries every 10 seconds until then. Expect two requests one after the other: first the device itself, then its request to also act as a node.
 4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `axis.say`, `axis.ask`, `axis.clients`, `axis.config`, `axis.sense`, `axis.diag`, `axis.timer`, `axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
 5. Check: `GET /admin/gateway` should show both links `connected`.
 

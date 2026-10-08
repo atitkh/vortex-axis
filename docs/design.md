@@ -25,7 +25,7 @@ Axis joins the gateway over its WebSocket with one device identity (an Ed25519 k
 - **Operator link:** sends each turn to an agent with the `agent` method and reads the reply from the `agent` event stream, matched by run id. The agent is chosen by name (`AXIS_AGENT_ID`, or at runtime through the admin API); with none chosen, the gateway's default agent answers. A fixed session key puts all clients in one conversation.
 - **Node link:** declares the commands in section 6, publishes the tools agents see, reports presence every minute, and carries out commands agents send.
 
-Pairing uses a setup code from `openclaw qr`, given to Axis at runtime. A person then approves the device on the gateway. Each role redeems the code for its own token, so the code is kept until both links are connected.
+Pairing uses a setup code from `openclaw qr`, given to Axis at runtime. The operator link presents it first and a person approves the device on the gateway. Then the node link asks for its role, which is approved separately unless the gateway granted both at once. The code is kept until both links are connected.
 
 The gateway's OpenAI-style chat endpoint is not used. Axis can still have any OpenAI-style chat endpoint answer turns instead, chosen on the admin page, which is useful for trying other agent harnesses. The node link keeps running either way.
 
@@ -182,3 +182,11 @@ These come from that project's notes on talking to the OpenClaw gateway (2026.9.
 - Back off on auth rejections. Retrying a rejected credential on a fixed interval trips rate limiting.
 - Read `error.details.code`, not the error message.
 - Always pass a limit to `sessions.list`.
+
+Found on Axis's own first pairing with a real gateway (2026-10-07):
+
+- Two roles must not present one setup code at the same moment. While one role's pairing request is waiting for approval, the gateway refuses the same code from the other role as invalid. The operator link pairs first; the node link starts once it is connected.
+- Approving a device approves the role it asked for. The node role then arrives as a second request ("asking for a higher role"), which needs its own approval.
+- Do not report the platform as `linux`. The gateway takes a Linux node host to be its own headless node: it warns about version drift, and it pins a device family (`Linux`) that the operator link, which sends none, then fails to match ("device identity changed and must be re-approved"). Axis reports the platform `vortex-axis`, which the gateway treats as a plain custom device.
+- `node.pluginSurface.refresh` is not a way to refresh tools. It wants a `surface` and fails without one. Publishing tools needs only `node.pluginTools.update`.
+- A gateway that is restarting answers connects with `UNAVAILABLE`. That is not a credential failure; retry soon.

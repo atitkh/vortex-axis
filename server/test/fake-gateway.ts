@@ -17,8 +17,12 @@ interface Conn {
  */
 export class FakeGateway {
   readonly server: WebSocketServer;
-  /** Devices a person has approved. */
-  readonly approved = new Set<string>();
+  /** Roles a person has approved, per device id. */
+  readonly approvedRoles = new Map<string, Set<string>>();
+  /** Pairing requests waiting for a person: "deviceId:role". */
+  readonly pendingRequests = new Set<string>();
+  /** A setup code in use by a pending request is refused to any other role, as on a real gateway. */
+  private readonly codeInUse = new Map<string, string>();
   /** Setup tokens that are still redeemable. */
   readonly bootstrapTokens = new Set<string>();
   /** Issued device tokens: token -> "deviceId:role". */
@@ -71,6 +75,23 @@ export class FakeGateway {
     return Buffer.from(JSON.stringify({ url: urls[0], urls, bootstrapToken })).toString("base64url");
   }
 
+  /** Approves pending requests the way `openclaw devices approve` does. Returns how many. */
+  approve(deviceId: string, roles?: string[]): number {
+    const granted = this.approvedRoles.get(deviceId) ?? new Set<string>();
+    this.approvedRoles.set(deviceId, granted);
+    let count = 0;
+    for (const request of [...this.pendingRequests]) {
+      const [id, role] = request.split(":") as [string, string];
+      if (id !== deviceId || (roles && !roles.includes(role))) continue;
+      granted.add(role);
+      this.pendingRequests.delete(request);
+      for (const [code, owner] of this.codeInUse) if (owner === request) this.codeInUse.delete(code);
+      count++;
+    }
+    for (const role of roles ?? []) granted.add(role);
+    return count;
+  }
+
   connected(role: string): Conn | undefined {
     return this.conns.find((c) => c.role === role);
   }
@@ -111,6 +132,8 @@ export class FakeGateway {
 
   private fail(conn: Conn, id: string, code: string, message = code): void {
     conn.socket.send(JSON.stringify({ type: "res", id, ok: false, error: { code: "INVALID_REQUEST", message, details: { code } } }));
+    // A real gateway hangs up after refusing a connect.
+    if (!conn.role) setTimeout(() => conn.socket.close(), 5);
   }
 
   private issue(deviceId: string, role: string): string {
@@ -145,13 +168,32 @@ export class FakeGateway {
         return this.fail(conn, id, "DEVICE_AUTH_SIGNATURE_INVALID");
       }
 
+      // A Linux node host is taken for the gateway's own headless node: it pins
+      // a device family that an operator connect without one then fails to match.
+      if (client.platform === "linux") return this.fail(conn, id, "PAIRING_REQUIRED", "device identity changed and must be re-approved");
+
+      const granted = this.approvedRoles.get(device.id) ?? new Set<string>();
+      const request = `${device.id}:${role}`;
       let extra: any[] | undefined;
       if (auth.bootstrapToken) {
-        if (!this.bootstrapTokens.has(auth.bootstrapToken)) return this.fail(conn, id, "AUTH_BOOTSTRAP_TOKEN_INVALID");
-        if (!this.approved.has(device.id)) return this.fail(conn, id, "PAIRING_REQUIRED");
-        // Redeeming issues a token for every approved role, the other one in deviceTokens[].
-        const other = role === "operator" ? "node" : "operator";
-        extra = [{ deviceToken: this.issue(device.id, other), role: other, scopes: [], issuedAtMs: Date.now() }];
+        const token = auth.bootstrapToken;
+        if (!this.bootstrapTokens.has(token)) return this.fail(conn, id, "AUTH_BOOTSTRAP_TOKEN_INVALID");
+        const owner = this.codeInUse.get(token);
+        if (owner && owner !== request) return this.fail(conn, id, "AUTH_BOOTSTRAP_TOKEN_INVALID");
+        if (!granted.has(role)) {
+          this.codeInUse.set(token, request);
+          this.pendingRequests.add(request);
+          return this.fail(
+            conn,
+            id,
+            "PAIRING_REQUIRED",
+            granted.size ? "device is asking for a higher role than currently approved" : "device is not approved yet",
+          );
+        }
+        // Redeeming issues a token for every other approved role, in deviceTokens[].
+        extra = [...granted]
+          .filter((other) => other !== role)
+          .map((other) => ({ deviceToken: this.issue(device.id, other), role: other, scopes: [], issuedAtMs: Date.now() }));
       } else if (auth.deviceToken) {
         if (this.deviceTokens.get(auth.deviceToken) !== `${device.id}:${role}`) {
           return this.fail(conn, id, "AUTH_DEVICE_TOKEN_MISMATCH");
@@ -176,6 +218,7 @@ export class FakeGateway {
     if (conn.role === "node") {
       this.nodeRequests.push({ method, params });
       if (method === "node.invoke.result") this.invokes.get(params.id)?.(params);
+      if (method === "node.pluginSurface.refresh") return this.fail(conn, id, "INVALID_REQUEST", "surface required");
       return this.ok(conn, id, {});
     }
 

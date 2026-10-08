@@ -16,7 +16,7 @@ Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handle
 
 Not built yet: `axis.ask`, `axis.timer`, `axis.admin` (declared, answered with "not built yet"), the `ask` and `command` flows to clients, and firmware.
 
-The gateway link has only run against the stand-in gateway in `server/test/fake-gateway.ts`. Expect surprises on the first real pairing.
+The gateway link has paired with a real gateway once (2026-10-07). What that taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` was changed to behave the same way. Agent turns and agent commands over a real gateway are still unproven.
 
 ## Rules that are settled
 

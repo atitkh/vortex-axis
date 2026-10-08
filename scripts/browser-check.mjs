@@ -143,8 +143,11 @@ try {
   step("speech test", await admin.until(`(t => /Synthesis/.test(t) && t)(${byId("speech-note")}.textContent)`, "the speech test", 60000));
   await admin.run(`${byId("gw-code")}.value = 'junk'; ${byId("gw-pair")}.click()`);
   step("bad setup code", await admin.until(`${byId("gw-note")}.textContent`, "the setup code error"));
-  await admin.run(`${byId("set-key")}.value = 'voice'; ${byId("set-value")}.value = 'nova'; ${byId("set-add")}.click()`);
-  step("shared setting saved", await admin.until(`document.querySelector('#settings-table tr')?.textContent`, "the settings row"));
+  step("known settings listed", await admin.until(`[...document.querySelectorAll('#settings-known .mono')].map(e => e.textContent).join(', ')`, "the known settings"));
+  await admin.run(`(i => { i.value = 'nova'; i.dispatchEvent(new Event('change')); })(document.querySelector('#settings-known input'))`);
+  await admin.until(`document.querySelector('#settings-known input').value === 'nova' && document.activeElement !== document.querySelector('#settings-known input')`, "the voice setting to save");
+  await admin.run(`${byId("set-key")}.value = 'ledColor'; ${byId("set-value")}.value = 'blue'; ${byId("set-add")}.click()`);
+  step("other setting saved", await admin.until(`document.querySelector('#settings-table tr')?.textContent`, "the settings row"));
   await admin.run(`document.querySelector('#settings-table button').click()`);
   await admin.until(`document.querySelector('#settings-table .empty')`, "the setting to clear");
   await admin.run(`${byId("code-new")}.click()`);

@@ -3,8 +3,13 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sig
 /** Gateway protocol version Axis speaks. */
 export const GATEWAY_PROTOCOL = 4;
 
-/** Signed into every connect. Axis runs in a Linux container wherever it is hosted. */
-export const PLATFORM = "linux";
+/**
+ * Signed into every connect. Deliberately not "linux": the gateway takes a
+ * Linux node host to be its own headless node, expects it to report the
+ * gateway's version, and pins a device family that the operator link then has
+ * to match. A platform it does not know is treated as a plain custom device.
+ */
+export const PLATFORM = "vortex-axis";
 
 export type Role = "operator" | "node";
 

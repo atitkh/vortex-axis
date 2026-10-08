@@ -43,7 +43,7 @@
       </div>
       <ol class="steps">
         <li>On the gateway host run <code>openclaw qr --setup-code-only</code>, paste the result above and press Pair.</li>
-        <li>Approve the device on the gateway: <code>openclaw devices list</code>, then <code>openclaw devices approve &lt;id&gt;</code>. Axis retries every 10 seconds.</li>
+        <li>Approve the device on the gateway: <code>openclaw devices list</code>, then <code>openclaw devices approve &lt;id&gt;</code>. Two requests come in, one after the other: first the device, then its request to also act as a node. Axis retries every 10 seconds.</li>
         <li>Allow Axis's commands in the gateway config under <code>gateway.nodes.commands.allow</code>: <code id="gw-commands"></code></li>
       </ol>
       <p class="note mono" id="gw-device"></p>
@@ -114,7 +114,10 @@
 
     <section class="card" id="settings">
       <h2>Shared settings</h2>
-      <p class="hint">Apply to every client unless a client has its own value. Common keys: <code>voice</code>, <code>wakeWord</code>, <code>defaultClient</code>.</p>
+      <p class="hint">Apply to every client unless a client has its own value. Nothing here is required: an empty setting means Axis uses the fallback shown next to it.</p>
+      <div id="settings-known"></div>
+      <h2 style="margin-top:16px">Other settings</h2>
+      <p class="hint">Any other key is passed to clients as it is, for firmware that wants its own options.</p>
       <div id="settings-table"></div>
       <div class="row">
         <div style="flex:0 1 200px"><label for="set-key">Key</label><input id="set-key" spellcheck="false"></div>

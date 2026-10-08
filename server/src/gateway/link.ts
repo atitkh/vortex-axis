@@ -31,10 +31,16 @@ export interface Credentials {
   identity(): DeviceIdentity;
   deviceToken(role: Role): string | undefined;
   bootstrapToken(): string | undefined;
+  /**
+   * Whether this role may present the setup code right now. Two roles
+   * presenting one code at the same moment get it refused, so they take turns.
+   */
+  mayRedeem(role: Role): boolean;
+  /** The gateway refused the setup code for this role. */
+  bootstrapRejected(role: Role): void;
   /** Stores the tokens a successful connect in role `from` returned. */
   storeTokens(from: Role, tokens: Partial<Record<Role, string>>): void;
   dropDeviceToken(role: Role): void;
-  dropBootstrapToken(): void;
 }
 
 export interface LinkOptions {
@@ -121,11 +127,16 @@ export class GatewayLink {
     this.setState("unconfigured");
   }
 
-  /** Forgets backoff and tries again now. Used after a new setup code or a manual retry. */
-  retryNow(): void {
+  /**
+   * Forgets backoff and tries again now. Used after a new setup code or a
+   * manual retry. With `preferToken`, a device token this link already holds
+   * is tried before the setup code.
+   */
+  retryNow(preferToken = false): void {
     if (this.stopped) return;
     this.authBackoffMs = 0;
-    this.bootstrapTried = undefined;
+    this.bootstrapTried = preferToken ? this.options.credentials.bootstrapToken() : undefined;
+    this.lastError = undefined;
     this.clearRetry();
     this.dropSocket(new GatewayError("CLOSED", "reconnecting"));
     this.connect();
@@ -187,11 +198,17 @@ export class GatewayLink {
     if (this.stopped || this.socket) return;
     const { credentials, role } = this.options;
     const url = credentials.url();
-    const hasCredential = Boolean(credentials.bootstrapToken() || credentials.deviceToken(role));
+    const hasToken = Boolean(credentials.deviceToken(role));
+    const hasCode = Boolean(credentials.bootstrapToken());
     // With no credential the gateway would only answer that one is missing, on
     // a loop. Stand down until a setup code arrives.
-    if (!url || !hasCredential) {
+    if (!url || (!hasToken && !hasCode)) {
       this.setState("unconfigured");
+      return;
+    }
+    if (!hasToken && !credentials.mayRedeem(role)) {
+      // The other link is using the setup code. It starts this one when it is through.
+      this.setState("pairing_required", "waiting for the other link to be approved first");
       return;
     }
     if (this.state !== "pairing_required" && this.state !== "auth_failed") this.setState("connecting");
@@ -253,7 +270,7 @@ export class GatewayLink {
     // A waiting setup code means "pair again", and redeeming it retires the old
     // tokens of every role. So each link presents it once before falling back
     // to the token it already holds.
-    const useBootstrap = Boolean(bootstrap) && this.bootstrapTried !== bootstrap;
+    const useBootstrap = Boolean(bootstrap) && this.bootstrapTried !== bootstrap && credentials.mayRedeem(role);
     if (useBootstrap) this.bootstrapTried = bootstrap;
     const token = useBootstrap ? bootstrap! : (device ?? "");
 
@@ -349,7 +366,7 @@ export class GatewayLink {
       return;
     }
     if (code === "AUTH_BOOTSTRAP_TOKEN_INVALID") {
-      credentials.dropBootstrapToken();
+      credentials.bootstrapRejected(role);
       if (credentials.deviceToken(role)) {
         this.retryIn(100);
         return;

@@ -39,12 +39,20 @@ const bothConnected = async () => {
   return s.operator.state === "connected" && s.node.state === "connected";
 };
 
-/** Pastes a setup code and approves the device, as a person would. */
-async function pairWithGateway(): Promise<void> {
-  const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode() });
+/**
+ * Pastes a setup code and approves what comes in, as a person would: first the
+ * device as an operator, then its request to also be a node.
+ */
+async function pairWithGateway(extra: Record<string, unknown> = {}): Promise<string> {
+  const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode(), ...extra });
   expect(res.status).toBe(202);
-  gateway.approved.add(res.body.deviceId);
+  const deviceId = res.body.deviceId as string;
+  for (const role of ["operator", "node"]) {
+    await until(() => gateway.pendingRequests.has(`${deviceId}:${role}`), `the ${role} request`);
+    gateway.approve(deviceId);
+  }
   await until(bothConnected, "both links to connect");
+  return deviceId;
 }
 
 describe("wire helpers", () => {
@@ -59,9 +67,9 @@ describe("wire helpers", () => {
   it("builds the signed text field by field", () => {
     expect(
       authPayload({ deviceId: "dev", role: "operator", scopes: ["a", "b"], signedAtMs: 5, token: "tok", nonce: "n" }),
-    ).toBe("v3|dev|cli|cli|operator|a,b|5|tok|n|linux|");
+    ).toBe("v3|dev|cli|cli|operator|a,b|5|tok|n|vortex-axis|");
     expect(authPayload({ deviceId: "dev", role: "node", scopes: [], signedAtMs: 5, token: "", nonce: "n" })).toBe(
-      "v3|dev|node-host|node|node||5||n|linux|",
+      "v3|dev|node-host|node|node||5||n|vortex-axis|",
     );
   });
 
@@ -89,34 +97,59 @@ describe("pairing with the gateway", () => {
     expect(gateway.connects).toEqual([]);
   });
 
-  it("waits for approval, then connects both roles and retires the setup code", async () => {
+  it("pairs one role at a time, each waiting for its own approval", async () => {
     const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode() });
-    await until(async () => (await status()).operator.state === "pairing_required", "pairing to be requested");
-    expect((await status()).setupCodePending).toBe(true);
+    const deviceId = res.body.deviceId as string;
+    await until(async () => (await status()).operator.state === "pairing_required", "the operator request");
 
-    gateway.approved.add(res.body.deviceId);
+    // The node link stands by. It must not present the code while the operator's request is open.
+    let s = await status();
+    expect(s.node).toEqual({ state: "pairing_required", error: "waiting for the other link to be approved first" });
+    expect(s.setupCodePending).toBe(true);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(gateway.connects.every((c) => c.role === "operator")).toBe(true);
+    expect([...gateway.pendingRequests]).toEqual([`${deviceId}:operator`]);
+
+    gateway.approve(deviceId);
+    await until(async () => (await status()).operator.state === "connected", "the operator link");
+    await until(() => gateway.pendingRequests.has(`${deviceId}:node`), "the node request");
+    s = await status();
+    expect(s.node.state).toBe("pairing_required");
+    expect(s.setupCodePending).toBe(true);
+
+    gateway.approve(deviceId);
     await until(bothConnected, "both links to connect");
-
-    const s = await status();
+    s = await status();
     expect(s.setupCodePending).toBe(false);
-    expect(gateway.connected("operator")?.deviceId).toBe(s.deviceId);
-    expect(gateway.connected("node")?.deviceId).toBe(s.deviceId);
+    expect(gateway.connected("operator")?.deviceId).toBe(deviceId);
+    expect(gateway.connected("node")?.deviceId).toBe(deviceId);
+  });
+
+  it("needs one approval when the gateway grants both roles at once", async () => {
+    const res = await admin("POST", "/admin/gateway/setup-code", { code: gateway.setupCode() });
+    await until(() => gateway.pendingRequests.size > 0, "the operator request");
+    gateway.approve(res.body.deviceId, ["operator", "node"]);
+    await until(bothConnected, "both links to connect");
+    // The node never asked: its token came with the operator's handshake.
+    expect(gateway.connects.filter((c) => c.role === "node").every((c) => c.auth.deviceToken)).toBe(true);
   });
 
   it("declares the full command list and publishes tools and presence", async () => {
     await pairWithGateway();
     const node = gateway.connects.filter((c) => c.role === "node").at(-1);
-    expect(node.client).toMatchObject({ id: "node-host", mode: "node", platform: "linux", displayName: "VorteX Axis", version: "0.1.0" });
+    expect(node.client).toMatchObject({ id: "node-host", mode: "node", platform: "vortex-axis", displayName: "VorteX Axis", version: "0.1.0" });
+    expect(gateway.connects.every((c) => c.client.platform === "vortex-axis" && c.client.deviceFamily === undefined)).toBe(true);
     expect(node.commands).toEqual([...NODE_COMMANDS]);
     expect(node.scopes).toEqual([]);
 
     await until(() => gateway.nodeRequests.some((r) => r.method === "node.event"), "presence");
     const methods = gateway.nodeRequests.map((r) => r.method);
-    expect(methods.slice(0, 3)).toEqual(["node.pluginTools.update", "node.pluginSurface.refresh", "node.event"]);
+    expect(methods.slice(0, 2)).toEqual(["node.pluginTools.update", "node.event"]);
+    expect(methods).not.toContain("node.pluginSurface.refresh");
     const tools = gateway.nodeRequests[0]!.params.tools;
     expect(tools.map((t: any) => t.name)).toEqual(["axis_say", "axis_clients", "axis_config", "axis_sense", "axis_diag"]);
     expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
-    expect(gateway.nodeRequests[2]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "linux" } });
+    expect(gateway.nodeRequests[1]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "vortex-axis" } });
   });
 
   it("reconnects with its stored tokens after a restart, without a setup code", async () => {
@@ -139,6 +172,7 @@ describe("pairing with the gateway", () => {
     gateway.bootstrapTokens.clear();
     await admin("POST", "/admin/gateway/setup-code", { code });
     await until(async () => (await status()).operator.state === "auth_failed", "the code to be refused");
+    await until(async () => (await status()).node.state === "unconfigured", "the node link to stand down");
     const s = await status();
     expect(s.operator.error).toMatch(/new one is needed/);
     expect(s.setupCodePending).toBe(false);
@@ -150,7 +184,8 @@ describe("pairing with the gateway", () => {
   it("uses the address given with the code over the one inside it", async () => {
     const code = gateway.setupCode(["ws://name-that-does-not-resolve.invalid:1"]);
     const res = await admin("POST", "/admin/gateway/setup-code", { code, url: gateway.url });
-    gateway.approved.add(res.body.deviceId);
+    await until(() => gateway.pendingRequests.size > 0, "the operator request");
+    gateway.approve(res.body.deviceId, ["operator", "node"]);
     await until(bothConnected, "both links to connect");
   });
 

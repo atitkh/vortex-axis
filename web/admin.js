@@ -346,10 +346,52 @@ $("code-new").addEventListener("click", (event) =>
 
 // --- shared settings -------------------------------------------------------
 
-function renderSettings(values) {
+/** Settings Axis itself reads, with what happens when each is left empty. */
+const KNOWN_SETTINGS = [
+  { key: "voice", label: "Voice", fallback: "the default voice in the Speech section, or the speech service's own default" },
+  { key: "defaultClient", label: "Default client", fallback: "the client last spoken to, then any client that can speak or show text" },
+  { key: "wakeWord", label: "Wake word", fallback: "each device's built-in wake word (the web client has none)" },
+];
+
+function renderKnownSettings(values) {
+  const box = $("settings-known");
+  // Leave the fields alone while someone is typing in one.
+  if (box.contains(document.activeElement)) return;
+  box.replaceChildren(
+    h(
+      "table",
+      {},
+      h(
+        "tbody",
+        {},
+        KNOWN_SETTINGS.map(({ key, label, fallback }) => {
+          const input = h("input", { value: values[key] ?? "", placeholder: "not set", spellcheck: "false" });
+          input.addEventListener("change", async () => {
+            const raw = input.value.trim();
+            await api("PATCH", "/admin/settings/global", { values: { [key]: raw === "" ? null : raw } }).catch(() => {});
+            input.blur();
+            refresh();
+          });
+          return h(
+            "tr",
+            {},
+            h("td", { class: "tight" }, h("div", {}, label), h("div", { class: "note mono", style: "margin:0" }, key)),
+            h("td", { style: "width:34%" }, input),
+            h("td", { class: "note", style: "margin:0" }, `When empty: ${fallback}.`),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+function renderSettings(all) {
+  renderKnownSettings(all);
+  const known = new Set(KNOWN_SETTINGS.map((s) => s.key));
+  const values = Object.fromEntries(Object.entries(all).filter(([key]) => !known.has(key)));
   const keys = Object.keys(values);
   if (!keys.length) {
-    $("settings-table").replaceChildren(h("p", { class: "empty" }, "No shared settings."));
+    $("settings-table").replaceChildren(h("p", { class: "empty" }, "None."));
     return;
   }
   $("settings-table").replaceChildren(

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Agent } from "../agent.js";
 import type { Store } from "../store.js";
 import { GatewayLink, type Credentials, type LinkOptions, type LinkState } from "./link.js";
-import { DeviceIdentity, GatewayError, decodeSetupCode, toSocketUrl, type Role } from "./wire.js";
+import { DeviceIdentity, GatewayError, PLATFORM, decodeSetupCode, toSocketUrl, type Role } from "./wire.js";
 
 /** A tool an agent can see, bound to one of this node's commands. */
 export interface NodeTool {
@@ -118,6 +118,10 @@ export class GatewayClient implements Agent, Credentials {
       onConnected: () => {
         this.defaultAgentId = undefined;
         this.retireBootstrap();
+        // The setup code is free now. A node token that came with this
+        // handshake is used as it is. Without one, the node presents the code
+        // itself and asks for its own role.
+        if (!this.node.connected) this.node.retryNow(Boolean(this.deviceToken("node")));
       },
     });
     this.node = new GatewayLink({
@@ -183,9 +187,9 @@ export class GatewayClient implements Agent, Credentials {
       const token = tokens[role];
       if (!token || token === this.deviceToken(role)) continue;
       this.store.setMeta(META.token(role), token);
-      // The other link is probably waiting out a refusal. It has a real token now.
-      const link = role === "operator" ? this.operator : this.node;
-      if (role !== from && !link.connected) link.retryNow();
+      // An operator link waiting out a refusal has a real token now. (The node
+      // link is started by the operator link once that one is connected.)
+      if (role === "operator" && from === "node" && !this.operator.connected) this.operator.retryNow(true);
     }
   }
 
@@ -193,13 +197,22 @@ export class GatewayClient implements Agent, Credentials {
     this.store.setMeta(META.token(role), undefined);
   }
 
-  dropBootstrapToken(): void {
+  /** The operator link pairs first. The node link follows once that is through. */
+  mayRedeem(role: Role): boolean {
+    return role === "operator" || this.operator.connected;
+  }
+
+  bootstrapRejected(role: Role): void {
     this.store.setMeta(META.bootstrap, undefined);
+    // The node link may be standing by for this code. Let it see that it is gone.
+    if (role === "operator") setImmediate(() => this.node.retryNow());
   }
 
   /** Each role redeems the setup code for its own token, so keep it until both have one. */
   private retireBootstrap(): void {
-    if (this.operator.connected && this.node.connected && this.bootstrapToken()) this.dropBootstrapToken();
+    if (this.operator.connected && this.node.connected && this.bootstrapToken()) {
+      this.store.setMeta(META.bootstrap, undefined);
+    }
   }
 
   // --- pairing and status ---------------------------------------------------
@@ -358,7 +371,6 @@ export class GatewayClient implements Agent, Credentials {
       await this.node.request("node.pluginTools.update", {
         tools: this.options.tools.map((tool) => ({ pluginId: PLUGIN_ID, ...tool })),
       });
-      await this.node.request("node.pluginSurface.refresh", {});
     } catch (error) {
       this.options.log(`could not publish node tools: ${(error as Error).message}`);
     }
@@ -376,7 +388,7 @@ export class GatewayClient implements Agent, Credentials {
           sentAtMs: Date.now(),
           displayName: this.options.displayName,
           version: this.options.version.replace(/^v/, ""),
-          platform: "linux",
+          platform: PLATFORM,
         },
       })
       .catch(() => {});
