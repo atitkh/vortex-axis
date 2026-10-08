@@ -52,6 +52,8 @@ interface PendingCommand {
 export interface HubOptions {
   store: Store;
   helloTimeoutMs: number;
+  /** How often each socket is pinged; one missed answer drops it. 0 or unset: never. */
+  pingIntervalMs?: number;
   services?: Services;
   wakeWindowMs?: number;
   maxUtteranceMs?: number;
@@ -69,6 +71,7 @@ export class Hub implements TurnPort {
   private readonly outputHoldMs: number;
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
+  private readonly pingIntervalMs: number;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly pending = new Map<string, PendingCommand>();
@@ -78,6 +81,7 @@ export class Hub implements TurnPort {
   constructor(options: HubOptions) {
     this.store = options.store;
     this.helloTimeoutMs = options.helloTimeoutMs;
+    this.pingIntervalMs = options.pingIntervalMs ?? 0;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
     this.outputHoldMs = options.outputHoldMs ?? 10 * 60_000;
@@ -166,7 +170,25 @@ export class Hub implements TurnPort {
       this.fail(socket, "timeout", "no hello received", CLOSE_PROTOCOL);
     }, this.helloTimeoutMs);
 
+    // A device that loses power or Wi-Fi never closes its socket, and the operating system
+    // can take hours to notice. A ping it has not answered by the next one ends the socket.
+    let answered = true;
+    const pingTimer =
+      this.pingIntervalMs > 0
+        ? setInterval(() => {
+            if (!answered) {
+              if (session) this.log(`client ${session.client.id} stopped answering pings`);
+              socket.terminate();
+              return;
+            }
+            answered = false;
+            socket.ping();
+          }, this.pingIntervalMs)
+        : undefined;
+    socket.on("pong", () => (answered = true));
+
     socket.on("message", (data, isBinary) => {
+      answered = true;
       if (isBinary) {
         if (!session) this.fail(socket, "bad_message", "hello must come first", CLOSE_PROTOCOL);
         else this.turns.handleAudio(session, data as Buffer);
@@ -194,6 +216,7 @@ export class Hub implements TurnPort {
 
     socket.on("close", () => {
       clearTimeout(helloTimer);
+      clearInterval(pingTimer);
       if (session && this.online.get(session.client.id) === session) {
         this.online.delete(session.client.id);
         this.turns.drop(session);

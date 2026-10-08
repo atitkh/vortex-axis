@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import WebSocket from "ws";
 import { PROTOCOL_VERSION } from "@vortex-axis/protocol";
 import { ADMIN_TOKEN, TestClient, admin, connect, ctx, newPairedClient, pair, restart, socketUrl, useServer } from "./harness.js";
 
@@ -245,5 +246,25 @@ describe("clients", () => {
     const again = await connect(identity);
     expect((await again.next("error")).code).toBe("unauthorized");
     expect((await admin("GET", "/admin/clients")).body.clients).toEqual([]);
+  });
+});
+
+describe("a client that goes silent", () => {
+  it("is dropped when it stops answering pings, and one that answers stays", async () => {
+    await restart({ pingIntervalMs: 50 });
+    const silent = await newPairedClient();
+    const alive = await newPairedClient();
+    // A device that lost power: the socket stays open but nothing comes back.
+    const ws = new WebSocket(socketUrl(), { autoPong: false });
+    await new Promise((r) => ws.on("open", r));
+    ws.send(JSON.stringify({ t: "hello", protocol: PROTOCOL_VERSION, clientId: silent.clientId, token: silent.token, type: "web", version: "0.1.0", capabilities: ["screen"], settingsVersion: 0 }));
+    const answering = await connect(alive);
+    await answering.next("status");
+    expect((await admin("GET", `/admin/clients/${silent.clientId}`)).body.online).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 250));
+    expect((await admin("GET", `/admin/clients/${silent.clientId}`)).body.online).toBe(false);
+    expect((await admin("GET", `/admin/clients/${alive.clientId}`)).body.online).toBe(true);
+    ws.close();
   });
 });

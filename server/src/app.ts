@@ -65,6 +65,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const hub = new Hub({
     store,
     helloTimeoutMs: config.helloTimeoutMs,
+    pingIntervalMs: config.pingIntervalMs,
     services,
     wakeWindowMs: config.wakeWindowMs,
     maxUtteranceMs: config.maxUtteranceMs,

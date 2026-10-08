@@ -13,6 +13,12 @@ export interface Config {
   pairingCodeTtlMs: number;
   /** How long a new connection may take to send `hello`. */
   helloTimeoutMs: number;
+  /**
+   * How often each client socket is pinged. A client that has not answered by the next
+   * ping is dropped, so a device that lost power shows offline within two intervals.
+   * 0 turns pinging off.
+   */
+  pingIntervalMs: number;
   /** How long wake arbitration waits for other clients to report. */
   wakeWindowMs: number;
   /** Longest utterance accepted from a client. */
@@ -62,6 +68,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminToken: env.AXIS_ADMIN_TOKEN || undefined,
     pairingCodeTtlMs: integer("AXIS_PAIRING_CODE_TTL_MS", env.AXIS_PAIRING_CODE_TTL_MS, 10 * 60 * 1000),
     helloTimeoutMs: integer("AXIS_HELLO_TIMEOUT_MS", env.AXIS_HELLO_TIMEOUT_MS, 10 * 1000),
+    pingIntervalMs: integer("AXIS_PING_INTERVAL_MS", env.AXIS_PING_INTERVAL_MS, 15 * 1000),
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
