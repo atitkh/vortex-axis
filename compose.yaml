@@ -12,8 +12,11 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${AXIS_PORT:-8440}:8440"
+    # The data folder on the host. It holds the SQLite file, including the
+    # gateway tokens, so keep it private. Create it before the first start so
+    # it belongs to you and not to root.
     volumes:
-      - vortex-axis-data:/data
+      - ${AXIS_DATA_PATH:-./data}:/data
 
 # A fixed subnet, so a host firewall can be told exactly which addresses Axis
 # calls from. Change AXIS_SUBNET if this range is already in use.
@@ -22,6 +25,3 @@ networks:
     ipam:
       config:
         - subnet: ${AXIS_SUBNET:-10.84.40.0/24}
-
-volumes:
-  vortex-axis-data:

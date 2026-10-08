@@ -88,7 +88,11 @@ export class Store {
     } else {
       mkdirSync(dataDir, { recursive: true });
       this.db = new DatabaseSync(join(dataDir, "axis.sqlite"));
-      this.db.exec("PRAGMA journal_mode = WAL");
+      // A rollback journal, not write-ahead logging: WAL needs shared memory
+      // between processes and is not safe when the data folder is on network
+      // storage, which is a common place to keep it. Axis writes rarely, so
+      // nothing is lost by this. An existing WAL database is converted on open.
+      this.db.exec("PRAGMA journal_mode = DELETE");
     }
     this.db.exec("PRAGMA foreign_keys = ON");
     this.migrate();

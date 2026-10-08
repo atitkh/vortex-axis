@@ -72,6 +72,7 @@ What exists today: client pairing, per-client tokens, settings sync, wake word a
 
 ```bash
 cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page
+mkdir -p data             # or the folder AXIS_DATA_PATH names
 docker compose up -d --build
 curl http://localhost:8440/healthz
 ```
@@ -83,7 +84,7 @@ Then open:
 
 Browsers only allow the microphone on `https` or on `localhost`. Over plain `http` from another machine the web client still works by typing. Put Axis behind a reverse proxy with TLS (and WebSocket support) to speak to it from other devices.
 
-Axis is one container with one data volume. Everything host-specific is an environment variable, so moving hosts means copying the volume and the `.env` file.
+Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there.
 
 ### Speech services
 
@@ -96,7 +97,7 @@ Axis reaches speech recognition and synthesis through OpenAI-style HTTP endpoint
 
 A service left unset is reported to clients as down. In the code both sit behind small interfaces (`server/src/speech.ts`), so an engine running inside Axis could replace either later.
 
-The addresses in `.env` are starting points. Anything saved on the admin page is stored in the data volume and wins from then on, and it applies to the next turn without a restart. The admin page's "Test both" button synthesizes a sentence and has recognition transcribe it back, with timings.
+The addresses in `.env` are starting points. Anything saved on the admin page is stored in the data folder and wins from then on, and it applies to the next turn without a restart. The admin page's "Test both" button synthesizes a sentence and has recognition transcribe it back, with timings.
 
 ### Pairing Axis with OpenClaw
 

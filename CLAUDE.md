@@ -34,7 +34,7 @@ The gateway link has only run against the stand-in gateway in `server/test/fake-
 ## Stack
 
 - Server and web: TypeScript on Node.
-- Storage: SQLite, one file in one Docker volume.
+- Storage: SQLite, one file in one data folder bind-mounted from the host. It uses a rollback journal (not WAL) so the folder can live on network storage.
 - Client transport: one WebSocket per client, JSON for control and binary frames for audio.
 - Firmware: PlatformIO, one shared core in `firmware/common/` and one folder per device type.
 
@@ -102,7 +102,7 @@ The agent is an OpenClaw gateway reached over its WebSocket, or any OpenAI-style
 
 Speech and agent settings come from the environment first and from the `meta` table after an admin saves them; the saved value wins. `app.ts` keeps one `services` object for the life of the process and replaces its fields in place, which is how a change reaches the next turn.
 
-The gateway's device tokens and the setup code are stored in the SQLite `meta` table as plain text, because Axis has to present them. Treat the data volume as secret.
+The gateway's device tokens and the setup code are stored in the SQLite `meta` table as plain text, because Axis has to present them. Treat the data folder as secret.
 
 ## Conventions
 
