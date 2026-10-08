@@ -153,11 +153,11 @@ static bool redrawAll = true;
 static int faceY = -1;
 static bool hasSpeaker = false, hasMic = false;
 
-// A question with choices takes the whole screen: the question on top, each choice a band to tap.
+// A question with choices: the face stays, the question goes under it and the choices are buttons below.
 static bool askShown = false;
 static String askDrawn;
 static bool askDrawnListening = false;
-static const int ASK_TOP = 2 * (8 * 2 + 4) + 10;
+static const uint16_t COLOR_PILL = 0x1CCA;  // the listening face's mint, dimmed
 static String timerLine(uint32_t now);
 
 /** Where the face sits while there is text under it. */
@@ -340,39 +340,89 @@ static String timerLine(uint32_t now) {
     return line;
 }
 
-static int askRowHeight() { return (display::height() - ASK_TOP) / max(1, (int)state.choiceCount); }
+/** Where a question's parts go on the screen. Worked out from the choices, so drawing and taps agree. */
+struct AskLayout {
+    /** False when the choices need the whole screen and the face has to make way. */
+    bool face;
+    int questionTop, questionLines;
+    int top, rows, cols, rowHeight;
+};
+
+static AskLayout askLayout() {
+    const int n = max(1, (int)state.choiceCount);
+    int longest = 1;
+    for (int i = 0; i < state.choiceCount; i++) longest = max(longest, (int)state.choices[i].length());
+    // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit.
+    const int need = min(display::width(), longest * 12 + 44);
+    const int maxCols = max(1, min(n, display::width() / need));
+    String lines[2];
+    const int questionLines = max(1, wrap(state.question, lines, 2));
+    const int lineH = display::lineHeight(2);
+
+    AskLayout l;
+    l.questionLines = questionLines;
+    // First choice: everything under the face, where replies go.
+    l.face = true;
+    l.questionTop = faceTop() + vortex::SIZE + 2;
+    l.cols = maxCols;
+    for (;;) {
+        const int top = l.questionTop + questionLines * lineH + 4;
+        const int room = display::height() - top;
+        l.rows = (n + l.cols - 1) / l.cols;
+        l.rowHeight = min(56, room / l.rows);
+        if (l.rowHeight >= 40) {
+            l.top = top + (room - l.rows * l.rowHeight) / 2;
+            return l;
+        }
+        if (!l.face) break;
+        // Too many or too long for that: the question and the buttons take the screen.
+        l.face = false;
+        l.questionTop = 8;
+        l.cols = min(maxCols, n <= 3 ? 1 : 2);
+    }
+    l.top = l.questionTop + questionLines * lineH + 4;
+    l.rowHeight = max(24, l.rowHeight);
+    return l;
+}
 
 /** Draws the question and its choices. Only what changed is sent again. */
-static void drawAsk() {
+static void drawAsk(const AskLayout &l) {
     const bool listening = client.listening();
     if (redrawAll || askDrawn != state.askId || listening != askDrawnListening) {
         // The question turns green while the microphone is open for a spoken answer.
         String lines[2];
         const int count = wrap(state.question, lines, 2);
-        for (int i = 0; i < 2; i++) {
-            display::textLine(4 + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
+        for (int i = 0; i < l.questionLines; i++) {
+            display::textLine(l.questionTop + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
         }
         askDrawnListening = listening;
     }
     if (redrawAll || askDrawn != state.askId) {
-        const int row = askRowHeight();
-        for (int i = 0; i < state.choiceCount; i++) {
-            const uint8_t size = (int)state.choices[i].length() <= display::lineChars(3) ? 3 : 2;
-            display::textLine(ASK_TOP + i * row + (row - display::lineHeight(size)) / 2, size, COLOR_HEAD, state.choices[i]);
+        for (int row = 0; row < l.rows; row++) {
+            const int first = row * l.cols;
+            display::pillRow(l.top + row * l.rowHeight, l.rowHeight, state.choices + first, min(l.cols, state.choiceCount - first), l.cols, COLOR_PILL, COLOR_HEAD);
         }
         askDrawn = state.askId;
     }
     redrawAll = false;
 }
 
-/** A tap on a choice answers the question. A tap on the question itself does nothing. */
-static void onAskTap() {
+/** A tap on a button answers the question. A tap anywhere else does nothing. */
+static void onAskTap(const AskLayout &l) {
     int px = 0, py = 0, x = 0, y = 0;
     touch::tapPoint(px, py);
     display::toLogical(px, py, x, y);
-    const int index = y < ASK_TOP ? -1 : (y - ASK_TOP) / askRowHeight();
+    int index = -1;
+    const int row = y < l.top ? -1 : (y - l.top) / l.rowHeight;
+    if (row >= 0 && row < l.rows) {
+        const int inRow = min(l.cols, state.choiceCount - row * l.cols);
+        const int cell = display::width() / l.cols;
+        const int left = (display::width() - cell * inRow) / 2;
+        const int col = x < left ? -1 : (x - left) / cell;
+        if (col >= 0 && col < inRow) index = row * l.cols + col;
+    }
     logOut.printf("[ask] tap at %d,%d (panel %d,%d): choice %d\n", x, y, px, py, index);
-    if (index >= 0 && index < state.choiceCount) client.answer((uint8_t)index);
+    if (index >= 0) client.answer((uint8_t)index);
 }
 
 /**
@@ -494,18 +544,23 @@ void loop() {
         }
     }
     // Text also depends on time (messages that expire), so it is rechecked a few times a second.
-    // A question with choices takes over the screen until it is answered or gives up.
+    // A question with choices has its own layout until it is answered or gives up.
     const bool wantAsk = state.link == axis::Link::Online && state.choiceCount > 0;
-    if (wantAsk != askShown) {
+    if (wantAsk != askShown || (wantAsk && askDrawn != state.askId && !askDrawn.isEmpty())) {
         askShown = wantAsk;
         askDrawn = "";
         display::clear();
         redrawAll = true;
         faceY = -1;
     }
+    bool drawFace = !facePaused;
     if (askShown) {
-        drawAsk();
-        if (touch::tapped()) onAskTap();
+        const AskLayout l = askLayout();
+        drawAsk(l);
+        if (touch::tapped()) onAskTap(l);
+        drawFace = drawFace && l.face;
+        faceY = faceTop();
+        vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
     } else {
         if (changed || started - lastText > 250) {
             lastText = started;
@@ -516,7 +571,7 @@ void loop() {
     }
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
-    if (!facePaused && !askShown) {
+    if (drawFace) {
         const uint32_t t0 = micros();
         const uint16_t *frame = vortex::render(min(seconds, 0.1f));
         renderMicros += micros() - t0;

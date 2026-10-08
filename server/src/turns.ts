@@ -43,6 +43,8 @@ type TurnMessage = Extract<
 /** A question a client has been asked and not yet answered. */
 interface PendingAsk {
   askId: string;
+  question: string;
+  since: number;
   choices: string[];
   resolve: (result: AskResult) => void;
   timer: NodeJS.Timeout;
@@ -52,6 +54,7 @@ interface PendingAsk {
 
 interface Capture {
   turnId: string;
+  startedAt: number;
   format: AudioFormat;
   chunks: Buffer[];
   bytes: number;
@@ -75,6 +78,17 @@ interface ActiveTurn {
   thinking?: boolean;
   /** Set when the turn is over. */
   done?: boolean;
+  startedAt?: number;
+}
+
+/** What a client is doing at this moment, for the admin page. */
+export interface ClientNow {
+  clientId: string;
+  state: "listening" | "thinking" | "speaking" | "asked";
+  since: number;
+  /** The question and its choices, when `state` is "asked". */
+  question?: string;
+  choices?: string[];
 }
 
 class TurnFailure extends Error {
@@ -389,6 +403,7 @@ export class TurnManager {
           turnId: message.turnId,
           format: message.format,
           chunks: [],
+          startedAt: Date.now(),
           bytes: 0,
           maxBytes: Math.floor(this.options.maxUtteranceMs * bytesPerMs),
         });
@@ -480,6 +495,22 @@ export class TurnManager {
     return this.lastInput.clientId;
   }
 
+  /** What each client is in the middle of. A client doing nothing is not listed. */
+  now(): ClientNow[] {
+    const list: ClientNow[] = [];
+    for (const [clientId, ask] of this.asks) {
+      list.push({ clientId, state: "asked", since: ask.since, question: ask.question, choices: ask.choices });
+    }
+    for (const [clientId, capture] of this.captures) {
+      if (!this.asks.has(clientId)) list.push({ clientId, state: "listening", since: capture.startedAt });
+    }
+    for (const [clientId, turn] of this.active) {
+      if (this.asks.has(clientId) || this.captures.has(clientId)) continue;
+      list.push({ clientId, state: turn.thinking ? "thinking" : "speaking", since: turn.startedAt ?? Date.now() });
+    }
+    return list;
+  }
+
   /**
    * True while the client is recording, speaking a reply or has been asked
    * something. A turn that is only waiting for the agent does not count: an
@@ -523,6 +554,8 @@ export class TurnManager {
       };
       this.asks.set(id, {
         askId,
+        question,
+        since: Date.now(),
         choices,
         resolve,
         timer: setTimeout(expire, timeoutMs),
@@ -632,6 +665,7 @@ export class TurnManager {
     let finish!: () => void;
     const turn: ActiveTurn = {
       turnId,
+      startedAt: started,
       abort: new AbortController(),
       finished: new Promise<void>((resolve) => (finish = resolve)),
     };

@@ -1,3 +1,4 @@
+import type { Timers } from "./timers.js";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -91,6 +92,8 @@ export interface HttpDeps {
   version?: string;
   gateway: GatewayClient;
   services: Services;
+  /** Timers agents set, shown and cancelled on the admin page. */
+  timers?: Timers;
   /** Rebuilds the upstream clients after the saved settings changed. */
   reloadServices: () => void;
   now?: () => number;
@@ -299,6 +302,27 @@ export function createHttpHandler(deps: HttpDeps) {
           hub.disconnect(id);
           return sendJson(res, 200, { removed: id });
         }
+      }
+      // What is going on at this moment: timers running, questions waiting, clients mid-turn.
+      if (method === "GET" && parts.length === 2 && parts[1] === "now") {
+        const nameOf = (id: string) => store.getClient(id)?.name ?? id;
+        return sendJson(res, 200, {
+          at: now(),
+          timers: (deps.timers?.list() ?? []).map((t) => ({
+            id: t.id,
+            label: t.label,
+            clientId: t.clientId,
+            client: nameOf(t.clientId),
+            seconds: t.seconds,
+            dueAt: t.dueAt,
+          })),
+          clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
+        });
+      }
+      if (method === "DELETE" && parts.length === 3 && parts[1] === "timers") {
+        const gone = deps.timers?.cancel({ id: Number(parts[2]) }) ?? [];
+        if (!gone.length) throw new HttpError(404, "no such timer");
+        return sendJson(res, 200, { cancelled: gone[0]!.id });
       }
       if (method === "GET" && parts.length === 2 && parts[1] === "status") {
         return sendJson(res, 200, {

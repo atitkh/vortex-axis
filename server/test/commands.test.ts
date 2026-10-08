@@ -4,7 +4,7 @@ import { matchChoice } from "../src/ask.js";
 import { createInvokeHandler } from "../src/commands.js";
 import type { SpeechToText } from "../src/speech.js";
 import { spokenLength } from "../src/timers.js";
-import { connect, ctx, newPairedClient, restart, useServer } from "./harness.js";
+import { admin, connect, ctx, newPairedClient, restart, useServer } from "./harness.js";
 
 useServer();
 
@@ -50,6 +50,7 @@ describe("vortex.axis.ask", () => {
     expect(shown.text).toBe("Lights off?");
     const ask = await client.next("ask");
     expect(ask).toMatchObject({ question: "Lights off?", choices: ["Yes", "No"], timeoutMs: 30_000 });
+    expect((await admin("GET", "/admin/now")).body.clients).toMatchObject([{ client: "Desk", state: "asked", question: "Lights off?" }]);
     client.send({ t: "answer", askId: ask.askId, choice: "No" });
     expect(await pending).toMatchObject({ client: "Desk", answer: "No", how: "tap" });
     expect((await client.next("ask.end")).askId).toBe(ask.askId);
@@ -143,6 +144,15 @@ describe("vortex.axis.timer", () => {
     const listed = await invoke("vortex.axis.timer", {});
     expect(listed.timers.map((t: any) => t.label)).toEqual([null, "pasta"]);
     expect(listed.timers[1].secondsLeft).toBeGreaterThan(290);
+
+    // The admin page sees the same timers, and every screen is told, not only the one that set it.
+    const other = await device("Hall", ["screen"], "panel");
+    expect(await other.client.next("command")).toMatchObject({ name: "timer.next", params: { count: 2 } });
+    const seen = (await admin("GET", "/admin/now")).body;
+    expect(seen.timers.map((t: any) => [t.label, t.client])).toEqual([["", "Desk"], ["pasta", "Desk"]]);
+    expect((await admin("DELETE", `/admin/timers/${seen.timers[0].id}`)).status).toBe(200);
+    expect((await admin("DELETE", "/admin/timers/999")).status).toBe(404);
+    await invoke("vortex.axis.timer", { action: "set", seconds: 60, client: "Desk" });
 
     const cancelled = await invoke("vortex.axis.timer", { action: "cancel", label: "Pasta" });
     expect(cancelled).toMatchObject({ cancelled: [{ label: "pasta" }], left: 1 });

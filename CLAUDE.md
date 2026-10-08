@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added ask, timer and admin (firmware 0.7.0). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added the Now panel (firmware 0.7.1). Update this line whenever you change this section.
 
 Built and running:
 
@@ -27,7 +27,7 @@ Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet trie
 
 Not built yet: firmware updates over Wi-Fi, TLS from firmware (`axis+tls://` is parsed but unusable).
 
-Deployed: the container was rebuilt and the board flashed with firmware 0.7.0 at the ask, timer and admin commit.
+Deployed: the container was rebuilt and the board flashed with firmware 0.7.1 at the Now panel commit. Not yet seen by the owner: the Now table on the admin overview, the board's new question screen (face, question, rounded buttons), and timers counting down on every screen.
 
 Loose ends, not yet done:
 

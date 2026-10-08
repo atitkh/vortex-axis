@@ -117,7 +117,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, timers, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

@@ -16,7 +16,7 @@ import {
   type Status,
 } from "@vortex-axis/protocol";
 import type { ClientRecord, Store } from "./store.js";
-import { TurnManager, type Services, type TurnPort } from "./turns.js";
+import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 
 /** WebSocket close codes in the application range. */
 const CLOSE_PROTOCOL = 4400;
@@ -121,6 +121,11 @@ export class Hub implements TurnPort {
   /** Puts a question to the person at a client. See `TurnManager.ask`. */
   ask(session: Session, question: string, choices: string[], timeoutMs: number): Promise<AskResult> {
     return this.turns.ask(session, question, choices, timeoutMs);
+  }
+
+  /** What each client is in the middle of, for the admin page. */
+  doing(): ClientNow[] {
+    return this.turns.now();
   }
 
   /** Called with every client as it connects, after its `welcome`. */

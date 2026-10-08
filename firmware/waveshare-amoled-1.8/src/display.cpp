@@ -12,7 +12,9 @@ Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SD
 // Newer boards carry a CO5300 panel driver. Older ones (SH8601) need the other class.
 Arduino_CO5300 *gfx = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, LCD_WIDTH, LCD_HEIGHT, 16, 0, 0, 0);
 
-const int BAND_MAX_HEIGHT = 36;
+const int BAND_MAX_HEIGHT = 56;
+// Space left around each pill button inside its cell.
+const int PILL_GAP = 4;
 const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
@@ -122,19 +124,9 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels) {
     }
 }
 
-void textLine(int y, uint8_t size, uint16_t color, const String &text) {
-    const int w = width(), h = min(lineHeight(size), BAND_MAX_HEIGHT);
-    String shown = text;
-    const int fits = lineChars(size);
-    if ((int)shown.length() > fits) shown = shown.substring(0, fits - 3) + "...";
-
-    band->fillRect(0, 0, w, h, RGB565_BLACK);
-    band->setTextSize(size);
-    band->setTextColor(color);
-    band->setTextWrap(false);
-    band->setCursor((w - (int)shown.length() * 6 * size) / 2, 2);
-    band->print(shown);
-
+/** Sends the top `h` rows of the band to the panel at logical `y`, turned to the current rotation. */
+static void pushBand(int y, int h) {
+    const int w = width();
     const uint16_t *src = band->getFramebuffer();
     static uint16_t row[LCD_HEIGHT];
     if (rotation == 0 || rotation == 180) {
@@ -157,5 +149,42 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text) {
         gfx->draw16bitRGBBitmap(px, j, row, h, 1);
     }
 }
+void textLine(int y, uint8_t size, uint16_t color, const String &text) {
+    const int w = width(), h = min(lineHeight(size), BAND_MAX_HEIGHT);
+    String shown = text;
+    const int fits = lineChars(size);
+    if ((int)shown.length() > fits) shown = shown.substring(0, fits - 3) + "...";
 
+    band->fillRect(0, 0, w, h, RGB565_BLACK);
+    band->setTextSize(size);
+    band->setTextColor(color);
+    band->setTextWrap(false);
+    band->setCursor((w - (int)shown.length() * 6 * size) / 2, 2);
+    band->print(shown);
+
+    pushBand(y, h);
+}
+void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t outline, uint16_t textColor) {
+    const int w = width();
+    h = min(h, BAND_MAX_HEIGHT);
+    const int cell = w / max(1, cols);
+    // A row that is not full sits in the middle.
+    const int left = (w - cell * count) / 2;
+    const uint8_t size = 2;
+    band->fillRect(0, 0, w, h, RGB565_BLACK);
+    band->setTextSize(size);
+    band->setTextColor(textColor);
+    band->setTextWrap(false);
+    for (int i = 0; i < count; i++) {
+        const int x = left + i * cell + PILL_GAP, pw = cell - 2 * PILL_GAP, ph = h - 2 * PILL_GAP;
+        band->drawRoundRect(x, PILL_GAP, pw, ph, ph / 2, outline);
+        band->drawRoundRect(x + 1, PILL_GAP + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
+        String shown = labels[i];
+        const int fits = max(1, (pw - ph / 2) / (6 * size));
+        if ((int)shown.length() > fits) shown = shown.substring(0, max(1, fits - 2)) + "..";
+        band->setCursor(x + (pw - (int)shown.length() * 6 * size) / 2, PILL_GAP + (ph - 8 * size) / 2 + 1);
+        band->print(shown);
+    }
+    pushBand(y, h);
+}
 }  // namespace display

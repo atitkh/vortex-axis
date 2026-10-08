@@ -36,8 +36,8 @@ export function spokenLength(seconds: number): string {
 /**
  * Timers agents set for a person. Axis keeps them, not the client, so one
  * survives a device restart and can be announced somewhere else when its own
- * device is off. When one is due it is spoken on its client; a client with a
- * screen is also kept told of its next timer so it can count down.
+ * device is off. When one is due it is spoken on its own client only; every
+ * client with a screen is kept told of the next timer so it can count down.
  */
 export class Timers {
   private readonly store: Store;
@@ -61,7 +61,7 @@ export class Timers {
     this.log = options.log ?? (() => {});
     this.retryMs = options.retryMs ?? RETRY_MS;
     this.chimeMs = options.chimeMs ?? 900;
-    this.hub.onConnect((session) => this.tell(session.client.id));
+    this.hub.onConnect((session) => this.tell(session));
   }
 
   start(): void {
@@ -85,7 +85,7 @@ export class Timers {
     });
     this.activity?.note("timer", timer.clientId, `Timer set on ${session.client.name}: ${this.name(timer)}`);
     this.arm();
-    this.tell(timer.clientId);
+    this.tell();
     return timer;
   }
 
@@ -110,7 +110,7 @@ export class Timers {
     }
     if (gone.length) {
       this.arm();
-      for (const clientId of new Set(gone.map((t) => t.clientId))) this.tell(clientId);
+      this.tell();
     }
     return gone;
   }
@@ -177,7 +177,7 @@ export class Timers {
       this.firing.delete(timer.id);
       if (!this.stopped) {
         this.arm();
-        this.tell(timer.clientId);
+        this.tell();
       }
     }
   }
@@ -190,17 +190,21 @@ export class Timers {
     return this.hub.pickOutput({});
   }
 
-  /** Tells a client with a screen which of its timers is next, so it can count down. */
-  private tell(clientId: string): void {
-    const session = this.hub.session(clientId);
-    if (!session || !session.client.capabilities.includes("screen")) return;
-    const mine = this.list(clientId);
-    const next = mine[0];
+  /**
+   * Tells every client with a screen which timer is next, so each can count
+   * down. A timer shows everywhere but is announced only where it was set.
+   */
+  private tell(only?: Session): void {
+    const all = this.list();
+    const next = all[0];
     const params = next
       ? // An unnamed timer is shown as "Timer 0:42". Its length would read like a second timer starting.
-        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: mine.length }
+        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: all.length }
       : { label: "", ms: 0, count: 0 };
-    // A client that shows no countdown says so or says nothing; either is fine.
-    this.hub.command(session, "timer.next", params, 3000).catch(() => undefined);
+    for (const session of only ? [only] : this.hub.sessions()) {
+      if (!session.client.capabilities.includes("screen")) continue;
+      // A client that shows no countdown says so or says nothing; either is fine.
+      this.hub.command(session, "timer.next", params, 3000).catch(() => undefined);
+    }
   }
 }

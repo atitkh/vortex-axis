@@ -18,6 +18,7 @@ let lastTypes = {};
 let lastGlobal = {};
 let lastStatus;
 let lastGateway;
+let lastNow;
 let lastConfig;
 
 /** Builds an element. Text always goes in as text, never as markup. */
@@ -162,12 +163,14 @@ $("signout").addEventListener("click", () => signOut());
 
 async function refresh() {
   try {
-    const [status, gateway, clients, settings] = await Promise.all([
+    const [status, gateway, clients, settings, now] = await Promise.all([
       api("GET", "/admin/status"),
       api("GET", "/admin/gateway"),
       api("GET", "/admin/clients"),
       api("GET", "/admin/settings/global"),
+      api("GET", "/admin/now").catch(() => undefined),
     ]);
+    lastNow = now;
     lastClients = clients.clients;
     lastTypes = clients.types || {};
     lastGlobal = settings.values;
@@ -1221,6 +1224,59 @@ function attentionItems(data) {
   return items.sort((a, b) => (a.level === b.level ? 0 : a.level === "bad" ? -1 : 1));
 }
 
+const DOING = { listening: "Listening", thinking: "Waiting for the agent", speaking: "Speaking", asked: "Waiting for an answer" };
+
+function countdown(ms) {
+  const left = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(left / 3600), minutes = Math.floor((left % 3600) / 60), seconds = String(left % 60).padStart(2, "0");
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
+}
+
+/** What is going on at this moment: timers running, questions waiting for an answer, devices mid-turn. */
+function renderNow() {
+  const box = $("overview-now");
+  const now = lastNow;
+  if (!now || (!now.timers.length && !now.clients.length)) {
+    return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no timers, no questions, no conversations."));
+  }
+  const device = (id, name) => h("a", { href: `#clients/${encodeURIComponent(id)}` }, name);
+  const rows = [
+    ...now.clients.map((c) =>
+      h("tr", {},
+        h("td", {}, DOING[c.state] ?? c.state),
+        h("td", {}, device(c.clientId, c.client)),
+        h("td", {}, c.question ? `${c.question}${c.choices?.length ? ` (${c.choices.join(" / ")})` : ""}` : ""),
+        h("td", { class: "num" }, `for ${countdown(now.at - c.since)}`),
+        h("td", {}),
+      ),
+    ),
+    ...now.timers.map((t) =>
+      h("tr", {},
+        h("td", {}, "Timer"),
+        h("td", {}, device(t.clientId, t.client)),
+        h("td", {}, t.label || `${countdown(t.seconds * 1000)} timer`),
+        h("td", { class: "num" }, t.dueAt > now.at ? `${countdown(t.dueAt - now.at)} left` : "due, announcing"),
+        h("td", { class: "num" },
+          h("button", {
+            type: "button",
+            class: "small",
+            onclick: async () => {
+              await api("DELETE", `/admin/timers/${t.id}`).catch(() => undefined);
+              refresh();
+            },
+          }, "Cancel"),
+        ),
+      ),
+    ),
+  ];
+  box.replaceChildren(
+    h("table", { class: "numbers" },
+      h("thead", {}, h("tr", {}, h("th", {}, "What"), h("th", {}, "Device"), h("th", {}, "Details"), h("th", { class: "num" }, "Time"), h("th", {}))),
+      h("tbody", {}, ...rows),
+    ),
+  );
+}
+
 /** `withHistory` false redraws only the parts that follow the 3 s poll, not the strips and events. */
 function renderOverview(withHistory = true) {
   const data = currentActivity();
@@ -1233,6 +1289,7 @@ function renderOverview(withHistory = true) {
       : [h("li", { class: "ok" }, h("span", { class: "stat good" }, "all good"), " Nothing needs attention.")]),
   );
 
+  renderNow();
   const online = lastClients.filter((c) => c.online).length;
   const t = data?.turns;
   $("overview-tiles").replaceChildren(

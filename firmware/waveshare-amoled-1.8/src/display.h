@@ -34,6 +34,12 @@ void clearBand(int y, int rows);
 /** Draws one centred line of text in a full-width band at logical `y`, clearing the band. */
 void textLine(int y, uint8_t size, uint16_t color, const String &text);
 
+/**
+ * Draws one row of rounded buttons in a full-width band `h` tall (56 at most)
+ * at logical `y`. The band is cut into `cols` equal cells and `count` of them
+ * get a button; a row that is not full is centred.
+ */
+void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t outline, uint16_t textColor);
 /** Height in pixels of a text band at the given size. */
 inline int lineHeight(uint8_t size) { return 8 * size + 4; }
 /** Characters that fit across the screen at the given size. */
