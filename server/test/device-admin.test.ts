@@ -174,6 +174,17 @@ describe("announcing on a device", () => {
 
 
 describe("renaming a client", () => {
+  it("gives a client type a display name without touching the type itself", async () => {
+    const { identity } = await board(["speaker"]);
+    expect((await admin("PATCH", "/admin/types/board", { label: "Kitchen displays" })).status).toBe(200);
+    const listed = (await admin("GET", "/admin/clients")).body;
+    expect(listed.types.board.label).toBe("Kitchen displays");
+    expect(listed.clients.find((c: any) => c.id === identity.clientId).type).toBe("board");
+    expect((await admin("PATCH", "/admin/types/board", { label: "" })).body.label).toBeNull();
+    expect((await admin("GET", "/admin/clients")).body.types.board.label).toBeUndefined();
+    expect((await admin("PATCH", "/admin/types/nothing", { label: "x" })).status).toBe(404);
+  });
+
   it("changes the name, also for a connected client", async () => {
     const { identity } = await board();
     const result = await admin("PATCH", `/admin/clients/${identity.clientId}`, { name: "  Kitchen  " });

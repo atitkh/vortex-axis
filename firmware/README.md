@@ -157,6 +157,13 @@ Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
 
+Added in 0.9.0, not yet seen by a person:
+
+23. [ ] The text. Everything is now drawn in FreeSans (headings bold, body regular, buttons a size up) and not the blocky built-in font. Check a long reply, a question with buttons, the timer line and the setup screens. Curly quotes, dashes and accented letters should come out as plain ones, and emoji as nothing.
+24. [ ] Turn with the device (`autoRotate`, on by default). Stand the board on each of its four edges for a second: the picture should turn upright each time. Lying flat it should stay as it was. If one way comes out upside down or sideways, run the "Which way up" action on the admin page in that position and report the numbers: the mapping in `src/imu.cpp` was set from Mylo's notes for two edges and guessed for the other two.
+
+Text: `display::textLine` takes 2 (body) or 3 (heading); widths are measured (`display::textWidth`), lines are wrapped by width in `main.cpp`, and `display::plain` turns UTF-8 into what the fonts hold. The fonts are in `src/fonts/`, from the Adafruit GFX Library. Motion: `src/imu.cpp` reads the QMI8658 accelerometer from the main loop; an edge must carry 0.55 g and hold for 0.9 s before the picture turns.
+
 Added in 0.7.0 (questions and timers). Tried by Atit on 2026-10-08: tapping a choice and all the timer tests work. The 0.7.1 button layout and timers showing on every screen are not yet seen by a person:
 
 17. [ ] Have the agent ask a question with choices ("ask me on the board whether I want tea or coffee"). It should speak the question, play the cue, and show the question with one choice per row filling the screen. Tap a choice: the agent should get exactly that one. Check the row you tapped is the one it took (the log line `[ask] tap at ...` shows where the tap landed); try it at another `rotation` too.

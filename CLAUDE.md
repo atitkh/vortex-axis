@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added updates over Wi-Fi and TLS for devices (firmware 0.8.3). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added the public-address protections, the device guide and firmware 0.9.0. Update this line whenever you change this section.
 
 Built and running:
 
@@ -27,9 +27,13 @@ Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet trie
 
 Built 2026-10-08, milestone 5: firmware updates over Wi-Fi (design 7.1; done three times on the real board) and TLS from devices (`axis+tls://`, design 7.2; the board trusts public certificates and refuses a self-signed one, but it has NOT been used against a real Axis address, because none with a public certificate exists yet).
 
-Not built yet: staged rollout of updates, signed firmware, a publicly reachable Axis address (the owner has not said how Axis should be exposed).
+Built 2026-10-08 after milestone 5: protections for a public address (design 9.0: `AXIS_PUBLIC_HOSTS` hides the admin side, attempt limits, trusted proxies; tested, not yet used with a real domain), display names for client types, and on the board (0.9.0) FreeSans text and turning the picture with the device. The last two are NOT yet seen by the owner, and two of the four auto-rotate directions are a guess (`firmware/README.md` test 24).
 
-Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.8.3 at that commit.
+`docs/client-guide.md` is the contract for a new client type: what each capability obliges a client to do, the shared setting keys, the commands every client answers, and a checklist. Read it before writing firmware for a new board, and change it in the same commit as any change to what clients must do.
+
+Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, wake word models sent from Axis, a firmware history. The owner asked about the last three on 2026-10-08; they were discussed, not started.
+
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.9.0 at that commit.
 
 Loose ends, not yet done:
 
@@ -37,7 +41,7 @@ Loose ends, not yet done:
 - Not watched yet: a board unplugged going offline within about 30 s; a long spoken answer after the fetch crash fix (`drain()`).
 - `browser-check` needs `google-chrome`, or `CHROME=<path>`; on the owner's Mac it was run with Brave.
 
-Next: the owner decides how Axis is exposed (reverse proxy with a public domain, or tailnet only); then try a device on an `axis+tls://` address. After that only the loose ends above remain for version 1.
+Next: the owner sets up the public domain behind his reverse proxy (then `AXIS_PUBLIC_HOSTS` and `AXIS_TRUSTED_PROXIES` go into `.env`, and a device is moved to an `axis+tls://` address), and looks at the 0.9.0 font and auto-rotate.
 
 What a real gateway taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` behaves the same way.
 
@@ -88,7 +92,7 @@ protocol/          versioned client-to-Axis message definitions
 firmware/common/   shared client core
 firmware/<type>/   board-specific code only
 clients/           non-firmware clients
-docs/              design and decisions
+docs/              design and decisions, the face, and the guide for new client types
 ```
 
 `protocol/` is the single definition of the client messages. Server, web and firmware follow it. Change the protocol there first, bump its version, and keep the server accepting the previous version. Regenerate and commit `protocol/schema/` in the same change. `protocol/README.md` explains the protocol in prose; keep it in step with `src/messages.ts`.
@@ -153,7 +157,7 @@ The gateway's device tokens and the setup code are stored in the SQLite `meta` t
 - `firmware/common/src/vad.h`: energy-based speech detection.
 - `firmware/wake/`: the wake word detector. `firmware/lib/` holds vendored TensorFlow Lite Micro and the audio front end; do not edit them.
 - `docs/face.md`: the vortex face's specification: the 13 looks with their numbers, the drawing steps, how a voice level is measured, and which look shows when. A new board draws the face from it. `vortex.cpp` and `web/vortex.js` follow it; change all three in one commit.
-- `firmware/waveshare-amoled-1.8/src/`: board code only: `main.cpp` (wiring, settings table, actions), `display`, `vortex` (the face), `speaker` (includes the 24 kHz to 16 kHz low-pass resampler), `mic`, `codec`, `touch`.
+- `firmware/waveshare-amoled-1.8/src/`: board code only: `main.cpp` (wiring, settings table, actions), `display`, `vortex` (the face), `speaker` (includes the 24 kHz to 16 kHz low-pass resampler), `mic`, `codec`, `touch`, `imu` (which way up the board is), `fonts/` (vendored, do not edit).
 
 A setting or action a device offers is declared once, in the board's table in `main.cpp`. The server validates against that description and the admin page draws from it, so do not add per-board code to `web/` or the server.
 

@@ -3,6 +3,9 @@
 #include <Wire.h>
 #include "Arduino_GFX_Library.h"
 #include "pins.h"
+#include "fonts/FreeSans9pt7b.h"
+#include "fonts/FreeSans12pt7b.h"
+#include "fonts/FreeSansBold12pt7b.h"
 
 namespace display {
 
@@ -149,17 +152,70 @@ static void pushBand(int y, int h) {
         gfx->draw16bitRGBBitmap(px, j, row, h, 1);
     }
 }
+static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold12pt7b : &FreeSans9pt7b; }
+/** Where the letters stand in a band of that kind, measured from its top. */
+static int baselineFor(uint8_t size) { return size >= 3 ? 22 : 16; }
+
+static int widthIn(const GFXfont *font, const String &text) {
+    int width = 0;
+    for (size_t i = 0; i < text.length(); i++) {
+        uint8_t c = (uint8_t)text[i];
+        if (c < font->first || c > font->last) c = '?';
+        width += font->glyph[c - font->first].xAdvance;
+    }
+    return width;
+}
+
+int textWidth(uint8_t size, const String &text) { return widthIn(fontFor(size), text); }
+int buttonTextWidth(const String &text) { return widthIn(&FreeSans12pt7b, plain(text)); }
+
+String plain(const String &text) {
+    // Latin-1 letters from U+00C0 to U+00FF, as the unaccented letter each is built on.
+    static const char LATIN[] = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
+    String out;
+    out.reserve(text.length());
+    const size_t n = text.length();
+    for (size_t i = 0; i < n;) {
+        const uint8_t c = (uint8_t)text[i];
+        if (c < 0x80) {
+            out += (char)c;
+            i++;
+            continue;
+        }
+        // Decode one UTF-8 character.
+        const int extra = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+        uint32_t code = extra == 3 ? c & 0x07 : extra == 2 ? c & 0x0F : extra == 1 ? c & 0x1F : 0xFFFD;
+        size_t j = i + 1;
+        for (int k = 0; k < extra && j < n && ((uint8_t)text[j] & 0xC0) == 0x80; k++, j++) code = (code << 6) | ((uint8_t)text[j] & 0x3F);
+        i = j;
+        if (code >= 0xC0 && code <= 0xFF) out += LATIN[code - 0xC0];
+        else if (code == 0x2018 || code == 0x2019 || code == 0x2032 || code == 0x02BC) out += '\'';
+        else if (code == 0x201C || code == 0x201D || code == 0x2033) out += '"';
+        else if (code == 0x2010 || code == 0x2011 || code == 0x2012 || code == 0x2013 || code == 0x2014 || code == 0x2212) out += '-';
+        else if (code == 0x2026) out += "...";
+        else if (code == 0x00A0 || code == 0x2009 || code == 0x202F) out += ' ';
+        else if (code == 0x2022 || code == 0x00B7) out += '*';
+        else if (code == 0x00B0) out += " deg";
+        // Anything else (emoji, other scripts) has no plain form in this font and is left out.
+    }
+    return out;
+}
+
 void textLine(int y, uint8_t size, uint16_t color, const String &text) {
     const int w = width(), h = min(lineHeight(size), BAND_MAX_HEIGHT);
-    String shown = text;
-    const int fits = lineChars(size);
-    if ((int)shown.length() > fits) shown = shown.substring(0, fits - 3) + "...";
+    const GFXfont *font = fontFor(size);
+    String shown = plain(text);
+    if (widthIn(font, shown) > w - 8) {
+        while (shown.length() > 1 && widthIn(font, shown + "...") > w - 8) shown.remove(shown.length() - 1);
+        shown += "...";
+    }
 
     band->fillRect(0, 0, w, h, RGB565_BLACK);
-    band->setTextSize(size);
+    band->setFont(font);
+    band->setTextSize(1);
     band->setTextColor(color);
     band->setTextWrap(false);
-    band->setCursor((w - (int)shown.length() * 6 * size) / 2, 2);
+    band->setCursor((w - widthIn(font, shown)) / 2, baselineFor(size));
     band->print(shown);
 
     pushBand(y, h);
@@ -170,19 +226,24 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
     const int cell = w / max(1, cols);
     // A row that is not full sits in the middle.
     const int left = (w - cell * count) / 2;
-    const uint8_t size = 2;
+    const GFXfont *font = &FreeSans12pt7b;
     band->fillRect(0, 0, w, h, RGB565_BLACK);
-    band->setTextSize(size);
+    band->setFont(font);
+    band->setTextSize(1);
     band->setTextColor(textColor);
     band->setTextWrap(false);
     for (int i = 0; i < count; i++) {
         const int x = left + i * cell + PILL_GAP, pw = cell - 2 * PILL_GAP, ph = h - 2 * PILL_GAP;
         band->drawRoundRect(x, PILL_GAP, pw, ph, ph / 2, outline);
         band->drawRoundRect(x + 1, PILL_GAP + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
-        String shown = labels[i];
-        const int fits = max(1, (pw - ph / 2) / (6 * size));
-        if ((int)shown.length() > fits) shown = shown.substring(0, max(1, fits - 2)) + "..";
-        band->setCursor(x + (pw - (int)shown.length() * 6 * size) / 2, PILL_GAP + (ph - 8 * size) / 2 + 1);
+        String shown = plain(labels[i]);
+        const int room = pw - ph / 2;
+        if (widthIn(font, shown) > room) {
+            while (shown.length() > 1 && widthIn(font, shown + "..") > room) shown.remove(shown.length() - 1);
+            shown += "..";
+        }
+        // The letters are 17 pixels tall and stand on the cursor line.
+        band->setCursor(x + (pw - widthIn(font, shown)) / 2, PILL_GAP + (ph + 17) / 2 - 1);
         band->print(shown);
     }
     pushBand(y, h);

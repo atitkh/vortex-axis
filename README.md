@@ -61,7 +61,7 @@ In:
 Out, for later:
 
 - Bangle.js 2 client.
-- Exposure on a public domain (the auth is designed for it from the start).
+- Running on a public domain: the protections are built (see `AXIS_PUBLIC_HOSTS` in `.env.example` and section 9.0 of the design), the domain itself is not set up yet.
 - Presence-based routing.
 - Firmware updates rolled out in stages (one device first, then the rest). Updates over Wi-Fi themselves were brought into version 1 on 2026-10-08 and are built.
 - An admin page beyond a bare client list.
@@ -86,7 +86,7 @@ Browsers only allow the microphone on `https` or on `localhost`. Over plain `htt
 
 - **Tailscale**, reachable only from your own tailnet, with a real certificate and nothing to configure in Axis:
   `sudo tailscale serve --bg --https=8444 http://127.0.0.1:8440`, then open `https://<machine>.<tailnet>.ts.net:8444/`.
-- **A reverse proxy** such as Nginx Proxy Manager: point a host name at port 8440 and turn on WebSocket support, since clients hold a socket on `/v1/client`.
+- **A reverse proxy** such as Nginx Proxy Manager: point a host name at port 8440 and turn on WebSocket support, since clients hold a socket on `/v1/client`. For a PUBLIC name, set `AXIS_PUBLIC_HOSTS` to that name first, so the admin page and API do not exist there, and `AXIS_TRUSTED_PROXIES` to the proxy's address. Devices then use a setup string beginning `axis+tls://`.
 
 Whichever you use, think about `/admin`: it is protected by the admin token only, so do not put it on a public address.
 

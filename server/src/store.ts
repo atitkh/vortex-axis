@@ -244,6 +244,11 @@ export class Store {
     return { code, expiresAt };
   }
 
+  /** Throws away every pairing code not yet used. Returns how many there were. */
+  clearPairingCodes(): number {
+    return Number(this.db.prepare("DELETE FROM pairing_codes").run().changes);
+  }
+
   /**
    * Spends a pairing code and registers the client. Returns undefined when the
    * code is unknown, expired or already used.

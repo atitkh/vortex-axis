@@ -174,6 +174,20 @@ Built 2026-10-08, for the admin page's overview and activity pages (`server/src/
 - TLS is terminated by a reverse proxy in front of Axis.
 - Axis will be reachable on a public domain for portable clients. Only the client endpoint is public. The admin page stays on the local network. Version 1 is built local-only, with the auth designed for public exposure.
 
+### 9.0 A public address
+
+Built 2026-10-08, ahead of putting Axis behind a reverse proxy on a public domain. Not yet used with a real domain.
+
+- **The admin side is not public.** Host names listed in `AXIS_PUBLIC_HOSTS` get the client side only: the web client, pairing, the client socket and firmware downloads. `/admin` and `/admin/*` answer "not found" under those names, with or without the token. The admin page is reached on the local network or the tailnet. This is checked on the `Host` header and on `X-Forwarded-Host`, which can only ever take access away.
+- **Who is asking.** Behind a proxy every connection comes from the proxy. `AXIS_TRUSTED_PROXIES` names the addresses whose `X-Forwarded-For` is believed, so attempt limits count visitors and not the proxy. From anyone else that header is ignored.
+- **Admin token.** Ten wrong tokens from one address shut that address out for five minutes, right token or not. Asking with no token at all (the sign-in page) does not count.
+- **Pairing codes** are six digits, single use, ten minutes. One address gets ten tries a minute, and thirty wrong codes from anywhere within a code's lifetime throw every unused code away, so guessing across many addresses cannot work a code out. A person then makes a new one.
+- **Client tokens** are long random values stored as hashes, one per client, revoked by removing the client. A web client is a paired client like any other: its login is a pairing code from the admin page, entered once per browser. There are no accounts or passwords for clients.
+- **Pages** are sent with a content security policy that keeps them to their own files and to Axis, and cannot be framed.
+- Deliberately not built: user accounts, single sign-on. If the admin page ever has to be reached from outside the home, do it through the tailnet or put the proxy's own access control in front of it; do not add its host to `AXIS_PUBLIC_HOSTS`.
+
+A caveat for Docker: with the default bridge network, connections published through the host arrive from the bridge's gateway address, so every local visitor looks like one address to the attempt limits, and naming that gateway in `AXIS_TRUSTED_PROXIES` means any local machine could set `X-Forwarded-For`. That only matters for an attacker already on the local network.
+
 ### 9.1 Setup and the web pages
 
 Only the admin token comes from the environment. The gateway address and setup code, the agent, and the speech service addresses, models, voice and keys are set on the admin page, stored in the data folder, and applied to the next turn without a restart. Environment values are the starting point and are overridden by anything saved.

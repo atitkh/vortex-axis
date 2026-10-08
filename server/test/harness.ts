@@ -36,6 +36,8 @@ export function config(overrides: Partial<Config> = {}): Config {
     port: 0,
     dataDir: ctx.dataDir,
     adminToken: ADMIN_TOKEN,
+    publicHosts: [],
+    trustedProxies: [],
     pairingCodeTtlMs: 60_000,
     helloTimeoutMs: 2_000,
     pingIntervalMs: 0,

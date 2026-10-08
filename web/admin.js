@@ -398,13 +398,18 @@ function typesInUse() {
   return [...types.values()].sort((a, b) => a.type.localeCompare(b.type));
 }
 
+/** The name a person gave a client type, or the firmware's own identifier when they gave none. */
+function typeName(type) {
+  return lastTypes[type]?.label || type;
+}
+
 function renderNavTypes() {
   $("nav-types").replaceChildren(
     ...typesInUse().map((t) =>
       h(
         "a",
         { href: typeHref(t.type), "data-view": `type:${t.type}`, class: view.name === "type" && view.id === t.type ? "on" : "", title: `Settings shared by every ${t.type} device` },
-        h("span", { class: "typename" }, t.type),
+        h("span", { class: "typename" }, typeName(t.type)),
         h("span", { class: "count" }, String(t.total)),
       ),
     ),
@@ -900,10 +905,23 @@ function renderTypeFirmware(type, members) {
   );
 }
 
+$("type-rename").addEventListener("click", async () => {
+  const type = view.id;
+  const label = prompt(`Name to show for "${type}" devices. Leave empty to show ${type} again. The type itself, which the firmware reports, does not change.`, lastTypes[type]?.label ?? "");
+  if (label === null) return;
+  try {
+    await api("PATCH", `/admin/types/${encodeURIComponent(type)}`, { label });
+    refresh();
+  } catch (error) {
+    toast(error.message, "bad");
+  }
+});
+
 function renderType() {
   const type = view.id;
   const members = lastClients.filter((c) => c.type === type).sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
-  $("type-title").textContent = type;
+  $("type-title").textContent = typeName(type);
+  $("type-rename").classList.toggle("hidden", !members.length);
   if (!members.length) {
     $("type-help").textContent = lastClients.length ? "No device of this type is paired." : "Loading";
     for (const id of ["type-devices", "type-actions", "type-settings"]) $(id).replaceChildren();
@@ -913,7 +931,7 @@ function renderType() {
   const schema = lastTypes[type] || { settings: [], actions: [], links: [] };
   const online = members.filter((c) => c.online);
   renderTypeFirmware(type, members);
-  $("type-help").textContent = `${plural(members.length, "device")}, ${online.length} online. Settings here apply to all of them, except where a device has its own value.`;
+  $("type-help").textContent = `${typeName(type) === type ? "" : `Type ${type}. `}${plural(members.length, "device")}, ${online.length} online. Settings here apply to all of them, except where a device has its own value.`;
 
   $("type-devices").replaceChildren(
     h(

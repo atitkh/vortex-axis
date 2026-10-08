@@ -16,6 +16,19 @@ import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testServices
 
 const MAX_BODY_BYTES = 64 * 1024;
 const PAIR_ATTEMPTS_PER_MINUTE = 10;
+/** Wrong pairing codes, from anywhere, before every unused code is thrown away. A code has a million values. */
+const PAIR_FAILURES_BEFORE_RESET = 30;
+/** Wrong admin tokens from one address before it is shut out for a while. */
+const ADMIN_FAILURES = 10;
+const ADMIN_LOCK_MS = 5 * 60_000;
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+};
+/** The pages load only their own files and talk only to Axis. Inline styles are used by the admin page. */
+const PAGE_POLICY =
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -25,7 +38,7 @@ class HttpError extends Error {
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(text) });
+  res.writeHead(status, { ...SECURITY_HEADERS, "content-type": "application/json", "content-length": Buffer.byteLength(text) });
   res.end(text);
 }
 
@@ -132,13 +145,72 @@ export function createHttpHandler(deps: HttpDeps) {
     return true;
   }
 
+  /**
+   * Who is asking. Behind a reverse proxy every connection comes from the
+   * proxy, so its `X-Forwarded-For` is used, but only when the connection
+   * really is from a proxy named in AXIS_TRUSTED_PROXIES. Anyone else could
+   * write whatever they like in that header.
+   */
+  function addressOf(req: IncomingMessage): string {
+    const peer = (req.socket.remoteAddress ?? "unknown").replace(/^::ffff:/, "");
+    if (!config.trustedProxies.includes(peer)) return peer;
+    const forwarded = String(req.headers["x-forwarded-for"] ?? "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    // The last entry is the one the trusted proxy added itself.
+    return forwarded.at(-1) ?? peer;
+  }
+
+  /** True when the request came in under a public name, where only the client side is served. */
+  function isPublic(req: IncomingMessage): boolean {
+    if (!config.publicHosts.length) return false;
+    const names = [req.headers.host, req.headers["x-forwarded-host"]]
+      .flatMap((value) => String(value ?? "").split(","))
+      .map((value) => value.trim().toLowerCase().replace(/:\d+$/, ""))
+      .filter(Boolean);
+    return names.some((name) => config.publicHosts.includes(name));
+  }
+
+  const adminFailures = new Map<string, { count: number; until: number }>();
+  let pairFailures: number[] = [];
+
   function requireAdmin(req: IncomingMessage): void {
     if (!config.adminToken) throw new HttpError(503, "admin API is disabled: AXIS_ADMIN_TOKEN is not set");
+    const address = addressOf(req);
+    const record = adminFailures.get(address);
+    if (record && record.count >= ADMIN_FAILURES) {
+      if (now() < record.until) throw new HttpError(429, "too many wrong admin tokens from this address, wait five minutes");
+      adminFailures.delete(address);
+    }
     const header = req.headers.authorization ?? "";
     const given = Buffer.from(header.startsWith("Bearer ") ? header.slice(7) : "");
     const expected = Buffer.from(config.adminToken);
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      // A request with no token at all is the sign-in page asking, not a guess.
+      if (given.length) {
+        const failed = adminFailures.get(address) ?? { count: 0, until: 0 };
+        failed.count += 1;
+        failed.until = now() + ADMIN_LOCK_MS;
+        adminFailures.set(address, failed);
+        if (failed.count === ADMIN_FAILURES) activity?.note("admin", "", `Ten wrong admin tokens from ${address}; that address is shut out for five minutes`, "warn");
+        if (adminFailures.size > 5000) adminFailures.clear();
+      }
       throw new HttpError(401, "missing or wrong admin token");
+    }
+    adminFailures.delete(address);
+  }
+
+  /** A wrong pairing code. Enough of them, from anywhere, and every unused code is thrown away. */
+  function pairingFailed(address: string): void {
+    const cutoff = now() - config.pairingCodeTtlMs;
+    pairFailures = pairFailures.filter((at) => at > cutoff);
+    pairFailures.push(now());
+    if (pairFailures.length < PAIR_FAILURES_BEFORE_RESET) return;
+    pairFailures = [];
+    const dropped = store.clearPairingCodes();
+    if (dropped) {
+      activity?.note("admin", "", `${PAIR_FAILURES_BEFORE_RESET} wrong pairing codes (last from ${address}); ${dropped} unused ${dropped === 1 ? "code was" : "codes were"} thrown away. Make a new one.`, "warn");
     }
   }
 
@@ -162,9 +234,18 @@ export function createHttpHandler(deps: HttpDeps) {
   }
 
   /** The schema for each client type that exists, built-ins included. */
-  function typeSchemas(): Record<string, ClientSchema> {
-    const out: Record<string, ClientSchema> = {};
-    for (const client of store.listClients()) out[client.type] ??= withBuiltIns(store.getSchema(client.type));
+  /**
+   * What each client type in use offers, with the name a person gave it. The
+   * type itself is the firmware's own identifier: settings, firmware builds
+   * and the firmware all go by it, so only this display name can be changed.
+   */
+  function typeSchemas(): Record<string, ClientSchema & { label?: string }> {
+    const out: Record<string, ClientSchema & { label?: string }> = {};
+    for (const client of store.listClients()) {
+      if (out[client.type]) continue;
+      const label = store.getMeta(`type_label:${client.type}`);
+      out[client.type] = { ...withBuiltIns(store.getSchema(client.type)), ...(label ? { label } : {}) };
+    }
     return out;
   }
 
@@ -233,11 +314,17 @@ export function createHttpHandler(deps: HttpDeps) {
     if (method === "GET") {
       const file =
         url.pathname === "/" ? web.get("index.html")
-        : url.pathname === "/admin" ? web.get("admin.html")
+        : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin.html"))
         : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
         : undefined;
       if (file) {
-        res.writeHead(200, { "content-type": file.type, "content-length": file.body.length, "cache-control": "no-cache" });
+        res.writeHead(200, {
+          ...SECURITY_HEADERS,
+          "content-security-policy": PAGE_POLICY,
+          "content-type": file.type,
+          "content-length": file.body.length,
+          "cache-control": "no-cache",
+        });
         res.end(file.body);
         return;
       }
@@ -256,19 +343,24 @@ export function createHttpHandler(deps: HttpDeps) {
     }
 
     if (method === "POST" && url.pathname === PAIR_PATH) {
-      if (!allowPairAttempt(req.socket.remoteAddress ?? "unknown")) {
+      if (!allowPairAttempt(addressOf(req))) {
         throw new HttpError(429, "too many pairing attempts, wait a minute");
       }
       const body = await readJson(req);
       if (!isPairRequest(body)) throw new HttpError(400, "invalid pairing request");
       const paired = store.pair(body);
-      if (!paired) throw new HttpError(403, "pairing code is wrong, expired or already used");
+      if (!paired) {
+        pairingFailed(addressOf(req));
+        throw new HttpError(403, "pairing code is wrong, expired or already used");
+      }
       const reply: PairResponse = { clientId: paired.client.id, token: paired.token, name: paired.client.name };
       activity?.note("admin", paired.client.id, `${paired.client.name} paired (${paired.client.type})`);
       return sendJson(res, 200, reply);
     }
 
     if (parts[0] === "admin") {
+      // Under a public name the admin side does not exist. It is reached on the local network only.
+      if (isPublic(req)) throw new HttpError(404, "not found");
       requireAdmin(req);
 
       if (method === "POST" && parts.length === 2 && parts[1] === "pairing-codes") {
@@ -327,6 +419,17 @@ export function createHttpHandler(deps: HttpDeps) {
           hub.disconnect(id);
           return sendJson(res, 200, { removed: id });
         }
+      }
+      if (method === "PATCH" && parts.length === 3 && parts[1] === "types") {
+        const type = parts[2]!;
+        if (!store.listClients().some((client) => client.type === type)) throw new HttpError(404, "no device of that type is paired");
+        const body = (await readJson(req)) as { label?: unknown };
+        const label = typeof body.label === "string" ? body.label.trim() : "";
+        if (label.length > 60) throw new HttpError(400, "a name can be at most 60 characters");
+        // An empty name goes back to showing the type itself.
+        store.setMeta(`type_label:${type}`, label || undefined);
+        activity?.note("admin", "", label ? `Client type ${type} is now shown as "${label}"` : `Client type ${type} is shown by its own name again`);
+        return sendJson(res, 200, { type, label: label || null });
       }
       // Firmware: one build kept per client type, sent to devices over Wi-Fi.
       if (parts[1] === "firmware") {

@@ -10,6 +10,7 @@
 #include "display.h"
 #include "mic.h"
 #include "speaker.h"
+#include "imu.h"
 #include "touch.h"
 #include "vortex.h"
 
@@ -23,7 +24,8 @@ static const char *const CAPABILITIES[] = {"screen", "speaker", "mic"};
 // What the Axis admin page offers for this board. Keep in step with applySettings() and the
 // client core's vadLimits(): a key listed here that nothing reads does nothing.
 static const axis::SettingDef SETTINGS[] = {
-    {"rotation", "Screen rotation", "choice", "Screen", "Turns the picture. Applies at once.", "90", 0, 0, "degrees", "0,90,180,270"},
+    {"autoRotate", "Turn with the device", "toggle", "Screen", "The picture follows whichever way up the device is standing. Lying flat, it stays as it was.", "1", 0, 0, nullptr, nullptr},
+    {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "90", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
     {"volume", "Volume", "number", "Sound", "The microphone clips on the board's own voice above about 50.", "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
@@ -40,6 +42,7 @@ static const axis::ActionDef ACTIONS[] = {
     {"chime", "Play chime", "The two-note boot chime.", false},
     {"talk", "Start listening", "Same as tapping the screen while idle.", false},
     {"mic", "Microphone levels", "Room level, speech threshold and wake word statistics.", false},
+    {"motion", "Which way up", "Gravity along the board's axes in thousandths of g, and the rotation it calls for.", false},
 };
 static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
                                         ACTIONS, sizeof ACTIONS / sizeof ACTIONS[0]};
@@ -168,8 +171,14 @@ static int headTop() { return faceTop() + vortex::SIZE + 4; }
 static int bodyTop() { return headTop() + display::lineHeight(3); }
 static int bodyLines() { return min(MAX_BODY_LINES, (display::height() - bodyTop()) / display::lineHeight(2)); }
 
+/** The rotation in force: the way the device is standing when it turns with it and knows, the setting otherwise. */
+static int wantedRotation() {
+    const int standing = client.settingInt("autoRotate", 1) != 0 ? imu::orientation() : -1;
+    return standing >= 0 ? standing : (int)client.settingInt("rotation", 90);
+}
+
 static void applySettings() {
-    display::setRotation((int)client.settingInt("rotation", 90));
+    display::setRotation(wantedRotation());
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     speaker::setVolume((int)client.settingInt("volume", 60));
     mic::setWakeEnabled(client.settingInt("wakeListen", 1) != 0);
@@ -178,36 +187,64 @@ static void applySettings() {
     redrawAll = true;
 }
 
-/** Breaks text into lines at spaces. When it does not fit, the END is kept, so a growing reply stays readable. */
+/** Breaks text into lines that fit the screen, at spaces. When there are too many, the END is kept, so a growing reply stays readable. */
 static int wrap(const String &text, String *lines, int maxLines) {
-    const int width = display::lineChars(2);
+    const int room = display::width() - 12;
     String all[32];
     int count = 0;
-    int start = 0;
+    String line;
     const int length = text.length();
-    while (start < length && count < 32) {
-        while (start < length && (text[start] == ' ' || text[start] == '\n')) start++;
-        if (start >= length) break;
-        int end = min(length, start + width);
-        const int newline = text.indexOf('\n', start);
-        if (newline >= 0 && newline < end) {
-            end = newline;
-        } else if (end < length) {
-            const int space = text.lastIndexOf(' ', end);
-            if (space > start) end = space;
+    int at = 0;
+    auto push = [&]() {
+        if (count == 32) {
+            // Full: drop the oldest line, since it is the end that matters.
+            for (int i = 1; i < 32; i++) all[i - 1] = all[i];
+            count = 31;
         }
-        all[count++] = text.substring(start, end);
-        start = end;
+        all[count++] = line;
+        line = "";
+    };
+    while (at < length) {
+        if (text[at] == '\n') {
+            if (!line.isEmpty()) push();
+            at++;
+            continue;
+        }
+        if (text[at] == ' ') {
+            at++;
+            continue;
+        }
+        int end = at;
+        while (end < length && text[end] != ' ' && text[end] != '\n') end++;
+        String word = text.substring(at, end);
+        at = end;
+        // A word wider than the screen is cut where it stops fitting.
+        while (display::textWidth(2, word) > room && word.length() > 1) {
+            int fit = word.length() - 1;
+            while (fit > 1 && display::textWidth(2, word.substring(0, fit)) > room) fit--;
+            if (!line.isEmpty()) push();
+            line = word.substring(0, fit);
+            push();
+            word = word.substring(fit);
+        }
+        const String joined = line.isEmpty() ? word : line + " " + word;
+        if (display::textWidth(2, joined) <= room) {
+            line = joined;
+        } else {
+            push();
+            line = word;
+        }
     }
+    if (!line.isEmpty()) push();
     const int skip = max(0, count - maxLines);
     for (int i = skip; i < count; i++) lines[i - skip] = all[i];
     return count - skip;
 }
 
 static void show(const String &head, uint16_t headColor, const String &body) {
-    wantHead = head;
+    wantHead = display::plain(head);
     wantHeadColor = headColor;
-    wantBody = body;
+    wantBody = display::plain(body);
 }
 
 /**
@@ -358,12 +395,12 @@ struct AskLayout {
 static AskLayout askLayout() {
     const int n = max(1, (int)state.choiceCount);
     int longest = 1;
-    for (int i = 0; i < state.choiceCount; i++) longest = max(longest, (int)state.choices[i].length());
+    for (int i = 0; i < state.choiceCount; i++) longest = max(longest, display::buttonTextWidth(state.choices[i]));
     // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit.
-    const int need = min(display::width(), longest * 12 + 44);
+    const int need = min(display::width(), longest + 44);
     const int maxCols = max(1, min(n, display::width() / need));
     String lines[2];
-    const int questionLines = max(1, wrap(state.question, lines, 2));
+    const int questionLines = max(1, wrap(display::plain(state.question), lines, 2));
     const int lineH = display::lineHeight(2);
 
     AskLayout l;
@@ -398,7 +435,7 @@ static void drawAsk(const AskLayout &l) {
     if (redrawAll || askDrawn != state.askId || listening != askDrawnListening) {
         // The question turns green while the microphone is open for a spoken answer.
         String lines[2];
-        const int count = wrap(state.question, lines, 2);
+        const int count = wrap(display::plain(state.question), lines, 2);
         for (int i = 0; i < l.questionLines; i++) {
             display::textLine(l.questionTop + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
         }
@@ -481,6 +518,7 @@ void setup() {
     hasMic = hasSpeaker && mic::begin(client, &logOut);
     logOut.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
+    logOut.printf("[boot] motion sensor %s\n", imu::begin() ? "found" : "NOT FOUND");
     // Actions the admin page can send.
     client.onCommand([](const char *name, JsonObjectConst, JsonObject payload) {
         if (!strcmp(name, "cue")) {
@@ -493,6 +531,16 @@ void setup() {
         }
         if (!strcmp(name, "talk")) {
             payload["started"] = client.startListening();
+            return true;
+        }
+        if (!strcmp(name, "motion")) {
+            int x = 0, y = 0, z = 0;
+            imu::read(x, y, z);
+            payload["x"] = x;
+            payload["y"] = y;
+            payload["z"] = z;
+            payload["standing"] = imu::orientation();
+            payload["rotation"] = wantedRotation();
             return true;
         }
         if (!strcmp(name, "mic")) {
@@ -551,6 +599,17 @@ void loop() {
         }
     }
     // Text also depends on time (messages that expire), so it is rechecked a few times a second.
+    // Turning the device over turns the picture, once it has stayed that way for a moment.
+    imu::tick();
+    static int shownRotation = -1;
+    if (wantedRotation() != shownRotation) {
+        if (shownRotation >= 0) logOut.printf("[screen] rotation %d\n", wantedRotation());
+        shownRotation = wantedRotation();
+        applySettings();
+        askDrawn = "";
+        faceY = -1;
+    }
+
     // A question with choices has its own layout until it is answered or gives up.
     const bool wantAsk = state.link == axis::Link::Online && state.choiceCount > 0;
     if (wantAsk != askShown || (wantAsk && askDrawn != state.askId && !askDrawn.isEmpty())) {

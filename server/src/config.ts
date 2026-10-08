@@ -9,6 +9,14 @@ export interface Config {
   dataDir: string;
   /** Bearer token for the admin API. The admin API is disabled when unset. */
   adminToken: string | undefined;
+  /**
+   * Host names Axis is reached by from outside, for example a public domain
+   * behind a reverse proxy. Requests for these get the client side only: the
+   * admin page and API answer "not found" there.
+   */
+  publicHosts: string[];
+  /** Addresses of reverse proxies whose `X-Forwarded-For` is believed. */
+  trustedProxies: string[];
   /** How long a pairing code stays valid. */
   pairingCodeTtlMs: number;
   /** How long a new connection may take to send `hello`. */
@@ -61,6 +69,13 @@ function integer(name: string, raw: string | undefined, fallback: number): numbe
   return value;
 }
 
+function list(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 /** Reads configuration from environment variables. Nothing is host-specific in code. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
@@ -68,6 +83,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: integer("AXIS_PORT", env.AXIS_PORT, 8440),
     dataDir: env.AXIS_DATA_DIR || "./data",
     adminToken: env.AXIS_ADMIN_TOKEN || undefined,
+    publicHosts: list(env.AXIS_PUBLIC_HOSTS).map((host) => host.toLowerCase()),
+    trustedProxies: list(env.AXIS_TRUSTED_PROXIES),
     pairingCodeTtlMs: integer("AXIS_PAIRING_CODE_TTL_MS", env.AXIS_PAIRING_CODE_TTL_MS, 10 * 60 * 1000),
     helloTimeoutMs: integer("AXIS_HELLO_TIMEOUT_MS", env.AXIS_HELLO_TIMEOUT_MS, 10 * 1000),
     pingIntervalMs: integer("AXIS_PING_INTERVAL_MS", env.AXIS_PING_INTERVAL_MS, 15 * 1000),

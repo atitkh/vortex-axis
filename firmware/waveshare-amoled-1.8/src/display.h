@@ -40,9 +40,22 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text);
  * get a button; a row that is not full is centred.
  */
 void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t outline, uint16_t textColor);
-/** Height in pixels of a text band at the given size. */
-inline int lineHeight(uint8_t size) { return 8 * size + 4; }
-/** Characters that fit across the screen at the given size. */
-inline int lineChars(uint8_t size) { return width() / (6 * size); }
+/**
+ * Text comes in two kinds, named by the numbers the callers have always used:
+ * 2 is body text and 3 is a heading. Both are drawn in FreeSans, whose
+ * letters have their own widths, so text is measured, not counted.
+ */
+/** Height in pixels of a text band of that kind. */
+inline int lineHeight(uint8_t size) { return size >= 3 ? 30 : 22; }
+/** Width in pixels of text of that kind. */
+int textWidth(uint8_t size, const String &text);
+/** Width in pixels of text on a button. */
+int buttonTextWidth(const String &text);
+/**
+ * The fonts hold plain ASCII and replies arrive as UTF-8. This turns curly
+ * quotes, dashes, ellipses and accented letters into their plain forms and
+ * drops what has none (emoji), so nothing is drawn as stray marks.
+ */
+String plain(const String &text);
 
 }  // namespace display
