@@ -1,9 +1,7 @@
 #include "speaker.h"
 
-#include <ESP_I2S.h>
-#include <Wire.h>
 #include <esp_heap_caps.h>
-#include "pins.h"
+#include "codec.h"
 
 namespace speaker {
 
@@ -12,7 +10,7 @@ namespace {
 // I2S always runs at this rate and incoming speech is resampled to it. The
 // microphone shares the clock, so changing the rate for playback would break
 // listening while the device speaks.
-const uint32_t RATE = 16000;
+const uint32_t RATE = codec::RATE;
 // Room for four seconds; Axis is told two, which leaves slack for a late start.
 const size_t RING_SAMPLES = RATE * 4;
 const uint32_t BUFFER_MS = 2000;
@@ -21,8 +19,6 @@ const size_t START_SAMPLES = RATE * 150 / 1000;
 const size_t CHUNK = 240;
 // What the I2S driver still holds after a write returns: 6 buffers of 240 frames.
 const size_t DRIVER_TAIL = 1440;
-
-I2SClass i2s;
 
 // One writer (the Axis client's task) and one reader (the playback task).
 int16_t *ring = nullptr;
@@ -39,13 +35,6 @@ volatile bool wantChime = false;
 uint32_t inRate = RATE;
 float position = 0;
 int32_t previous = 0, older = 0, lastOut = 0;
-
-void codecWrite(uint8_t reg, uint8_t value) {
-    Wire.beginTransmission(ADDR_ES8311);
-    Wire.write(reg);
-    Wire.write(value);
-    Wire.endTransmission();
-}
 
 size_t queued() { return (head + RING_SAMPLES - tail) % RING_SAMPLES; }
 
@@ -67,7 +56,7 @@ void play(const int16_t *mono, size_t count) {
         stereo[2 * i] = out;
         stereo[2 * i + 1] = out;
     }
-    i2s.write((const uint8_t *)stereo, count * 4);
+    codec::i2s().write((const uint8_t *)stereo, count * 4);
     // Rise at once, fall slowly, so the face follows syllables without flickering.
     const float now = min(1.0f, peak / 14000.0f);
     currentLevel = now > currentLevel ? now : currentLevel * 0.82f + now * 0.18f;
@@ -204,41 +193,7 @@ bool begin() {
     ring = (int16_t *)heap_caps_malloc(RING_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
     if (!ring) return false;
 
-    // The codec takes its clock from I2S, so I2S must be running before the codec is set up.
-    i2s.setPins(I2S_BCK_IO, I2S_WS_IO, I2S_DO_IO, I2S_DI_IO, I2S_MCK_IO);
-    if (!i2s.begin(I2S_MODE_STD, RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) return false;
-
-    Wire.beginTransmission(ADDR_ES8311);
-    if (Wire.endTransmission() != 0) return false;
-    // ES8311 as I2S slave, 16 kHz, 16-bit, master clock 256 x the sample rate.
-    codecWrite(0x00, 0x1F);
-    delay(20);
-    codecWrite(0x00, 0x00);
-    codecWrite(0x00, 0x80);  // reset, then power on
-    codecWrite(0x01, 0x3F);  // clock from the MCLK pin, all clocks on
-    codecWrite(0x02, 0x00);
-    codecWrite(0x03, 0x10);
-    codecWrite(0x04, 0x10);
-    codecWrite(0x05, 0x00);
-    codecWrite(0x06, 0x03);
-    codecWrite(0x07, 0x00);
-    codecWrite(0x08, 0xFF);
-    codecWrite(0x00, 0x80);
-    codecWrite(0x09, 0x0C);  // I2S in and out, 16-bit
-    codecWrite(0x0A, 0x0C);
-    codecWrite(0x0D, 0x01);  // analog, DAC and output driver on
-    codecWrite(0x0E, 0x02);
-    codecWrite(0x12, 0x00);
-    codecWrite(0x13, 0x10);
-    codecWrite(0x1C, 0x6A);
-    codecWrite(0x37, 0x08);
-    codecWrite(0x14, 0x1A);  // microphone side, unused until the mic is in
-    codecWrite(0x17, 0xC8);
-    codecWrite(0x32, 0xD7);  // DAC level; the volume setting is applied in software
-
-    // Without the amplifier enabled the speaker stays silent whatever else is right.
-    pinMode(PA_ENABLE, OUTPUT);
-    digitalWrite(PA_ENABLE, HIGH);
+    if (!codec::begin()) return false;
 
     setVolume(60);
     xTaskCreatePinnedToCore(playbackTask, "speaker", 4096, nullptr, 5, nullptr, 1);

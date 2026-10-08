@@ -134,7 +134,7 @@ const uint16_t *render(float dt) {
     wanderPhase += 0.6f * dt;
 
     // While speaking with a known loudness, the voice drives the size instead of a sine wave.
-    const bool voiced = mode == Mode::Speaking && level >= 0;
+    const bool voiced = (mode == Mode::Speaking || mode == Mode::Listening) && level >= 0;
     const float cx = SIZE / 2 + now.wander * sinf(wanderPhase);
     const float cy = SIZE / 2 + now.wander * sinf(wanderPhase * 1.7f + 1.0f);
 

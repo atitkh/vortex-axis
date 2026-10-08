@@ -8,15 +8,17 @@
 #include "HWCDC.h"
 #include "axis_client.h"
 #include "display.h"
+#include "mic.h"
 #include "speaker.h"
+#include "touch.h"
 #include "vortex.h"
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
 // `Serial` goes nowhere unless this is used and ARDUINO_USB_CDC_ON_BOOT is set.
 HWCDC USBSerial;
 
-static const char *const CAPABILITIES[] = {"screen", "speaker"};
-static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 2};
+static const char *const CAPABILITIES[] = {"screen", "speaker", "mic"};
+static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3};
 
 static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
@@ -41,7 +43,7 @@ static uint16_t shownHeadColor = 0;
 static bool redrawAll = true;
 // Where the top of the face is now. -1 until it has been placed once.
 static int faceY = -1;
-static bool hasSpeaker = false;
+static bool hasSpeaker = false, hasMic = false;
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
@@ -55,6 +57,9 @@ static void applySettings() {
     display::setRotation((int)client.settingInt("rotation", 90));
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     speaker::setVolume((int)client.settingInt("volume", 60));
+    mic::setWakeEnabled(client.settingInt("wakeListen", 1) != 0);
+    mic::setWakeSensitivity((uint8_t)constrain(client.settingInt("wakeSense", 0), 0, 99));
+    mic::setBargeIn(client.settingInt("bargeIn", 1) != 0);
     redrawAll = true;
 }
 
@@ -165,6 +170,13 @@ static void present() {
             break;
     }
 
+    // A recording starts before Axis has said so (a wake takes a moment to be answered), so show it from this side.
+    if (client.listening() && state.turn == Turn::Idle) {
+        idleSince = 0;
+        vortex::setMode(Mode::Listening);
+        return show("Listening", COLOR_HEAD, "");
+    }
+
     if (state.turn != Turn::Idle) idleSince = 0;
     switch (state.turn) {
         case Turn::Listening:
@@ -198,6 +210,26 @@ static void present() {
     show(down ? down : "", COLOR_WARN, keep ? state.reply : String(""));
 }
 
+/**
+ * One tap does the obvious thing for the moment: finish a recording, stop an
+ * answer, or start listening. Anything Axis is still working on is cancelled,
+ * the same as interrupting speech.
+ */
+static void onTap() {
+    if (!hasMic) return;
+    if (client.listening()) {
+        client.stopListening();
+        return;
+    }
+    const bool busy = state.turn == axis::Turn::Speaking || state.turn == axis::Turn::Thinking ||
+                      state.turn == axis::Turn::Transcribing || speaker::playing();
+    if (busy) {
+        client.interrupt();
+        return;
+    }
+    if (state.link == axis::Link::Online) client.startListening();
+}
+
 void setup() {
     USBSerial.begin(115200);
     delay(500);  // do not wait on the port itself: it never reports "connected" on this chip
@@ -218,7 +250,24 @@ void setup() {
         client.setAudioSink(speaker::sink());
         speaker::chime();
     }
+    // The wake word model takes a slab of internal memory in one piece, so it goes first, before Wi-Fi fragments the heap.
+    const bool wakeOk = mic::loadWakeWord(&USBSerial);
     client.begin(IDENTITY, &USBSerial);
+    hasMic = hasSpeaker && mic::begin(client, &USBSerial);
+    USBSerial.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
+                     wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
+    // Serial-only helpers for testing without anybody in the room.
+    client.onConsole([](const String &word, const String &) {
+        if (word == "chime") {
+            speaker::chime();
+            return true;
+        }
+        if (word == "wake") {
+            client.wakeHeard(0.99f, 0.5f);  // as if the wake word had just been heard
+            return true;
+        }
+        return false;
+    });
     applySettings();
 }
 
@@ -244,7 +293,8 @@ void loop() {
         present();
     }
     layout();
-    vortex::setLevel(speaker::playing() ? speaker::level() : -1.0f);
+    if (touch::tapped()) onTap();
+    vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
     const uint32_t t0 = micros();
     const uint16_t *frame = vortex::render(min(seconds, 0.1f));
@@ -259,6 +309,13 @@ void loop() {
                          drawMicros / 1000.0f / max(1u, (unsigned)frames), renderMicros / 1000.0f / max(1u, (unsigned)frames),
                          vortex::idleName(), (unsigned)ESP.getFreeHeap(),
                          (unsigned)ESP.getMinFreeHeap());
+        if (hasMic) {
+            const mic::Stats m = mic::stats();
+            const axis::Client::MicStats room = client.micStats();
+            USBSerial.printf("[mic] %lu blocks, %lu stalls; room %u (speech above %u); wake: %lu heard, %lu ignored, best %u%%, %.1f ms a run\n",
+                             (unsigned long)m.blocks, (unsigned long)m.stalls, (unsigned)room.floor, (unsigned)room.onset,
+                             (unsigned long)m.detections, (unsigned long)m.ignored, (unsigned)m.peakPercent, m.inferenceUs / 1000.0f);
+        }
         lastReport = started;
         frames = 0;
         drawMicros = 0;

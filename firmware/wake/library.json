@@ -1,0 +1,11 @@
+{
+  "name": "axis-wake",
+  "version": "0.1.0",
+  "description": "On-device wake word for VorteX Axis clients: the TFLite Micro microfrontend plus a microWakeWord streaming model",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    { "name": "ESP_TF" },
+    { "name": "microfrontend" }
+  ]
+}

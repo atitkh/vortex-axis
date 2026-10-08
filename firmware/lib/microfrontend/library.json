@@ -1,0 +1,14 @@
+{
+  "name": "microfrontend",
+  "version": "1.0.0",
+  "description": "TFLite Micro audio frontend: 40-channel log-mel filterbank with noise reduction and PCAN gain. Vendored from tensorflow/tflite-micro because neither PlatformIO TFLM port ships it. This is the exact pipeline microWakeWord trains against and must not be swapped for a hand-written MFCC.",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src",
+    "srcFilter": [
+      "+<*>",
+      "-<kiss_fft.c>",
+      "-<tools/kiss_fftr.c>"
+    ]
+  }
+}

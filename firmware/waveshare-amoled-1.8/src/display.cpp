@@ -13,6 +13,7 @@ Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SD
 Arduino_CO5300 *gfx = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, LCD_WIDTH, LCD_HEIGHT, 16, 0, 0, 0);
 
 const int BAND_MAX_HEIGHT = 36;
+const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
 int bandWidth = 0;
@@ -97,8 +98,11 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels) {
         px = height() - (y + size);
         py = x;
     }
-    for (int row = 0; row < size; row++) {
-        gfx->draw16bitRGBBitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, 1);
+    // Four rows per write: 4 x 240 = 960 pixels, still under the driver's 1024-pixel limit.
+    // The face is round, so the same pixels go out whatever the rotation.
+    const int rows = ROWS_PER_WRITE;
+    for (int row = 0; row < size; row += rows) {
+        gfx->draw16bitRGBBitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
     }
 }
 

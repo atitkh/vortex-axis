@@ -12,6 +12,9 @@
 #define LCD_WIDTH 368
 #define LCD_HEIGHT 448
 
+// Touch interrupt, low while a finger is down
+#define TP_INT 21
+
 // Shared I2C bus: codec, IO expander, power, touch, clock, motion
 #define IIC_SDA 15
 #define IIC_SCL 14

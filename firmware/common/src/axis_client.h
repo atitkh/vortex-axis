@@ -15,7 +15,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.3.0"
+#define AXIS_FIRMWARE_VERSION "0.4.0"
 
 namespace axis {
 
@@ -111,15 +111,53 @@ class Client {
 
     void onCommand(CommandHandler handler) { commandHandler_ = handler; }
 
+    /** A board's own serial commands. Called with the first word and the rest of a line the core did not recognise; return true if handled. */
+    using ConsoleHandler = std::function<bool(const String &word, const String &rest)>;
+    void onConsole(ConsoleHandler handler) { consoleHandler_ = handler; }
+
     /** Asks Axis to stop the current reply. Safe to call from any task. */
     void interrupt() { wantInterrupt_ = true; }
+
+    // --- microphone ------------------------------------------------------
+    // For boards with the `mic` capability. These may be called from the
+    // board's microphone task; the client task does the sending.
+
+    /**
+     * Mono 16 kHz samples from the microphone, in blocks of about 10 ms. Call
+     * it for EVERY block, recording or not: between recordings it follows how
+     * loud the room is, which is what tells speech from a fan.
+     */
+    void feedAudio(const int16_t *samples, size_t count);
+
+    /** The wake word was just heard. Axis decides which device answers; audio is kept meanwhile. */
+    void wakeHeard(float score, float level);
+
+    /** Starts a recording without a wake word (a tap). False when not connected to Axis or already recording. */
+    bool startListening();
+
+    /** Ends the recording now and sends what was said, or with `discard` throws it away. */
+    void stopListening(bool discard = false);
+
+    /** True from a wake or a tap until the recording has gone to Axis. */
+    bool listening() const { return recording_; }
+
+    /** Numbers for tuning. All are mean absolute sample values. */
+    struct MicStats {
+        uint32_t floor = 0, onset = 0, peak = 0, dropped = 0;
+    };
+    MicStats micStats();
 
   private:
     struct Impl;
     Impl *impl_ = nullptr;
     volatile uint32_t revision_ = 0;
     volatile bool wantInterrupt_ = false;
+    volatile bool recording_ = false;
+    volatile bool online_ = false;
+    /** True while the device is playing Axis's voice; its own sound must not pass for the room. */
+    volatile bool speaking_ = false;
     CommandHandler commandHandler_;
+    ConsoleHandler consoleHandler_;
     AudioSink *sink_ = nullptr;
     friend struct Impl;
 };

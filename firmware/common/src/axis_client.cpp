@@ -7,7 +7,10 @@
 #include <WebSocketsClient.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_heap_caps.h>
 #include <stdarg.h>
+
+#include "vad.h"
 
 namespace axis {
 
@@ -22,6 +25,21 @@ const uint32_t JOIN_TIMEOUT_MS = 45000;
 const uint32_t SETUP_IDLE_RETRY_MS = 5 * 60 * 1000;
 const uint32_t PAIR_RETRY_MS = 5000;
 const uint32_t SENSE_INTERVAL_MS = 60000;
+
+// Microphone audio is 16 kHz, 16-bit mono, the one format version 1 allows upstream.
+const uint32_t MIC_RATE = 16000;
+// What a recording can hold while the network catches up: six seconds.
+const size_t OUT_RING_SAMPLES = MIC_RATE * 6;
+// The last second of audio, kept so the start of a sentence is not lost to the time it takes to notice it.
+const size_t PRE_RING_SAMPLES = MIC_RATE;
+const size_t PRE_ROLL_SAMPLES = MIC_RATE / 5;
+// After the wake word, its own last syllable is still in the air. Skipping it keeps it from being taken for the start of the command.
+const size_t WAKE_SETTLE_SAMPLES = MIC_RATE / 10;
+// Cutting speech short leaves its tail in the speaker's buffers and in the room for a moment.
+const size_t TAIL_SETTLE_SAMPLES = MIC_RATE / 4;
+// Axis answers a wake within about 200 ms. Longer than this and the recording is dropped.
+const uint32_t WAKE_ANSWER_MS = 3000;
+const size_t SEND_BLOCK_SAMPLES = 1024;
 
 const char *disconnectReason(uint8_t reason) {
     switch (reason) {
@@ -117,6 +135,19 @@ struct Client::Impl {
     // The speech stream being received or played, if any.
     String speakTurn;
     bool speakEnded = false, speakStartReported = false;
+
+    // --- recording ---
+    // Written by whichever task feeds the microphone, drained by the client task.
+    SemaphoreHandle_t audioLock = xSemaphoreCreateMutex();
+    Vad vad;
+    int16_t *outRing = nullptr, *preRing = nullptr;
+    size_t outHead = 0, outTail = 0, preHead = 0, preFill = 0;
+    bool wakePending = false, wakeToSend = false, startSent = false, onset = false, endWanted = false, quietWanted = false;
+    const char *endReason = "silence";
+    String wakeId, turnId;
+    float wakeScore = 0, wakeLevel = 0;
+    uint32_t wakeSentAt = 0, recordingCount = 0, droppedSamples = 0;
+    size_t settleLeft = 0;
 
     explicit Impl(Client &client) : self(client) {}
 
@@ -450,6 +481,7 @@ struct Client::Impl {
         } else if (type == WStype_DISCONNECTED) {
             if (welcomed) logf("lost the connection to Axis");
             welcomed = false;
+            cancelRecording();
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -537,6 +569,8 @@ struct Client::Impl {
             if (!self.sink_ || speakTurn != (doc["turnId"] | "")) return;
             speakEnded = true;
             self.sink_->streamEnd();
+        } else if (!strcmp(t, "wake.result")) {
+            onWakeResult(doc["wakeId"] | "", doc["granted"] | false);
         } else if (!strcmp(t, "stop")) {
             quiet();
         } else if (!strcmp(t, "command")) {
@@ -632,6 +666,8 @@ struct Client::Impl {
         if (!socketStarted) startSocket();
         socket.loop();
         if (!socketStarted) return;  // a message handler dropped the pairing
+        self.online_ = welcomed;
+        self.speaking_ = !speakTurn.isEmpty();
         if (!welcomed) {
             if (state.link == Link::Online) setLink(Link::Connecting, "Lost Axis, reconnecting");
             else if (state.link != Link::Connecting) setLink(Link::Connecting, "");
@@ -639,6 +675,7 @@ struct Client::Impl {
         }
         setLink(Link::Online, state.turn == Turn::Error ? state.note : "");
         speechTick();
+        recordingTick();
         if (self.wantInterrupt_) {
             self.wantInterrupt_ = false;
             quiet();
@@ -654,6 +691,171 @@ struct Client::Impl {
             doc["readings"]["heap"] = ESP.getFreeHeap();
             doc["readings"]["uptimeS"] = millis() / 1000;
             send(doc);
+        }
+    }
+
+    // --- recording ---------------------------------------------------------
+
+    size_t ringCount(size_t head, size_t tail, size_t size) const { return (head + size - tail) % size; }
+
+    void outWrite(const int16_t *samples, size_t count) {
+        for (size_t i = 0; i < count; i++) {
+            const size_t next = (outHead + 1) % OUT_RING_SAMPLES;
+            if (next == outTail) {
+                droppedSamples += count - i;  // the network is behind; the end of the sentence is lost, not the start
+                return;
+            }
+            outRing[outHead] = samples[i];
+            outHead = next;
+        }
+    }
+
+    void preWrite(const int16_t *samples, size_t count) {
+        for (size_t i = 0; i < count; i++) {
+            preRing[preHead] = samples[i];
+            preHead = (preHead + 1) % PRE_RING_SAMPLES;
+        }
+        preFill = min(PRE_RING_SAMPLES, preFill + count);
+    }
+
+    /** Copies the newest `count` samples of the pre-roll ring to the outgoing ring. */
+    void flushPreRoll(size_t count) {
+        count = min(count, preFill);
+        for (size_t i = 0; i < count; i++) {
+            const size_t at = (preHead + PRE_RING_SAMPLES - count + i) % PRE_RING_SAMPLES;
+            outWrite(&preRing[at], 1);
+        }
+    }
+
+    /** Forgets the recording in progress. Caller holds `audioLock`, or no recording can be running. */
+    void dropRecordingLocked() {
+        outHead = outTail = 0;
+        wakePending = wakeToSend = startSent = onset = endWanted = quietWanted = false;
+        self.recording_ = false;
+    }
+
+    void cancelRecording() {
+        if (!outRing) return;
+        xSemaphoreTake(audioLock, portMAX_DELAY);
+        dropRecordingLocked();
+        xSemaphoreGive(audioLock);
+    }
+
+    struct VadLimits {
+        uint32_t onsetMs, silenceMs, maxMs;
+    };
+
+    /** Settings are read BEFORE `audioLock`, so the two locks are never held together. */
+    VadLimits vadLimits() {
+        return {(uint32_t)constrain(self.settingInt("onsetMs", 6000), 1000, 20000),
+                (uint32_t)constrain(self.settingInt("silenceMs", 900), 300, 5000),
+                (uint32_t)constrain(self.settingInt("maxSpeechMs", 20000), 3000, 60000)};
+    }
+
+    String newTurnId() { return "m" + String(millis()) + "-" + String(++recordingCount); }
+
+    void onWakeResult(const char *id, bool granted) {
+        if (!outRing) return;
+        xSemaphoreTake(audioLock, portMAX_DELAY);
+        if (self.recording_ && wakePending && wakeId == id) {
+            if (granted) {
+                wakePending = false;
+                logf("wake granted");
+            } else {
+                dropRecordingLocked();
+                logf("another device took the wake");
+            }
+        }
+        xSemaphoreGive(audioLock);
+    }
+
+    /** Moves the recording along over the network: wake, start, audio, end. Client task only. */
+    void recordingTick() {
+        if (!outRing) return;
+        static int16_t block[SEND_BLOCK_SAMPLES];
+        bool sendWake = false, sendStart = false, sendEnd = false, quietNow = false;
+        size_t count = 0;
+        String wid, tid;
+        float score = 0, level = 0;
+        const char *reason = "silence";
+        uint32_t spokenMs = 0, peak = 0, room = 0;
+
+        xSemaphoreTake(audioLock, portMAX_DELAY);
+        if (self.recording_) {
+            quietNow = quietWanted;
+            quietWanted = false;
+            if (wakeToSend) {
+                wakeToSend = false;
+                wakeSentAt = millis();
+                sendWake = true;
+                wid = wakeId;
+                score = wakeScore;
+                level = wakeLevel;
+            } else if (wakePending && millis() - wakeSentAt > WAKE_ANSWER_MS) {
+                dropRecordingLocked();
+                logf("no answer to the wake, dropped");
+            }
+            if (self.recording_ && !wakePending && !startSent) {
+                startSent = true;
+                sendStart = true;
+                tid = turnId;
+                wid = wakeId;
+            }
+            if (self.recording_ && startSent) {
+                while (count < SEND_BLOCK_SAMPLES && outTail != outHead) {
+                    block[count++] = outRing[outTail];
+                    outTail = (outTail + 1) % OUT_RING_SAMPLES;
+                }
+                if (endWanted && outTail == outHead) {
+                    sendEnd = true;
+                    reason = endReason;
+                    tid = turnId;
+                    spokenMs = vad.spokenMs();
+                    peak = vad.peak();
+                    room = vad.floor();
+                    dropRecordingLocked();
+                }
+            }
+        }
+        xSemaphoreGive(audioLock);
+
+        if (quietNow) {
+            const bool wasSpeaking = !speakTurn.isEmpty();
+            quiet();
+            if (wasSpeaking) {
+                xSemaphoreTake(audioLock, portMAX_DELAY);
+                settleLeft = max(settleLeft, TAIL_SETTLE_SAMPLES);
+                xSemaphoreGive(audioLock);
+            }
+        }
+        if (sendWake) {
+            JsonDocument doc;
+            doc["t"] = "wake";
+            doc["wakeId"] = wid;
+            doc["score"] = score;
+            doc["level"] = level;
+            send(doc);
+            logf("wake sent (score %.2f)", score);
+        }
+        if (sendStart) {
+            JsonDocument doc;
+            doc["t"] = "audio.start";
+            doc["turnId"] = tid;
+            doc["format"]["encoding"] = "pcm_s16le";
+            doc["format"]["sampleRate"] = MIC_RATE;
+            doc["format"]["channels"] = 1;
+            if (!wid.isEmpty()) doc["wakeId"] = wid;
+            send(doc);
+            logf("recording %s", tid.c_str());
+        }
+        if (count) socket.sendBIN((uint8_t *)block, count * sizeof(int16_t));
+        if (sendEnd) {
+            JsonDocument doc;
+            doc["t"] = "audio.end";
+            doc["turnId"] = tid;
+            doc["reason"] = reason;
+            send(doc);
+            logf("recording done (%s): %u ms of speech, loudest %u, room %u", reason, (unsigned)spokenMs, (unsigned)peak, (unsigned)room);
         }
     }
 
@@ -700,6 +902,12 @@ struct Client::Impl {
             send(doc);
         } else if (word == "stop") {
             self.wantInterrupt_ = true;
+        } else if (word == "talk") {
+            if (!self.startListening()) logf("cannot listen now (not connected, no microphone, or already listening)");
+        } else if (word == "mic") {
+            const MicStats m = self.micStats();
+            logf("mic: room level %u, speech starts above %u, loudest this recording %u, dropped %u samples", (unsigned)m.floor,
+                 (unsigned)m.onset, (unsigned)m.peak, (unsigned)m.dropped);
         } else if (word == "forget") {
             if (rest == "wifi") {
                 WiFi.disconnect(false, true);
@@ -711,8 +919,10 @@ struct Client::Impl {
             }
         } else if (word == "reboot") {
             ESP.restart();
+        } else if (self.consoleHandler_ && self.consoleHandler_(word, rest)) {
+            // the board handled it
         } else {
-            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | stop | forget [wifi] | reboot");
+            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | talk | mic | stop | forget [wifi] | reboot");
         }
     }
 
@@ -750,6 +960,18 @@ void Client::begin(const Identity &identity, Stream *console) {
     impl_ = new Impl(*this);
     impl_->identity = identity;
     impl_->console = console;
+    for (size_t i = 0; i < identity.capabilityCount; i++) {
+        if (strcmp(identity.capabilities[i], "mic") != 0) continue;
+        impl_->outRing = (int16_t *)heap_caps_malloc(OUT_RING_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+        impl_->preRing = (int16_t *)heap_caps_malloc(PRE_RING_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+        if (!impl_->outRing || !impl_->preRing) {
+            // Better to report no microphone than to claim one that cannot record.
+            if (console) console->println("[axis] no memory for the recording buffers; microphone disabled");
+            if (impl_->outRing) heap_caps_free(impl_->outRing);
+            if (impl_->preRing) heap_caps_free(impl_->preRing);
+            impl_->outRing = impl_->preRing = nullptr;
+        }
+    }
     xTaskCreatePinnedToCore([](void *arg) { static_cast<Impl *>(arg)->run(); }, "axis", 12288, impl_, 3, nullptr, 0);
 }
 
@@ -758,6 +980,121 @@ Snapshot Client::snapshot() {
     Snapshot copy = impl_->state;
     xSemaphoreGive(impl_->lock);
     return copy;
+}
+
+void Client::feedAudio(const int16_t *samples, size_t count) {
+    Impl &m = *impl_;
+    if (!m.outRing || !count) return;
+    const uint32_t loud = loudnessOf(samples, count);
+    const uint32_t blockMs = count * 1000 / MIC_RATE;
+
+    xSemaphoreTake(m.audioLock, portMAX_DELAY);
+    if (!recording_) {
+        // Our own voice is not the room: counting it would raise the bar for the next sentence.
+        if (!speaking_) m.vad.observeRoom(loud);
+        m.preWrite(samples, count);
+    } else if (m.settleLeft > 0) {
+        m.settleLeft -= min(m.settleLeft, count);
+    } else if (m.endWanted) {
+        // Already finished; whatever follows belongs to the next recording.
+    } else if (!m.onset) {
+        m.preWrite(samples, count);
+        switch (m.vad.step(loud, blockMs)) {
+            case Vad::Event::Onset:
+                m.onset = true;
+                m.flushPreRoll(PRE_ROLL_SAMPLES);
+                break;
+            case Vad::Event::NoSpeech:
+                m.endWanted = true;
+                m.endReason = "cancel";
+                break;
+            default:
+                break;
+        }
+    } else {
+        m.outWrite(samples, count);
+        const Vad::Event event = m.vad.step(loud, blockMs);
+        if (event == Vad::Event::Silence || event == Vad::Event::TooLong) {
+            m.endWanted = true;
+            m.endReason = event == Vad::Event::Silence ? "silence" : "max";
+        }
+    }
+    xSemaphoreGive(m.audioLock);
+}
+
+void Client::wakeHeard(float score, float level) {
+    Impl &m = *impl_;
+    if (!m.outRing || recording_ || !online_) return;
+    const Impl::VadLimits limits = m.vadLimits();
+    xSemaphoreTake(m.audioLock, portMAX_DELAY);
+    if (!recording_) {
+        m.dropRecordingLocked();
+        m.vad.begin(limits.onsetMs, limits.silenceMs, limits.maxMs);
+        m.wakeId = "w" + String(millis()) + "-" + String(++m.recordingCount);
+        m.turnId = m.newTurnId();
+        m.wakeScore = constrain(score, 0.0f, 1.0f);
+        m.wakeLevel = constrain(level, 0.0f, 1.0f);
+        m.wakePending = m.wakeToSend = true;
+        m.quietWanted = true;
+        m.preFill = 0;
+        m.settleLeft = WAKE_SETTLE_SAMPLES;
+        recording_ = true;
+    }
+    xSemaphoreGive(m.audioLock);
+}
+
+bool Client::startListening() {
+    Impl &m = *impl_;
+    if (!m.outRing || recording_ || !online_) return false;
+    const Impl::VadLimits limits = m.vadLimits();
+    bool started = false;
+    xSemaphoreTake(m.audioLock, portMAX_DELAY);
+    if (!recording_) {
+        m.dropRecordingLocked();
+        m.vad.begin(limits.onsetMs, limits.silenceMs, limits.maxMs);
+        m.wakeId = "";
+        m.turnId = m.newTurnId();
+        m.quietWanted = true;
+        m.settleLeft = 0;
+        recording_ = true;
+        started = true;
+    }
+    xSemaphoreGive(m.audioLock);
+    return started;
+}
+
+void Client::stopListening(bool discard) {
+    Impl &m = *impl_;
+    if (!m.outRing || !recording_) return;
+    xSemaphoreTake(m.audioLock, portMAX_DELAY);
+    if (recording_) {
+        if (discard || !m.onset || m.wakePending) {
+            // Nothing worth sending yet, or the caller does not want it. If Axis already heard `audio.start`, it is told.
+            if (m.startSent) {
+                m.endWanted = true;
+                m.endReason = "cancel";
+                m.outTail = m.outHead;
+            } else {
+                m.dropRecordingLocked();
+            }
+        } else {
+            m.endWanted = true;
+            m.endReason = "silence";
+        }
+    }
+    xSemaphoreGive(m.audioLock);
+}
+
+Client::MicStats Client::micStats() {
+    MicStats stats;
+    if (!impl_->outRing) return stats;
+    xSemaphoreTake(impl_->audioLock, portMAX_DELAY);
+    stats.floor = impl_->vad.floor();
+    stats.onset = impl_->vad.onsetThreshold();
+    stats.peak = impl_->vad.peak();
+    stats.dropped = impl_->droppedSamples;
+    xSemaphoreGive(impl_->audioLock);
+    return stats;
 }
 
 String Client::setting(const char *key, const char *fallback) {
