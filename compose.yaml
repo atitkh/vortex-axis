@@ -1,0 +1,16 @@
+services:
+  vortex-axis:
+    build: .
+    image: vortex-axis:local
+    container_name: vortex-axis
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AXIS_PORT: "8440"
+    ports:
+      - "${AXIS_PORT:-8440}:8440"
+    volumes:
+      - vortex-axis-data:/data
+
+volumes:
+  vortex-axis-data:

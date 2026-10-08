@@ -3,14 +3,18 @@
   "private": true,
   "description": "Hub between thin client devices and an OpenClaw agent",
   "workspaces": [
-    "protocol"
+    "protocol",
+    "server"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "pretest": "npm run build --workspace protocol",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "pretypecheck": "npm run build --workspace protocol",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "start": "node server/dist/index.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

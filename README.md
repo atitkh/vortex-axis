@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** design agreed. The client protocol has a first draft; the server does not exist yet. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** early. The client protocol has a first draft, and the server handles pairing, connections and settings. Voice turns and the OpenClaw link are next. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -68,4 +68,38 @@ Out, for later:
 
 ## Running it
 
-Nothing to run yet beyond the protocol tests (`npm install && npm test`). Axis will ship as a single Docker container with one data volume, configured entirely through environment variables so it can move between hosts.
+What exists today: client pairing, per-client tokens, the client socket handshake, and settings sync. Voice turns and the OpenClaw link are not built yet.
+
+```bash
+cp .env.example .env      # then set AXIS_ADMIN_TOKEN
+docker compose up -d --build
+curl http://localhost:8440/healthz
+```
+
+Axis is one container with one data volume. Everything host-specific is an environment variable, so moving hosts means copying the volume and the `.env` file.
+
+### Admin API
+
+Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these routes on the local network.
+
+| Call | Does |
+| --- | --- |
+| `POST /admin/pairing-codes` | Creates a one-time pairing code (valid 10 minutes by default). |
+| `GET /admin/clients` | Lists clients, whether each is online, and its resolved settings. |
+| `GET /admin/clients/:id` | One client. |
+| `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
+| `GET` or `PATCH /admin/settings/global` | Reads or changes settings for every client. |
+| `GET` or `PATCH /admin/settings/type/:type` | Same, for one client type. |
+| `GET` or `PATCH /admin/settings/device/:id` | Same, for one client. |
+
+`PATCH` takes `{"values": {"volume": 60}}`. Setting a key to `null` removes it from that layer.
+
+### Development
+
+```bash
+npm install
+npm test
+npm run build && AXIS_ADMIN_TOKEN=dev npm start
+```
+
+Needs Node 24 or newer (the server uses Node's built-in SQLite).

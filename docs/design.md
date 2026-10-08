@@ -73,7 +73,7 @@ Axis is the source of truth. Settings have three layers, with the more specific 
 2. Client type: defaults shared by all clients of that type.
 3. Device: volume and room.
 
-Settings carry a version number. A client asks for anything newer than what it has and keeps its last copy for when Axis is unreachable. A client that is reset gets everything back from Axis.
+Settings carry a version number. It is one counter for the whole hub, raised on any change in any layer. A client asks for anything newer than what it has and keeps its last copy for when Axis is unreachable. A client that is reset gets everything back from Axis.
 
 ## 5. Routing
 
@@ -109,7 +109,7 @@ Agents only see a command after Axis publishes it as a tool, so Axis publishes i
 
 ## 8. Storage
 
-**Proposed.** SQLite, one file in one Docker volume.
+SQLite, one file in one Docker volume, through Node's built-in `node:sqlite`.
 
 - Stored: clients (name, type, room, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and a short log of recent turns for debugging.
 - In memory only: who is online, the current output client, the active turn.

@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Design agreed on 2026-10-07. `protocol/` has a first draft (version 1, untested against a real server). Next is `server/`, then `web/`.
+Design agreed on 2026-10-07. `protocol/` has a version 1 draft. `server/` handles pairing, tokens, the socket handshake, settings sync and the admin API. Not built yet: wake arbitration, the voice turn (STT, agent, TTS), the OpenClaw gateway client, and `web/`.
 
 ## Rules that are settled
 
@@ -32,8 +32,9 @@ Design agreed on 2026-10-07. `protocol/` has a first draft (version 1, untested 
 - Firmware: PlatformIO, one shared core in `firmware/common/` and one folder per device type.
 
 - Tooling: npm workspaces, TypeScript 5.9, TypeBox for message schemas, Vitest for tests.
+- Server: Node's built-in `node:http` and `node:sqlite` (needs Node 24 or newer), plus `ws` for WebSockets. No web framework on the server; keep dependencies few.
 
-The web framework and the HTTP/WebSocket server library are not chosen yet. Ask before picking one.
+The web client's framework is not chosen yet. Ask before picking one.
 
 ## Layout
 
@@ -65,9 +66,18 @@ npm test          # all workspaces
 npm run typecheck
 npm run build
 npm run schema --workspace protocol   # regenerate protocol/schema/*.json
+AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
+docker compose up -d --build          # needs .env, see .env.example
 ```
 
-Add run commands here as the server comes into existence.
+`npm test` and `npm run typecheck` build `protocol/` first, because the server imports its compiled output.
+
+## Server map
+
+- `server/src/store.ts`: everything on disk (clients, pairing codes, settings). Tokens and codes are stored as hashes only.
+- `server/src/hub.ts`: connected clients and the client protocol. Live state stays in memory.
+- `server/src/http.ts`: pairing, health and the admin API.
+- `server/src/app.ts`: wires them together. Tests start a real server on a free port through `startApp`.
 
 ## Conventions
 
