@@ -1,4 +1,5 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
+import { drain } from "./drain.js";
 
 export interface SpeechToText {
   /** Turns one utterance into text. Returns an empty string when nothing was said. */
@@ -118,7 +119,8 @@ export class OpenAiTextToSpeech implements TextToSpeech {
       await res.body?.cancel();
       throw new Error(`speech synthesis answered HTTP ${res.status}`);
     }
-    for await (const chunk of res.body) yield Buffer.from(chunk);
+    // Read at once, played at real-time pace: see drain() for why the two are kept apart.
+    for await (const chunk of drain(res.body)) yield Buffer.from(chunk);
   }
 
   healthy(): Promise<boolean> {

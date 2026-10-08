@@ -1,3 +1,5 @@
+import { drain } from "./drain.js";
+
 export interface Agent {
   /** Sends one message to the agent and yields its reply as text pieces. */
   reply(message: string, signal?: AbortSignal): AsyncIterable<string>;
@@ -51,7 +53,7 @@ export class ChatCompletionsAgent implements Agent {
 
     const decoder = new TextDecoder();
     let pending = "";
-    for await (const chunk of res.body) {
+    for await (const chunk of drain(res.body)) {
       pending += decoder.decode(chunk, { stream: true });
       let newline: number;
       while ((newline = pending.indexOf("\n")) >= 0) {

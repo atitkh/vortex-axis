@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, after the activity log, overview and activity pages (firmware 0.6.0, unchanged). Update this line whenever you change this section.
+Last updated: 2026-10-08, after the fix for the fetch crash during speech (firmware 0.6.0, unchanged). Update this line whenever you change this section.
 
 Built and running:
 
@@ -113,7 +113,7 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/turns.ts`: one turn from input to spoken reply, plus pacing of audio to the client.
 - `server/src/wake.ts`: picks one client when several hear the wake word.
 - `server/src/sentences.ts`: cuts a streaming reply into pieces to synthesize one at a time.
-- `server/src/speech.ts`, `server/src/agent.ts`: upstream clients behind small interfaces. Tests pass fakes through `startApp`'s third argument.
+- `server/src/speech.ts`, `server/src/agent.ts`: upstream clients behind small interfaces. Every streamed `fetch` body is read through `drain()` (`server/src/drain.ts`): Node's fetch crashes the whole process, uncatchably, when a server closes while a body sits unread under backpressure (nodejs/undici#5360), and speech is read at real-time pace. Do not iterate `res.body` directly. Tests pass fakes through `startApp`'s third argument.
 - `server/src/app.ts`: wires them together. Tests start a real server on a free port through `startApp`, using `server/test/harness.ts`.
 
 - `server/src/gateway/wire.ts`: frames, the device identity and the signed connect text.
