@@ -2,43 +2,67 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
   <title>VorteX Axis</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/web/style.css">
 </head>
 <body>
-<main>
-  <header class="top">
-    <h1>VorteX Axis <span>web client</span></h1>
-    <div class="pills" id="pills"></div>
-  </header>
 
-  <section class="card hidden" id="pair">
-    <h2>Pair this browser</h2>
-    <p class="hint">Get a pairing code from the <a href="/admin">admin page</a>. This browser then becomes one of the hub's clients.</p>
-    <form class="row" id="pair-form">
-      <div style="flex:0 1 170px"><label for="pair-code">Pairing code</label><input id="pair-code" class="mono" placeholder="123-456" autocomplete="off" required></div>
-      <div class="grow"><label for="pair-name">Name for this client</label><input id="pair-name" placeholder="Laptop" maxlength="64"></div>
+<header class="corner">
+  <div class="status" id="pills"></div>
+  <button type="button" class="ghost hidden" id="history-toggle" aria-expanded="false" aria-controls="history">History</button>
+</header>
+
+<main class="stage">
+  <!-- The face is the button, as on the board: tap to talk, tap again to finish, tap to stop it speaking. -->
+  <button type="button" class="face" id="mic" aria-label="Tap to talk">
+    <canvas id="face" aria-hidden="true"></canvas>
+  </button>
+
+  <div class="caption" id="caption" aria-live="polite">
+    <p class="heard" id="heard"></p>
+    <p class="said" id="said"></p>
+  </div>
+  <p class="hint" id="hint"></p>
+
+  <section class="pair hidden" id="pair">
+    <h1>Pair this browser</h1>
+    <p>Make a pairing code on the <a href="/admin">admin page</a> and type it here. This browser then becomes one of the hub's clients.</p>
+    <form id="pair-form">
+      <label for="pair-code">Pairing code</label>
+      <input id="pair-code" class="code" placeholder="123-456" autocomplete="off" inputmode="numeric" required>
+      <label for="pair-name">Name for this client</label>
+      <input id="pair-name" placeholder="Laptop" maxlength="64">
       <button class="primary" type="submit">Pair</button>
     </form>
-    <p class="note bad" id="pair-error"></p>
+    <p class="error" id="pair-error"></p>
   </section>
 
-  <section class="card hidden" id="talk">
-    <div class="log" id="log"></div>
-    <form class="row center" id="say-form">
-      <button type="button" class="mic" id="mic" title="Speak">&#127908;</button>
-      <div class="grow"><input id="say" placeholder="Type a message" autocomplete="off" maxlength="4000"></div>
-      <button class="primary" type="submit">Send</button>
-      <button type="button" id="stop">Stop</button>
+  <section class="talk hidden" id="talk">
+    <form class="bar" id="say-form">
+      <input id="say" placeholder="Or type here" autocomplete="off" maxlength="4000" aria-label="Message">
+      <button class="send" type="submit">Send</button>
+      <button type="button" class="stop" id="stop">Stop</button>
     </form>
-    <p class="note warn hidden" id="sound-note">Sound is off: the browser only lets this page play audio after you click or type on it. <button type="button" class="small" id="sound-enable">Enable sound</button></p>
-    <p class="note" id="hint"></p>
+    <p class="notice hidden" id="sound-note">Sound is off until you click or type on this page. <button type="button" id="sound-enable">Turn sound on</button></p>
   </section>
-
-  <p class="note hidden" id="footer"><span id="who"></span> · <button class="small" id="forget">Forget this pairing</button></p>
 </main>
+
+<aside class="drawer hidden" id="history" aria-label="History">
+  <div class="drawer-head">
+    <span>This conversation</span>
+    <button type="button" class="ghost" id="history-close">Close</button>
+  </div>
+  <div class="log" id="log"></div>
+</aside>
+
+<footer class="foot hidden" id="footer">
+  <span id="who"></span>
+  <button type="button" class="ghost" id="forget">Forget this pairing</button>
+</footer>
+
 <script type="module" src="/web/client.js"></script>
 </body>
 </html>

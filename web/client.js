@@ -1,6 +1,8 @@
 // Web client for VorteX Axis. It is an ordinary client: it pairs with a code
 // and speaks the same protocol over the same socket as a firmware client.
 
+import { Vortex } from "/web/vortex.js";
+
 const $ = (id) => document.getElementById(id);
 const PROTOCOL = 1;
 const VERSION = "0.1.0";
@@ -23,6 +25,9 @@ let reconnectTimer;
 let turnCount = 0;
 let upstream = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 let turnState = "idle";
+const face = new Vortex($("face"));
+// A failed turn shows the problem look for a while, then the face settles again.
+let errorUntil = 0;
 
 // --- small helpers ---------------------------------------------------------
 
@@ -30,14 +35,74 @@ function show(id, visible) {
   $(id).classList.toggle("hidden", !visible);
 }
 
+/** Adds a line to the history drawer. Text always goes in as text. */
 function bubble(kind, text) {
   const el = document.createElement("div");
   el.className = `bubble ${kind}`;
   el.textContent = text;
   $("log").append(el);
   $("log").scrollTop = $("log").scrollHeight;
+  show("history-toggle", true);
   return el;
 }
+
+// --- the words under the face ------------------------------------------------
+
+let fadeTimer;
+/** What was heard (dim) and what was said back (bright), as the board shows them. */
+function caption(heard, said, kind = "") {
+  if (heard !== undefined) $("heard").textContent = heard;
+  if (said !== undefined) {
+    $("said").textContent = said;
+    $("said").className = `said ${kind}`.trim();
+  }
+  document.body.classList.toggle("has-words", Boolean($("heard").textContent || $("said").textContent));
+  $("caption").classList.remove("faded");
+  clearTimeout(fadeTimer);
+  // Old words fade, so a glance tells whether they are fresh.
+  fadeTimer = setTimeout(() => $("caption").classList.add("faded"), 30000);
+}
+
+const UPSTREAM_NAMES = { openclaw: "the agent", stt: "speech recognition", tts: "speech synthesis" };
+
+/** The face, the hint and the Stop button follow what is going on. */
+function renderFace() {
+  const playing = Boolean(player.turnId);
+  const mode = !identity
+    ? "setup"
+    : !online
+      ? "offline"
+      : capture || turnState === "listening"
+        ? "listening"
+        : playing || turnState === "speaking"
+          ? "speaking"
+          : turnState === "transcribing" || turnState === "thinking"
+            ? "thinking"
+            : Date.now() < errorUntil
+              ? "error"
+              : "idle";
+  face.setMode(mode);
+  document.body.classList.toggle("busy", ["listening", "speaking", "thinking"].includes(mode));
+  document.body.classList.toggle("pairing", !identity);
+  const down = Object.entries(upstream).filter(([, v]) => v === "down").map(([k]) => UPSTREAM_NAMES[k]);
+  $("mic").setAttribute("aria-label", mode === "listening" ? "Tap to finish" : mode === "idle" ? "Tap to talk" : "Tap to stop");
+  $("hint").textContent =
+    !identity ? ""
+    : !online ? "Can't reach Axis. Trying again…"
+    : mode === "listening" ? "Listening. Tap to finish."
+    : mode === "thinking" ? "Thinking. Tap to stop."
+    : mode === "speaking" ? "Tap to stop."
+    : down.length ? `${down.join(" and ")} ${down.length === 1 ? "is" : "are"} down.`
+    : micAvailable ? "Tap the vortex to talk."
+    : "The microphone needs https or localhost. Type below.";
+}
+
+// The face swells with the voice: the microphone while listening, the reply while speaking.
+function followLevel() {
+  requestAnimationFrame(followLevel);
+  face.setLevel(capture ? Math.min(1, capture.level * 7) : player.turnId ? player.level() : -1);
+}
+requestAnimationFrame(followLevel);
 
 function renderPills() {
   const pill = (label, kind) => {
@@ -46,13 +111,24 @@ function renderPills() {
     el.textContent = label;
     return el;
   };
-  const health = (name, value) => pill(name, value === "up" ? "good" : value === "down" ? "bad" : "");
+  const stateDot = () => {
+    const el = pill(online ? turnState : "offline", online ? (turnState === "error" ? "bad" : turnState === "idle" ? "good" : "warn") : "bad");
+    if (online) el.dataset.state = turnState;
+    return el;
+  };
+  const health = (name, value) => {
+    const el = pill(name, value === "up" ? "good" : value === "down" ? "bad" : "");
+    el.classList.add("service");
+    el.title = `${name}: ${value}`;
+    return el;
+  };
   $("pills").replaceChildren(
-    pill(online ? turnState : "offline", online ? (turnState === "error" ? "bad" : turnState === "idle" ? "good" : "warn") : "bad"),
+    stateDot(),
     health("agent", upstream.openclaw),
     health("recognition", upstream.stt),
     health("synthesis", upstream.tts),
   );
+  renderFace();
 }
 
 const newTurnId = () => `web-${Date.now().toString(36)}-${++turnCount}`;
@@ -73,6 +149,9 @@ function forget(message = "") {
   online = false;
   show("talk", false);
   show("footer", false);
+  show("history-toggle", false);
+  $("log").replaceChildren();
+  caption("", "");
   show("pair", true);
   $("pair-error").textContent = message;
   renderPills();
@@ -121,10 +200,7 @@ function start() {
   show("talk", true);
   show("footer", true);
   $("who").textContent = `Paired as ${identity.name}`;
-  $("mic").disabled = !micAvailable;
-  $("hint").textContent = micAvailable
-    ? "Click the microphone, speak, and it stops when you go quiet. This page has no wake word."
-    : "The microphone is off: browsers only allow it on https or on localhost. Typing still works.";
+  renderFace();
   // Find out now whether sound is allowed, so the notice is there before anyone speaks.
   player.ensure();
   setTimeout(() => show("sound-note", !player.audible()), 300);
@@ -190,22 +266,39 @@ function onMessage(message) {
       break;
     case "turn":
       turnState = message.state;
-      if (message.state === "idle" && message.detail) bubble("info", message.detail);
-      if (message.state === "error") bubble("error", message.detail || "something went wrong");
+      if (message.state === "transcribing") caption("…", "");
+      if (message.state === "idle" && message.detail) {
+        bubble("info", message.detail);
+        caption("", message.detail, "info");
+      }
+      if (message.state === "error") {
+        bubble("error", message.detail || "something went wrong");
+        caption(undefined, message.detail || "Something went wrong.", "error");
+        errorUntil = Date.now() + 5000;
+        setTimeout(renderFace, 5100);
+      }
       break;
     case "transcript":
       bubble("you", message.text);
+      caption(message.text, "");
       break;
     case "reply.text":
       if (message.final) {
-        replyBubble ??= bubble("axis", "");
-        replyBubble.textContent = message.text;
+        // A reply the agent chose not to give leaves nothing behind.
+        if (!message.text) {
+          replyBubble?.remove();
+        } else {
+          replyBubble ??= bubble("axis", "");
+          replyBubble.textContent = message.text;
+          caption(undefined, message.text);
+        }
         replyBubble = undefined;
         replyText = "";
       } else {
         replyText += (replyText ? " " : "") + message.text;
         replyBubble ??= bubble("axis", "");
         replyBubble.textContent = replyText;
+        caption(undefined, replyText);
       }
       $("log").scrollTop = $("log").scrollHeight;
       break;
@@ -224,7 +317,10 @@ function onMessage(message) {
       break;
     case "error":
       // A turn that failed already shows its own message.
-      if (turnState !== "error") bubble("error", message.message);
+      if (turnState !== "error") {
+        bubble("error", message.message);
+        caption(undefined, message.message, "error");
+      }
       break;
   }
   renderPills();
@@ -247,11 +343,25 @@ const player = {
       this.context = new AudioContext();
       this.gain = this.context.createGain();
       this.gain.gain.value = this.volume;
-      this.gain.connect(this.context.destination);
+      // The analyser measures the voice for the face; the sound goes on to the speakers.
+      this.analyser = this.context.createAnalyser();
+      this.analyser.fftSize = 1024;
+      this.samples = new Float32Array(this.analyser.fftSize);
+      this.gain.connect(this.analyser);
+      this.analyser.connect(this.context.destination);
       // Hide the notice as soon as the browser lets sound through.
       this.context.addEventListener("statechange", () => this.audible() && show("sound-note", false));
     }
     if (this.context.state === "suspended") this.context.resume().catch(() => {});
+  },
+
+  /** Loudness of what is playing now, 0 to 1. */
+  level() {
+    if (!this.analyser) return 0;
+    this.analyser.getFloatTimeDomainData(this.samples);
+    let energy = 0;
+    for (const v of this.samples) energy += v * v;
+    return Math.min(1, Math.sqrt(energy / this.samples.length) * 5);
   },
 
   /** False while the browser is holding sound back until someone clicks or types on the page. */
@@ -312,6 +422,7 @@ const player = {
     if (!this.ended || this.sources.size || !this.turnId) return;
     send({ t: "playback", turnId: this.turnId, state: "finished" });
     this.turnId = undefined;
+    renderFace();
   },
 
   /** Stops at once and drops what was queued. Returns whether anything was playing. */
@@ -327,6 +438,7 @@ const player = {
     this.sources.clear();
     this.turnId = undefined;
     this.ended = false;
+    if (wasPlaying) setTimeout(renderFace);
     return wasPlaying;
   },
 };
@@ -356,7 +468,7 @@ async function startCapture() {
   source.connect(node);
 
   const turnId = newTurnId();
-  capture = { stream, context, turnId, pending: [], pendingLength: 0, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0 };
+  capture = { stream, context, turnId, pending: [], pendingLength: 0, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, level: 0 };
   const step = context.sampleRate / MIC_RATE;
 
   node.port.onmessage = (event) => {
@@ -375,6 +487,7 @@ async function startCapture() {
     let energy = 0;
     for (const sample of out) energy += sample * sample;
     const level = Math.sqrt(energy / Math.max(1, out.length));
+    capture.level = level;
 
     capture.pending.push(...out);
     while (capture.pending.length >= MIC_FRAME) {
@@ -398,7 +511,8 @@ async function startCapture() {
   };
 
   send({ t: "audio.start", turnId, format: { encoding: "pcm_s16le", sampleRate: MIC_RATE, channels: 1 } });
-  $("mic").classList.add("live");
+  caption("", "");
+  renderFace();
 }
 
 function stopCapture(tellHub, reason = "silence") {
@@ -407,15 +521,30 @@ function stopCapture(tellHub, reason = "silence") {
   capture = undefined;
   for (const track of stream.getTracks()) track.stop();
   context.close();
-  $("mic").classList.remove("live");
   if (tellHub) send({ t: "audio.end", turnId, reason });
+  renderFace();
 }
 
+// The face works like the board's screen: tap to talk, tap to finish, tap to stop it.
 $("mic").addEventListener("click", () => {
   player.ensure(); // a click is what lets the browser play sound later
-  if (capture) stopCapture(true, capture.spoke ? "silence" : "cancel");
-  else startCapture();
+  if (!identity || !online) return;
+  if (capture) return stopCapture(true, capture.spoke ? "silence" : "cancel");
+  if (player.turnId || turnState !== "idle") return stopEverything();
+  if (micAvailable) startCapture();
+  else $("say").focus();
 });
+
+$("sound-enable").addEventListener("click", () => player.ensure());
+
+function toggleHistory(open) {
+  show("history", open);
+  $("history-toggle").setAttribute("aria-expanded", String(open));
+  if (open) $("log").scrollTop = $("log").scrollHeight;
+}
+$("history-toggle").addEventListener("click", () => toggleHistory($("history").classList.contains("hidden")));
+$("history-close").addEventListener("click", () => toggleHistory(false));
+document.addEventListener("keydown", (event) => event.key === "Escape" && toggleHistory(false));
 
 // --- typing and stopping ---------------------------------------------------
 
@@ -427,17 +556,19 @@ $("say-form").addEventListener("submit", (event) => {
   player.stop();
   stopCapture(true, "cancel");
   bubble("you", text);
+  caption(text, "");
   send({ t: "text", turnId: newTurnId(), text });
   $("say").value = "";
 });
 
-$("stop").addEventListener("click", () => {
+function stopEverything() {
   stopCapture(true, "cancel");
   player.stop();
   send({ t: "interrupt" });
   replyBubble = undefined;
   replyText = "";
-});
+}
+$("stop").addEventListener("click", stopEverything);
 
 renderPills();
 if (identity) start();

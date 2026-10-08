@@ -65,6 +65,8 @@ Set these in the admin page: open the device under Clients, then pick the layer 
 
 ## The face
 
+The web client draws the same face from `web/vortex.js`, a port of `vortex.cpp`. A change to a look or colour here should be made there too.
+
 The default face is a vortex: dots on three spiral arms, drawn on the device from the turn state Axis sends. Nothing is streamed as pixels.
 
 | State | Look |

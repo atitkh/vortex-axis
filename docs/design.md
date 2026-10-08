@@ -156,7 +156,7 @@ Only the admin token comes from the environment. The gateway address and setup c
 
 The admin page and the web client are plain files served by the hub. The pages hold no secrets: every action goes through the same endpoints, with the same checks, as any other caller. The admin token is kept in the browser tab only.
 
-The web client is a normal client with the capabilities `speaker`, `screen`, `buttons`, and `mic` when the browser allows the microphone (https or localhost only). It has no wake word: a click starts listening and silence ends it.
+The web client is a normal client with the capabilities `speaker`, `screen`, `buttons`, and `mic` when the browser allows the microphone (https or localhost only). It has no wake word. It looks and behaves like the board: a black page with the same vortex face (`web/vortex.js`, ported from the firmware), which is also the button: tap to talk, tap to finish, tap to stop a reply. Silence also ends listening. What was heard and the reply appear under the face, and the whole conversation is in a history drawer.
 
 ## 10. Firmware
 
