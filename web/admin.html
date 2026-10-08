@@ -110,6 +110,11 @@
         <span class="note" id="code-note"></span>
       </div>
       <p class="note">To try it from a browser, open the <a href="/" target="_blank" rel="noopener">web client</a> and enter a code.</p>
+      <div class="row">
+        <div class="grow"><label for="device-address">Address devices reach Axis at</label><input id="device-address" class="mono" spellcheck="false" placeholder="10.0.0.6:8440"></div>
+        <div class="grow"><label for="setup-string">Setup string for a device</label><input id="setup-string" class="mono" readonly placeholder="Press New pairing code"></div>
+      </div>
+      <p class="hint">A hardware device takes the address and the code as one setup string, pasted into its own setup page. Use an address the device can reach from its Wi-Fi: usually this machine's LAN address and port, not a Tailscale name.</p>
     </section>
 
     <section class="card" id="settings">

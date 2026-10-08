@@ -339,10 +339,30 @@ $("code-new").addEventListener("click", (event) =>
   act(event.target, "code-note", async () => {
     const { code, expiresAt } = await api("POST", "/admin/pairing-codes");
     $("code-value").textContent = code;
+    renderSetupString();
     const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60000));
     note("code-note", `Works once, for ${minutes} minute${minutes === 1 ? "" : "s"}.`);
   }),
 );
+
+// A device cannot follow a link, so it gets the address and the code as one string.
+// The address is kept in this browser: it is a fact about the network, not about Axis.
+const LOCAL_NAMES = ["localhost", "127.0.0.1", "[::1]"];
+$("device-address").value =
+  localStorage.getItem("axis.deviceAddress") ??
+  (location.protocol === "http:" && !LOCAL_NAMES.includes(location.hostname) ? location.host : "");
+
+function renderSetupString() {
+  const address = $("device-address").value.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const code = $("code-value").textContent;
+  $("setup-string").value = address && code ? `axis://${address}/${code}` : "";
+}
+
+$("device-address").addEventListener("input", () => {
+  localStorage.setItem("axis.deviceAddress", $("device-address").value.trim());
+  renderSetupString();
+});
+$("setup-string").addEventListener("focus", (event) => event.target.select());
 
 // --- shared settings -------------------------------------------------------
 

@@ -25,6 +25,8 @@ Axis replies with the client's identity. The token is shown once; the client sto
 { "clientId": "c_desk", "token": "…", "name": "Desk speaker" }
 ```
 
+A device that cannot follow a link takes the address and the code together as one **setup string**, `axis://host:port/code` (`axis+tls://` for an encrypted address). It is only a way to hand over those two values; pairing itself is the request above.
+
 ## Connecting
 
 The first frame on every connection is `hello`. Axis answers `welcome`, then `settings` if the client's copy is out of date, then `status`.
