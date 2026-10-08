@@ -140,6 +140,20 @@ SQLite, one file in one data folder bind-mounted from the host, through Node's b
 - In memory only: who is online, the current output client, the active turn.
 - Not stored: audio and conversation history.
 
+### 7.1 Firmware updates over Wi-Fi
+
+Built 2026-10-08 (brought into version 1 by the owner the same day).
+
+- Axis keeps ONE build per client type in `<data folder>/firmware/` (`server/src/firmware.ts`): `POST /admin/firmware/:type?version=` with the file as the body, `GET /admin/firmware`, `DELETE /admin/firmware/:type`. A file that does not start like an ESP32 application image is refused.
+- `POST /admin/clients/:id/update` sends the device the `update` command. The device fetches `GET /v1/firmware/:type` with its own token, so only a paired device of that type can download it.
+- The device writes the file to its spare app slot, checks the MD5 Axis gave, and restarts. The new firmware is kept only once it has connected to Axis; if it has not within three minutes, the device restarts into the old one. A failed download or check leaves the running firmware untouched and is reported on the screen and as the reading `updateFailed`.
+- `scripts/push-firmware.mjs <type> [--update]` uploads a build and updates the devices of that type that are behind. The admin page has the same on each client type's page, and an Update button on a device's page.
+- Not built: staged rollout, signed firmware (the MD5 guards against a broken download, not a hostile one; anyone with the admin token can already do anything).
+
+### 7.2 Encrypted link from devices
+
+A setup string that starts `axis+tls://` makes the device pair, connect and update over TLS (port 443 unless given). It checks Axis's certificate against the certificate authorities the ESP32 core ships with, so the address needs a certificate from a public authority (Let's Encrypt behind a reverse proxy is fine); a self-signed one is refused. The serial command `tlscheck <https://...>` says whether a device can reach and trust an address before it is moved to it. An encrypted connection costs about 45 KB of the board's memory, so the socket is closed while an update downloads. Checked on the real board against public sites (trusted) and a self-signed one (refused); NOT yet used against a real Axis address, because Axis has no publicly certified address a LAN device can reach.
+
 ### 8.0 What is going on now
 
 `GET /admin/now` returns the timers running (label, client, when due) and what each client is in the middle of (listening, waiting for the agent, speaking, or asked a question, with the question). The admin overview draws it as the "Now" table, refreshed with the rest of the page, with a Cancel button per timer (`DELETE /admin/timers/:id`). Nothing here is stored beyond the timers themselves.

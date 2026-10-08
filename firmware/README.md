@@ -32,6 +32,17 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 If reads or flashing fail with corrupt data, check that nothing else has the port open. On the development host a container that expects a different device on `/dev/ttyACM0` did exactly that. `/dev/serial/by-id/` gives each device a name that does not change with plug order.
 
+## Updating over Wi-Fi
+
+Since 0.8.0 a device updates itself from Axis, so the cable is only for the first install and for rescue.
+
+```
+~/.platformio/penv/bin/pio run                                   # in the board folder, after bumping AXIS_FIRMWARE_VERSION
+AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 --update   # from the repository root
+```
+
+That uploads the build to Axis and tells every online device of the type that is on another version to install it. The screen shows "Updating" with a percentage; the device restarts by itself after about 25 seconds. The same can be done on the admin page, on the client type's page. The new firmware is kept once it has reached Axis; if it cannot within three minutes the device goes back to the old one by itself. Done three times on the real board (0.8.0 to 0.8.3).
+
 ## Setting up a device
 
 1. A device with no Wi-Fi starts its own network, `VorteX-Axis-XXXX`, and shows the name on screen. Join it and open `http://192.168.4.1` (phones usually open it by themselves).
@@ -43,7 +54,7 @@ The same page stays available at the device's own address afterwards, to change 
 
 The serial port takes the same things as typed commands: `status`, `wifi <name> <password>`, `setup <axis://...>`, `text <words>` (a typed turn), `stop` (stop speaking), `forget`, `forget wifi`, `reboot`.
 
-The address in a setup string must be plain `http` for now. `axis+tls://` is parsed but this firmware cannot connect to it yet, so a device only works on the same network as Axis.
+A setup string that starts `axis+tls://` (the admin page makes one when the device address is typed with `https://`) makes the device talk to Axis over TLS, on port 443 unless another is given. Axis must then present a certificate from a public authority. Type `tlscheck https://that-address/` on the serial console first: it says whether the device can reach and trust it. Since 0.8.2; checked against public sites, not yet against a real Axis address.
 
 ## Settings a device reads
 
@@ -118,7 +129,7 @@ Build order: (1) display, Wi-Fi setup, pairing and a face that follows Axis's st
 
 Also built (0.7.0): questions from an agent with choices to tap or say, and a countdown for timers kept on Axis.
 
-Not built yet: updates over Wi-Fi, `axis+tls://`, choosing the wake word model from Axis instead of at build time.
+Not built yet: choosing the wake word model from Axis instead of at build time.
 
 ## Tests for a person
 

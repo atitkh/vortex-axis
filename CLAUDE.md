@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added the Now panel (firmware 0.7.1). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added updates over Wi-Fi and TLS for devices (firmware 0.8.3). Update this line whenever you change this section.
 
 Built and running:
 
@@ -25,19 +25,19 @@ Known not working, accepted for now: saying the wake word over the device's own 
 
 Built 2026-10-08 and covered by `server/test/commands.test.ts`, but NOT yet tried by the owner on a real device or through a real agent: `vortex.axis.ask` (question with choices to tap or say, or an open question), `vortex.axis.timer` (timers kept on Axis, announced when due, counted down on a screen) and `vortex.axis.admin` (list and run device actions, rename, pairing code). Design section 6 says how each behaves. The owner has since tried them on the board (2026-10-08): tapping a choice works, and the timer tests passed. A fix after that, deployed but not yet retried by the owner: an agent asking mid-turn on the device it is talking to was refused as busy (see `thinking` in `turns.ts`). `firmware/README.md` tests 17 to 22 are the list for a person.
 
-Not built yet: firmware updates over Wi-Fi, TLS from firmware (`axis+tls://` is parsed but unusable).
+Built 2026-10-08, milestone 5: firmware updates over Wi-Fi (design 7.1; done three times on the real board) and TLS from devices (`axis+tls://`, design 7.2; the board trusts public certificates and refuses a self-signed one, but it has NOT been used against a real Axis address, because none with a public certificate exists yet).
 
-Deployed: the container was rebuilt and the board flashed with firmware 0.7.1 at the Now panel commit. Not yet seen by the owner: the Now table on the admin overview, the board's new question screen (face, question, rounded buttons), and timers counting down on every screen.
+Not built yet: staged rollout of updates, signed firmware, a publicly reachable Axis address (the owner has not said how Axis should be exposed).
+
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.8.3 at that commit.
 
 Loose ends, not yet done:
 
-- The web client says "The browser did not allow the microphone" for every microphone failure in `startCapture()` (`client.js`), including a microphone busy in another app (`NotReadableError`) or none found. It should say which, from the error's `name`.
-- The web client measures the reply's loudness for the face after the volume, so a low volume shrinks the speaking face; the board measures before it (`docs/face.md` section 4).
 - The owner saw the "Agent" time (Axis asking OpenClaw to its first words) grow. Nothing in Axis touches that stretch; not investigated on the OpenClaw side.
 - Not watched yet: a board unplugged going offline within about 30 s; a long spoken answer after the fetch crash fix (`drain()`).
 - `browser-check` needs `google-chrome`, or `CHROME=<path>`; on the owner's Mac it was run with Brave.
 
-Next: the owner's tests of ask and timer on the board, then milestone 5. For milestone 5, decide first: `README.md` lists "firmware updates delivered through Axis" as out of version 1 scope, while updates over Wi-Fi were planned for it. Ask the owner which is meant before building either.
+Next: the owner decides how Axis is exposed (reverse proxy with a public domain, or tailnet only); then try a device on an `axis+tls://` address. After that only the loose ends above remain for version 1.
 
 What a real gateway taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` behaves the same way.
 
@@ -111,6 +111,7 @@ npm run build
 npm run schema --workspace protocol   # regenerate protocol/schema/*.json
 npm run browser-check                 # both pages in headless Chrome, stub speech unless TTS and STT are set; CHROME=<path> for another Chromium browser
 AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis (uses the real agent)
+AXIS_ADMIN_TOKEN=... npm run push-firmware -- <type> --update   # upload a firmware build and update devices over Wi-Fi
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
 docker compose up -d --build          # needs .env, see .env.example
 ```
@@ -133,6 +134,7 @@ docker compose up -d --build          # needs .env, see .env.example
 - `server/src/gateway/client.ts`: both links, credentials, agent turns, node commands.
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
 - `server/src/ask.ts`: matches what a person said or typed to one of a question's choices. The question's life (speak it, send `ask`, take the answer from a tap, a recording or typed text, time out) is in `turns.ts`, because a spoken answer arrives as an ordinary recording and must be kept from the agent.
+- `server/src/firmware.ts`: the firmware build kept per client type for updates over Wi-Fi. The routes are in `http.ts`.
 - `server/src/timers.ts`: timers agents set. Kept in the `timers` table, announced with `hub.say` when due, retried while nobody can be reached, and told to screens with the `timer.next` command.
 
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.
@@ -155,7 +157,7 @@ The gateway's device tokens and the setup code are stored in the SQLite `meta` t
 
 A setting or action a device offers is declared once, in the board's table in `main.cpp`. The server validates against that description and the admin page draws from it, so do not add per-board code to `web/` or the server.
 
-Build and flash from a board folder with `~/.platformio/penv/bin/pio run` and `pio run --target upload`. Bump `AXIS_FIRMWARE_VERSION` with every flashed change. Flashing resets a device someone may be using, and anything that makes sound or changes the picture needs a person to confirm it; say so instead of calling it tested.
+Build in a board folder with `~/.platformio/penv/bin/pio run`. Ship it over Wi-Fi with `AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs <type> --update` from the repository root (the token is in the untracked `.env`); use the cable (`pio run --target upload`) only for a first install or a board that will not start. Bump `AXIS_FIRMWARE_VERSION` with every flashed change. Flashing resets a device someone may be using, and anything that makes sound or changes the picture needs a person to confirm it; say so instead of calling it tested.
 
 ## Conventions
 

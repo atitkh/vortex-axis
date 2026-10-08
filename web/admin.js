@@ -1055,9 +1055,12 @@ $("device-address").value =
   (location.protocol === "http:" && !LOCAL_NAMES.includes(location.hostname) ? location.host : "");
 
 function renderSetupString() {
-  const address = $("device-address").value.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  // An address typed with https:// makes an encrypted setup string; the device then checks Axis's certificate.
+  const typed = $("device-address").value.trim();
+  const scheme = /^https:\/\//i.test(typed) ? "axis+tls" : "axis";
+  const address = typed.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   const code = $("code-value").textContent;
-  $("setup-string").value = address && code ? `axis://${address}/${code}` : "";
+  $("setup-string").value = address && code ? `${scheme}://${address}/${code}` : "";
 }
 
 $("device-address").addEventListener("input", () => {

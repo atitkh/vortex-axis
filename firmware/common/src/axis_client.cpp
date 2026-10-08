@@ -7,6 +7,7 @@
 #include <WebServer.h>
 #include <WebSocketsClient.h>
 #include <WiFi.h>
+#include <NetworkClientSecure.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
@@ -89,6 +90,11 @@ Turn turnFromName(const char *name) {
 }
 
 }  // namespace
+
+// The certificate authorities the ESP32 core ships with, the same set a browser trusts.
+// An encrypted Axis address must present a certificate one of them signed.
+extern const uint8_t caBundleStart[] asm("_binary_x509_crt_bundle_start");
+extern const uint8_t caBundleEnd[] asm("_binary_x509_crt_bundle_end");
 
 bool parseSetupString(const String &input, String &baseUrl, String &code) {
     String s = input;
@@ -431,15 +437,12 @@ struct Client::Impl {
         String payload;
         serializeJson(body, payload);
 
-        if (baseUrl.startsWith("https://")) {
-            setLink(Link::Pairing, "This firmware cannot use an encrypted Axis address yet");
-            return;
-        }
-        WiFiClient transport;
+        WiFiClient plain;
+        NetworkClientSecure tls;
         HTTPClient http;
-        http.setConnectTimeout(4000);
+        http.setConnectTimeout(encrypted() ? 8000 : 4000);
         http.setTimeout(6000);
-        if (!http.begin(transport, baseUrl + "/v1/pair")) {
+        if (!beginHttp(http, plain, tls, baseUrl + "/v1/pair")) {
             setLink(Link::Pairing, "Bad Axis address " + baseUrl);
             return;
         }
@@ -476,9 +479,19 @@ struct Client::Impl {
         socket.sendTXT(text);
     }
 
+    /** True when Axis is reached over TLS (a setup string that began with `axis+tls://`). */
+    bool encrypted() const { return baseUrl.startsWith("https://"); }
+
+    /** Opens an HTTP request to Axis over whichever transport its address calls for. */
+    bool beginHttp(HTTPClient &http, WiFiClient &plain, NetworkClientSecure &tls, const String &url) {
+        if (!encrypted()) return http.begin(plain, url);
+        tls.setCACertBundle(caBundleStart, caBundleEnd - caBundleStart);
+        return http.begin(tls, url);
+    }
+
     void startSocket() {
         String rest = baseUrl.substring(baseUrl.indexOf("://") + 3);
-        uint16_t port = 80;
+        uint16_t port = encrypted() ? 443 : 80;
         const int colon = rest.lastIndexOf(':');
         if (colon > 0) {
             port = (uint16_t)rest.substring(colon + 1).toInt();
@@ -488,9 +501,10 @@ struct Client::Impl {
         socket.setReconnectInterval(3000);
         // Without this a silently dead link (Axis host gone, Wi-Fi roam) looks connected forever.
         socket.enableHeartbeat(15000, 5000, 2);
-        socket.begin(rest.c_str(), port, "/v1/client");
+        if (encrypted()) socket.beginSslWithBundle(rest.c_str(), port, "/v1/client", caBundleStart, (size_t)(caBundleEnd - caBundleStart), "arduino");
+        else socket.begin(rest.c_str(), port, "/v1/client");
         socketStarted = true;
-        logf("connecting to Axis at %s:%u", rest.c_str(), port);
+        logf("connecting to Axis at %s:%u%s", rest.c_str(), port, encrypted() ? ", encrypted" : "");
     }
 
     void stopSocket() {
@@ -651,13 +665,17 @@ struct Client::Impl {
         quiet();
         endAsk();
         update([](Snapshot &s) { s.updatePercent = 0; });
+        // An encrypted connection takes about 45 KB of memory, and there is not room for two:
+        // the socket is closed for the download and opens again afterwards if the update fails.
+        if (encrypted()) stopSocket();
         String problem;
         {
             WiFiClient plain;
+            NetworkClientSecure tls;
             HTTPClient http;
-            http.setConnectTimeout(6000);
+            http.setConnectTimeout(8000);
             http.setTimeout(10000);
-            if (!http.begin(plain, baseUrl + updatePath)) {
+            if (!beginHttp(http, plain, tls, baseUrl + updatePath)) {
                 problem = "bad address";
             } else {
                 http.addHeader("Authorization", "Bearer " + token);
@@ -712,10 +730,12 @@ struct Client::Impl {
             s.note = "Update failed: " + problem;
         });
         // Axis hears about it too, as a reading the admin page shows.
-        JsonDocument doc;
-        doc["t"] = "sense";
-        doc["readings"]["updateFailed"] = problem.substring(0, 120);
-        send(doc);
+        if (socketStarted) {
+            JsonDocument doc;
+            doc["t"] = "sense";
+            doc["readings"]["updateFailed"] = problem.substring(0, 120);
+            send(doc);
+        }
     }
 
     /** A number when the whole text is one, so "90" is sent as 90 and "Hey" stays text. */
@@ -1262,12 +1282,24 @@ struct Client::Impl {
                 forgetPairing();
                 logf("pairing forgotten");
             }
+        } else if (word == "tlscheck") {
+            // Can this device reach an https address and trust its certificate? Run before moving a device to one.
+            NetworkClientSecure tls;
+            tls.setCACertBundle(caBundleStart, caBundleEnd - caBundleStart);
+            HTTPClient http;
+            http.setConnectTimeout(8000);
+            http.setTimeout(8000);
+            const uint32_t began = millis();
+            const int status = http.begin(tls, rest) ? http.GET() : -1000;
+            logf("tlscheck %s: %s (%d) in %lu ms, heap %u", rest.c_str(), status > 0 ? "reached and trusted" : HTTPClient::errorToString(status).c_str(),
+                 status, (unsigned long)(millis() - began), (unsigned)ESP.getFreeHeap());
+            http.end();
         } else if (word == "reboot") {
             ESP.restart();
         } else if (self.consoleHandler_ && self.consoleHandler_(word, rest)) {
             // the board handled it
         } else {
-            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | talk | mic | stop | forget [wifi] | reboot");
+            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | talk | mic | stop | forget [wifi] | tlscheck <https://...> | reboot");
         }
     }
 

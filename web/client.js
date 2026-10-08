@@ -419,12 +419,13 @@ const player = {
       this.context = new AudioContext();
       this.gain = this.context.createGain();
       this.gain.gain.value = this.volume;
-      // The analyser measures the voice for the face; the sound goes on to the speakers.
+      // The analyser measures the voice for the face BEFORE the volume, as the board does
+      // (docs/face.md section 4), so a quiet setting does not shrink the speaking face.
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 1024;
       this.samples = new Float32Array(this.analyser.fftSize);
-      this.gain.connect(this.analyser);
-      this.analyser.connect(this.context.destination);
+      this.analyser.connect(this.gain);
+      this.gain.connect(this.context.destination);
       // Hide the notice as soon as the browser lets sound through.
       this.context.addEventListener("statechange", () => this.audible() && show("sound-note", false));
     }
@@ -476,7 +477,7 @@ const player = {
     for (let i = 0; i < samples.length; i++) out[i] = samples[i] / 32768;
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.gain);
+    source.connect(this.analyser);
     // Schedule each frame straight after the last, with a short lead for the first.
     const at = Math.max(this.nextAt, this.context.currentTime + 0.06);
     source.start(at);
@@ -554,11 +555,17 @@ async function startCapture() {
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
     context = await micReady();
-  } catch {
+  } catch (error) {
     for (const track of stream?.getTracks() ?? []) track.stop();
     starting = false;
-    bubble("error", "The browser did not allow the microphone.");
-    caption(undefined, "The browser did not allow the microphone.", "error");
+    // Say which it was: refused, missing, or taken by something else.
+    const why =
+      error?.name === "NotAllowedError" || error?.name === "SecurityError" ? "The browser did not allow the microphone. Allow it for this page and try again."
+      : error?.name === "NotFoundError" || error?.name === "OverconstrainedError" ? "No microphone was found on this device."
+      : error?.name === "NotReadableError" || error?.name === "AbortError" ? "The microphone is in use by another app, or the system would not open it."
+      : `The microphone could not be started${error?.message ? `: ${error.message}` : "."}`;
+    bubble("error", why);
+    caption(undefined, why, "error");
     return;
   }
   starting = false;

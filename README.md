@@ -6,7 +6,7 @@ Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
-**Status:** working, version 1 nearly complete. The hub handles pairing, settings, voice and text turns, and the link to an OpenClaw gateway in both directions, proven against a real gateway. There is an admin page (overview, activity and uptime, per-type and per-device settings) and a web client. The first firmware client runs on the Waveshare ESP32-S3-Touch-AMOLED-1.8 with an on-device "Hey Vortex" wake word, tap-to-talk and follow-up listening; see [firmware/README.md](firmware/README.md). Agents can also ask a question with choices and get the answer back, keep timers, and look after devices (`vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin`). Not built yet: firmware updates over Wi-Fi, and TLS from firmware. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
+**Status:** working, version 1 nearly complete. The hub handles pairing, settings, voice and text turns, and the link to an OpenClaw gateway in both directions, proven against a real gateway. There is an admin page (overview, activity and uptime, per-type and per-device settings) and a web client. The first firmware client runs on the Waveshare ESP32-S3-Touch-AMOLED-1.8 with an on-device "Hey Vortex" wake word, tap-to-talk and follow-up listening; see [firmware/README.md](firmware/README.md). Agents can also ask a question with choices and get the answer back, keep timers, and look after devices (`vortex.axis.ask`, `vortex.axis.timer`, `vortex.axis.admin`). Devices take firmware updates over Wi-Fi from Axis, and can connect over TLS (`axis+tls://`), which has been checked against public certificates but not yet used against a real Axis address. See [docs/design.md](docs/design.md) and [protocol/README.md](protocol/README.md).
 
 ## Why
 
@@ -63,7 +63,7 @@ Out, for later:
 - Bangle.js 2 client.
 - Exposure on a public domain (the auth is designed for it from the start).
 - Presence-based routing.
-- Firmware updates delivered through Axis.
+- Firmware updates rolled out in stages (one device first, then the rest). Updates over Wi-Fi themselves were brought into version 1 on 2026-10-08 and are built.
 - An admin page beyond a bare client list.
 
 ## Running it
