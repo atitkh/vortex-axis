@@ -10,8 +10,8 @@ useServer();
 
 /** The node's command handler, as the gateway link would call it. */
 function invoke(command: string, params: Record<string, unknown> = {}) {
-  const { hub, store, timers, activity } = ctx.app;
-  return createInvokeHandler({ hub, store, timers, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 })(
+  const { hub, store, timers, delivery, activity } = ctx.app;
+  return createInvokeHandler({ hub, store, timers, delivery, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 })(
     command,
     params,
   ) as Promise<any>;

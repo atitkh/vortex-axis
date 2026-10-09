@@ -50,6 +50,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     agent: undefined,
     gateway: { url: undefined, agentId: undefined, sessionKey: "vortex-axis", displayName: "VorteX Axis" },
     outputHoldMs: 600_000,
+    messageHoldMs: 600_000,
     webDir: fileURLToPath(new URL("../../web", import.meta.url)),
     ...overrides,
   };

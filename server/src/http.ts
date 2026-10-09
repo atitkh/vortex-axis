@@ -5,6 +5,8 @@ import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
+import type { Delivery } from "./delivery.js";
+import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
@@ -29,7 +31,7 @@ const SECURITY_HEADERS = {
 };
 /** The pages load only their own files and talk only to Axis. Inline styles are used by the admin page. */
 const PAGE_POLICY =
-  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -88,6 +90,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
 };
 
 /** Reads the web pages into memory once. Only files in this flat list can ever be served. */
@@ -123,6 +127,9 @@ export interface HttpDeps {
   wakeWordSync?: WakeWordSync;
   /** Timers agents set, shown and cancelled on the admin page. */
   timers?: Timers;
+  /** Notifications to browser clients whose page is closed. */
+  push?: PushService;
+  delivery?: Delivery;
   /** Rebuilds the upstream clients after the saved settings changed. */
   reloadServices: () => void;
   now?: () => number;
@@ -235,6 +242,9 @@ export function createHttpHandler(deps: HttpDeps) {
       },
       readings: session?.readings ?? {},
       address: session?.address ?? null,
+      // Whether it can be reached with its page closed, and what is being kept for it while it is away.
+      notifications: deps.push?.has(id) ?? false,
+      waiting: deps.delivery?.waitingFor(id) ?? 0,
     };
   }
 
@@ -321,6 +331,9 @@ export function createHttpHandler(deps: HttpDeps) {
         url.pathname === "/" ? web.get("index.html")
         : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin.html"))
         : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
+        // The service worker has to live at the top to be allowed to act for the whole web client.
+        : url.pathname === "/sw.js" ? web.get("sw.js")
+        : url.pathname === "/manifest.webmanifest" ? web.get("manifest.webmanifest")
         : undefined;
       if (file) {
         res.writeHead(200, {
@@ -345,6 +358,50 @@ export function createHttpHandler(deps: HttpDeps) {
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": info.size, "x-md5": info.md5 });
       createReadStream(firmware.path(info.type, info.version)).pipe(res);
       return;
+    }
+
+    // --- notifications for a browser client whose page is closed ---
+    if (parts.length === 3 && parts[0] === "v1" && parts[1] === "push" && deps.push) {
+      // The key a browser needs before it can subscribe. It is public.
+      if (method === "GET" && parts[2] === "key") return sendJson(res, 200, { key: deps.push.publicKey() });
+
+      // A browser client handing over, or withdrawing, the address its browser can be reached at.
+      if (parts[2] === "subscription" && (method === "POST" || method === "DELETE")) {
+        const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+        const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+        if (!client) throw new HttpError(401, "unknown client or wrong token");
+        if (method === "DELETE") {
+          store.setPushSubscription(client.id, undefined);
+          activity?.note("client", client.id, `${client.name} turned notifications off`);
+          return sendJson(res, 200, { notifications: false });
+        }
+        const body = (await readJson(req)) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
+        const endpoint = typeof body.endpoint === "string" ? body.endpoint : "";
+        const p256dh = typeof body.keys?.p256dh === "string" ? body.keys.p256dh : "";
+        const auth = typeof body.keys?.auth === "string" ? body.keys.auth : "";
+        let target: URL | undefined;
+        try {
+          target = new URL(endpoint);
+        } catch {
+          target = undefined;
+        }
+        // Axis will post to this address, so it must be a push service on the open web, not something inside the network.
+        if (!target || target.protocol !== "https:" || endpoint.length > 2000 || !/^[\w-]{80,100}$/.test(p256dh) || !/^[\w-]{16,32}$/.test(auth)) {
+          throw new HttpError(400, "that is not a push subscription");
+        }
+        const fresh = !deps.push.has(client.id);
+        store.setPushSubscription(client.id, { endpoint, p256dh, auth });
+        if (fresh) activity?.note("client", client.id, `${client.name} turned notifications on`);
+        return sendJson(res, 200, { notifications: true });
+      }
+
+      // A choice picked from a notification. The one-time token in the notification is what proves the answer is real.
+      if (method === "POST" && parts[2] === "answer" && deps.delivery) {
+        const body = (await readJson(req)) as { id?: unknown; token?: unknown; choice?: unknown };
+        const taken = deps.delivery.answer(String(body.id ?? ""), String(body.token ?? ""), String(body.choice ?? ""));
+        if (!taken) throw new HttpError(410, "that question is no longer open");
+        return sendJson(res, 200, { answered: true });
+      }
     }
 
     // A device fetching the wake word its settings chose, again with its own token.

@@ -109,6 +109,15 @@ const MIGRATIONS: string[] = [
   // "room" became "location": a device may be somewhere that is not a room, such as a car.
   `
   UPDATE OR REPLACE settings SET key = 'location' WHERE key = 'room';
+  `,  // Where to reach a browser client whose page is closed (Web Push). One per client.
+  `
+  CREATE TABLE push_subscriptions (
+    client_id TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
   `,
 ];
 
@@ -336,6 +345,7 @@ export class Store {
     const removed = this.db.prepare("DELETE FROM clients WHERE id = ?").run(id);
     if (removed.changes !== 1) return false;
     this.db.prepare("DELETE FROM settings WHERE scope = 'device' AND scope_id = ?").run(id);
+    this.db.prepare("DELETE FROM push_subscriptions WHERE client_id = ?").run(id);
     return true;
   }
 
@@ -469,6 +479,28 @@ export class Store {
       .prepare("SELECT * FROM clients WHERE id = ? OR lower(name) = lower(?) ORDER BY id = ? DESC LIMIT 1")
       .get(idOrName, idOrName, idOrName) as ClientRow | undefined;
     return row ? toRecord(row) : undefined;
+  }
+
+  // --- push subscriptions ---------------------------------------------------
+
+  getPushSubscription(clientId: string): { endpoint: string; p256dh: string; auth: string } | undefined {
+    return this.db.prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE client_id = ?").get(clientId) as
+      | { endpoint: string; p256dh: string; auth: string }
+      | undefined;
+  }
+
+  /** Saves a client's subscription, replacing any earlier one; undefined forgets it. */
+  setPushSubscription(clientId: string, subscription: { endpoint: string; p256dh: string; auth: string } | undefined): void {
+    if (!subscription) {
+      this.db.prepare("DELETE FROM push_subscriptions WHERE client_id = ?").run(clientId);
+      return;
+    }
+    this.db
+      .prepare(
+        "INSERT INTO push_subscriptions (client_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?) " +
+          "ON CONFLICT(client_id) DO UPDATE SET endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, created_at = excluded.created_at",
+      )
+      .run(clientId, subscription.endpoint, subscription.p256dh, subscription.auth, Date.now());
   }
 
   // --- settings -----------------------------------------------------------

@@ -56,6 +56,8 @@ export interface Config {
   };
   /** How long the last client spoken to stays the default place to answer. */
   outputHoldMs: number;
+  /** How long something said to a client that is offline is kept for it. */
+  messageHoldMs: number;
   /** Folder holding the web pages. Undefined serves none. */
   webDir: string | undefined;
 }
@@ -119,6 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       displayName: env.AXIS_NODE_NAME || "VorteX Axis",
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
+    messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
     // The compiled server sits in server/dist, two levels below the repository root.
     webDir: env.AXIS_WEB_DIR || fileURLToPath(new URL("../../web", import.meta.url)),
   };

@@ -1,6 +1,7 @@
 import type { Scalar } from "@vortex-axis/protocol";
 import type { InvokeHandler, NodeTool } from "./gateway/client.js";
 import type { Activity } from "./activity.js";
+import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import { withBuiltIns } from "./schema.js";
 import type { Store, TimerRecord } from "./store.js";
@@ -39,11 +40,16 @@ export const NODE_TOOLS: NodeTool[] = [
     description:
       "Speak a short message aloud, or show it, on one of the user's VorteX Axis devices. Use for timely " +
       "things the user should hear without looking at a screen. Keep it to one or two sentences, with no " +
-      "formatting. With no client or location, it goes to the device the user last spoke to. The result says " +
+      "formatting. With no client or location, it goes to the device the user last spoke to. A named client that " +
+      "is offline gets it as a notification if it is a browser, or it is kept a few minutes for when it is back. The result says " +
       "whether the device confirmed it was heard; if heard is false, do not assume the user got the message.",
     parameters: {
       type: "object",
-      properties: { text: { type: "string", description: "What to say." }, ...TARGET_PROPERTIES },
+      properties: {
+        text: { type: "string", description: "What to say." },
+        ...TARGET_PROPERTIES,
+        everywhere: { type: "boolean", description: "Say it on every device that can speak: in the location given, or in the whole place when none is." },
+      },
       required: ["text"],
     },
   },
@@ -169,6 +175,7 @@ export interface CommandDeps {
   hub: Hub;
   store: Store;
   timers: Timers;
+  delivery: Delivery;
   activity?: Activity | undefined;
   /** How long a pairing code made for an agent stays good. */
   pairingCodeTtlMs: number;
@@ -179,7 +186,7 @@ export interface CommandDeps {
 
 /** Builds the function that carries out a command an agent sent to the node. */
 export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
-  const { hub, store, timers } = deps;
+  const { hub, store, timers, delivery } = deps;
   const now = deps.now ?? Date.now;
 
   const timerView = (timer: TimerRecord) => ({
@@ -219,19 +226,15 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             ? text(params.text)
             : [text(params.title), text(params.body)].filter(Boolean).join(". ") || undefined;
         if (!words) throw new Error("there is nothing to say: text is empty");
-        const session = hub.pickOutput({ client: text(params.client), location: placeNamed(params) });
-        const { heard } = await hub.say(session, words);
-        const shown = session.client.capabilities.includes("screen");
-        // "heard" is the client's own confirmation that the audio played to the
-        // end. Without it the agent must not assume the person heard anything.
-        return {
-          client: session.client.name,
-          heard,
-          shown,
-          ...(heard
-            ? {}
-            : { note: shown ? "Not confirmed as heard. The text was shown on the client's screen." : "Not confirmed as heard, and this client has no screen." }),
-        };
+        const named = text(params.client);
+        // On every device that can speak, in one location or in the whole place.
+        if (params.everywhere === true) {
+          if (named) throw new Error("give a client or everywhere, not both");
+          return delivery.sayToAll(placeNamed(params), words);
+        }
+        // A named client need not be connected: a closed browser gets a notification, anything else is kept for a while.
+        if (named) return delivery.sayTo(clientNamed(named), words);
+        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words);
       }
 
       case "vortex.axis.clients":
@@ -282,6 +285,13 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         if (choices.length > 6) throw new Error("at most six choices");
         if (choices.some((c) => c.length > 64)) throw new Error("a choice is at most 64 characters");
         const seconds = typeof params.timeoutSeconds === "number" && Number.isFinite(params.timeoutSeconds) ? params.timeoutSeconds : 30;
+        const asked = text(params.client) ? clientNamed(text(params.client)!) : undefined;
+        const ms = Math.round(Math.min(300, Math.max(5, seconds)) * 1000);
+        // A browser with its page closed can still be asked, by notification, as long as there are choices to tap.
+        if (asked && delivery.canAskByNotification(asked, choices)) {
+          const result = await delivery.askByNotification(asked, question.slice(0, 500), choices, ms);
+          return { client: asked.name, ...result, ...(result.timedOut ? { note: "Nobody answered the notification in time." } : {}) };
+        }
         const session = hub.pickOutput({ client: text(params.client), location: placeNamed(params) });
         const caps = session.client.capabilities;
         // An answer has to come back somehow: by voice, or by picking a choice on a screen.
@@ -290,7 +300,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             `${session.client.name} has no microphone${choices.length ? " and no screen" : ", so it can only answer a question with choices"}`,
           );
         }
-        const result = await hub.ask(session, question.slice(0, 500), choices, Math.round(Math.min(300, Math.max(5, seconds)) * 1000));
+        const result = await hub.ask(session, question.slice(0, 500), choices, ms);
         return {
           client: session.client.name,
           ...result,

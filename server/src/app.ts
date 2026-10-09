@@ -9,7 +9,9 @@ import { WakeWordStore, WakeWordSync } from "./wakewords.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
+import { Delivery } from "./delivery.js";
 import { createHttpHandler } from "./http.js";
+import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
 import { Store } from "./store.js";
 import type { Services } from "./turns.js";
@@ -22,6 +24,9 @@ export interface App {
   /** The OpenClaw gateway link. It exists even when another agent answers turns. */
   gateway: GatewayClient;
   timers: Timers;
+  /** Gets agent-started speech to a client by whatever route it has: live, by notification, or kept for later. */
+  delivery: Delivery;
+  push: PushService;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -113,8 +118,21 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const timers = new Timers({ store, hub, activity, log });
   const wakeWords = new WakeWordStore(config.dataDir);
   const wakeWordSync = new WakeWordSync(wakeWords, store, hub);
+  // Browsers that allowed notifications are reached through their push service when their page is closed.
+  // The push service wants a way to contact the sender: the public address when there is one.
+  const push = new PushService(store, config.publicHosts[0] ? `https://${config.publicHosts[0]}` : "mailto:vortex-axis@localhost", log);
+  const delivery = new Delivery({
+    hub,
+    store,
+    push,
+    holdMs: config.messageHoldMs,
+    note: (clientId, text, level) => {
+      log(text);
+      activity.note("message", clientId, text, level ?? "info");
+    },
+  });
   gateway.onInvokeCommand(
-    createInvokeHandler({ hub, store, timers, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+    createInvokeHandler({ hub, store, timers, delivery, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
   );
 
   // A service that is not configured counts as down, so clients can say so.
@@ -137,7 +155,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, timers, wakeWords, wakeWordSync, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -169,6 +187,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     hub,
     gateway,
     timers,
+    delivery,
+    push,
     server,
     port,
     async close() {
