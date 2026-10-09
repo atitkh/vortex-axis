@@ -317,7 +317,7 @@ try {
   step("face viewer", await admin.until(`${byId("face-name")}.textContent.startsWith('galaxy') && document.querySelectorAll('#face-numbers tr').length === 13 && (document.querySelectorAll('.face-tile').length + ' looks, galaxy chosen')`, "a look to be chosen"));
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
-  await admin.run(`history.go(-3)`);
+  await admin.run(`history.go(-4)`);
   await admin.until(`${byId("device")}.classList.contains('on') && !${byId("device-remove")}.disabled`, "the device page again");
   await admin.run(`window.confirm = () => true; ${byId("device-remove")}.click()`);
   await client.front();
