@@ -2045,7 +2045,8 @@ function renderOverview(withHistory = true) {
 
   $("activity-turns").replaceChildren(
     data.recentTurns.length
-      ? h(
+      // A long list scrolls inside its own box, like the events below it.
+      ? h("div", { class: "scrollbox" }, h(
           "table",
           { class: "numbers" },
           h(
@@ -2056,7 +2057,7 @@ function renderOverview(withHistory = true) {
           h(
             "tbody",
             {},
-            data.recentTurns.slice(0, 40).map((r) => {
+            data.recentTurns.map((r) => {
               const [label, kind] = OUTCOMES[r.outcome] ?? [r.outcome, ""];
               return h(
                 "tr",
@@ -2069,7 +2070,7 @@ function renderOverview(withHistory = true) {
               );
             }),
           ),
-        )
+        ))
       : h("p", { class: "empty" }, "No turns in this period yet."),
   );
 
