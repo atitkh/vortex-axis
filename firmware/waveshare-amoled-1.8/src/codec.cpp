@@ -20,6 +20,11 @@ void write(uint8_t reg, uint8_t value) {
 
 I2SClass &i2s() { return stream; }
 
+void quietMic(bool quiet) {
+    // Bits 3..0 are the microphone gain in 3 dB steps: 10 is the 30 dB used for a voice across the room.
+    write(0x14, quiet ? 0x10 | (10 - MIC_QUIET_DB / 3) : 0x1A);
+}
+
 bool begin() {
     // The codec takes its clock from I2S, so I2S must be running before the codec is set up.
     stream.setPins(I2S_BCK_IO, I2S_WS_IO, I2S_DO_IO, I2S_DI_IO, I2S_MCK_IO);
@@ -52,6 +57,9 @@ bool begin() {
     write(0x14, 0x1A);  // analog microphone, PGA gain as in Mylo
     write(0x17, 0xC8);  // ADC volume
     write(0x32, 0xD7);  // DAC level; the volume setting is applied in software
+    // The right channel of what the codec sends back carries what it is playing (ADC left, DAC right).
+    // That is the reference the echo canceller needs, already lined up with the microphone.
+    write(0x44, 0x58);
 
     // Without the amplifier enabled the speaker stays silent whatever else is right.
     pinMode(PA_ENABLE, OUTPUT);

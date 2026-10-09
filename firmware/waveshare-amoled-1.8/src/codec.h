@@ -11,6 +11,13 @@ namespace codec {
 /** Starts I2S, configures the codec for playback and capture, and enables the amplifier. False when the codec does not answer. */
 bool begin();
 
+/**
+ * Turns the microphone's analog gain down by `MIC_QUIET_DB` while the device itself talks, and back up after.
+ * At full gain the speaker next to it drives the microphone into its limit, and nothing can be taken out of that.
+ */
+void quietMic(bool quiet);
+const int MIC_QUIET_DB = 24;
+
 /** The shared stream. The speaker writes to it; the microphone reads from it. */
 I2SClass &i2s();
 

@@ -32,7 +32,8 @@ static const axis::SettingDef SETTINGS[] = {
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
     {"wakeListen", "Wake word", "toggle", "Listening", "Off leaves tap-to-talk as the only way in.", "1", 0, 0, nullptr, nullptr},
     {"wakeSense", "Wake word cutoff", "number", "Listening", "Lower wakes more easily but also by mistake. 0 uses the model's own (87).", "0", 0, 99, "%", nullptr},
-    {"bargeIn", "Wake word interrupts speech", "toggle", "Listening", "Does not work reliably yet: the speaker drowns the microphone. Tap to interrupt.", "1", 0, 0, nullptr, nullptr},
+    {"bargeIn", "Wake word interrupts speech", "toggle", "Listening", "Experimental, off by default. With echo cancelling the device takes about 20 dB of its own voice out at moderate volume and about 10 dB when loud, which is not enough to stop it waking on its own speech. Tap to interrupt.", "0", 0, 0, nullptr, nullptr},
+    {"echoCancel", "Echo cancelling", "toggle", "Listening", "Only used when the wake word may interrupt speech: takes the device's own voice out of what the microphone hears while it talks, and turns the microphone down so the speaker does not overload it.", "1", 0, 0, nullptr, nullptr},
     {"followUpMs", "Follow-up listening", "number", "Listening", "After a spoken answer, keep listening this long without the wake word. 0 turns it off.", "6000", 0, 30000, "ms", nullptr},
     {"onsetMs", "Wait for the first word", "number", "Listening", "How long to wait for you to start talking after a wake or a tap.", "6000", 1000, 20000, "ms", nullptr},
     {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
@@ -191,7 +192,8 @@ static void applySettings() {
     speaker::setVolume((int)client.settingInt("volume", 60));
     mic::setWakeEnabled(client.settingInt("wakeListen", 1) != 0);
     mic::setWakeSensitivity((uint8_t)constrain(client.settingInt("wakeSense", 0), 0, 99));
-    mic::setBargeIn(client.settingInt("bargeIn", 1) != 0);
+    mic::setBargeIn(client.settingInt("bargeIn", 0) != 0);
+    mic::setEchoCancel(client.settingInt("echoCancel", 1) != 0);
     redrawAll = true;
 }
 
@@ -521,6 +523,7 @@ void setup() {
     }
     // The wake word model takes a slab of internal memory in one piece, so it goes first, before Wi-Fi fragments the heap.
     const bool wakeOk = mic::loadWakeWord(&logOut);
+    mic::beginEchoCancel(&logOut);
     client.setLogSource(&logOut);
     client.begin(IDENTITY, &logOut);
     hasMic = hasSpeaker && mic::begin(client, &logOut);
