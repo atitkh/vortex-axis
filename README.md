@@ -154,6 +154,10 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/clients/:id/address` | Body `{ address }`. Moves a device to another address for the same Axis, keeping its pairing. |
 | `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type. |
 | `POST /admin/clients/:id/notify-test` | Sends a browser client a test notification, page open or closed. 409 when it has notifications off. |
+| `GET /admin/live` | A stream that stays open (server-sent events): `snapshot` with the recent turns, then `turn` each time a turn reaches a stage or ends, and `wake` for each wake word a device reports. Words are memory only. |
+| `GET /admin/wakes` | `?hours=168`. Wake words devices reported: device, score, loudness, the wake word in use and the outcome. |
+| `POST /admin/announce` | `{text, client?, location?, urgent?}`. Says it on one client, in one location, or on every client that can speak. |
+| `GET /admin/integrations` | How Home Assistant (MQTT), browser notifications, the public address, the gateway links and the last backup stand. No secrets. |
 | `GET /admin/now` | What is going on this moment: timers, clients mid-turn, and the words on each screen (memory only). |
 | `GET`, `POST`, `DELETE /admin/firmware…` | The firmware builds kept per client type. |
 | `GET`, `POST`, `DELETE /admin/wakewords…` | The wake word models devices can be given. |

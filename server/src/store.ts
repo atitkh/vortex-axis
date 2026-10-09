@@ -119,6 +119,19 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+  // Every wake word a device reported: how sure it was, how loud, and what came of it. No audio, no words.
+  `
+  CREATE TABLE wakes (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    client_id TEXT NOT NULL,
+    word TEXT NOT NULL,
+    score REAL NOT NULL,
+    level REAL NOT NULL,
+    outcome TEXT NOT NULL
+  );
+  CREATE INDEX wakes_at ON wakes (at);
+  `,
 ];
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -190,6 +203,20 @@ export interface TurnRecord {
   totalMs: number;
   /** The client confirmed it played the reply to the end. */
   heard: boolean;
+}
+
+/** One wake word as a device reported it. */
+export interface WakeRecord {
+  at: number;
+  clientId: string;
+  /** The wake word the device was listening with: a stored one's id, or "built-in". */
+  word: string;
+  /** How sure the device was, 0 to 1. Only wakes over the device's own cutoff are ever reported. */
+  score: number;
+  /** How loud it was, 0 to 1. */
+  level: number;
+  /** answered: this device took the turn; stood_down: another device scored better; ignored: a device nearby was speaking. */
+  outcome: "answered" | "stood_down" | "ignored";
 }
 
 /** Something that happened. Events with a `state` draw the uptime timelines. */
@@ -450,8 +477,33 @@ export class Store {
     return new Map(rows.map((r) => [r.subject, toEvent(r)]));
   }
 
-  /** Removes turns and events older than `before`. */
+  addWake(w: WakeRecord): void {
+    this.db
+      .prepare("INSERT INTO wakes (at, client_id, word, score, level, outcome) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(w.at, w.clientId, w.word, w.score, w.level, w.outcome);
+  }
+
+  /** Wake words reported since `from`, newest first. */
+  wakesSince(from: number, limit = 500): WakeRecord[] {
+    const rows = this.db.prepare("SELECT * FROM wakes WHERE at >= ? ORDER BY at DESC, id DESC LIMIT ?").all(from, limit) as unknown as {
+      at: number;
+      client_id: string;
+      word: string;
+      score: number;
+      level: number;
+      outcome: WakeRecord["outcome"];
+    }[];
+    return rows.map((r) => ({ at: r.at, clientId: r.client_id, word: r.word, score: r.score, level: r.level, outcome: r.outcome }));
+  }
+
+  /** How many clients have a push subscription. */
+  pushSubscriptionCount(): number {
+    return Number((this.db.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get() as { n: number }).n);
+  }
+
+  /** Removes turns, events and wake reports older than `before`. */
   pruneActivity(before: number): void {
+    this.db.prepare("DELETE FROM wakes WHERE at < ?").run(before);
     this.db.prepare("DELETE FROM turns WHERE at < ?").run(before);
     this.db.prepare("DELETE FROM events WHERE at < ?").run(before);
   }

@@ -11,6 +11,7 @@ import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
 import { Delivery } from "./delivery.js";
 import { HomeAssistant } from "./homeassistant.js";
+import { Live } from "./live.js";
 import { createHttpHandler } from "./http.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
@@ -105,8 +106,10 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     void checkHealth();
   };
 
+  const live = new Live();
   const hub = new Hub({
     store,
+    live,
     helloTimeoutMs: config.helloTimeoutMs,
     pingIntervalMs: config.pingIntervalMs,
     services,
@@ -167,7 +170,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

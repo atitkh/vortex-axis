@@ -76,6 +76,20 @@ export class HomeAssistant {
     this.mqtt.subscribe(`${BASE}/+/volume/set`, (topic, payload) => this.setVolume(topic.split("/")[1]!, payload));
   }
 
+  /** How the link to the broker stands, for the admin page. The password in the address is never part of it. */
+  status() {
+    const url = new URL(this.options.url);
+    return {
+      broker: `${url.hostname}:${url.port || 1883}`,
+      user: decodeURIComponent(url.username) || null,
+      discoveryPrefix: this.options.discoveryPrefix,
+      connected: this.mqtt.connected,
+      connectedAt: this.mqtt.connected ? this.mqtt.connectedAt ?? null : null,
+      error: this.mqtt.connected ? null : this.mqtt.lastError ?? null,
+      devices: this.mqtt.connected ? this.shown.size : 0,
+    };
+  }
+
   start(): void {
     this.mqtt.start();
     // What a client is doing changes by the second, and nothing announces it, so look.

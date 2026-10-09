@@ -63,6 +63,9 @@ export class MqttClient {
   private packetId = 0;
   private stopped = false;
   connected = false;
+  /** When the broker last let us in, and the last thing that went wrong, for the admin page. */
+  connectedAt: number | undefined;
+  lastError: string | undefined;
 
   constructor(private readonly options: MqttOptions) {}
 
@@ -138,7 +141,10 @@ export class MqttClient {
       this.pending = Buffer.concat([this.pending, chunk]);
       this.read();
     });
-    socket.on("error", (error) => this.options.log?.(`mqtt: ${error.message}`));
+    socket.on("error", (error) => {
+      this.lastError = error.message;
+      this.options.log?.(`mqtt: ${error.message}`);
+    });
     socket.on("close", () => {
       clearInterval(this.ping);
       const was = this.connected;
@@ -178,11 +184,14 @@ export class MqttClient {
       if (type === 2) {
         // CONNACK: the second byte is zero when the broker let us in.
         if (body[1] !== 0) {
-          this.options.log?.(`mqtt: the broker refused the connection (code ${body[1]})`);
+          this.lastError = `the broker refused the connection (code ${body[1]}${body[1] === 4 || body[1] === 5 ? ": wrong name or password" : ""})`;
+          this.options.log?.(`mqtt: ${this.lastError}`);
           this.socket?.destroy();
           return;
         }
         this.connected = true;
+        this.connectedAt = Date.now();
+        this.lastError = undefined;
         this.retryMs = 1000;
         this.sendSubscribe([...this.subscriptions.keys()]);
         for (const listener of this.connectListeners) listener();

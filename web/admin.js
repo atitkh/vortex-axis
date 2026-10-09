@@ -10,7 +10,10 @@ import { clock, hideTip, columnChart, duration, lineChart, ms, partsBar, percent
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "axis-admin-token";
-let token = sessionStorage.getItem(TOKEN_KEY) || "";
+// A token somebody asked to be remembered is in localStorage; otherwise it lasts as long as the tab.
+let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
+let remember = Boolean(localStorage.getItem(TOKEN_KEY));
+$("remember").checked = remember;
 let timer;
 // What is on screen, and the last data fetched.
 let view = { name: "overview", id: "" };
@@ -123,7 +126,11 @@ const LINK_STATES = {
 function signOut(message = "") {
   token = "";
   sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+  remember = false;
+  $("remember").checked = false;
   clearInterval(timer);
+  closeLive();
   $("app").classList.add("hidden");
   $("signin-form").classList.remove("hidden");
   $("summary").replaceChildren();
@@ -146,7 +153,9 @@ async function signIn() {
     return signOut(token ? message : "");
   }
   if (attempt !== signInAttempt) return;
-  sessionStorage.setItem(TOKEN_KEY, token);
+  // Kept in one place only, so unticking the box really does forget it when the tab closes.
+  (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  (remember ? sessionStorage : localStorage).removeItem(TOKEN_KEY);
   $("signin-form").classList.add("hidden");
   $("app").classList.remove("hidden");
   route();
@@ -158,6 +167,7 @@ async function signIn() {
 $("signin-form").addEventListener("submit", (event) => {
   event.preventDefault();
   token = $("token").value.trim();
+  remember = $("remember").checked;
   $("token").value = "";
   signIn();
 });
@@ -394,7 +404,7 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords", "face"];
+const VIEWS = ["overview", "live", "integrations", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords", "face"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
@@ -416,6 +426,9 @@ function route() {
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
   if (name === "activity") renderActivity();
+  // The live stream is only held open while somebody is looking at it.
+  if (name === "live" && token) openLive();
+  else closeLive();
 }
 window.addEventListener("hashchange", () => {
   route();
@@ -431,7 +444,12 @@ function renderView() {
   if (view.name === "type") renderType();
   if (view.name === "settings") renderAllDevices();
   if (view.name === "firmware") renderFirmware();
-  if (view.name === "wakewords") renderWakeWords();
+  if (view.name === "wakewords") {
+    renderWakeWords();
+    loadWakeScores();
+  }
+  if (view.name === "integrations" || !lastIntegrations) loadIntegrations();
+  renderAnnounceTargets();
 }
 
 // The face in the corner and on the sign-in page: the same one the devices wear.
@@ -2055,6 +2073,374 @@ function renderDeviceHistory() {
     strips([{ label: "Online", segments: line.segments, availability: line.availability }], data.from, data.to),
     h("p", { class: "group" }, "Events"),
     eventList(data.events, 100),
+  );
+}
+
+// --- say something: one message to every device, a location, or one device -----------------
+
+/** Fills the list of places a message can go. Left alone while it is open, and when nothing changed. */
+function renderAnnounceTargets() {
+  const select = $("announce-target");
+  const places = [...new Set(lastClients.map((c) => String(c.settings.location ?? "").trim()).filter(Boolean))].sort();
+  const able = lastClients.filter((c) => c.capabilities.includes("speaker") || c.capabilities.includes("screen"));
+  const key = JSON.stringify([places, able.map((c) => [c.id, c.name, c.online])]);
+  if (select.dataset.drawn === key || document.activeElement === select) return;
+  select.dataset.drawn = key;
+  const chosen = select.value;
+  select.replaceChildren(
+    h("option", { value: "" }, "Every device"),
+    ...places.map((place) => h("option", { value: `location:${place}` }, `Every device in ${place}`)),
+    ...able.map((c) => h("option", { value: `client:${c.id}` }, `${c.name}${c.online ? "" : c.notifications ? " (page closed)" : " (offline)"}`)),
+  );
+  if ([...select.options].some((o) => o.value === chosen)) select.value = chosen;
+}
+
+$("announce-send").addEventListener("click", (event) => {
+  const text = $("announce-text").value.trim();
+  const [kind, ...rest] = $("announce-target").value.split(":");
+  const box = $("announce-result");
+  if (!text) return box.replaceChildren(h("p", { class: "msg bad" }, "Type what to say first."));
+  box.replaceChildren(h("p", { class: "msg" }, "Saying it…"));
+  act(event.target, "", async () => {
+    let said;
+    try {
+      said = await api("POST", "/admin/announce", {
+        text,
+        urgent: $("announce-urgent").checked,
+        ...(kind === "client" ? { client: rest.join(":") } : kind === "location" ? { location: rest.join(":") } : {}),
+      });
+    } catch (error) {
+      if (error.status === 401) throw error;
+      return box.replaceChildren(h("p", { class: "msg bad" }, error.message));
+    }
+    $("announce-text").value = "";
+    box.replaceChildren(
+      h("table", { class: "numbers" },
+        h("tbody", {},
+          ...said.clients.map((c) =>
+            h("tr", {},
+              h("td", { class: "tight" }, c.client),
+              h("td", { class: "tight" }, c.heard ? stat("heard", "good") : c.held ? stat("kept for later", "warn") : c.shown ? stat("shown", "") : stat("not delivered", "bad")),
+              h("td", { class: "sub" }, c.note ?? "Played to the end."),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+});
+
+// --- live: turns and wake words as they happen ----------------------------------------
+
+const STAGES = { listening: "Listening", transcribing: "Recognising", thinking: "Agent", speaking: "Speaking" };
+const LIVE_OUTCOMES = { cancelled: ["dropped", ""] };
+let liveTurns = [];
+let liveWakes = [];
+let liveStop;
+let liveTick;
+let liveUp = false;
+
+function closeLive() {
+  liveStop?.abort();
+  liveStop = undefined;
+  clearInterval(liveTick);
+  liveUp = false;
+}
+
+/** Holds one request open and reads what Axis sends down it. Comes back by itself if the line drops. */
+async function openLive() {
+  if (liveStop) return;
+  const stop = (liveStop = new AbortController());
+  clearInterval(liveTick);
+  // A running step counts up on screen between the messages that move it along.
+  liveTick = setInterval(() => liveTurns.some((t) => !t.outcome) && renderLive(), 200);
+  renderLive();
+  try {
+    const res = await fetch("/admin/live", { headers: { authorization: `Bearer ${token}` }, signal: stop.signal });
+    if (res.status === 401) return signOut("That token was not accepted.");
+    if (!res.ok || !res.body) throw new Error(`live stream refused (${res.status})`);
+    liveUp = true;
+    renderLive();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      for (let cut = pending.indexOf("\n\n"); cut >= 0; cut = pending.indexOf("\n\n")) {
+        const block = pending.slice(0, cut);
+        pending = pending.slice(cut + 2);
+        const name = /^event: (.+)$/m.exec(block)?.[1];
+        const data = /^data: (.+)$/m.exec(block)?.[1];
+        if (name && data) liveEvent(name, JSON.parse(data));
+      }
+    }
+  } catch {
+    // Dropped, or closed on purpose: either way the lines below decide what happens next.
+  }
+  if (liveStop !== stop) return;
+  liveStop = undefined;
+  liveUp = false;
+  renderLive();
+  setTimeout(() => view.name === "live" && token && openLive(), 2000);
+}
+
+function liveEvent(name, data) {
+  if (name === "snapshot") liveTurns = data.turns;
+  else if (name === "turn") {
+    const at = liveTurns.findIndex((t) => t.key === data.key);
+    if (at >= 0) liveTurns[at] = data;
+    else liveTurns.unshift(data);
+    liveTurns = liveTurns.slice(0, 30);
+  } else if (name === "wake") liveWakes = [data, ...liveWakes].slice(0, 20);
+  renderLive();
+}
+
+const second = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const WAKE_OUTCOMES = { answered: ["answered", "good"], stood_down: ["another device answered", ""], ignored: ["ignored: a device nearby was speaking", "warn"] };
+
+function liveTurnCard(turn) {
+  const end = turn.endedAt ?? Date.now();
+  const running = !turn.outcome;
+  const steps = turn.stages.map((stage, i) => {
+    const until = turn.stages[i + 1]?.at ?? end;
+    const last = i === turn.stages.length - 1;
+    return h("div", { class: `step ${stage.name}${running && last ? " now" : ""}`, style: `flex-grow:${Math.max(1, until - stage.at)}` },
+      h("span", { class: "step-name" }, STAGES[stage.name] ?? stage.name),
+      h("span", { class: "step-time" }, ms(until - stage.at)),
+    );
+  });
+  const [label, kind] = running ? [STAGES[turn.stages.at(-1)?.name] ?? "Starting", "warn"] : LIVE_OUTCOMES[turn.outcome] ?? OUTCOMES[turn.outcome] ?? [turn.outcome, ""];
+  const facts = [
+    turn.speechMs !== undefined && `spoke for ${ms(turn.speechMs)}`,
+    turn.sttMs !== undefined && `recognition ${ms(turn.sttMs)}`,
+    turn.agentMs !== undefined && `agent's first words ${ms(turn.agentMs)}`,
+    turn.firstAudioMs !== undefined && `first sound ${ms(turn.firstAudioMs)}`,
+    turn.totalMs !== undefined && `whole turn ${ms(turn.totalMs)}`,
+    turn.outcome === "answered" && turn.kind !== "text" && (turn.played ? "played to the end" : "not confirmed as played"),
+  ].filter(Boolean);
+  return h("div", { class: `turn-card${running ? " running" : ""}` },
+    h("div", { class: "turn-head" },
+      h("a", { href: `#clients/${encodeURIComponent(turn.clientId)}` }, turn.client),
+      h("span", { class: "sub" }, `${KINDS[turn.kind] ?? turn.kind} · ${second(turn.startedAt)}`),
+      stat(label, kind),
+    ),
+    h("div", { class: "steps" }, ...steps),
+    turn.heard ? h("p", { class: "turn-words heard" }, h("b", {}, turn.kind === "text" ? "Typed" : "Heard"), " ", turn.heard) : null,
+    turn.said ? h("p", { class: "turn-words" }, h("b", {}, "Said"), " ", turn.said) : null,
+    turn.error ? h("p", { class: "msg bad" }, turn.error) : null,
+    facts.length ? h("p", { class: "sub turn-facts" }, facts.join(" · ")) : null,
+  );
+}
+
+function renderLive() {
+  if (view.name !== "live") return;
+  $("live-state").replaceChildren(liveUp ? stat("watching", "good") : stat("connecting", "warn"));
+  const open = liveTurns.filter((t) => !t.outcome).length;
+  $("nav-live").textContent = open ? String(open) : "";
+  $("live-turns").replaceChildren(
+    ...(liveTurns.length
+      ? liveTurns.map(liveTurnCard)
+      : [h("p", { class: "empty" }, "No turns since Axis started. Say the wake word, tap a device or type in the web client, and it shows up here as it happens.")]),
+  );
+  $("live-wakes").replaceChildren(
+    liveWakes.length
+      ? h("table", { class: "numbers" },
+          h("thead", {}, h("tr", {}, h("th", {}, "When"), h("th", {}, "Device"), h("th", { class: "num" }, "Score"), h("th", { class: "num" }, "Loudness"), h("th", {}, "Outcome"))),
+          h("tbody", {},
+            ...liveWakes.map((w) =>
+              h("tr", {},
+                h("td", { class: "tight" }, second(w.at)),
+                h("td", {}, w.client),
+                h("td", { class: "num" }, `${Math.round(w.score * 100)} %`),
+                h("td", { class: "num" }, `${Math.round(w.level * 100)} %`),
+                h("td", {}, stat(...(WAKE_OUTCOMES[w.outcome] ?? [w.outcome, ""]))),
+              ),
+            ),
+          ),
+        )
+      : h("p", { class: "empty" }, "No wake word since this page was opened."),
+  );
+}
+
+// --- wake word scores -----------------------------------------------------------------
+
+let wakeHours = 24 * 7;
+let wakeScores = { key: "", at: 0, data: undefined };
+
+async function loadWakeScores(force = false) {
+  const key = String(wakeHours);
+  if (!force && wakeScores.key === key && Date.now() - wakeScores.at < 10_000) return;
+  wakeScores = { ...wakeScores, key, at: Date.now() };
+  try {
+    wakeScores.data = await api("GET", `/admin/wakes?hours=${wakeHours}`);
+  } catch (error) {
+    if (error.status === 401) return signOut("That token was not accepted.");
+    return;
+  }
+  renderWakeScores();
+}
+
+for (const b of $("wake-range").querySelectorAll("button")) {
+  b.addEventListener("click", () => {
+    wakeHours = Number(b.dataset.hours);
+    loadWakeScores(true);
+  });
+}
+
+/** Where a score sits on the strip, which runs from 50 % to 100 %. */
+const scoreAt = (score) => `${Math.min(100, Math.max(0, (score * 100 - 50) * 2))}%`;
+
+function renderWakeScores() {
+  for (const b of $("wake-range").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.hours) === wakeHours);
+  const wakes = wakeScores.data?.wakes ?? [];
+  const box = $("wake-scores");
+  if (!wakes.length) {
+    return box.replaceChildren(h("p", { class: "empty" }, "No device has reported a wake word in this time."));
+  }
+  const groups = new Map();
+  for (const w of wakes) {
+    const key = `${w.clientId}|${w.word}`;
+    groups.set(key, [...(groups.get(key) ?? []), w]);
+  }
+  const cutoffOf = (word) => lastWakeWords.wakeWords.find((known) => known.id === word)?.cutoff;
+  box.replaceChildren(
+    h("table", { class: "numbers" },
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Device"), h("th", {}, "Wake word"), h("th", { class: "num" }, "Heard"), h("th", { class: "num" }, "Answered"),
+        h("th", { class: "num" }, "Lowest"), h("th", { class: "num" }, "Typical"), h("th", { class: "num" }, "Highest"),
+        h("th", {}, "Each one, 50 % to 100 %"), h("th", {}, "Last"),
+      )),
+      h("tbody", {},
+        ...[...groups.values()].map((list) => {
+          const scores = list.map((w) => w.score).sort((a, b) => a - b);
+          const show = (n) => `${Math.round(n * 100)} %`;
+          const cutoff = cutoffOf(list[0].word);
+          return h("tr", {},
+            h("td", {}, h("a", { href: `#clients/${encodeURIComponent(list[0].clientId)}` }, list[0].client)),
+            h("td", {}, h("span", { class: "mono" }, list[0].word), " ", h("span", { class: "sub" }, cutoff ? `cutoff ${cutoff} %` : "cutoff set in the build")),
+            h("td", { class: "num" }, String(list.length)),
+            h("td", { class: "num" }, String(list.filter((w) => w.outcome === "answered").length)),
+            h("td", { class: "num" }, show(scores[0])),
+            h("td", { class: "num" }, show(scores[Math.floor((scores.length - 1) / 2)])),
+            h("td", { class: "num" }, show(scores.at(-1))),
+            h("td", {},
+              h("div", { class: "scorestrip", title: `${list.length} wake words, lowest ${show(scores[0])}, highest ${show(scores.at(-1))}` },
+                cutoff ? h("i", { class: "cut", style: `left:${scoreAt(cutoff / 100)}` }) : null,
+                ...list.slice(0, 200).map((w) => h("i", { class: w.outcome, style: `left:${scoreAt(w.score)}` })),
+              ),
+            ),
+            h("td", { class: "tight sub" }, ago(list[0].at)),
+          );
+        }),
+      ),
+    ),
+    h("p", { class: "legend" },
+      h("span", {}, h("i", { class: "swatch", style: "background:var(--good)" }), "answered"),
+      h("span", {}, h("i", { class: "swatch", style: "background:var(--dim)" }), "another device answered"),
+      h("span", {}, h("i", { class: "swatch", style: "background:var(--warn)" }), "ignored: a device nearby was speaking"),
+      h("span", {}, h("i", { class: "linekey", style: "background:var(--text)" }), "the stored cutoff"),
+    ),
+  );
+}
+
+// --- integrations ----------------------------------------------------------------------
+
+let lastIntegrations;
+let integrationsAt = 0;
+
+async function loadIntegrations() {
+  if (Date.now() - integrationsAt < 10_000) return;
+  integrationsAt = Date.now();
+  try {
+    lastIntegrations = await api("GET", "/admin/integrations");
+  } catch {
+    return;
+  }
+  renderIntegrations();
+}
+
+/** One integration: a heading with how it stands, then what is known about it. */
+function integration(title, [label, kind], rows, help) {
+  return h("div", { class: "integration" },
+    h("div", { class: "integration-head" }, h("h3", {}, title), stat(label, kind)),
+    h("div", { class: "form compact" }, ...rows.filter(Boolean).flatMap(([name, value]) => [h("label", {}, name), h("p", { class: "value" }, value)])),
+    help ? h("p", { class: "help" }, help) : null,
+  );
+}
+
+function renderIntegrations() {
+  const d = lastIntegrations;
+  if (!d) return;
+  const ha = d.homeAssistant;
+  const backup = d.backup;
+  // A copy that has not been made for a day is worth a look, whatever its schedule.
+  const backupOld = backup && Date.now() - backup.at > 26 * 3_600_000;
+  const problems = [ha && !ha.connected, backup && (!backup.ok || backupOld)].filter(Boolean).length;
+  $("nav-integrations").textContent = problems ? String(problems) : "";
+  $("nav-integrations").className = `count ${problems ? "bad" : ""}`.trim();
+  if (view.name !== "integrations") return;
+  const push = d.notifications;
+  const link = ([label, kind]) => stat(label, kind);
+  $("integrations-body").replaceChildren(
+    integration("Home Assistant", ha ? (ha.connected ? ["connected", "good"] : ["not connected", "bad"]) : ["not set up", ""],
+      ha
+        ? [
+            ["MQTT broker", h("span", { class: "mono" }, ha.broker)],
+            ["Signs in as", ha.user ?? "nobody (no name given)"],
+            ["Discovery prefix", h("span", { class: "mono" }, ha.discoveryPrefix)],
+            ha.connected ? ["Connected", ago(ha.connectedAt)] : ["Last error", ha.error ?? "none yet; still trying"],
+            ["Devices published", ha.connected ? `${ha.devices}, plus the hub itself` : "none while the broker is unreachable"],
+          ]
+        : [],
+      ha
+        ? "Every client appears in Home Assistant as a device: its state, whether it is online, a say entity and its volume. The hub has Say everywhere and a count of devices online."
+        : h("span", {}, "Set ", h("code", {}, "AXIS_MQTT_URL"), " in the hub's ", h("code", {}, ".env"), " (", h("code", {}, "mqtt://user:password@host:1883"), ") and restart Axis. Home Assistant needs its MQTT integration with discovery on."),
+    ),
+    integration("Notifications to browsers", push.clients.length ? [plural(push.clients.length, "browser"), "good"] : ["no browser has them on", ""],
+      [
+        ["Turned on in", push.clients.length
+          ? h("span", {}, ...push.clients.flatMap((c, i) => [i ? ", " : "", h("a", { href: `#clients/${encodeURIComponent(c.id)}` }, c.name), c.online ? "" : " (page closed)", c.waiting ? ` (${plural(c.waiting, "message")} waiting)` : ""]))
+          : `none of ${plural(push.browsers, "browser client")}`],
+        ["Messages kept for", `${Math.round(d.messageHoldMs / 60_000)} min when a client is away and cannot be notified`],
+      ],
+      "A browser client whose page is closed gets speech and questions as notifications, once somebody presses Turn on notifications in it. A browser's own page has a button to send it a test.",
+    ),
+    integration("Backup", backup ? (!backup.ok ? ["last copy failed", "bad"] : backupOld ? ["no copy for over a day", "bad"] : ["copied", "good"]) : ["nothing reported", ""],
+      backup
+        ? [
+            ["Last run", `${ago(backup.at)} (${new Date(backup.at).toLocaleString()})`],
+            ["Copied to", h("span", { class: "mono" }, backup.to)],
+            backup.note ? ["Note", backup.note] : null,
+          ]
+        : [],
+      backup
+        ? "Written by scripts/backup-data.sh each time it runs. Axis does not run it; a scheduled job on the host does."
+        : h("span", {}, "Axis keeps everything in one data folder (", h("code", {}, d.dataDir), " as it sees it). Run ", h("code", {}, "scripts/backup-data.sh <data folder> <backup folder>"), " on a schedule and its result shows here."),
+    ),
+    integration("Public address", d.publicAddress.hosts.length ? ["set", "good"] : ["local network only", ""],
+      [
+        ["Names", d.publicAddress.hosts.length ? h("span", { class: "mono" }, d.publicAddress.hosts.join(", ")) : "none"],
+        ["Trusted proxies", d.publicAddress.trustedProxies.length ? h("span", { class: "mono" }, d.publicAddress.trustedProxies.join(", ")) : "none"],
+      ],
+      "Under a public name only the client side answers: this admin page and its API do not exist there. Set with AXIS_PUBLIC_HOSTS and AXIS_TRUSTED_PROXIES.",
+    ),
+    integration("OpenClaw gateway", d.gateway.operator === "connected" && d.gateway.node === "connected" ? ["connected", "good"] : ["check the links", "warn"],
+      [
+        ["Address", h("span", { class: "mono" }, d.gateway.url ?? "not set")],
+        ["Turn link", link(LINK_STATES[d.gateway.operator] ?? [d.gateway.operator, ""])],
+        ["Command link", link(LINK_STATES[d.gateway.node] ?? [d.gateway.node, ""])],
+      ],
+      h("span", {}, "Pairing and the address are on the ", h("a", { href: "#openclaw" }, "OpenClaw"), " page."),
+    ),
+    integration("Clock and history", [d.timeZone, ""],
+      [
+        ["Time zone", `${d.timeZone}: quiet hours are told by this clock`],
+        ["History kept", `${plural(d.activityDays, "day")} of turns, events and wake word scores`],
+      ],
+      "Set with AXIS_TIMEZONE and AXIS_ACTIVITY_DAYS.",
+    ),
   );
 }
 

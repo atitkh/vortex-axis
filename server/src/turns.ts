@@ -4,7 +4,8 @@ import { matchChoice, type AskResult } from "./ask.js";
 import type { Session } from "./hub.js";
 import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
-import type { TurnRecord } from "./store.js";
+import type { Live } from "./live.js";
+import type { TurnRecord, WakeRecord } from "./store.js";
 import { WakeArbiter } from "./wake.js";
 
 /** The upstream services a turn needs. Any of them may be missing. */
@@ -37,6 +38,10 @@ export interface TurnOptions {
   contested?: (winnerId: string, text: string) => void;
   /** Told when a wake word was put down to another device talking in the same location. */
   wakeIgnored?: (clientId: string, text: string) => void;
+  /** Told about every wake word a device reports, with what came of it. */
+  wakeSeen?: (wake: Pick<WakeRecord, "clientId" | "score" | "level" | "outcome">) => void;
+  /** Shown each turn as it goes, for somebody watching on the admin page. */
+  live?: Live | undefined;
 }
 
 type TurnMessage = Extract<
@@ -381,6 +386,7 @@ export class TurnManager {
       decide: (report, granted) => {
         const session = port.session(report.clientId);
         if (session) port.send(session, { t: "wake.result", wakeId: report.wakeId, granted });
+        options.wakeSeen?.({ clientId: report.clientId, score: report.score, level: report.level, outcome: granted ? "answered" : "stood_down" });
       },
       contested: (reports, winner) => {
         const percent = (n: number) => `${Math.round(n * 100)}%`;
@@ -403,6 +409,7 @@ export class TurnManager {
         if (talking) {
           this.port.send(session, { t: "wake.result", wakeId: message.wakeId, granted: false });
           this.options.wakeIgnored?.(id, `Wake word on ${session.client.name} ignored: ${talking.client.name} is speaking in the same location`);
+          this.options.wakeSeen?.({ clientId: id, score: message.score, level: message.level, outcome: "ignored" });
           return;
         }
         this.wake.report({ clientId: id, wakeId: message.wakeId, score: message.score, level: message.level });
@@ -428,6 +435,7 @@ export class TurnManager {
           maxBytes: Math.floor(this.options.maxUtteranceMs * bytesPerMs),
         });
         this.port.send(session, { t: "turn", turnId: message.turnId, state: "listening" });
+        this.options.live?.stage(session.client, message.turnId, "voice", "listening");
         return;
       }
 
@@ -437,6 +445,7 @@ export class TurnManager {
         this.captures.delete(id);
         if (message.reason === "cancel" || capture.bytes === 0) {
           this.port.send(session, { t: "turn", turnId: capture.turnId, state: "idle" });
+          this.options.live?.end(id, capture.turnId);
           return;
         }
         void this.run(session, capture.turnId, { pcm: Buffer.concat(capture.chunks), format: capture.format });
@@ -452,6 +461,7 @@ export class TurnManager {
         if (capture) {
           this.captures.delete(id);
           this.port.send(session, { t: "turn", turnId: capture.turnId, state: "idle" });
+          this.options.live?.end(id, capture.turnId);
         }
         this.endAsk(session, { answer: message.choice, how: "tap" });
         return;
@@ -475,6 +485,7 @@ export class TurnManager {
         if (capture && (message.turnId === undefined || message.turnId === capture.turnId)) {
           this.captures.delete(id);
           this.port.send(session, { t: "turn", turnId: capture.turnId, state: "idle" });
+          this.options.live?.end(id, capture.turnId);
         }
         const turn = this.active.get(id);
         if (turn && (message.turnId === undefined || message.turnId === turn.turnId)) {
@@ -638,6 +649,8 @@ export class TurnManager {
   /** Forgets a client that disconnected. */
   drop(session: Session): void {
     const id = session.client.id;
+    const capture = this.captures.get(id);
+    if (capture) this.options.live?.end(id, capture.turnId);
     this.captures.delete(id);
     this.active.get(id)?.abort.abort();
     this.active.delete(id);
@@ -714,6 +727,8 @@ export class TurnManager {
     const hasScreen = caps.includes("screen");
     const state = (s: "transcribing" | "thinking" | "idle", detail?: string) =>
       this.port.send(session, { t: "turn", turnId, state: s, ...(detail ? { detail } : {}) });
+    const live = this.options.live;
+    const stage = (name: "transcribing" | "thinking" | "speaking") => live?.stage(session.client, turnId, record.kind, name);
 
     try {
       let text = "";
@@ -722,6 +737,7 @@ export class TurnManager {
       } else if ("pcm" in input) {
         if (!stt) throw new TurnFailure("upstream_down", "speech recognition is not set up");
         state("transcribing");
+        stage("transcribing");
         const sttStarted = Date.now();
         text = await stt.transcribe(input.pcm, input.format, signal);
         record.sttMs = Date.now() - sttStarted;
@@ -732,6 +748,7 @@ export class TurnManager {
           return undefined;
         }
         if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: text.slice(0, 4000) });
+        live?.words(id, turnId, { heard: text });
         if (this.asks.has(id)) {
           // Said while a question is open: that is the answer, not something for the agent.
           this.endAsk(session, this.answerFrom(id, text, "voice"));
@@ -750,6 +767,8 @@ export class TurnManager {
       } else {
         if (!agent) throw new TurnFailure("upstream_down", "the agent is not set up");
         state("thinking");
+        stage("thinking");
+        if ("text" in input) live?.words(id, turnId, { heard: text });
         turn.thinking = true;
         source = agent.reply(`${this.header(session)}\n${text}`, signal);
       }
@@ -764,6 +783,8 @@ export class TurnManager {
       let full = "";
 
       const showPiece = (piece: Piece) => {
+        stage("speaking");
+        live?.words(id, turnId, { said: piece.text });
         if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece.text, final: false });
       };
       // With a speaker, each sentence's text goes out as its audio starts; without, at once.
@@ -854,6 +875,7 @@ export class TurnManager {
       if (signal.aborted && record.outcome !== "failed") record.outcome = "interrupted";
       record.heard = Boolean(turn.heard);
       record.totalMs = Date.now() - started;
+      live?.end(id, turnId, record);
       try {
         this.options.record?.(record, session);
       } catch {

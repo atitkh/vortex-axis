@@ -301,3 +301,18 @@ Added 2026-10-09.
 **Stale pages.** A proxy or a phone may keep scripts and styles for hours whatever headers Axis sends; Cloudflare rewrote ours to four hours. So the server stamps every reference from one web file to another with a hash of all web files (`?v=…`) when it loads them, serves stamped addresses as immutable and everything else as `no-cache`, and offers `GET /v1/web-version`. The web client compares that with its own stamp each time its socket reconnects (which is what an Axis update causes) and reloads when nothing is going on.
 
 **Admin page.** One dark theme, the web client's: black, the idle face's cyan as the accent, the listening green for "good", charts in the face's colours, the live face in the header and on sign-in. It fills the window. The Face page draws every look with `web/vortex.js` and switches idle looks on and off (`idleLooksOff`). A device's page has a sketch of it beside its details: a frame at the shape the device reports (readings `screenW` and `screenH`, sent by the board through `Client::setReading` and by the web client on connect and resize), the face in the state Axis knows, the words it was last sent, a question it is asking and a running timer. The words come from `hub.showing()`, which keeps them in memory for a minute; nothing said is written to disk.
+
+## Watching it work: live turns, wake scores, integrations
+
+Added 2026-10-09.
+
+**Live view.** `server/src/live.ts` keeps, in memory only, the last thirty turns as they go: each stage a turn reached (listening, recognition, the agent, speaking) and when, its words, and at the end its outcome and timings. `GET /admin/live` holds one request open and sends them as a server-sent event stream (`snapshot` first, then `turn` and `wake`); the admin page reads it with `fetch`, because an `EventSource` cannot send the admin token. The stream is only open while the Live page is. The rule that nothing said is stored still holds: the words exist in this process's memory, are left out of what the page is sent ten minutes after a turn ends, and are gone on a restart. The activity log keeps timings only, as before.
+
+**Wake scores.** Every `wake` a device sends is written to the `wakes` table with its score, loudness, the wake word the device was listening with and what came of it (answered, stood down for another device, ignored because a device nearby was speaking). `GET /admin/wakes?hours=` returns them and the Wake words page sums them per device. They are pruned with the activity log. A device only reports a wake that passed its own cutoff, so near misses are not in this table; they are in the device's log. Sending them would need a firmware change and has not been asked for.
+
+**Announce from the admin page.** `POST /admin/announce {text, client?, location?, urgent?}` goes through `delivery.ts` like an agent's `say`: one client (kept or sent as a notification when it is away), one location, or every client that can speak.
+
+**Integrations.** `GET /admin/integrations` reports how the things around Axis stand: the MQTT link to Home Assistant (broker host, never the password), which browsers have notifications on, the public names, the gateway links, and the last backup. Axis does not run backups; `scripts/backup-data.sh` leaves `backup-status.json` in the data folder on every run, success or failure, and Axis reads it. A copy older than 26 hours is shown as a problem whatever the schedule.
+
+**Sign-in.** The admin token is kept for the tab (`sessionStorage`) unless "Remember on this device" is ticked, when it goes in `localStorage` until sign-out. The admin page is not served under a public name, so this is a convenience for the owner's own browsers.
+

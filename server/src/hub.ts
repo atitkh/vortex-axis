@@ -15,6 +15,7 @@ import {
   type ServerMessage,
   type Status,
 } from "@vortex-axis/protocol";
+import type { Live } from "./live.js";
 import { isQuiet, withQuiet } from "./quiet.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
@@ -59,6 +60,8 @@ export interface HubOptions {
   pingIntervalMs?: number;
   /** Where connections, service health and turns are recorded for the admin page. */
   activity?: Activity;
+  /** Where turns and wake words are shown as they happen, for the admin page's Live view. */
+  live?: Live;
   services?: Services;
   wakeWindowMs?: number;
   maxUtteranceMs?: number;
@@ -106,6 +109,17 @@ export class Hub implements TurnPort {
       maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
+      live: options.live,
+      wakeSeen: (seen) => {
+        const session = this.online.get(seen.clientId);
+        const wake = { ...seen, at: this.now(), word: String((session && this.settings(session).wakeWord) || "built-in") };
+        try {
+          this.store.addWake(wake);
+        } catch {
+          // A lost row of history must never get in the way of a wake word.
+        }
+        options.live?.wake(wake, session?.client.name ?? seen.clientId);
+      },
       wakeIgnored: (clientId, text) => {
         this.log(text);
         this.activity?.note("wake", clientId, text);

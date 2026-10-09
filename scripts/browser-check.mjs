@@ -165,8 +165,9 @@ try {
   const admin = await openPage(`${base}/admin`);
   await admin.run(`${byId("token")}.value = 'wrong'; ${byId("signin-form")}.requestSubmit()`);
   step("wrong admin token", await admin.until(`${byId("signin-error")}.textContent`, "sign-in error"));
-  await admin.run(`${byId("token")}.value = 'browser-check'; ${byId("signin-form")}.requestSubmit()`);
+  await admin.run(`${byId("token")}.value = 'browser-check'; ${byId("remember")}.checked = true; ${byId("signin-form")}.requestSubmit()`);
   await admin.until(`!${byId("app")}.classList.contains('hidden') && document.querySelectorAll('#summary .stat').length === 4`, "the admin page");
+  step("token remembered on this device", await admin.run(`localStorage.getItem('axis-admin-token') === 'browser-check' && sessionStorage.getItem('axis-admin-token') === null`));
   step("summary", await admin.until(`(t => /agent=good/.test(t) && t)(${pills("#summary")})`, "upstream health"));
   step("gateway links", await admin.run(pills("#gw-pills")));
   step("commands listed", await admin.run(`${byId("gw-commands")}.textContent`));
@@ -253,6 +254,19 @@ try {
   step("client listed", await admin.until(`document.querySelector('#client-table tbody tr')?.textContent.replace(/\\s+/g, ' ').slice(0, 80)`, "the client row"));
   step("name shown as text, not markup", await admin.run(`document.querySelectorAll('#client-table b').length === 0`));
   // The overview and the activity page, after the turns above.
+  // The live view: the turns just made, step by step, as the stream hands them over.
+  await admin.run(`location.hash = '#live'`);
+  step("live view", await admin.until(`document.querySelectorAll('#live-turns .turn-card').length >= 2 && /watching/.test(${byId("live-state")}.textContent) && [...document.querySelectorAll('#live-turns .turn-card')].find(c => /Typed/.test(c.textContent))?.textContent.replace(/\\s+/g, ' ').slice(0, 200)`, "the live turns"));
+  await admin.run(`location.hash = '#integrations'`);
+  step("integrations", await admin.until(`[...document.querySelectorAll('.integration-head')].map(e => e.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`, "the integrations"));
+  await admin.run(`location.hash = '#wakewords'`);
+  step("wake scores", await admin.until(`${byId("wake-scores")}.textContent.slice(0, 50)`, "the wake scores"));
+  // One message to every device, from the overview.
+  await admin.run(`location.hash = '#overview'`);
+  await admin.until(`${byId("announce-target")}.options.length >= 2`, "the places to say something");
+  await admin.run(`${byId("announce-text")}.value = 'Testing, one two.'; ${byId("announce-send")}.click()`);
+  step("announce to every device", await admin.until(`document.querySelector('#announce-result table')?.textContent.replace(/\\s+/g, ' ')`, "the announcement to be delivered", 40000));
+
   await admin.run(`location.hash = '#overview'`);
   step("overview", await admin.until(`${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ').trim() && document.querySelector('#overview-strips .strip') && ${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ')`, "the overview"));
   step("attention", await admin.run(`[...document.querySelectorAll('#attention li')].map(l => l.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`));

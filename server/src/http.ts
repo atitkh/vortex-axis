@@ -6,6 +6,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
 import type { Delivery } from "./delivery.js";
+import type { HomeAssistant } from "./homeassistant.js";
+import type { Live } from "./live.js";
 import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
 import type { GatewayClient } from "./gateway/client.js";
@@ -141,6 +143,10 @@ export interface HttpDeps {
   hub: Hub;
   /** Turns, connections and changes, for the activity and overview pages. */
   activity?: Activity;
+  /** Turns and wake words as they happen, for the Live view. */
+  live?: Live;
+  /** The link to Home Assistant, when one is set up. */
+  homeAssistant?: HomeAssistant | undefined;
   /** When this process started, for uptime. */
   startedAt?: number;
   version?: string;
@@ -286,6 +292,18 @@ export function createHttpHandler(deps: HttpDeps) {
       out[client.type] = { ...withBuiltIns(store.getSchema(client.type), wakeIds()), ...(label ? { label } : {}) };
     }
     return out;
+  }
+
+  /** What the backup script last left in the data folder, if it has ever run against it. */
+  function backupStatus() {
+    try {
+      const told = JSON.parse(readFileSync(join(config.dataDir, "backup-status.json"), "utf8")) as { at?: unknown; ok?: unknown; to?: unknown; note?: unknown };
+      const at = Date.parse(String(told.at ?? ""));
+      if (!Number.isFinite(at)) return null;
+      return { at, ok: told.ok === true, to: String(told.to ?? ""), note: String(told.note ?? "") };
+    } catch {
+      return null;
+    }
   }
 
   function requireOnline(id: string) {
@@ -750,6 +768,79 @@ export function createHttpHandler(deps: HttpDeps) {
         }
         activity?.note("admin", client.id, `${client.name} told to update from ${client.version} to ${info.version}`);
         return sendJson(res, 202, { client: client.name, from: client.version, to: info.version });
+      }
+      // Says something from the admin page: on one client, in one location, or on every client that can speak.
+      if (method === "POST" && parts.length === 2 && parts[1] === "announce" && deps.delivery) {
+        const body = (await readJson(req)) as { text?: unknown; client?: unknown; location?: unknown; urgent?: unknown };
+        const text = typeof body.text === "string" ? body.text.trim().slice(0, 1000) : "";
+        if (!text) throw new HttpError(400, "body must be { text: string, client?: string, location?: string, urgent?: boolean }");
+        const urgent = body.urgent === true;
+        try {
+          if (typeof body.client === "string" && body.client) {
+            const client = store.getClient(body.client);
+            if (!client) throw new HttpError(404, "no such client");
+            const said = await deps.delivery.sayTo(client, text, urgent);
+            activity?.note("admin", client.id, `Announcement sent to ${client.name} from the admin page`);
+            return sendJson(res, 200, { clients: [said], heard: said.heard });
+          }
+          const location = typeof body.location === "string" && body.location.trim() ? body.location.trim() : undefined;
+          const said = await deps.delivery.sayToAll(location, text, urgent);
+          activity?.note("admin", "", `Announcement sent to ${location ? `every device in ${location}` : "every device"} from the admin page (${said.clients.length})`);
+          return sendJson(res, 200, said);
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(409, (error as Error).message);
+        }
+      }
+      // Everything as it happens, for as long as the page keeps the request open: turns stage by stage, wake words.
+      if (method === "GET" && parts.length === 2 && parts[1] === "live" && deps.live) {
+        res.writeHead(200, {
+          ...SECURITY_HEADERS,
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+          "x-accel-buffering": "no",
+        });
+        const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        write("snapshot", { at: now(), turns: deps.live.snapshot() });
+        const stop = deps.live.subscribe((event) => write(event.type, event.type === "turn" ? event.turn : event.wake));
+        // A line now and then keeps proxies from closing a quiet stream.
+        const beat = setInterval(() => res.write(": still here\n\n"), 20_000);
+        beat.unref();
+        res.on("close", () => {
+          clearInterval(beat);
+          stop();
+        });
+        return;
+      }
+      // Wake words devices reported: how sure each was and what came of it, for tuning the cutoff.
+      if (method === "GET" && parts.length === 2 && parts[1] === "wakes") {
+        const hours = Number(url.searchParams.get("hours") ?? 24 * 7);
+        if (!Number.isFinite(hours) || hours <= 0) throw new HttpError(400, "hours must be a positive number");
+        const names = new Map(store.listClients().map((c) => [c.id, c.name]));
+        return sendJson(res, 200, {
+          from: now() - hours * 3_600_000,
+          wakes: store.wakesSince(now() - hours * 3_600_000).map((w) => ({ ...w, client: names.get(w.clientId) ?? "removed client" })),
+        });
+      }
+      // What Axis is connected to besides its devices and the agent, and whether each is working.
+      if (method === "GET" && parts.length === 2 && parts[1] === "integrations") {
+        const clients = store.listClients();
+        const gw = gateway.status();
+        return sendJson(res, 200, {
+          homeAssistant: deps.homeAssistant?.status() ?? null,
+          notifications: {
+            ready: Boolean(deps.push),
+            clients: clients.filter((c) => deps.push?.has(c.id)).map((c) => ({ id: c.id, name: c.name, online: hub.isOnline(c.id), waiting: deps.delivery?.waitingFor(c.id) ?? 0 })),
+            browsers: clients.filter((c) => c.type === "web").length,
+          },
+          publicAddress: { hosts: config.publicHosts, trustedProxies: config.trustedProxies },
+          backup: backupStatus(),
+          gateway: { url: gw.url ?? null, operator: gw.operator.state, node: gw.node.state },
+          timeZone: config.timeZone,
+          messageHoldMs: config.messageHoldMs,
+          activityDays: config.activityDays,
+          dataDir: config.dataDir,
+        });
       }
       // What is going on at this moment: timers running, questions waiting, clients mid-turn.
       if (method === "GET" && parts.length === 2 && parts[1] === "now") {
