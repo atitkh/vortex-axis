@@ -94,7 +94,8 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `autoRotate` | Turn the picture with the device. | 1 |
 | `brightness` | Screen brightness, 10 to 255. | per board |
 
-- `location`, `voice`, `sentencePauseMs` and `wakeWord` belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret.)
+- `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client: Axis sends a lower `volume` and `brightness` while they last.)
+- `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).
 - A setting takes effect when it arrives, without a restart, unless that is impossible; say so in its help text when it is.
 
 ## 8. Commands
@@ -107,11 +108,14 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `reboot` | Every device (not apps). | Answers, then restarts. |
 | `update` | Every device that can replace its own firmware. | Section 9. |
 | `address` | Devices that store the address of Axis. | Moves to another address for the same Axis, keeping the pairing. Check the new address answers before changing anything, and go back to the old one if the connection through it is not welcomed. |
-| `timer.next` | Clients with a screen. | Shows a countdown; `ms` 0 clears it. |
+| `timer.next` | Clients with a screen. | Shows a countdown; `ms` 0 clears it. `id` names the timer: a client with a cancel control sends it to `POST /v1/timers/cancel` with its own token. |
+| `reset` | Devices that keep a pairing. | Answers, then forgets its pairing, settings and stored wake word (and its Wi-Fi when `wifi` is 1) and restarts. Sent only from the admin page. |
 | `wake.model` | Clients with a wake word of their own. | Switches to the wake word Axis names, fetching and keeping the model; an empty `id` means the built-in one. The built-in model must always remain as the fallback, and a model that will not run must not be retried at every start. |
 | Its own actions | Optional. | Anything listed under `actions` in `describe`, such as a test tone. Flag the ones a person should confirm. |
 
 Actions are how a person tests a device from the admin page and how an agent looks after one (`vortex.axis.admin`). A new board should offer at least a sound test when it has a speaker and a microphone level reading when it has one.
+
+A client with a screen should also report its size in its regular `sense` readings, as `screenW` and `screenH` in pixels, the way up it stands now. The admin page draws the device at that shape.
 
 ## 9. Updates
 

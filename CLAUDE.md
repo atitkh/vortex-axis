@@ -10,11 +10,20 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-09, at the commit that added hold-to-talk, keep-awake, the timer countdown and the notification extras to the web client. Update this line whenever you change this section.
+Last updated: 2026-10-09 13:10, at the commit that brought the docs up to date after the web client and admin page work. Update this line whenever you change this section.
 
-Added 2026-10-09, all deployed (see docs/design.md, last three sections): the web client is an installable app with Web Push notifications when its page is closed, including questions with choices; `say` to an offline client is kept 10 minutes; `say` takes `everywhere` and `urgent`; quiet hours (`quietFrom`/`quietTo` settings, `AXIS_TIMEZONE=America/Chicago` in `.env`); Home Assistant through MQTT discovery (`AXIS_MQTT_URL` in `.env`, entities `sensor.vortex_axis_<name>_state`, `notify.vortex_axis_<name>_say`, `notify.vortex_axis_say_everywhere`). Admin page: Face page with on/off per idle look, a sketch of the device on its page, full-width layout. NOT verified by anyone: a real notification arriving on a phone (needs a real browser subscription).
+**Running now:** Axis in Docker on voltex-ubuntu, port 8440, data in `/home/voltex/vortex-axis` (local disk; an hourly cron copies it to `/media/voltex/VS1/Docker/vortex-axis` with `scripts/backup-data.sh`). Public name `https://vortex.atitkharel.com.np` through a Cloudflare Tunnel; `/admin` is LAN and tailnet only. Two Waveshare boards (`VorteX-Axis-C484`, `VorteX-Axis-0BF8`) on firmware 0.11.4 over the public address, plus web clients "Brave Windows" and "iPhone", both with notifications on. Agent backend: the OpenClaw gateway, agent `main` (the `vertex` agent fails on voice: its conversation is larger than its local model's context). Axis's default device is `VorteX-Axis-C484`. `.env` also sets `AXIS_TIMEZONE=America/Chicago` and `AXIS_MQTT_URL` (Home Assistant).
 
-Running state, 2026-10-09 02:40: both boards on 0.11.3, at `https://vortex.atitkharel.com.np`. Free internal memory on a board is now about 83 KB (lowest 68 KB): encrypted connections take their buffers from PSRAM (`mbedtls_platform_set_calloc_free` in `Client::begin`; the framework is built with `MBEDTLS_INTERNAL_MEM_ALLOC`, which had them in internal memory and left about 32 KB free, 15 KB at worst). The echo canceller is in the build but only starts when both `bargeIn` and `echoCancel` are on; `bargeIn` is off by default (firmware/README.md, "Interrupting"). Axis ignores a wake word from a device while another device is speaking in the same location (`speakingNear` in `server/src/turns.ts`). Agent backend: OpenClaw gateway, agent `main`, short note sent as `extraSystemPrompt`. Axis's default device (`defaultClient`, global) is `VorteX-Axis-C484`; two OpenClaw jobs announce through `openclaw nodes notify --node "VorteX Axis"`.
+**Added 2026-10-08 and 09, all deployed** (details in docs/design.md from "Location, not room" to the end):
+- Devices: admin reset; echo canceller (only with `bargeIn`, which is off by default); encrypted connections take memory from PSRAM (free internal memory 32 KB to 83 KB); `idleLooksOff`; seven more idle looks with `wave` and `tilt`; readings `screenW`/`screenH` (`Client::setReading`).
+- Server: `delivery.ts` (say to a client that is away: Web Push to a closed browser, else kept 10 minutes; `everywhere`; `urgent`; questions by notification), `push.ts`, `quiet.ts` (quiet hours), `homeassistant.ts` + `mqtt.ts` (MQTT discovery), a wake word ignored while another device speaks in the same location, speech status needs two misses, a system prompt for chat endpoints and a note (`extraSystemPrompt`) for OpenClaw agents, "room" renamed to "location".
+- Web client: installable app, notifications, hold-to-talk beside tap, wake lock, timer countdown with cancel, badge, self-reload when the page is stale.
+- Admin page: the web client's black theme, full width, Face page (every look, on/off per idle look), device sketch (shape, state, words, question, timer), test buttons for a chat endpoint and for a notification.
+- Web files are served with stamped addresses (`?v=<hash>`, `stampWebFiles` in `http.ts`): Cloudflare kept scripts for four hours regardless of `no-cache`.
+
+**Not verified by anyone:** the wake-while-another-speaks rule on real boards; a person interrupting with echo cancelling on; the admin page at phone width. **Verified by the owner:** notifications on iPhone and Brave, a question answered from an iPhone notification, two boards arbitrating a wake word, fresh setup and Wi-Fi reset of a board.
+
+**Known and open:** `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained); `meshtastic-bridge` container stopped since 2026-10-08 (it grabbed the board's serial port; point it at its radio's `/dev/serial/by-id/` name before starting); agents reach Axis through the general `nodes` tool (the eight `vortex_axis_*` tools are published but not in the agents' tool policy).
 
 Built and running:
 
@@ -148,6 +157,11 @@ docker compose up -d --build          # needs .env, see .env.example
 
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.
 - `server/src/upstream.ts`: the speech and agent settings an admin can change at runtime, and the speech test.
+- `server/src/delivery.ts`: gets agent-started speech to a client by whatever route it has: live, a notification to a closed browser, or kept until it is back; one message to many clients; questions by notification. `commands.ts` and `homeassistant.ts` both go through it.
+- `server/src/push.ts`: Web Push with Node's own crypto (the `aes128gcm` encryption and the VAPID signature). Subscriptions are in the `push_subscriptions` table, Axis's key pair in `meta`.
+- `server/src/quiet.ts`: quiet hours by the clock. The hub caps volume and brightness in the settings it sends (`withQuiet`) and `delivery.ts` shows without speaking; no firmware knows about quiet hours.
+- `server/src/homeassistant.ts`, `server/src/mqtt.ts`: clients as Home Assistant devices through MQTT discovery, over a small MQTT client of our own.
+- `web/sw.js`: the web client's service worker. It only shows notifications and carries answers back; it caches nothing. Served at `/sw.js` so it can act for the whole client.
 
 The agent is an OpenClaw gateway reached over its WebSocket, or any OpenAI-style chat endpoint when the admin picks that. The gateway client always exists, so its node link keeps working either way.
 
@@ -161,7 +175,7 @@ The gateway's device tokens and the setup code are stored in the SQLite `meta` t
 - `firmware/common/src/log_buffer.h`: the in-memory log served at `/logs`, also copied to USB serial.
 - `firmware/common/src/vad.h`: energy-based speech detection.
 - `firmware/wake/`: the wake word detector. `firmware/lib/` holds vendored TensorFlow Lite Micro and the audio front end; do not edit them.
-- `docs/face.md`: the vortex face's specification: the 13 looks with their numbers, the drawing steps, how a voice level is measured, and which look shows when. A new board draws the face from it. `vortex.cpp` and `web/vortex.js` follow it; change all three in one commit.
+- `docs/face.md`: the vortex face's specification: the 20 looks with their numbers, the drawing steps, how a voice level is measured, and which look shows when. A new board draws the face from it. `vortex.cpp` and `web/vortex.js` follow it; change all three in one commit.
 - `firmware/waveshare-amoled-1.8/src/`: board code only: `main.cpp` (wiring, settings table, actions), `display`, `vortex` (the face), `speaker` (includes the 24 kHz to 16 kHz low-pass resampler), `mic`, `codec`, `touch`, `imu` (which way up the board is), `fonts/` (vendored, do not edit).
 
 A setting or action a device offers is declared once, in the board's table in `main.cpp`. The server validates against that description and the admin page draws from it, so do not add per-board code to `web/` or the server.

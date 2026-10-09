@@ -232,10 +232,10 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 ## 12. Open items
 
 - A target for time to first sound. Measured on 2026-10-07 through the live gateway with `scripts/latency-probe.mjs` (typed turns, the `vertex` agent, speech services on the Orange Pi, median of three): first reply text after 2.1 seconds, first audio after 3.2 seconds. A spoken turn adds speech recognition (about 0.15 seconds for a 2 second clip) and the client's wait for silence. The agent is the largest share, then synthesis at about 1.1 to 1.4 seconds to first audio. No target is set yet.
-- Whether to send the agent a stable session prompt (`extraSystemPrompt` on the `agent` method), and when OpenClaw applies it.
+- ~~Whether to send the agent a stable session prompt.~~ Done 2026-10-08: see "Note to an OpenClaw agent".
 - Approvals raised during a turn are not shown to clients yet.
 - Final command names (section 6).
-- Whether a plain `system.notify` aimed at Axis should be routed to the current output client.
+- ~~Whether a plain `system.notify` should be routed to the current output client.~~ It is: the device last spoken to, else the `defaultClient` setting.
 - How the Bangle.js 2 reaches Axis (it has Bluetooth only, so it needs a phone or a relay).
 
 ## 13. Lessons carried over from the Mylo firmware
@@ -291,3 +291,13 @@ Added 2026-10-09 (`server/src/quiet.ts`). Four of Axis's own settings, so they c
 ## Home Assistant
 
 Added 2026-10-09 (`server/src/homeassistant.ts`, `server/src/mqtt.ts`). With `AXIS_MQTT_URL` set to the broker Home Assistant uses, every client is published through MQTT discovery as a device with a State sensor (offline, idle, listening, thinking, speaking, asked), an Online binary sensor, a Say notify entity and, where the client has one, a Volume number. The hub is a device with Say everywhere and a count of clients online. Text sent to a Say entity takes the same route as an agent's `say`; a title of "urgent" speaks through quiet hours. A removed client is removed from Home Assistant. The MQTT client is a small one of our own (QoS 0, a retained last will), again with no dependency.
+
+## The web client as an app, and the admin page
+
+Added 2026-10-09.
+
+**Web client.** Beside tapping the face, holding it listens for as long as it is held and sends on release; while held, the pauses that end a tapped turn do not. The page keeps the screen on while it is in front (a wake lock, taken again each time the page becomes visible). A running timer is a large countdown with a Cancel button: `timer.next` carries the timer's `id`, and the client cancels with `POST /v1/timers/cancel`. A notification raises a badge on the app's icon; opening the app clears it, and the page asks `GET /v1/push/asks` for what it missed (messages, once, and questions still open), because a phone does not reliably hand the page the notification that opened it.
+
+**Stale pages.** A proxy or a phone may keep scripts and styles for hours whatever headers Axis sends; Cloudflare rewrote ours to four hours. So the server stamps every reference from one web file to another with a hash of all web files (`?v=…`) when it loads them, serves stamped addresses as immutable and everything else as `no-cache`, and offers `GET /v1/web-version`. The web client compares that with its own stamp each time its socket reconnects (which is what an Axis update causes) and reloads when nothing is going on.
+
+**Admin page.** One dark theme, the web client's: black, the idle face's cyan as the accent, the listening green for "good", charts in the face's colours, the live face in the header and on sign-in. It fills the window. The Face page draws every look with `web/vortex.js` and switches idle looks on and off (`idleLooksOff`). A device's page has a sketch of it beside its details: a frame at the shape the device reports (readings `screenW` and `screenH`, sent by the board through `Client::setReading` and by the web client on connect and resize), the face in the state Axis knows, the words it was last sent, a question it is asking and a running timer. The words come from `hub.showing()`, which keeps them in memory for a minute; nothing said is written to disk.

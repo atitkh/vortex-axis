@@ -47,24 +47,17 @@ Folders appear as the work reaches them; `clients/` does not exist yet.
 | `clients/` | Clients that are not firmware (for example a watch app). |
 | `docs/` | Design and decisions. |
 
-## Version 1 scope
+## What it does today
 
-In:
+Version 1 (pairing, settings sync, one voice turn end to end, agent-started speech, a web client and an ESP32-S3 client) is done. On top of it:
 
-- Axis container with client registration, pairing codes and per-client tokens.
-- Settings sync across three layers: global, client type, device.
-- One voice turn end to end: client audio in, STT, agent, TTS, audio out.
-- The agent speaking unprompted through Axis.
-- The web client first, then an ESP32-S3 client.
-- A per-message header telling the agent which client spoke, and a tool to list clients.
+- **Devices:** updates over Wi-Fi with rollback, an encrypted link over a public address, moving a device to another address without re-pairing, wake words served from Axis, a reset from the admin page.
+- **The web client is an app:** installable on a phone, with notifications when its page is closed (including questions with choices), hold-to-talk beside tap-to-talk, a timer countdown with cancel, and the screen kept on while it is open.
+- **Reaching people:** say something on one device, at a location, or everywhere; a message for a device that is away is kept for ten minutes; quiet hours by the clock.
+- **Home Assistant:** every client appears there as a device (state, online, a "say" entity, volume) through MQTT discovery.
+- **Admin page:** overview, activity log, per-device and per-type settings, firmware and wake word pages, a Face page showing every look, a live sketch of each device, all in the web client's black theme.
 
-Out, for later:
-
-- Bangle.js 2 client.
-- Running on a public domain: the protections are built (see `AXIS_PUBLIC_HOSTS` in `.env.example` and section 9.0 of the design), the domain itself is not set up yet.
-- Presence-based routing.
-- Firmware updates rolled out in stages (one device first, then the rest). Updates over Wi-Fi themselves were brought into version 1 on 2026-10-08 and are built.
-- An admin page beyond a bare client list.
+Not built: a second device type, a Bangle.js client, a wake word in the browser, presence-based routing, staged firmware rollout.
 
 ## Running it
 
@@ -89,6 +82,12 @@ Browsers only allow the microphone on `https` or on `localhost`. Over plain `htt
 - **A reverse proxy** such as Nginx Proxy Manager: point a host name at port 8440 and turn on WebSocket support, since clients hold a socket on `/v1/client`. For a PUBLIC name, set `AXIS_PUBLIC_HOSTS` to that name first, so the admin page and API do not exist there, and `AXIS_TRUSTED_PROXIES` to the proxy's address. Devices then use a setup string beginning `axis+tls://`.
 
 Whichever you use, think about `/admin`: it is protected by the admin token only, so do not put it on a public address.
+
+**A public address** (how the reference setup runs): a Cloudflare Tunnel or any reverse proxy pointed at port 8440, with the host name listed in `AXIS_PUBLIC_HOSTS` and the proxy's address in `AXIS_TRUSTED_PROXIES`. Under that name Axis serves the web client, pairing, the client socket and firmware downloads, and answers "not found" for `/admin`. A proxy may keep scripts and styles for hours whatever Axis says (Cloudflare does, for four), so every address one web file loads another by carries a stamp of the build (`/web/client.js?v=…`), and an open page reloads itself when Axis has a newer one.
+
+**On a phone:** open the public address, pair, then add it to the Home Screen. "Turn on notifications" is at the bottom of the page; an iPhone only offers it to the installed app. Brave needs "Use Google services for push messaging" switched on.
+
+**Home Assistant:** set `AXIS_MQTT_URL` to the broker Home Assistant uses and the devices appear by themselves. **Quiet hours** are times of day in `AXIS_TIMEZONE`. Both are described in `.env.example`.
 
 Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there. It is safe there but not a good place for it: Axis waits on every database write, so a busy share freezes it, clients drop and the speech services read as down. Keep the folder on a local disk and copy it to the share with `scripts/backup-data.sh <data folder> <backup folder>` from cron; the copy has the same layout, so restoring is copying it back.
 
@@ -151,7 +150,18 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `GET` or `PATCH /admin/settings/type/:type` | Same, for one client type. Values for settings the type described are checked (range, options, toggles as 1 or 0). |
 | `GET` or `PATCH /admin/settings/device/:id` | Same, for one client. |
 
+| `POST /admin/clients/:id/reset` | Body `{ wifi? }`. Tells a device to forget its pairing and settings (and its Wi-Fi), then removes it. 409 when its firmware cannot. |
+| `POST /admin/clients/:id/address` | Body `{ address }`. Moves a device to another address for the same Axis, keeping its pairing. |
+| `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type. |
+| `POST /admin/clients/:id/notify-test` | Sends a browser client a test notification, page open or closed. 409 when it has notifications off. |
+| `GET /admin/now` | What is going on this moment: timers, clients mid-turn, and the words on each screen (memory only). |
+| `GET`, `POST`, `DELETE /admin/firmware…` | The firmware builds kept per client type. |
+| `GET`, `POST`, `DELETE /admin/wakewords…` | The wake word models devices can be given. |
+| `POST /admin/config/test-agent` | Tries an OpenAI-style chat endpoint as typed, before it is saved. |
+
 `PATCH` takes `{"values": {"volume": 60}}`. Setting a key to `null` removes it from that layer.
+
+Routes a client calls for itself, with its own token (`Authorization: Bearer <token>`, `X-Axis-Client: <id>`): `GET /v1/firmware/:type`, `GET /v1/wakewords/:id`, `POST` or `DELETE /v1/push/subscription`, `GET /v1/push/asks`, `POST /v1/timers/cancel`. Open to anyone: `GET /v1/push/key`, `GET /v1/web-version`, and `POST /v1/push/answer`, which takes a one-time token from the notification.
 
 ### Development
 

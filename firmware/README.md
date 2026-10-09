@@ -67,7 +67,8 @@ Set these in the admin page: open the device under Clients, then pick the layer 
 | `volume` | Speaker volume, 0 to 100 | 60 |
 | `wakeListen` | 1 to listen for the wake word, 0 for tap-to-talk only | 1 |
 | `wakeSense` | Wake word cutoff in percent, 50 to 99. Lower wakes more easily. 0 uses the model's own (87) | 0 |
-| `bargeIn` | 1 lets the wake word interrupt the device while it talks, 0 ignores it until it has finished | 1 |
+| `bargeIn` | 1 lets the wake word interrupt the device while it talks, 0 ignores it until it has finished. Experimental: see "Interrupting" | 0 |
+| `echoCancel` | 1 takes the device's own voice out of the microphone while it talks. Only used when `bargeIn` is 1 | 1 |
 | `followUpMs` | After an answer that was spoken to the end, keep listening this long for a reply without the wake word. 0 turns it off | 6000 |
 | `listenCue` | 1 plays a short rising tone whenever the device starts listening, 0 is silent | 1 |
 | `onsetMs` | How long to wait for the first word after a wake or tap, 1000 to 20000 | 6000 |
@@ -137,7 +138,16 @@ Build order: (1) display, Wi-Fi setup, pairing and a face that follows Axis's st
 
 Also built (0.7.0): questions from an agent with choices to tap or say, and a countdown for timers kept on Axis.
 
-Not built yet: choosing the wake word model from Axis instead of at build time.
+Milestone 5 and after (firmware 0.8 to 0.11.4, all on both boards):
+
+- Updates over Wi-Fi with rollback; an encrypted link (`axis+tls://`); moving to another address for Axis without pairing again; wake word models fetched from Axis; a reset from the admin page.
+- A smoother font, auto-rotate from the motion sensor, an adjustable picture offset.
+- **Memory:** the framework takes the buffers for an encrypted connection from internal memory (about 45 KB), which left about 32 KB free and 15 KB at worst. Since 0.11.2 they come from PSRAM (`mbedtls_platform_set_calloc_free` in `Client::begin`): about 83 KB free, 68 KB at worst, with no change in connect time.
+- An echo canceller (0.11.0), used only with `bargeIn`; `bargeIn` is off by default. See "Interrupting".
+- Seven more idle looks, with arms that sway and a figure tipped at an angle (0.11.1); idle looks can be switched off from Axis (`idleLooksOff`, 0.11.3).
+- The board reports its screen size, the way up it stands (`screenW`, `screenH`, through `Client::setReading`, 0.11.4).
+
+Known and unexplained: after a reset triggered over the serial cable, the log can fill with `i2cWrite(): i2c_master_transmit failed: [259] ESP_ERR_INVALID_STATE` (the touch and motion sensors' bus). A power-on start does not show it.
 
 ## Tests for a person
 
