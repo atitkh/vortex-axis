@@ -15,6 +15,7 @@ import {
   type ServerMessage,
   type Status,
 } from "@vortex-axis/protocol";
+import { isQuiet, withQuiet } from "./quiet.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 
@@ -64,6 +65,8 @@ export interface HubOptions {
   playbackGraceMs?: number;
   /** How long the last client spoken to stays the default place to answer. */
   outputHoldMs?: number;
+  /** The time zone quiet hours are told in. */
+  timeZone?: string;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -73,6 +76,8 @@ export class Hub implements TurnPort {
   private readonly online = new Map<string, Session>();
   private readonly turns: TurnManager;
   private readonly outputHoldMs: number;
+  private readonly timeZone: string;
+  private readonly wasQuiet = new Map<string, boolean>();
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly pingIntervalMs: number;
@@ -93,6 +98,7 @@ export class Hub implements TurnPort {
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
     this.outputHoldMs = options.outputHoldMs ?? 10 * 60_000;
+    this.timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
       wakeWindowMs: options.wakeWindowMs ?? 200,
@@ -123,8 +129,8 @@ export class Hub implements TurnPort {
   }
 
   /** Says something an agent started on one client. Resolves when it has been played or shown. */
-  say(session: Session, text: string): Promise<{ heard: boolean }> {
-    return this.turns.say(session, text);
+  say(session: Session, text: string, options: { silent?: boolean } = {}): Promise<{ heard: boolean }> {
+    return this.turns.say(session, text, options);
   }
 
   /** Puts a question to the person at a client. See `TurnManager.ask`. */
@@ -388,8 +394,37 @@ export class Hub implements TurnPort {
     this.send(session, {
       t: "settings",
       version: this.store.settingsVersion(),
-      values: this.store.resolveSettings(session.client),
+      values: withQuiet(this.store.resolveSettings(session.client), Date.now(), this.timeZone),
     });
+  }
+
+  /** True when this client is in its quiet hours right now. */
+  quiet(client: Pick<ClientRecord, "id" | "type">): boolean {
+    return isQuiet(this.store.resolveSettings(client), Date.now(), this.timeZone);
+  }
+
+  /**
+   * Notices quiet hours starting or ending for any connected client and sends the settings again,
+   * since the volume and brightness a device is sent depend on it. Called once a minute.
+   */
+  checkQuiet(): void {
+    let changed = false;
+    for (const session of this.online.values()) {
+      const now = this.quiet(session.client);
+      if (this.wasQuiet.get(session.client.id) !== now) {
+        // The first look at a client is not a change: it was sent the right settings when it connected.
+        if (this.wasQuiet.has(session.client.id)) {
+          changed = true;
+          this.log(`${session.client.name}: quiet hours ${now ? "began" : "ended"}`);
+          this.activity?.note("settings", session.client.id, `${session.client.name}: quiet hours ${now ? "began" : "ended"}`);
+        }
+        this.wasQuiet.set(session.client.id, now);
+      }
+    }
+    if (changed) {
+      this.store.touchSettings();
+      this.pushSettings();
+    }
   }
 
   /** Pushes current settings to every connected client a change could affect. */

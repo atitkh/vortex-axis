@@ -31,6 +31,7 @@ export interface Delivered {
 
 interface Held {
   text: string;
+  urgent: boolean;
   until: number;
 }
 
@@ -63,10 +64,20 @@ export class Delivery {
     options.hub.onConnect((session) => void this.flush(session));
   }
 
-  /** Says something on a connected client. */
-  async sayOn(session: Session, text: string): Promise<Delivered> {
-    const { heard } = await this.options.hub.say(session, text);
+  /**
+   * Says something on a connected client. In the client's quiet hours it is shown without sound,
+   * unless it is `urgent`; a client with no screen is then left alone.
+   */
+  async sayOn(session: Session, text: string, urgent = false): Promise<Delivered> {
     const shown = session.client.capabilities.includes("screen");
+    if (!urgent && this.options.hub.quiet(session.client)) {
+      if (!shown) {
+        return { client: session.client.name, heard: false, shown: false, note: "It is in its quiet hours and has no screen, so nothing was said. Mark it urgent to speak anyway." };
+      }
+      await this.options.hub.say(session, text, { silent: true });
+      return { client: session.client.name, heard: false, shown: true, note: "It is in its quiet hours: shown on its screen, not spoken. Mark it urgent to speak anyway." };
+    }
+    const { heard } = await this.options.hub.say(session, text);
     return {
       client: session.client.name,
       heard,
@@ -80,9 +91,9 @@ export class Delivery {
   }
 
   /** Says something to one client, connected or not. */
-  async sayTo(client: ClientRecord, text: string): Promise<Delivered> {
+  async sayTo(client: ClientRecord, text: string, urgent = false): Promise<Delivered> {
     const session = this.options.hub.session(client.id);
-    if (session) return this.sayOn(session, text);
+    if (session) return this.sayOn(session, text, urgent);
 
     if (this.options.push?.has(client.id)) {
       const outcome = await this.options.push.notify(client.id, { title: "Vortex", body: text, tag: "say" });
@@ -93,7 +104,7 @@ export class Delivery {
     }
 
     const waiting = (this.held.get(client.id) ?? []).filter((h) => h.until > this.now());
-    waiting.push({ text, until: this.now() + this.options.holdMs });
+    waiting.push({ text, urgent, until: this.now() + this.options.holdMs });
     this.held.set(client.id, waiting.slice(-MAX_HELD));
     const minutes = Math.max(1, Math.round(this.options.holdMs / 60_000));
     this.options.note?.(client.id, `${client.name} is offline: one message is kept for it for ${minutes} min`);
@@ -125,7 +136,7 @@ export class Delivery {
         return;
       }
       try {
-        await this.options.hub.say(session, message.text);
+        await this.sayOn(session, message.text, message.urgent);
         this.options.note?.(session.client.id, `Said a kept message on ${session.client.name} now that it is back`);
       } catch (error) {
         this.options.note?.(session.client.id, `A kept message for ${session.client.name} could not be said: ${(error as Error).message}`, "warn");
@@ -138,7 +149,7 @@ export class Delivery {
    * can speak, in one location or everywhere. Browsers with their page closed
    * get it as a notification. Clients that are simply offline are left out.
    */
-  async sayToAll(location: string | undefined, text: string): Promise<{ clients: Delivered[]; heard: boolean }> {
+  async sayToAll(location: string | undefined, text: string, urgent = false): Promise<{ clients: Delivered[]; heard: boolean }> {
     const place = location?.trim().toLowerCase();
     const at = (client: ClientRecord) => String(this.options.store.resolveSettings(client).location ?? "").trim().toLowerCase();
     const inScope = (client: ClientRecord) => !place || at(client) === place;
@@ -152,9 +163,9 @@ export class Delivery {
     }
     const results = await Promise.all([
       ...speaking.map((session) =>
-        this.sayOn(session, text).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
+        this.sayOn(session, text, urgent).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
       ),
-      ...closed.map((client) => this.sayTo(client, text)),
+      ...closed.map((client) => this.sayTo(client, text, urgent)),
     ]);
     return { clients: results, heard: results.some((r) => r.heard) };
   }

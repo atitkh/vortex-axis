@@ -510,6 +510,11 @@ export class Store {
     return Number(row.value);
   }
 
+  /** Marks the settings as changed, so every client takes them again. Used when what a client is sent changes without an edit, as at the start and end of quiet hours. */
+  touchSettings(): number {
+    return this.bumpSettingsVersion();
+  }
+
   private bumpSettingsVersion(): number {
     const next = this.settingsVersion() + 1;
     this.db.prepare("UPDATE meta SET value = ? WHERE key = 'settings_version'").run(String(next));

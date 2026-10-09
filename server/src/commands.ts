@@ -49,6 +49,7 @@ export const NODE_TOOLS: NodeTool[] = [
         text: { type: "string", description: "What to say." },
         ...TARGET_PROPERTIES,
         everywhere: { type: "boolean", description: "Say it on every device that can speak: in the location given, or in the whole place when none is." },
+        urgent: { type: "boolean", description: "Speak it even if the device is in its quiet hours. Without this, a device in quiet hours only shows it." },
       },
       required: ["text"],
     },
@@ -227,14 +228,16 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             : [text(params.title), text(params.body)].filter(Boolean).join(". ") || undefined;
         if (!words) throw new Error("there is nothing to say: text is empty");
         const named = text(params.client);
+        // Urgent speaks even in a device's quiet hours. A notification marked time-sensitive counts.
+        const urgent = params.urgent === true || params.priority === "timeSensitive";
         // On every device that can speak, in one location or in the whole place.
         if (params.everywhere === true) {
           if (named) throw new Error("give a client or everywhere, not both");
-          return delivery.sayToAll(placeNamed(params), words);
+          return delivery.sayToAll(placeNamed(params), words, urgent);
         }
         // A named client need not be connected: a closed browser gets a notification, anything else is kept for a while.
-        if (named) return delivery.sayTo(clientNamed(named), words);
-        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words);
+        if (named) return delivery.sayTo(clientNamed(named), words, urgent);
+        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words, urgent);
       }
 
       case "vortex.axis.clients":

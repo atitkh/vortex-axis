@@ -58,8 +58,23 @@ export interface Config {
   outputHoldMs: number;
   /** How long something said to a client that is offline is kept for it. */
   messageHoldMs: number;
+  /** The time zone quiet hours are told in, such as "America/Chicago". */
+  timeZone: string;
   /** Folder holding the web pages. Undefined serves none. */
   webDir: string | undefined;
+}
+
+/** A time zone the runtime knows, or the machine's own when none (or a wrong one) is given. */
+function zone(name: string | undefined): string {
+  if (name) {
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: name });
+      return name;
+    } catch {
+      // Fall through to the machine's own.
+    }
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
 function integer(name: string, raw: string | undefined, fallback: number): number {
@@ -122,6 +137,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
     messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
+    timeZone: zone(env.AXIS_TIMEZONE || env.TZ),
     // The compiled server sits in server/dist, two levels below the repository root.
     webDir: env.AXIS_WEB_DIR || fileURLToPath(new URL("../../web", import.meta.url)),
   };

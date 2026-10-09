@@ -623,14 +623,14 @@ export class TurnManager {
    * played or shown it. `heard` is true only when the client confirmed that it
    * played the audio to the end.
    */
-  async say(session: Session, text: string, waitMs = 20_000): Promise<{ heard: boolean }> {
+  async say(session: Session, text: string, options: { silent?: boolean } = {}, waitMs = 20_000): Promise<{ heard: boolean }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
     const outcome = { heard: false };
-    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text }, outcome);
+    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text, ...(options.silent ? { silent: true } : {}) }, outcome);
     if (failure) throw new Error(failure);
     return outcome;
   }
@@ -683,7 +683,7 @@ export class TurnManager {
   private async run(
     session: Session,
     turnId: string,
-    input: { pcm: Buffer; format: AudioFormat } | { text: string } | { say: string },
+    input: { pcm: Buffer; format: AudioFormat } | { text: string } | { say: string; silent?: boolean },
     outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
@@ -755,7 +755,8 @@ export class TurnManager {
       }
 
       const speaker =
-        caps.includes("speaker") && tts ? new Speaker(this.port, session, turnId, tts.format, signal) : undefined;
+        // A message for quiet hours is shown and not spoken.
+        caps.includes("speaker") && tts && !("silent" in input && input.silent) ? new Speaker(this.port, session, turnId, tts.format, signal) : undefined;
       const settings = this.port.settings(session);
       const voice = typeof settings.voice === "string" && settings.voice ? settings.voice : undefined;
       const pauseMs = typeof settings.sentencePauseMs === "number" ? Math.min(1500, Math.max(0, settings.sentencePauseMs)) : 300;

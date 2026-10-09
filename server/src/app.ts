@@ -112,6 +112,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     wakeWindowMs: config.wakeWindowMs,
     maxUtteranceMs: config.maxUtteranceMs,
     outputHoldMs: config.outputHoldMs,
+    timeZone: config.timeZone,
     activity,
     log,
   });
@@ -146,6 +147,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
   applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
   Object.assign(services, options.services);
+
+  // Quiet hours begin and end on the clock, not on an edit, so somebody has to look.
+  const quietTimer = setInterval(() => hub.checkQuiet(), 60_000);
+  quietTimer.unref();
+  hub.onConnect(() => hub.checkQuiet());
 
   let healthTimer: NodeJS.Timeout | undefined;
   if (config.healthIntervalMs > 0) {
@@ -193,6 +199,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     port,
     async close() {
       if (healthTimer) clearInterval(healthTimer);
+      clearInterval(quietTimer);
       timers.stop();
       gateway.stop();
       hub.closeAll();
