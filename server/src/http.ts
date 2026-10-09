@@ -570,6 +570,31 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, { removed: type });
         }
       }
+      // Moves a device to another address for Axis, keeping its pairing. Only here: agents have no way to send it.
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "address") {
+        const { client, session } = requireOnline(parts[2]!);
+        const body = (await readJson(req)) as { address?: unknown };
+        const given = typeof body.address === "string" ? body.address.trim() : "";
+        let target: URL;
+        try {
+          target = new URL(/^https?:\/\//i.test(given) ? given : `http://${given}`);
+        } catch {
+          throw new HttpError(400, "give an address such as https://axis.example.org or 10.0.0.6:8440");
+        }
+        if (!given || !["http:", "https:"].includes(target.protocol) || target.username || target.search || target.hash || !["", "/"].includes(target.pathname)) {
+          throw new HttpError(400, "give only the address: http or https, a host, and a port if it is not the usual one");
+        }
+        const url = `${target.protocol}//${target.host}`;
+        let outcome;
+        try {
+          outcome = await hub.command(session, "address", { url });
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+        if (!outcome.ok) throw new HttpError(409, `${client.name} cannot change its address (${outcome.error ?? "refused"}). Its firmware may be too old.`);
+        activity?.note("admin", client.id, `${client.name} told to reach Axis at ${url}`);
+        return sendJson(res, 202, { client: client.name, address: url });
+      }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {
         const { client, session } = requireOnline(parts[2]!);
         const info = firmware.info(client.type);

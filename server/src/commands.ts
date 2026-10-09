@@ -23,6 +23,9 @@ export const NODE_COMMANDS = [
   "vortex.axis.admin",
 ] as const;
 
+/** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
+export const ADMIN_ONLY_COMMANDS = ["address", "update", "wake.model", "timer.next"];
+
 const TARGET_PROPERTIES = {
   client: { type: "string", description: "Name or id of one client. Use vortex_axis_clients to see them." },
   room: { type: "string", description: "Room to reach, when no single client is meant." },
@@ -328,7 +331,9 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             clients: clients.map((client) => ({
               client: client.name,
               online: hub.isOnline(client.id),
-              actions: withBuiltIns(store.getSchema(client.type)).actions.map((a) => ({
+              actions: withBuiltIns(store.getSchema(client.type))
+                .actions.filter((a) => !ADMIN_ONLY_COMMANDS.includes(a.name))
+                .map((a) => ({
                 name: a.name,
                 label: a.label,
                 ...(a.help ? { help: a.help } : {}),
@@ -361,7 +366,10 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         if (action === "run") {
           const run = text(params.run);
           if (!run) throw new Error("say which action to run");
-          const offered = withBuiltIns(store.getSchema(client.type)).actions;
+          // Agents run only what a device lists as an action for a person. The commands Axis itself
+          // uses to manage a device (its firmware, its wake word, the address it reaches Axis at)
+          // are never among them, whatever a device claims.
+          const offered = withBuiltIns(store.getSchema(client.type)).actions.filter((a) => !ADMIN_ONLY_COMMANDS.includes(a.name));
           if (!offered.some((a) => a.name === run)) {
             throw new Error(`${client.name} does not offer "${run}". It offers: ${offered.map((a) => a.name).join(", ") || "nothing"}`);
           }

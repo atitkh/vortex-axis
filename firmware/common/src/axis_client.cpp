@@ -49,6 +49,8 @@ const size_t WAKE_SETTLE_SAMPLES = MIC_RATE / 10;
 const size_t TAIL_SETTLE_SAMPLES = MIC_RATE / 4;
 /** How long a newly installed firmware has to reach Axis before the device goes back to the old one. */
 const uint32_t UNPROVEN_MS = 180000;
+/** How long a device tries a new address for Axis before returning to the old one. */
+const uint32_t ADDRESS_TRIAL_MS = 90000;
 // Axis answers a wake within about 200 ms. Longer than this and the recording is dropped.
 const uint32_t WAKE_ANSWER_MS = 3000;
 const size_t SEND_BLOCK_SAMPLES = 1024;
@@ -256,6 +258,12 @@ struct Client::Impl {
     /** The detector loads its model once, at start, so a change of wake word ends in a restart, taken when nothing is going on. */
     bool restartWanted = false;
 
+    // --- moving to another address for Axis ---
+    /** Set by the `address` command. Tried on the next tick, after the answer has gone out. */
+    String addressWanted;
+    /** While this is set the device is on a new address it has not yet connected through; at this time it gives up and goes back. */
+    uint32_t addressTrialUntil = 0;
+
     explicit Impl(Client &client) : self(client) {}
 
     // --- shared state ------------------------------------------------------
@@ -296,6 +304,8 @@ struct Client::Impl {
         clientId = stored("cid");
         token = stored("tok");
         settingsVersion = prefs.getUInt("setv", 0);
+        // Restarted while trying a new address for Axis: the trial carries on, and can still be taken back.
+        if (!stored("urlPrev").isEmpty()) addressTrialUntil = millis() + ADDRESS_TRIAL_MS;
         const String saved = stored("sets", "{}");
         if (deserializeJson(settings, saved)) {
             settings.clear();
@@ -647,6 +657,12 @@ struct Client::Impl {
             welcomed = true;
             lastSense = millis() - SENSE_INTERVAL_MS + 5000;
             logf("connected to Axis");
+            if (addressTrialUntil || !stored("urlPrev").isEmpty()) {
+                // Connected through the new address with the old pairing: it is the address now.
+                addressTrialUntil = 0;
+                prefs.remove("urlPrev");
+                logf("the new address works and is kept");
+            }
             if (storedWakeRunning) {
                 // A stored wake word that let the device get this far is safe to start with again.
                 Preferences wk;
@@ -737,6 +753,61 @@ struct Client::Impl {
                 setLink(Link::Unpaired, "Axis no longer knows this device. Pair it again.");
             }
         }
+    }
+
+    /**
+     * Moves to another address for Axis without pairing again. The new address
+     * must answer as Axis before anything is changed; over https its
+     * certificate is checked as always. Then the device connects through it
+     * with the pairing it has. The old address is kept until that has worked,
+     * and taken back if it has not within a minute and a half, so a wrong
+     * address cannot strand a device.
+     */
+    void tryAddress(const String &url) {
+        if (url == baseUrl) return;
+        logf("asked to reach Axis at %s", url.c_str());
+        const String old = baseUrl;
+        const bool wasEncrypted = encrypted();
+        if (url.startsWith("https://") && wasEncrypted) stopSocket();  // no room for two encrypted connections
+        bool answers = false;
+        {
+            baseUrl = url;  // so the request goes over the transport the new address calls for
+            WiFiClient plain;
+            NetworkClientSecure tls;
+            HTTPClient http;
+            http.setConnectTimeout(8000);
+            http.setTimeout(8000);
+            if (beginHttp(http, plain, tls, url + "/healthz")) {
+                const int status = http.GET();
+                answers = status == 200 && http.getString().indexOf("\"ok\"") >= 0;
+                if (!answers) logf("%s did not answer as Axis (%d)", url.c_str(), status);
+                http.end();
+            }
+            baseUrl = old;
+        }
+        if (!answers) {
+            update([&](Snapshot &s) { s.note = "Could not reach Axis at the new address"; });
+            return;
+        }
+        prefs.putString("urlPrev", old);
+        prefs.putString("url", url);
+        baseUrl = url;
+        stopSocket();
+        addressTrialUntil = millis() + ADDRESS_TRIAL_MS;
+        if (!addressTrialUntil) addressTrialUntil = 1;
+        logf("trying the new address");
+    }
+
+    /** The new address did not let the device back in: return to the one before. */
+    void revertAddress() {
+        const String old = stored("urlPrev");
+        addressTrialUntil = 0;
+        prefs.remove("urlPrev");
+        if (old.isEmpty()) return;
+        logf("could not connect through %s, going back to %s", baseUrl.c_str(), old.c_str());
+        prefs.putString("url", old);
+        baseUrl = old;
+        stopSocket();
     }
 
     /**
@@ -1068,6 +1139,14 @@ struct Client::Impl {
             updateWanted = updatePath.startsWith("/") && updateSize > 0;
             if (updateWanted) payload["updating"] = updateVersion;
             handled = updateWanted;
+        } else if (!strcmp(name, "address")) {
+            // The admin page moving this device to another address for the same Axis. The pairing stays.
+            const String url = doc["params"]["url"] | "";
+            handled = url.startsWith("http://") || url.startsWith("https://");
+            if (handled) {
+                addressWanted = url;
+                payload["trying"] = url;
+            }
         } else if (!strcmp(name, "wake.model") && wakeModelsTaken) {
             handled = true;
             onWakeModel(doc["params"], payload);
@@ -1113,6 +1192,8 @@ struct Client::Impl {
             }
             return;
         }
+        // A new address that has not let the device back in goes back to the old one.
+        if (addressTrialUntil && !welcomed && (int32_t)(millis() - addressTrialUntil) > 0) revertAddress();
         // A new firmware that cannot reach Axis in three minutes goes back to the one before.
         if (unproven && !welcomed && millis() > UNPROVEN_MS) {
             logf("the new firmware never reached Axis, going back to the old one");
@@ -1154,6 +1235,13 @@ struct Client::Impl {
             }
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
+        if (!addressWanted.isEmpty()) {
+            const String url = addressWanted;
+            addressWanted = "";
+            socket.loop();  // let the answer out on the old address first
+            tryAddress(url);
+            return;
+        }
         if (wakeFetchWanted) {
             wakeFetchWanted = false;
             socket.loop();
@@ -1178,6 +1266,7 @@ struct Client::Impl {
             doc["readings"]["rssi"] = WiFi.RSSI();
             doc["readings"]["heap"] = ESP.getFreeHeap();
             doc["readings"]["uptimeS"] = millis() / 1000;
+            doc["readings"]["axis"] = baseUrl;
             if (wakeModelsTaken) {
                 Preferences wk;
                 wk.begin(WAKE_PREFS, true);

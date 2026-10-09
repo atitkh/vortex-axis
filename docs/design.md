@@ -155,6 +155,12 @@ Built 2026-10-08 (brought into version 1 by the owner the same day).
 
 A setup string that starts `axis+tls://` makes the device pair, connect and update over TLS (port 443 unless given). It checks Axis's certificate against the certificate authorities the ESP32 core ships with, so the address needs a certificate from a public authority (Let's Encrypt behind a reverse proxy is fine); a self-signed one is refused. The serial command `tlscheck <https://...>` says whether a device can reach and trust an address before it is moved to it. An encrypted connection costs about 45 KB of the board's memory, so the socket is closed while an update downloads. Checked on the real board against public sites (trusted) and a self-signed one (refused); NOT yet used against a real Axis address, because Axis has no publicly certified address a LAN device can reach.
 
+### 7.2.1 Moving a device to another address
+
+Built 2026-10-08. `POST /admin/clients/:id/address {address}` sends a device the `address` command with the new base address for the same Axis (for example its public https name in place of a LAN address). The device first asks the new address for `/healthz`, over TLS with the certificate checked when it is https, and changes nothing if that fails. Then it connects through the new address with the pairing it already has, so it stays the same client with the same settings. It keeps the old address until that connection has been welcomed, and returns to it by itself after a minute and a half otherwise, also across a restart. A device reports the address it uses as the reading `axis`.
+
+This command, `update`, `wake.model` and `timer.next` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
+
 ### 7.3 Wake words from Axis
 
 Built 2026-10-08. Tried on the real board with a stored copy of "Hey Vortex".

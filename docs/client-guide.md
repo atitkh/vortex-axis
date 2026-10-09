@@ -106,6 +106,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `diag` | Every client. | Returns version, uptime, free memory, signal strength: flat values. |
 | `reboot` | Every device (not apps). | Answers, then restarts. |
 | `update` | Every device that can replace its own firmware. | Section 9. |
+| `address` | Devices that store the address of Axis. | Moves to another address for the same Axis, keeping the pairing. Check the new address answers before changing anything, and go back to the old one if the connection through it is not welcomed. |
 | `timer.next` | Clients with a screen. | Shows a countdown; `ms` 0 clears it. |
 | `wake.model` | Clients with a wake word of their own. | Switches to the wake word Axis names, fetching and keeping the model; an empty `id` means the built-in one. The built-in model must always remain as the fallback, and a model that will not run must not be retried at every start. |
 | Its own actions | Optional. | Anything listed under `actions` in `describe`, such as a test tone. Flag the ones a person should confirm. |

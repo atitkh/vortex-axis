@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { createInvokeHandler } from "../src/commands.js";
 import { ADMIN_TOKEN, admin, connect, ctx, newPairedClient, useServer } from "./harness.js";
 
 useServer();
@@ -85,6 +86,31 @@ describe("firmware for updates over Wi-Fi", () => {
     expect((await get({ ...own, authorization: "Bearer nope" })).status).toBe(401);
     expect((await get({})).status).toBe(401);
     expect((await get(own, "other")).status).toBe(404);
+  });
+
+  it("moves a device to another address, from the admin API only", async () => {
+    const identity = await newPairedClient({ type: "board", capabilities: ["speaker"], name: "Desk" });
+    const client = await connect(identity, { type: "board", capabilities: ["speaker"] });
+    await client.next("status");
+    const move = (address: unknown) => admin("POST", `/admin/clients/${identity.clientId}/address`, { address });
+
+    for (const bad of ["", "ftp://x", "https://axis.example.org/path", "https://user@axis.example.org", "http://"]) {
+      expect((await move(bad)).status).toBe(400);
+    }
+    const asked = move("https://Axis.Example.org/");
+    const command = await client.next("command", 0, (m) => m.name === "address");
+    expect(command.params).toEqual({ url: "https://axis.example.org" });
+    client.send({ t: "command.result", id: command.id, ok: true });
+    expect(await asked).toMatchObject({ status: 202, body: { client: "Desk", address: "https://axis.example.org" } });
+
+    // A device that lists the command as one of its actions still cannot have an agent run it.
+    client.send({ t: "describe", settings: [], actions: [{ name: "address", label: "Move" }, { name: "chime", label: "Chime" }], links: [] });
+    const { hub, store, timers } = ctx.app;
+    const invoke = createInvokeHandler({ hub, store, timers, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 });
+    for (let i = 0; i < 40 && !store.getSchema("board")?.actions.length; i++) await new Promise((r) => setTimeout(r, 25));
+    await expect(invoke("vortex.axis.admin", { action: "run", client: "Desk", run: "address" })).rejects.toThrow(/does not offer "address"/);
+    const listed = (await invoke("vortex.axis.admin", { action: "actions", client: "Desk" })) as any;
+    expect(listed.clients[0].actions.map((a: any) => a.name)).not.toContain("address");
   });
 
   it("tells a connected device to update, and says so when it cannot", async () => {

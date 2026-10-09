@@ -726,6 +726,29 @@ function renderDevice() {
     ...(client.online && base && schema.links.length
       ? row("Pages", ...schema.links.flatMap((l, i) => [i ? " · " : "", h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label)]))
       : []),
+    ...(client.readings?.axis
+      ? row(
+          "Reaches Axis at",
+          h("span", { class: "mono" }, client.readings.axis),
+          " ",
+          h("button", {
+            type: "button",
+            class: "small",
+            disabled: !client.online,
+            onclick: (event) => {
+              const address = prompt(
+                `Address ${client.name} should reach Axis at, for example https://axis.example.org or 10.0.0.6:8440.\n\nIt keeps its pairing and settings. It tries the new address and goes back to this one by itself if it cannot connect within a minute and a half.`,
+                client.readings.axis,
+              );
+              if (!address || address.trim() === client.readings.axis) return;
+              act(event.target, "device-note", async () => {
+                const told = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/address`, { address });
+                note("device-note", `${told.client} is trying ${told.address}. It drops off for a few seconds; if it does not come back on that address it returns to the old one.`, "good");
+              });
+            },
+          }, "Change"),
+        )
+      : []),
     ...row("Id", h("span", { class: "mono sub" }, client.id)),
   );
 
