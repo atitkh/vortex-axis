@@ -10,7 +10,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-09, at the commit that added `idleLooksOff` (firmware 0.11.3). Update this line whenever you change this section.
+Last updated: 2026-10-09, at the commit that added the Home Assistant link. Update this line whenever you change this section.
+
+Added 2026-10-09, all deployed (see docs/design.md, last three sections): the web client is an installable app with Web Push notifications when its page is closed, including questions with choices; `say` to an offline client is kept 10 minutes; `say` takes `everywhere` and `urgent`; quiet hours (`quietFrom`/`quietTo` settings, `AXIS_TIMEZONE=America/Chicago` in `.env`); Home Assistant through MQTT discovery (`AXIS_MQTT_URL` in `.env`, entities `sensor.vortex_axis_<name>_state`, `notify.vortex_axis_<name>_say`, `notify.vortex_axis_say_everywhere`). Admin page: Face page with on/off per idle look, a sketch of the device on its page, full-width layout. NOT verified by anyone: a real notification arriving on a phone (needs a real browser subscription).
 
 Running state, 2026-10-09 02:40: both boards on 0.11.3, at `https://vortex.atitkharel.com.np`. Free internal memory on a board is now about 83 KB (lowest 68 KB): encrypted connections take their buffers from PSRAM (`mbedtls_platform_set_calloc_free` in `Client::begin`; the framework is built with `MBEDTLS_INTERNAL_MEM_ALLOC`, which had them in internal memory and left about 32 KB free, 15 KB at worst). The echo canceller is in the build but only starts when both `bargeIn` and `echoCancel` are on; `bargeIn` is off by default (firmware/README.md, "Interrupting"). Axis ignores a wake word from a device while another device is speaking in the same location (`speakingNear` in `server/src/turns.ts`). Agent backend: OpenClaw gateway, agent `main`, short note sent as `extraSystemPrompt`. Axis's default device (`defaultClient`, global) is `VorteX-Axis-C484`; two OpenClaw jobs announce through `openclaw nodes notify --node "VorteX Axis"`.
 

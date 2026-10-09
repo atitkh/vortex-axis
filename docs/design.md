@@ -271,3 +271,23 @@ Added 2026-10-08. A plain OpenAI-style chat endpoint has no prompt of its own, s
 ## Note to an OpenClaw agent
 
 Added 2026-10-08. An OpenClaw agent has its own prompt, tools and memory, but nothing in it says that a turn from Axis is spoken or what the bracketed line means. Axis therefore sends a short note as `extraSystemPrompt` on the gateway `agent` request, beside the message, not inside it: `DEFAULT_GATEWAY_NOTE` in `server/src/agent.ts`, or the admin's own text (`agent.gatewayNote`; empty means the built-in one, `-` means none). The note must not change from turn to turn: OpenClaw starts a fresh model process when the system prompt changes, so per-turn facts stay in the bracketed line. A gateway that refuses the field gets the turn again without it, and no note from then on.
+
+## Reaching a client that is not there, and several at once
+
+Added 2026-10-09 (`server/src/delivery.ts`). What an agent wants said goes by whatever route the client has at that moment:
+
+- **Connected:** spoken and shown, as before.
+- **A browser with its page closed** that allowed notifications: a notification through the browser's push service (Web Push; `server/src/push.ts` implements the encryption and the VAPID signature with Node's own crypto, no dependency). `vortex.axis.ask` with choices works too: the notification carries them, as buttons where the system has them, and tapping the notification opens the page with the choices. The answer comes back to `POST /v1/push/answer` with a one-time token from the notification.
+- **Otherwise** it is kept for `AXIS_MESSAGE_HOLD_MS` (10 minutes) and said if the client comes back in time. The result says `held: true`, so an agent knows it has not been heard.
+
+`vortex.axis.say` takes `everywhere: true` to speak on every connected client with a speaker, in one `location` or in the whole place, and `urgent: true` to speak through quiet hours.
+
+The web client is installable (manifest, icons, a service worker at `/sw.js` that only shows notifications and never caches). A browser subscribes with `POST /v1/push/subscription`, proving itself with its client token. On an iPhone, notifications are only offered to a page added to the Home Screen.
+
+## Quiet hours
+
+Added 2026-10-09 (`server/src/quiet.ts`). Four of Axis's own settings, so they can differ per type or device: `quietFrom`, `quietTo` (times as HH:MM in `AXIS_TIMEZONE`), `quietVolume`, `quietBrightness`. In a client's quiet hours the settings it is sent have volume and brightness capped (Axis sends them again when the stretch begins and ends; no firmware knows about quiet hours), and what an agent says unprompted is shown without sound, or not at all on a client with no screen, unless marked urgent. Replies to a person talking to the device, and timers, always sound.
+
+## Home Assistant
+
+Added 2026-10-09 (`server/src/homeassistant.ts`, `server/src/mqtt.ts`). With `AXIS_MQTT_URL` set to the broker Home Assistant uses, every client is published through MQTT discovery as a device with a State sensor (offline, idle, listening, thinking, speaking, asked), an Online binary sensor, a Say notify entity and, where the client has one, a Volume number. The hub is a device with Say everywhere and a count of clients online. Text sent to a Say entity takes the same route as an agent's `say`; a title of "urgent" speaks through quiet hours. A removed client is removed from Home Assistant. The MQTT client is a small one of our own (QoS 0, a retained last will), again with no dependency.
