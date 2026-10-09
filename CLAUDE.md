@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added wake words from Axis (firmware 0.10.0). Update this line whenever you change this section.
+Last updated: 2026-10-08, at commit `0f5183b` plus this note (firmware 0.10.1). Update this line whenever you change this section.
 
 Built and running:
 
@@ -33,7 +33,7 @@ Built 2026-10-08 after milestone 5: protections for a public address (design 9.0
 
 Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, firmware built in CI on a tag. Wake words from Axis ARE built (design 7.3, `server/src/wakewords.ts`, the Wake words page, the `wake.model` command). The owner asked about these on 2026-10-08; they were discussed, not started.
 
-Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.10.0 at that commit. The board is set to listen with the stored copy of "Hey Vortex" (`wakeWord` = `hey-vortex` on the device), which loaded and ran; the owner has not yet spoken to it in that state. `screenOffset` is 0 for the whole board type, set by the owner, which suggests 0 is right for this unit.
+Deployed: the container was rebuilt and the board updated over Wi-Fi to firmware 0.10.1 at `0f5183b`. Axis now runs with `AXIS_PUBLIC_HOSTS=vortex.atitkharel.com.np` and `AXIS_TRUSTED_PROXIES=10.84.40.1` (the bridge gateway, where the owner's host-network `cloudflared` reaches it from); checked with a `Host:` header, not yet through the real name, which did not resolve when last tried. The board is set to listen with the stored copy of "Hey Vortex" (`wakeWord` = `hey-vortex` on the device), which loaded and ran; the owner has not yet spoken to it in that state. `screenOffset` is 0 for the whole board type, set by the owner, which suggests 0 is right for this unit.
 
 Loose ends, not yet done:
 
@@ -41,7 +41,7 @@ Loose ends, not yet done:
 - Not watched yet: a board unplugged going offline within about 30 s; a long spoken answer after the fetch crash fix (`drain()`).
 - `browser-check` needs `google-chrome`, or `CHROME=<path>`; on the owner's Mac it was run with Brave.
 
-Next: the owner sets up the public domain behind his reverse proxy (then `AXIS_PUBLIC_HOSTS` and `AXIS_TRUSTED_PROXIES` go into `.env`, and a device is moved to an `axis+tls://` address), and looks at the 0.9.0 font and auto-rotate.
+Next: the owner adds `vortex.atitkharel.com.np` to his Cloudflare tunnel (service `http://localhost:8440`). Then check `/admin` is 404 through the real name and move the board with the Change button on its page (the `address` command, design 7.2.1; tried only with an address that does not answer). After that: a wake word in the web client.
 
 What a real gateway taught is in section 13 of the design doc, and `server/test/fake-gateway.ts` behaves the same way.
 
