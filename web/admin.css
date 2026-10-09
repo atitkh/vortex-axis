@@ -140,7 +140,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .count.warn { color: var(--warn); }
 .count.bad { color: var(--bad); }
 
-main { padding: 18px 28px 60px; max-width: 980px; min-width: 0; }
+main { padding: 18px 28px 60px; max-width: 1500px; min-width: 0; }
 
 /* --- views --------------------------------------------------------------- */
 
