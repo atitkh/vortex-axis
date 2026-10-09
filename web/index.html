@@ -32,7 +32,7 @@
     <p class="said" id="said"></p>
   </div>
   <div class="choices hidden" id="choices" role="group" aria-label="Answers"></div>
-  <p class="timer hidden" id="timer"><span id="timer-text"></span><button type="button" id="timer-cancel" aria-label="Cancel this timer">Cancel</button></p>
+  <p class="timer hidden" id="timer"><span class="timer-label" id="timer-label"></span><span class="timer-clock" id="timer-text"></span><button type="button" id="timer-cancel" aria-label="Cancel this timer">Cancel</button></p>
   <p class="hint" id="hint"></p>
 
   <section class="pair hidden" id="pair">
@@ -60,13 +60,27 @@
 
 <aside class="drawer hidden" id="history" aria-label="History">
   <div class="drawer-head">
-    <span>This conversation</span>
-    <button type="button" class="ghost" id="history-close">Close</button>
+    <span>History</span>
+    <span class="drawer-actions">
+      <button type="button" class="ghost" id="history-clear">Clear</button>
+      <button type="button" class="ghost" id="history-close">Close</button>
+    </span>
   </div>
-  <div class="log" id="log"></div>
+  <div class="filter" id="history-filter" role="group" aria-label="Show">
+    <button type="button" data-filter="all" class="on">All</button>
+    <button type="button" data-filter="talk">Conversation</button>
+    <button type="button" data-filter="note">Notifications</button>
+  </div>
+  <div class="log" id="log" data-filter="all"></div>
+  <p class="log-empty" id="log-empty">Nothing here yet.</p>
+  <p class="drawer-foot">The conversation lasts until this page is reloaded. Notifications and questions are kept in this browser, the last twenty, until you clear them. Axis keeps none of it.</p>
 </aside>
 
 <footer class="foot hidden" id="footer">
+  <span class="sound">
+    <button type="button" class="ghost" id="mute" aria-pressed="false">Sound on</button>
+    <input type="range" id="volume" min="0" max="100" step="5" value="100" aria-label="Volume">
+  </span>
   <span id="who"></span>
   <button type="button" class="ghost hidden" id="notify"></button>
   <span class="foot-note" id="notify-note"></span>

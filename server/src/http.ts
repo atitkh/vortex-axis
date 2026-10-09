@@ -423,6 +423,22 @@ export function createHttpHandler(deps: HttpDeps) {
       return sendJson(res, 200, { cancelled: gone.length });
     }
 
+    // A client with a volume control of its own, turning itself up or down. It can change nothing else, and only for itself.
+    if (method === "POST" && url.pathname === "/v1/volume") {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      const body = (await readJson(req)) as { volume?: unknown };
+      if (typeof body.volume !== "number" || !Number.isInteger(body.volume) || body.volume < 0 || body.volume > 100) {
+        throw new HttpError(400, "volume must be a whole number from 0 to 100");
+      }
+      const before = store.resolveSettings(client).volume;
+      store.patchLayer("device", client.id, { volume: body.volume });
+      hub.pushSettings((c) => c.id === client.id);
+      if (before !== body.volume) activity?.note("settings", client.id, `${client.name}: volume set to ${body.volume} % on the device itself`);
+      return sendJson(res, 200, { volume: body.volume });
+    }
+
     // --- notifications for a browser client whose page is closed ---
     if (parts.length === 3 && parts[0] === "v1" && parts[1] === "push" && deps.push) {
       // The key a browser needs before it can subscribe. It is public.
@@ -463,7 +479,14 @@ export function createHttpHandler(deps: HttpDeps) {
         const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
         const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
         if (!client) throw new HttpError(401, "unknown client or wrong token");
-        return sendJson(res, 200, { asks: deps.delivery.openAsks(client.id), messages: deps.delivery.takeNotified(client.id) });
+        const gone = deps.delivery.takeMissed(client.id);
+        return sendJson(res, 200, {
+          asks: deps.delivery.openAsks(client.id),
+          // `messages` is the plain list an older page expects; `received` and `missed` say when as well.
+          messages: gone.messages.map((m) => m.text),
+          received: gone.messages,
+          missed: gone.asks,
+        });
       }
 
       // A choice picked from a notification. The one-time token in the notification is what proves the answer is real.

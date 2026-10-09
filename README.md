@@ -154,6 +154,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/clients/:id/address` | Body `{ address }`. Moves a device to another address for the same Axis, keeping its pairing. |
 | `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type. |
 | `POST /admin/clients/:id/notify-test` | Sends a browser client a test notification, page open or closed. 409 when it has notifications off. |
+| `POST /v1/volume` | A client setting its own volume, with its own token: `{volume: 0-100}`. Nothing else can be changed this way. |
 | `GET /admin/live` | A stream that stays open (server-sent events): `snapshot` with the recent turns, then `turn` each time a turn reaches a stage or ends, and `wake` for each wake word a device reports. Words are memory only. |
 | `POST /admin/live/clear` | Deletes, now, the words Axis holds in memory for the admin page: finished live turns and the device sketches. |
 | `PATCH /admin/integrations` | Changes hub settings: `mqtt` `{host, port, user, password, discoveryPrefix}`, `publicHosts`, `trustedProxies`, `timeZone`, `activityDays`, `messageHoldMinutes`. Only the fields given change; a saved value wins over the environment. |

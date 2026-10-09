@@ -131,7 +131,11 @@ describe("web push", () => {
         fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
       // Until then the admin page can see that one is waiting to be opened.
       expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body.notified).toBe(1);
-      expect((await missed()).messages).toEqual(["Dinner is ready."]);
+      const first = await missed();
+      expect(first.messages).toEqual(["Dinner is ready."]);
+      // With when it was sent, for the page's history.
+      expect(first.received).toEqual([{ text: "Dinner is ready.", at: expect.any(Number) }]);
+      expect(Date.now() - first.received[0].at).toBeLessThan(5000);
       expect((await missed()).messages).toEqual([]);
       expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body.notified).toBe(0);
     } finally {
@@ -257,5 +261,47 @@ describe("saying something everywhere", () => {
 
     await expect(invoke("vortex.axis.say", { text: "x", everywhere: true, location: "attic" })).rejects.toThrow(/no client that can speak is online in "attic"/);
     await expect(invoke("vortex.axis.say", { text: "x", everywhere: true, client: "Den" })).rejects.toThrow(/not both/);
+  });
+
+  it("tells a page, once, about a question that ran out of time while it was closed", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      const client = ctx.app.store.getClient(identity.clientId)!;
+      expect(await ctx.app.delivery.askByNotification(client, "Tea or coffee?", ["Tea", "Coffee"], 40)).toMatchObject({ answer: null, timedOut: true });
+      const asks = () =>
+        fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+      const first = await asks();
+      expect(first.asks).toEqual([]);
+      expect(first.missed).toEqual([{ question: "Tea or coffee?", at: expect.any(Number) }]);
+      expect((await asks()).missed).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
+
+  it("lets a client turn its own volume up or down, and nothing else", async () => {
+    const { identity, client } = await ready(["screen", "speaker"], { name: "Laptop" });
+    const as = { "content-type": "application/json", authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId };
+    const set = (body: unknown, headers: Record<string, string> = as) => fetch(`${ctx.base}/v1/volume`, { method: "POST", headers, body: JSON.stringify(body) });
+    const from = client.received.length;
+    expect((await set({ volume: 35 })).status).toBe(200);
+    expect((await client.next("settings", from)).values.volume).toBe(35);
+    expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body.layers.device).toEqual({ volume: 35 });
+    for (const bad of [{ volume: 101 }, { volume: 3.5 }, { volume: "loud" }, { location: "kitchen" }]) expect((await set(bad)).status).toBe(400);
+    expect((await set({ volume: 10 }, { ...as, authorization: "Bearer wrong" })).status).toBe(401);
+  });
+
+  it("does not keep a client busy with speech it said it is not playing", async () => {
+    const { client } = await ready(["screen", "speaker"], { name: "Muted" });
+    const started = Date.now();
+    const said = invoke("vortex.axis.say", { text: "Nobody hears this.", client: "Muted" });
+    const start = await client.next("speak.start");
+    client.send({ t: "playback", turnId: start.turnId, state: "blocked" });
+    expect(await said).toMatchObject({ client: "Muted", heard: false, shown: true });
+    // Without this it waited out the five seconds allowed for a client to finish playing.
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

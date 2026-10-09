@@ -36,15 +36,101 @@ function show(id, visible) {
   $(id).classList.toggle("hidden", !visible);
 }
 
-/** Adds a line to the history drawer. Text always goes in as text. */
-function bubble(kind, text) {
+/**
+ * Adds a line to the history drawer. Text always goes in as text. `cat` is which half of the history it
+ * belongs to ("talk": the conversation; "note": notifications and questions), and `meta` is the small
+ * line above it, kept in an attribute so that setting the line's text never disturbs it.
+ */
+function bubble(kind, text, { cat = "talk", meta } = {}) {
   const el = document.createElement("div");
   el.className = `bubble ${kind}`;
+  el.dataset.cat = cat;
+  if (meta) el.dataset.meta = meta;
   el.textContent = text;
   $("log").append(el);
   $("log").scrollTop = $("log").scrollHeight;
   show("history-toggle", true);
+  markEmpty();
   return el;
+}
+
+// --- notifications and questions, kept in this browser ---------------------------------------
+// The conversation lives in the page and goes when it is reloaded. What arrived unasked (something an
+// agent said, a notification, a question and whether it was answered) is worth finding again, so the
+// last few are kept in this browser's own storage. Axis keeps none of it.
+
+const INBOX_KEY = "axis-client-inbox";
+const INBOX_MAX = 20;
+let inbox = [];
+try {
+  inbox = JSON.parse(localStorage.getItem(INBOX_KEY) || "[]").filter((e) => e && typeof e.text === "string");
+} catch {
+  // Unreadable: start again with none.
+}
+/** The line drawn for each entry, by entry id. */
+const inboxLines = new Map();
+let inboxCount = 0;
+
+const saveInbox = () => localStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
+
+/** "3:04 PM" for today, "8 Oct, 3:04 PM" for another day. */
+function when(at) {
+  const date = new Date(at);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString([], { day: "numeric", month: "short" })}, ${time}`;
+}
+
+const ASK_STATES = { open: "waiting for an answer", missed: "not answered" };
+const metaOf = (entry) =>
+  entry.kind === "ask"
+    ? `question · ${when(entry.at)} · ${entry.state === "answered" ? `answered: ${entry.answer}` : ASK_STATES[entry.state] ?? ""}`
+    : `${entry.tag} · ${when(entry.at)}`;
+
+function drawInbox(entry) {
+  const el = bubble(entry.kind === "ask" ? "axis ask" : "axis", entry.text, { cat: "note", meta: metaOf(entry) });
+  el.classList.toggle("missed", entry.state === "missed");
+  inboxLines.set(entry.id, el);
+}
+
+/** Adds an entry: `{kind: "note", tag, text, at}` or `{kind: "ask", text, at, state, askId?}`. */
+function inboxAdd(entry) {
+  entry.id = `${Date.now().toString(36)}-${++inboxCount}`;
+  inbox.push(entry);
+  for (const dropped of inbox.splice(0, Math.max(0, inbox.length - INBOX_MAX))) {
+    inboxLines.get(dropped.id)?.remove();
+    inboxLines.delete(dropped.id);
+  }
+  saveInbox();
+  drawInbox(entry);
+  return entry;
+}
+
+function inboxUpdate(entry, changes) {
+  Object.assign(entry, changes);
+  saveInbox();
+  const el = inboxLines.get(entry.id);
+  if (!el) return;
+  if (changes.text !== undefined) el.textContent = entry.text;
+  el.dataset.meta = metaOf(entry);
+  el.classList.toggle("missed", entry.state === "missed");
+}
+
+function inboxRemove(entry) {
+  inbox = inbox.filter((e) => e !== entry);
+  saveInbox();
+  inboxLines.get(entry.id)?.remove();
+  inboxLines.delete(entry.id);
+  markEmpty();
+}
+
+/** A question is settled one way or the other; one still waiting when it ends was not answered. */
+const settleAsk = (entry, answer) => entry && entry.state === "open" && inboxUpdate(entry, answer === undefined ? { state: "missed" } : { state: "answered", answer: String(answer).slice(0, 200) });
+
+/** Says so when the filter chosen, or the whole history, has nothing in it. */
+function markEmpty() {
+  const filter = $("log").dataset.filter;
+  const any = [...$("log").children].some((el) => filter === "all" || el.dataset.cat === filter);
+  $("history").classList.toggle("is-empty", !any);
 }
 
 // --- the words under the face ------------------------------------------------
@@ -196,7 +282,7 @@ function forget(message = "") {
   show("talk", false);
   show("footer", false);
   show("history-toggle", false);
-  $("log").replaceChildren();
+  clearHistory();
   caption("", "");
   show("pair", true);
   $("pair-error").textContent = message;
@@ -300,6 +386,8 @@ function connect() {
 }
 
 let replyBubble;
+/** The kept entry being filled in, when what is being said is an announcement. */
+let replyEntry;
 let replyText = "";
 
 function onMessage(message) {
@@ -313,6 +401,7 @@ function onMessage(message) {
       settings = { version: message.version, values: message.values };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       player.setVolume(settings.values.volume);
+      renderSound();
       face.setIdleOff(settings.values.idleLooksOff);
       break;
     case "status":
@@ -333,29 +422,37 @@ function onMessage(message) {
       }
       break;
     case "transcript":
+      // Said while a question is open: that is its answer.
+      settleAsk(ask?.entry, message.text);
       bubble("you", message.text);
       caption(message.text, "");
       break;
-    case "reply.text":
+    case "reply.text": {
+      // Something said with nobody having asked (an agent's own message, a timer going off) is an
+      // announcement: it goes in the kept half of the history, marked and timed, not in the conversation.
+      const unprompted = String(message.turnId).startsWith("say-");
+      const put = (text) => {
+        if (!unprompted) {
+          replyBubble ??= bubble("axis", "");
+          replyBubble.textContent = text;
+        } else if (replyEntry) inboxUpdate(replyEntry, { text });
+        else replyEntry = inboxAdd({ kind: "note", tag: "announcement", text, at: Date.now() });
+        caption(undefined, text);
+      };
       if (message.final) {
         // A reply the agent chose not to give leaves nothing behind.
-        if (!message.text) {
-          replyBubble?.remove();
-        } else {
-          replyBubble ??= bubble("axis", "");
-          replyBubble.textContent = message.text;
-          caption(undefined, message.text);
-        }
+        if (message.text) put(message.text);
+        else replyBubble?.remove();
         replyBubble = undefined;
+        replyEntry = undefined;
         replyText = "";
       } else {
         replyText += (replyText ? " " : "") + message.text;
-        replyBubble ??= bubble("axis", "");
-        replyBubble.textContent = replyText;
-        caption(undefined, replyText);
+        put(replyText);
       }
       $("log").scrollTop = $("log").scrollHeight;
       break;
+    }
     case "speak.start":
       player.begin(message.turnId, message.format.sampleRate);
       break;
@@ -365,6 +462,7 @@ function onMessage(message) {
     case "stop":
       if (player.stop()) send({ t: "playback", turnId: message.turnId ?? player.turnId, state: "stopped" });
       replyBubble = undefined;
+      replyEntry = undefined;
       replyText = "";
       break;
     case "wake.result":
@@ -405,7 +503,11 @@ let nextTimer;
 /** Offers the answers to a question as buttons. Saying or typing an answer works too; Axis reads those. */
 function showAsk(message) {
   clearAsk();
-  ask = { askId: message.askId, timer: setTimeout(clearAsk, message.timeoutMs) };
+  // The question was spoken a moment ago and went in as an announcement; it is listed once, as a question.
+  const spoken = inbox.at(-1);
+  if (spoken?.kind === "note" && spoken.text.trim() === message.question.trim() && Date.now() - spoken.at < 60_000) inboxRemove(spoken);
+  const entry = inboxAdd({ kind: "ask", text: message.question, at: Date.now(), state: "open" });
+  ask = { askId: message.askId, entry, timer: setTimeout(clearAsk, message.timeoutMs) };
   const box = $("choices");
   for (const choice of message.choices) {
     const button = document.createElement("button");
@@ -413,6 +515,7 @@ function showAsk(message) {
     button.textContent = choice;
     button.addEventListener("click", () => {
       send({ t: "answer", askId: message.askId, choice });
+      settleAsk(entry, choice);
       bubble("you", choice);
       clearAsk();
     });
@@ -424,6 +527,8 @@ function showAsk(message) {
 
 function clearAsk() {
   if (ask) clearTimeout(ask.timer);
+  // Still waiting when it ends (time ran out, or the connection went): it was not answered.
+  settleAsk(ask?.entry);
   ask = undefined;
   $("choices").replaceChildren();
   $("choices").classList.add("hidden");
@@ -437,7 +542,8 @@ function renderTimer() {
   if (!nextTimer) return;
   const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = String(left % 60).padStart(2, "0");
   const clock = h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
-  $("timer-text").textContent = `${nextTimer.label} ${clock}${nextTimer.count > 1 ? ` (+${nextTimer.count - 1})` : ""}`;
+  $("timer-label").textContent = nextTimer.label || "Timer";
+  $("timer-text").textContent = `${clock}${nextTimer.count > 1 ? ` +${nextTimer.count - 1}` : ""}`;
   // An older Axis does not say which timer it is; then there is nothing to cancel by.
   $("timer-cancel").hidden = typeof nextTimer.id !== "number";
 }
@@ -508,6 +614,8 @@ const player = {
   },
 
   begin(turnId, sampleRate) {
+    // Muted: say so at once, so Axis neither sends the audio nor waits for it to be played. The words still show.
+    if (muted) return send({ t: "playback", turnId, state: "blocked" });
     this.ensure();
     this.turnId = turnId;
     this.rate = sampleRate;
@@ -761,6 +869,63 @@ function toggleHistory(open) {
   if (open) $("log").scrollTop = $("log").scrollHeight;
 }
 $("history-toggle").addEventListener("click", () => toggleHistory($("history").classList.contains("hidden")));
+for (const button of $("history-filter").querySelectorAll("button")) {
+  button.addEventListener("click", () => {
+    $("log").dataset.filter = button.dataset.filter;
+    for (const other of $("history-filter").querySelectorAll("button")) other.classList.toggle("on", other === button);
+    markEmpty();
+    $("log").scrollTop = $("log").scrollHeight;
+  });
+}
+
+/** Empties the history: the conversation on this page and what was kept in this browser. */
+function clearHistory() {
+  $("log").replaceChildren();
+  inbox = [];
+  inboxLines.clear();
+  localStorage.removeItem(INBOX_KEY);
+  replyBubble = undefined;
+  replyEntry = undefined;
+  if (ask) ask.entry = undefined;
+  markEmpty();
+}
+$("history-clear").addEventListener("click", clearHistory);
+
+// --- sound: this client's own volume, and a mute -----------------------------------------------
+// The volume is this client's setting on Axis like any other device's, so the slider changes it there
+// and it comes back with the settings. Mute is this browser's alone: while it is on, replies are shown
+// and Axis is told nothing is being played, so no agent is led to think it was heard.
+
+const MUTE_KEY = "axis-client-muted";
+let muted = localStorage.getItem(MUTE_KEY) === "1";
+
+function renderSound() {
+  $("mute").textContent = muted ? "Muted" : "Sound on";
+  $("mute").dataset.on = muted ? "" : "1";
+  $("mute").setAttribute("aria-pressed", String(muted));
+  $("volume").disabled = muted;
+  if (document.activeElement !== $("volume")) $("volume").value = String(Math.round(player.volume * 100));
+}
+$("mute").addEventListener("click", () => {
+  muted = !muted;
+  localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+  // Muting in the middle of a reply cuts it off there.
+  const turnId = player.turnId;
+  if (muted && player.stop()) send({ t: "playback", turnId, state: "stopped" });
+  renderSound();
+});
+// Dragging changes what is heard straight away; letting go is what tells Axis.
+$("volume").addEventListener("input", () => player.setVolume(Number($("volume").value)));
+$("volume").addEventListener("change", async () => {
+  if (!identity) return;
+  const volume = Number($("volume").value);
+  await fetch("/v1/volume", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId },
+    body: JSON.stringify({ volume }),
+  }).catch(() => undefined);
+  $("volume").blur();
+});
 $("history-close").addEventListener("click", () => toggleHistory(false));
 document.addEventListener("keydown", (event) => event.key === "Escape" && toggleHistory(false));
 
@@ -773,6 +938,8 @@ $("say-form").addEventListener("submit", (event) => {
   player.ensure();
   player.stop();
   stopCapture(true, "cancel");
+  // Typed while a question is open: that is its answer.
+  settleAsk(ask?.entry, text);
   bubble("you", text);
   caption(text, "");
   send({ t: "text", turnId: newTurnId(), text });
@@ -784,6 +951,7 @@ function stopEverything() {
   player.stop();
   send({ t: "interrupt" });
   replyBubble = undefined;
+  replyEntry = undefined;
   replyText = "";
 }
 $("stop").addEventListener("click", stopEverything);
@@ -882,6 +1050,10 @@ $("notify").addEventListener("click", toggleNotifications);
  */
 function showNotifiedAsk(ask) {
   if (!ask || !Array.isArray(ask.choices)) return;
+  // Listed once, however many ways the page hears of it (the notification, the link, asking Axis).
+  const entry =
+    inbox.find((e) => e.kind === "ask" && e.askId === ask.id) ?? inboxAdd({ kind: "ask", askId: ask.id, text: ask.question, at: Date.now(), state: "open" });
+  if (entry.state === "missed") inboxUpdate(entry, { state: "open" });
   caption("", ask.question);
   const box = $("choices");
   box.replaceChildren(
@@ -898,6 +1070,7 @@ function showNotifiedAsk(ask) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ id: ask.id, token: ask.token, choice }),
         }).catch(() => undefined);
+        if (entry.state !== "answered") inboxUpdate(entry, res?.ok ? { state: "answered", answer: choice } : { state: "missed" });
         caption("", res?.ok ? `You answered: ${choice}` : "That question is no longer open.", res?.ok ? "" : "error");
       });
       return button;
@@ -920,10 +1093,18 @@ async function checkOpenAsks() {
   try {
     const res = await fetch("/v1/push/asks", { headers: asClient() });
     if (!res.ok) return;
-    const { asks, messages } = await res.json();
+    const { asks, messages, received, missed } = await res.json();
     // What arrived as notifications while the page was closed: shown here, and kept in the history.
-    for (const text of messages ?? []) bubble("axis", text);
-    if (messages?.length) caption("", messages[messages.length - 1]);
+    // An older Axis sends only the words; a newer one says when as well.
+    const arrived = received ?? (messages ?? []).map((text) => ({ text, at: Date.now() }));
+    for (const { text, at } of arrived) inboxAdd({ kind: "note", tag: "notification", text, at });
+    if (arrived.length) caption("", arrived[arrived.length - 1].text);
+    // Questions that ran out of time while nobody was looking.
+    for (const { question, at } of missed ?? []) {
+      const known = inbox.find((e) => e.kind === "ask" && e.text === question && e.state === "open");
+      if (known) inboxUpdate(known, { state: "missed" });
+      else inboxAdd({ kind: "ask", text: question, at, state: "missed" });
+    }
     const ask = asks[asks.length - 1];
     if (ask && ask.id !== shownAsk) {
       shownAsk = ask.id;
@@ -963,6 +1144,17 @@ if (location.hash.startsWith("#ask=")) {
   }
   history.replaceState(null, "", "/");
 }
+
+// What was kept from before this page was loaded. A question still marked as waiting then got no answer
+// here; if it is in fact still open, asking Axis below brings it back.
+for (const entry of inbox) {
+  entry.id ??= `old-${++inboxCount}`;
+  if (entry.kind === "ask" && entry.state === "open") entry.state = "missed";
+  drawInbox(entry);
+}
+saveInbox();
+markEmpty();
+renderSound();
 
 checkOpenAsks();
 

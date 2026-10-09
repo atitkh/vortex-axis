@@ -255,6 +255,44 @@ try {
   await client.until(`document.querySelector('#pills .pill')?.textContent === 'idle'`, "idle after the held turn", 20000);
 
   // --- back on the admin page ---------------------------------------------
+  // The history keeps what arrived unasked apart from the conversation, marked and timed, in this browser.
+  {
+    const session = app.hub.session((await client.run(`JSON.parse(localStorage.getItem('axis-client-identity')).clientId`)));
+    step("announcements kept apart", await client.until(`(n => n.length >= 2 && n.every(b => /^announcement · /.test(b.dataset.meta)) && JSON.parse(localStorage.getItem('axis-client-inbox')).length === n.length && n.length + ' kept, last: ' + n[n.length - 1].dataset.meta.replace(/\\d.*/, 'time'))([...document.querySelectorAll('#log .bubble[data-cat="note"]')])`, "the kept announcements"));
+    await client.run(`document.querySelector('#history-filter [data-filter="note"]').click()`);
+    step("history filter", await client.run(`(shown => shown.length && shown.every(b => b.dataset.cat === 'note') && shown.length + ' shown, all notifications')([...document.querySelectorAll('#log .bubble')].filter(b => getComputedStyle(b).display !== 'none'))`));
+    await client.run(`document.querySelector('#history-filter [data-filter="all"]').click()`);
+
+    // A question nobody answers is left in the history as not answered; one that is answered says with what.
+    const unanswered = app.hub.ask(session, "Still there?", ["Yes", "No"], 1500);
+    await client.until(`document.querySelectorAll('#choices button').length === 2`, "the choices");
+    step("question unanswered", `${JSON.stringify((await unanswered).answer)} → ${await client.until(`(b => b && /not answered/.test(b.dataset.meta) && b.classList.contains('missed') && b.textContent + ' / ' + b.dataset.meta.replace(/· .* ·/, '·'))([...document.querySelectorAll('#log .bubble.ask')].at(-1))`, "the question to be marked")}`);
+    const answered = app.hub.ask(session, "Tea or coffee?", ["Tea", "Coffee"], 20000);
+    await client.until(`document.querySelectorAll('#choices button').length === 2`, "the choices again");
+    await client.run(`document.querySelectorAll('#choices button')[1].click()`);
+    step("question answered", `${(await answered).answer} → ${await client.until(`(b => /answered: Coffee/.test(b.dataset.meta) && b.dataset.meta.replace(/· .* ·/, '·'))([...document.querySelectorAll('#log .bubble.ask')].at(-1))`, "the answer to be marked")}`);
+    // The question is listed once, as a question, not also as the announcement that spoke it.
+    if (await client.run(`[...document.querySelectorAll('#log .bubble[data-cat="note"]')].filter(b => b.textContent === 'Tea or coffee?').length`) !== 1) throw new Error("the question is in the history twice");
+
+    // The client's own volume goes to Axis and comes back; mute tells Axis nothing is being played.
+    await client.run(`(v => { v.value = '40'; v.dispatchEvent(new Event('input')); v.dispatchEvent(new Event('change')); })(${byId("volume")})`);
+    await client.until(`JSON.parse(localStorage.getItem('axis-client-settings')).values.volume === 40`, "the volume to come back from Axis");
+    step("volume from the client", `${app.store.getLayer("device", session.client.id).volume} % on Axis`);
+    await client.run(`${byId("mute")}.click()`);
+    const mutedAt = Date.now();
+    const whileMuted = await app.hub.say(session, "This one is not heard.");
+    step("muted", `heard=${whileMuted.heard} in ${Date.now() - mutedAt} ms, button says ${await client.run(`${byId("mute")}.textContent`)}, shown: ${await client.run(`${byId("said")}.textContent`)}`);
+    if (whileMuted.heard || Date.now() - mutedAt > 4000) throw new Error("a muted client was treated as playing the speech");
+    await client.run(`${byId("mute")}.click()`);
+    await app.store.patchLayer("device", session.client.id, { volume: null });
+    app.hub.pushSettings();
+
+    // A timer is one small chip under the words.
+    const timer = app.timers.set(session, 600, "tea");
+    step("timer chip", await client.until(`(t => !t.classList.contains('hidden') && /^9:5\\d$/.test(${byId("timer-text")}.textContent) && ${byId("timer-label")}.textContent + ' ' + ${byId("timer-text")}.textContent + ', ' + Math.round(t.getBoundingClientRect().height) + ' px tall, ' + getComputedStyle(t).fontSize)(${byId("timer")})`, "the timer chip"));
+    app.timers.cancel({ id: timer.id });
+    await client.until(`${byId("timer")}.classList.contains('hidden')`, "the timer to go");
+  }
   await admin.front();
   step("client listed", await admin.until(`document.querySelector('#client-table tbody tr')?.textContent.replace(/\\s+/g, ' ').slice(0, 80)`, "the client row"));
   step("name shown as text, not markup", await admin.run(`document.querySelectorAll('#client-table b').length === 0`));

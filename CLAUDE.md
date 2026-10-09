@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-09 15:05, at the commit that made the admin page fit a phone. Update this line whenever you change this section.
+Last updated: 2026-10-09 15:45, at the commit that gave the web client a tagged history, a volume slider, mute and a smaller timer. Update this line whenever you change this section.
 
 **Running now:** Axis in Docker on voltex-ubuntu, port 8440, data in `/home/voltex/vortex-axis` (local disk; an hourly cron copies it to `/media/voltex/VS1/Docker/vortex-axis` with `scripts/backup-data.sh`). Public name `https://vortex.atitkharel.com.np` through a Cloudflare Tunnel; `/admin` is LAN and tailnet only. Two Waveshare boards (`VorteX-Axis-C484`, `VorteX-Axis-0BF8`) on firmware 0.11.4 over the public address, plus web clients "Brave Windows" and "iPhone", both with notifications on. Agent backend: the OpenClaw gateway, agent `main` (the `vertex` agent fails on voice: its conversation is larger than its local model's context). Axis's default device is `VorteX-Axis-C484`. `.env` also sets `AXIS_TIMEZONE=America/Chicago` and `AXIS_MQTT_URL` (Home Assistant).
 
@@ -26,6 +26,8 @@ Last updated: 2026-10-09 15:05, at the commit that made the admin page fit a pho
 **Changed 2026-10-09 14:10, deployed:** there is no `#activity` page any more: its charts, turns and events are on `#overview` (an old `#activity` link lands there). The Now table is on `#live`, which also has **Clear now** (`POST /admin/live/clear`). Words held in memory (live turns, device sketches, kept messages) are deleted when their time is up by a one-minute clock in `app.ts`, not just hidden. Hub settings (Home Assistant broker, public names, trusted proxies, time zone, history days, message hold) are editable on `#integrations` and saved in `meta` (`server/src/hubconfig.ts`); **a value saved there wins over `.env`**, so check the page before concluding an `.env` change did nothing. Checked with tests and the browser check only.
 
 **Changed 2026-10-09 15:05, deployed:** the admin page has a phone layout below 720 px (menu drawer, larger fields and buttons, tables scroll in place); the browser check opens all 14 pages at 390 px and fails on anything wider than the screen. The Live page's Now table also lists unopened notifications (`notified` on a client). Checked by measurement in headless Chrome only: nobody has looked at it on a real phone, and no screenshot was taken.
+
+**Web client, 2026-10-09 15:45, deployed** (docs/design.md, "The web client's history, sound and timer"): the history drawer marks announcements, notifications and questions (answered with what, or not answered), has an All / Conversation / Notifications filter and a Clear button, and keeps the unasked half in the browser's storage (last twenty); a volume slider (`POST /v1/volume`) and a Mute button in the footer; the timer is a small chip. A client that reports `playback: blocked` no longer holds its turn open for five seconds. Checked with tests and the browser check; not tried on a real phone or with a real notification, and keeping across a reload was not exercised by the check.
 
 **Not verified by anyone:** the wake-while-another-speaks rule on real boards; a person interrupting with echo cancelling on; the admin page at phone width. **Verified by the owner:** notifications on iPhone and Brave, a question answered from an iPhone notification, two boards arbitrating a wake word, fresh setup and Wi-Fi reset of a board.
 

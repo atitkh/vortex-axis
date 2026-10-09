@@ -324,3 +324,15 @@ Added 2026-10-09.
 
 **Sign-in.** The admin token is kept for the tab (`sessionStorage`) unless "Remember on this device" is ticked, when it goes in `localStorage` until sign-out. The admin page is not served under a public name, so this is a convenience for the owner's own browsers.
 
+## The web client's history, sound and timer
+
+Added 2026-10-09.
+
+**History in two halves.** The drawer holds the conversation (what was said to Axis and what it answered) and, marked and timed, what arrived unasked: an **announcement** (anything said on a `say-…` turn: an agent's own message, a timer going off), a **notification** (sent while the page was closed, handed over by `GET /v1/push/asks` as `received` with the time), and a **question** with how it ended: answered and with what, or not answered. A filter shows all, the conversation or the notifications. The conversation lives in the page and goes on a reload, as before. The unasked half is kept in the browser's own storage (`axis-client-inbox`, the last twenty) until Clear is pressed or the pairing is forgotten. Axis keeps none of it.
+
+**Questions that got no answer.** A question put to an open page is marked not answered when it ends with nothing tapped, said or typed. One sent as a notification that ran out of time is kept by `delivery.ts` for the message hold time and handed to the page once as `missed`.
+
+**Volume and mute.** `POST /v1/volume {volume}` lets a client set its own `volume` (its device layer, nothing else), with its own token; the web client's slider uses it, and the value comes back with the settings like any other. Mute is the browser's alone (`axis-client-muted`): the client answers `speak.start` with `playback: blocked`, the words are shown, and `say` reports `heard: false`. A client that reports `blocked` is no longer paced or waited for: the rest of the audio is dropped and the turn ends at once (it used to wait out the five seconds allowed for playback to finish).
+
+**Timer.** The countdown is a small chip under the words (label, time, Cancel) in the same hairline pill as the rest of the page, not large accent text.
+

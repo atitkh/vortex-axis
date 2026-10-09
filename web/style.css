@@ -158,9 +158,18 @@ body:not(.busy) .stop { display: none; }
   font-size: 15px;
 }
 .choices button:hover, .choices button:focus-visible { border-color: var(--text); }
-.timer { color: var(--accent); font-size: 22px; margin: 6px 0 0; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 12px; }
-.timer button { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 2px 12px; font-size: 13px; color: var(--dim); }
-.timer button:hover { color: var(--text); border-color: var(--faint); }
+/* A running timer: one quiet chip under the words, in the same hairline pill as everything else. */
+.timer {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin: 8px 0 0; padding: 3px 4px 3px 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 13.5px; color: var(--dim);
+}
+.timer-label { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer-clock { color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.timer button { background: none; border: none; border-left: 1px solid var(--line); border-radius: 0 999px 999px 0; padding: 3px 12px 3px 10px; font-size: 12.5px; color: var(--faint); }
+.timer button:hover { color: var(--text); }
+.timer:has(button[hidden]) { padding-right: 14px; }
 /* Holding the face must not select it or bring up the phone's long-press menu. */
 .face { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .face.held { transform: scale(0.97); transition: transform 0.15s ease; }
@@ -231,3 +240,32 @@ body:not(.busy) .stop { display: none; }
 
 .foot-note { color: var(--faint); font-size: 12px; }
 .foot .ghost[data-on="1"] { color: var(--dim); }
+
+/* --- history: what is a notification, what is a question, and a way to see only those ---- */
+
+.drawer-actions { display: flex; gap: 6px; }
+.filter { display: flex; gap: 6px; padding: 10px 16px 0; }
+.filter button { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 12.5px; color: var(--dim); }
+.filter button.on { color: var(--accent); border-color: var(--faint); }
+.log[data-filter="talk"] .bubble[data-cat="note"], .log[data-filter="note"] .bubble[data-cat="talk"] { display: none; }
+.bubble[data-meta]::before {
+  content: attr(data-meta); display: block; margin-bottom: 2px;
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint);
+}
+.bubble[data-cat="note"] { border-left: 1px solid var(--line); padding-left: 10px; }
+.bubble.ask { border-left-color: var(--accent); }
+.bubble.missed { border-left-color: var(--warn); }
+.bubble.missed::before { color: var(--warn); }
+.log-empty { display: none; color: var(--faint); font-size: 13px; text-align: center; margin: 0; padding: 0 16px 24px; flex: 1; }
+.drawer.is-empty .log { display: none; }
+.drawer.is-empty .log-empty { display: block; padding-top: 24px; }
+.drawer-foot { color: var(--faint); font-size: 11.5px; line-height: 1.4; margin: 0; padding: 10px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.drawer { padding-top: env(safe-area-inset-top); }
+
+/* --- footer: sound ------------------------------------------------------------------ */
+
+.foot { flex-wrap: wrap; row-gap: 4px; }
+.sound { display: inline-flex; align-items: center; gap: 8px; flex-basis: 100%; justify-content: center; }
+.sound input[type="range"] { width: min(160px, 40vw); accent-color: var(--accent); height: 22px; }
+.sound input[type="range"]:disabled { opacity: 0.35; }
+.foot .sound .ghost { border-color: var(--line); padding: 4px 12px; min-width: 6.5em; }

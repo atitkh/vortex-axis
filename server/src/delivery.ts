@@ -60,7 +60,9 @@ export class Delivery {
   private readonly held = new Map<string, Held[]>();
   private readonly asks = new Map<string, PendingAsk>();
   /** What was sent to a closed browser as notifications, for the page to show once it is opened. */
-  private readonly notified = new Map<string, { text: string; until: number }[]>();
+  private readonly notified = new Map<string, { text: string; at: number; until: number }[]>();
+  /** Questions that went out as notifications and ran out of time unanswered, for the page to list as missed. */
+  private readonly missed = new Map<string, { question: string; at: number; until: number }[]>();
   private readonly now: () => number;
 
   constructor(private readonly options: DeliveryOptions) {
@@ -104,7 +106,7 @@ export class Delivery {
       if (outcome === "sent") {
         // Kept a while as well, so the page can show it when the notification is tapped.
         const kept = (this.notified.get(client.id) ?? []).filter((m) => m.until > this.now());
-        kept.push({ text, until: this.now() + this.options.holdMs });
+        kept.push({ text, at: this.now(), until: this.now() + this.options.holdMs });
         this.notified.set(client.id, kept.slice(-MAX_HELD));
         this.options.note?.(client.id, `Sent to ${client.name} as a notification (its page is closed)`);
         return { client: client.name, heard: false, shown: true, note: "Its page is closed, so this went to it as a notification. Nothing was spoken." };
@@ -137,10 +139,12 @@ export class Delivery {
       if (live.length) this.held.set(clientId, live);
       else this.held.delete(clientId);
     }
-    for (const [clientId, list] of this.notified) {
-      const live = list.filter((m) => m.until > this.now());
-      if (live.length) this.notified.set(clientId, live);
-      else this.notified.delete(clientId);
+    for (const kept of [this.notified, this.missed] as Map<string, { until: number }[]>[]) {
+      for (const [clientId, list] of kept) {
+        const live = list.filter((m) => m.until > this.now());
+        if (live.length) kept.set(clientId, live);
+        else kept.delete(clientId);
+      }
     }
   }
 
@@ -223,9 +227,14 @@ export class Delivery {
     );
     if (outcome !== "sent") throw new Error(`${client.name} is offline and the notification could not be sent`);
     this.options.note?.(client.id, `Asked ${client.name} a question as a notification (its page is closed)`);
+    const askedAt = this.now();
     return new Promise<AskResult>((resolve) => {
       const timer = setTimeout(() => {
         this.asks.delete(id);
+        // Kept a while, so the page can say what was asked while nobody was looking.
+        const gone = (this.missed.get(client.id) ?? []).filter((m) => m.until > this.now());
+        gone.push({ question, at: askedAt, until: this.now() + this.options.holdMs });
+        this.missed.set(client.id, gone.slice(-MAX_HELD));
         resolve({ answer: null, timedOut: true });
       }, timeoutMs);
       timer.unref();
@@ -253,11 +262,16 @@ export class Delivery {
       .map(([id, ask]) => ({ id, token: ask.token, question: ask.question, choices: ask.choices }));
   }
 
-  /** The messages a client was sent as notifications and has not yet shown in its page. Handing them over forgets them. */
-  takeNotified(clientId: string): string[] {
-    const kept = (this.notified.get(clientId) ?? []).filter((m) => m.until > this.now());
+  /**
+   * What a client missed while its page was closed: the messages it was sent as notifications, and the
+   * questions that ran out of time unanswered, each with when. Handing them over forgets them.
+   */
+  takeMissed(clientId: string): { messages: { text: string; at: number }[]; asks: { question: string; at: number }[] } {
+    const messages = (this.notified.get(clientId) ?? []).filter((m) => m.until > this.now());
+    const asks = (this.missed.get(clientId) ?? []).filter((m) => m.until > this.now());
     this.notified.delete(clientId);
-    return kept.map((m) => m.text);
+    this.missed.delete(clientId);
+    return { messages: messages.map(({ text, at }) => ({ text, at })), asks: asks.map(({ question, at }) => ({ question, at })) };
   }
 
   /** An answer picked from a notification. False when the question is no longer open or the answer is not one of its choices. */

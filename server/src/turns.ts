@@ -79,6 +79,8 @@ interface ActiveTurn {
   playbackDone?: (() => void) | undefined;
   /** Set once the client confirms it played the audio to the end. */
   heard?: boolean;
+  /** Set when the client said it cannot or will not make sound: the rest of the audio is not worth sending or waiting for. */
+  silenced?: boolean;
   /**
    * True while the turn waits for the agent's first words. The agent may be
    * busy calling a tool that speaks or asks on this very client, so the client
@@ -151,6 +153,8 @@ class Speaker {
     private readonly turnId: string,
     private readonly format: AudioFormat,
     private readonly signal: AbortSignal,
+    /** True once the client has said it is making no sound; frames are then dropped instead of paced out. */
+    private readonly silenced: () => boolean = () => false,
   ) {}
 
   private get bytesPerMs(): number {
@@ -207,6 +211,7 @@ class Speaker {
   }
 
   private async sendFrame(frame: Buffer): Promise<void> {
+    if (this.silenced()) return;
     const over = this.aheadMs() - this.session.audioBufferMs;
     if (over > 0) await sleep(over, this.signal);
     if (this.signal.aborted) return;
@@ -502,7 +507,8 @@ export class TurnManager {
           turn.heard = true;
           turn.playbackDone?.();
         } else if (message.state === "blocked") {
-          // The client cannot make sound. There is nothing to wait for.
+          // The client cannot make sound, or is muted. There is nothing to wait for.
+          turn.silenced = true;
           turn.playbackDone?.();
         }
         return;
@@ -775,7 +781,7 @@ export class TurnManager {
 
       const speaker =
         // A message for quiet hours is shown and not spoken.
-        caps.includes("speaker") && tts && !("silent" in input && input.silent) ? new Speaker(this.port, session, turnId, tts.format, signal) : undefined;
+        caps.includes("speaker") && tts && !("silent" in input && input.silent) ? new Speaker(this.port, session, turnId, tts.format, signal, () => Boolean(turn.silenced)) : undefined;
       const settings = this.port.settings(session);
       const voice = typeof settings.voice === "string" && settings.voice ? settings.voice : undefined;
       const pauseMs = typeof settings.sentencePauseMs === "number" ? Math.min(1500, Math.max(0, settings.sentencePauseMs)) : 300;
@@ -840,8 +846,8 @@ export class TurnManager {
       }
       if (speaker?.started) {
         this.port.send(session, { t: "speak.end", turnId });
-        // The client is still playing what it buffered. Wait for it to say it is done.
-        await Promise.race([
+        // The client is still playing what it buffered. Wait for it to say it is done, unless it is playing nothing.
+        if (!turn.silenced) await Promise.race([
           new Promise<void>((resolve) => (turn.playbackDone = resolve)),
           sleep(speaker.aheadMs() + this.playbackGraceMs, signal),
         ]);
