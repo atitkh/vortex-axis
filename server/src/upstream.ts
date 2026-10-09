@@ -170,6 +170,44 @@ export function resample(pcm: Buffer, from: number, to: number): Buffer {
   return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
 }
 
+/**
+ * Sends one short message to an OpenAI-style chat endpoint, so an address can
+ * be tried before it is saved. A field left empty falls back to the saved one,
+ * which is how a saved token is used without the page ever having it.
+ */
+export async function testChatAgent(saved: RuntimeConfig["agent"], typed: { url?: unknown; model?: unknown; token?: unknown }) {
+  const text = (value: unknown, fallback: string) => (typeof value === "string" && value.trim() ? value.trim() : fallback);
+  const url = text(typed.url, saved.url);
+  const model = text(typed.model, saved.model);
+  const token = text(typed.token, saved.token);
+  const report: { ok: boolean; url: string; model: string; firstTextMs?: number; totalMs?: number; reply?: string; error?: string } = {
+    ok: false,
+    url,
+    model,
+  };
+  if (!url) return { ...report, error: "no chat endpoint given" };
+  checkUrl("the chat endpoint", url);
+  const agent = new ChatCompletionsAgent({ url, model, token: token || undefined });
+  const started = Date.now();
+  try {
+    let reply = "";
+    for await (const piece of agent.reply("This is a connection test. Reply with the single word: ready", AbortSignal.timeout(30_000))) {
+      report.firstTextMs ??= Date.now() - started;
+      reply += piece;
+      if (reply.length > 400) break;
+    }
+    report.totalMs = Date.now() - started;
+    if (!reply.trim()) throw new Error("the endpoint answered, but with no text. Check the model name and that it streams replies");
+    report.reply = reply.trim().slice(0, 200);
+    report.ok = true;
+  } catch (error) {
+    const e = error as Error & { cause?: { code?: string; message?: string } };
+    report.error =
+      e.name === "TimeoutError" ? "no answer within 30 seconds" : e.cause?.code ? `could not connect (${e.cause.code})` : e.message;
+  }
+  return report;
+}
+
 const TEST_SENTENCE = "Testing, one two three.";
 const STT_FORMAT: AudioFormat = { encoding: "pcm_s16le", sampleRate: 16000, channels: 1 };
 

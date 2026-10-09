@@ -13,7 +13,7 @@ import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
-import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testServices } from "./upstream.js";
+import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const PAIR_ATTEMPTS_PER_MINUTE = 10;
@@ -683,6 +683,15 @@ export function createHttpHandler(deps: HttpDeps) {
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "test") {
           return sendJson(res, 200, await testServices(services));
+        }
+        // Tries a chat endpoint as typed, before it is saved. Nothing is stored.
+        if (method === "POST" && parts.length === 3 && parts[2] === "test-agent") {
+          const typed = (await readJson(req)) as { url?: unknown; model?: unknown; token?: unknown };
+          try {
+            return sendJson(res, 200, await testChatAgent(loadRuntimeConfig(store, config).agent, typed));
+          } catch (error) {
+            throw new HttpError(400, (error as Error).message);
+          }
         }
       }
       if (parts[1] === "gateway") {

@@ -114,6 +114,38 @@ describe("runtime settings", () => {
     }
   });
 
+  it("tries a chat endpoint before it is saved, and stores nothing", async () => {
+    const { createServer } = await import("node:http");
+    const auths: (string | undefined)[] = [];
+    const chat = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        auths.push(req.headers.authorization);
+        if (req.url !== "/v1/chat/completions") return void res.writeHead(404).end();
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "ready" } }] })}\n\ndata: [DONE]\n\n`);
+      });
+    });
+    await new Promise<void>((r) => chat.listen(0, "127.0.0.1", () => r()));
+    const base = `http://127.0.0.1:${(chat.address() as any).port}`;
+    try {
+      const before = (await admin("GET", "/admin/config")).body;
+      const good = await admin("POST", "/admin/config/test-agent", { url: `${base}/v1/chat/completions`, model: "m1", token: "typed" });
+      expect(good.body).toMatchObject({ ok: true, reply: "ready", model: "m1" });
+      expect(auths.at(-1)).toBe("Bearer typed");
+      expect((await admin("GET", "/admin/config")).body).toEqual(before);
+
+      const wrongPath = await admin("POST", "/admin/config/test-agent", { url: `${base}/nope`, model: "m1" });
+      expect(wrongPath.body).toMatchObject({ ok: false, error: "agent answered HTTP 404" });
+    } finally {
+      chat.close();
+    }
+    const dead = await admin("POST", "/admin/config/test-agent", { url: `${base}/v1/chat/completions`, model: "m1" });
+    expect(dead.body.ok).toBe(false);
+    expect(dead.body.error).toMatch(/could not connect/);
+    expect((await admin("POST", "/admin/config/test-agent", { url: "ftp://x", model: "m" })).status).toBe(400);
+  });
+
   it("changes the gateway address at runtime", async () => {
     const changed = await admin("PATCH", "/admin/gateway", { url: "http://gw.test:18789" });
     expect(changed.body.url).toBe("ws://gw.test:18789/");

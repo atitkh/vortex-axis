@@ -334,6 +334,19 @@ $("speech-test").addEventListener("click", (event) =>
   }),
 );
 
+$("agent-test").addEventListener("click", (event) =>
+  act(event.target, "agent-note", async () => {
+    note("agent-note", "Asking the endpoint…");
+    const r = await api("POST", "/admin/config/test-agent", {
+      url: $("agent-url").value.trim(),
+      model: $("agent-model").value.trim(),
+      token: $("agent-token").value,
+    });
+    if (r.ok) note("agent-note", `It works: first words after ${(r.firstTextMs / 1000).toFixed(1)} s, whole reply in ${(r.totalMs / 1000).toFixed(1)} s. It said: "${r.reply}". Not saved yet.`, "good");
+    else note("agent-note", `It does not work: ${r.error}.`, "bad");
+  }),
+);
+
 $("agent-save").addEventListener("click", (event) =>
   act(event.target, "agent-note", async () => {
     const backend = $("agent-backend").value;
