@@ -140,7 +140,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .count.warn { color: var(--warn); }
 .count.bad { color: var(--bad); }
 
-main { padding: 18px 28px 60px; max-width: 1500px; min-width: 0; }
+main { padding: 18px 28px 60px; min-width: 0; }
 
 /* --- views --------------------------------------------------------------- */
 
@@ -174,7 +174,6 @@ p { margin: 6px 0; }
   grid-template-columns: 180px minmax(0, 1fr);
   gap: 10px 16px;
   align-items: start;
-  max-width: 720px;
 }
 .form > label, .form .contents > label { padding-top: 6px; font-weight: 500; }
 .form > label + .help, .form .value { margin: 6px 0 0; }
@@ -185,7 +184,7 @@ p { margin: 6px 0; }
 .inline > input { flex: 1 1 200px; width: auto; }
 .form textarea + .inline { margin-top: 8px; }
 .actions { margin-top: 18px; }
-.add { margin-top: 10px; max-width: 720px; }
+.add { margin-top: 10px; }
 .add #set-key { flex: 0 1 200px; }
 
 .code { font: 600 22px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 2px; }
@@ -236,7 +235,7 @@ tr.off td a { color: var(--dim); }
 /* --- device page --------------------------------------------------------- */
 
 
-details { margin-top: 24px; max-width: 720px; }
+details { margin-top: 24px; }
 summary { cursor: pointer; font-weight: 500; }
 details ol { padding-left: 20px; color: var(--dim); font-size: 13px; }
 details li { margin: 6px 0; }
