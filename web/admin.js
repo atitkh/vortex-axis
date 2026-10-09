@@ -5,6 +5,7 @@
 // device's page shows only where that one device differs. The three layers underneath
 // (all devices, type, device) are the server's; this page only presents them.
 
+import { IDLE, LOOKS, LOOK_FIELDS, Vortex } from "/web/vortex.js";
 import { clock, hideTip, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -393,7 +394,7 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords"];
+const VIEWS = ["overview", "activity", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords", "face"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
@@ -408,6 +409,9 @@ function route() {
   const navKey = name === "device" ? "clients" : name === "type" ? `type:${id}` : name;
   for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navKey);
   renderView();
+  // The face page animates twenty-odd canvases; they only run while it is open.
+  if (name === "face") openFaces();
+  else closeFaces();
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
   if (name === "activity") renderActivity();
@@ -427,6 +431,103 @@ function renderView() {
   if (view.name === "settings") renderAllDevices();
   if (view.name === "firmware") renderFirmware();
   if (view.name === "wakewords") renderWakeWords();
+}
+
+// --- face: every look of the vortex, drawn live ----------------------------------------
+
+/** What each look is for, as docs/face.md words it. */
+const FACE_READS = {
+  calm: "the plain one: an easy turn",
+  breathe: "slowly swelling and settling",
+  unwind: "turning the other way, wide",
+  open: "arms flung wide",
+  curl: "wound up tight and small",
+  drift: "the centre wanders about",
+  shimmer: "a few dots flash",
+  galaxy: "a disc seen at an angle, a few stars",
+  tendril: "arms that ripple like something under water",
+  bloom: "big soft dots, opening and closing like a flower",
+  pinwheel: "nearly straight arms, turning briskly",
+  deep: "small, dark blue, slow",
+  orbit: "a tilted wheel, like rings",
+  sway: "hardly turning, arms swaying from side to side",
+  setup: "amber, waiting to be set up",
+  offline: "small, slow, grey",
+  listening: "pulled in tight, green; swells with your voice",
+  thinking: "fast, violet, a little sparkle",
+  speaking: "open, pulsing, white-blue; follows the voice being played",
+  error: "slow, red, the centre trembles",
+};
+const FACE_UNITS = {
+  spin: "radians a second", radius: "of the space", twist: "turns", pulse: "of the radius", pulseHz: "a second",
+  wander: "pixels of 240", sparkle: "chance per dot per frame", dot: "times normal size", r: "red", g: "green", b: "blue",
+  wave: "radians at the tip", tilt: "0 is flat on",
+};
+let faces = [];
+let bigFace;
+let faceChosen = "calm";
+
+/** All looks as one list: the idle ones, then one per state. */
+function allLooks() {
+  return [
+    ...IDLE.map(([name, look]) => ({ name, look, mode: "idle", group: "idle" })),
+    ...Object.entries(LOOKS).map(([name, look]) => ({ name, look, mode: name, group: "state" })),
+  ];
+}
+
+function chooseFace(name) {
+  const entry = allLooks().find((l) => l.name === name) ?? allLooks()[0];
+  faceChosen = entry.name;
+  for (const tile of document.querySelectorAll(".face-tile")) tile.classList.toggle("on", tile.dataset.look === entry.name);
+  $("face-name").textContent = `${entry.name} (${entry.group === "idle" ? "idle look" : "state look"})`;
+  $("face-reads").textContent = FACE_READS[entry.name] ?? "";
+  $("face-numbers").replaceChildren(
+    ...LOOK_FIELDS.map((key) =>
+      h("tr", {}, h("td", { class: "mono tight" }, key), h("td", { class: "mono" }, String(entry.look[key])), h("td", { class: "sub" }, FACE_UNITS[key] ?? "")),
+    ),
+  );
+  // Only the two looks that follow a voice have anything to do with a level.
+  const voiced = entry.mode === "listening" || entry.mode === "speaking";
+  $("face-voice-row").hidden = !voiced;
+  $("face-voice-note").textContent = entry.mode === "listening" ? "the microphone" : "the speech being played";
+  bigFace?.hold(entry.look, entry.mode);
+  applyFaceVoice();
+}
+
+function applyFaceVoice() {
+  const entry = allLooks().find((l) => l.name === faceChosen);
+  const voiced = entry && (entry.mode === "listening" || entry.mode === "speaking");
+  const level = Number($("face-voice").value) / 100;
+  // At zero the face breathes by itself, as it does when no loudness is known.
+  bigFace?.setLevel(voiced && level > 0 ? level : -1);
+}
+$("face-voice").addEventListener("input", applyFaceVoice);
+
+function openFaces() {
+  if (faces.length) return;
+  const tile = (entry) => {
+    const canvas = h("canvas");
+    const button = h("button", { type: "button", class: "face-tile", "data-look": entry.name, onclick: () => chooseFace(entry.name) }, canvas, entry.name);
+    const face = new Vortex(canvas);
+    face.calm = false;  // a viewer shows the real motion, whatever the page was asked to tone down
+    face.now = { ...entry.look };
+    face.hold(entry.look, entry.mode);
+    faces.push(face);
+    return button;
+  };
+  const looks = allLooks();
+  $("face-idle").replaceChildren(...looks.filter((l) => l.group === "idle").map(tile));
+  $("face-state").replaceChildren(...looks.filter((l) => l.group === "state").map(tile));
+  bigFace = new Vortex($("face-big"));
+  bigFace.calm = false;
+  faces.push(bigFace);
+  chooseFace(faceChosen);
+}
+
+function closeFaces() {
+  for (const face of faces) face.stop();
+  faces = [];
+  bigFace = undefined;
 }
 
 /** Every client type that has a device, with how many are online. */

@@ -186,6 +186,10 @@ These may differ between devices; everything else above should not.
 - **Reduced motion.** A client that knows the person asked for less motion may turn the face at 30 % speed and drop sparkle, as the web client does.
 - **A small or limited screen** (for example a watch with few colours) may use fewer dots per arm and the nearest colours it has, keeping the looks, the easing and the rules.
 
+## 6a. Seeing the looks
+
+The admin page has a Face page (`#face`) that draws every look live with `web/vortex.js`: a tile per look, and the chosen one large beside its thirteen numbers, with a slider standing in for the voice on the two looks that follow one. It reads the looks straight from `web/vortex.js` (`IDLE`, `LOOKS`, `LOOK_FIELDS`, and `Vortex.hold()` to keep a face on one look), so a look added there shows up without touching the page. It is a viewer only: the looks are still code, in `web/vortex.js` and in the firmware.
+
 ## 7. Adding a look or a mode
 
 - A new idle look is a row in one of the idle tables here and in both implementations. Keep its colour in the blues and blue-greens.

@@ -309,6 +309,12 @@ try {
   step("firmware uploaded", await admin.until(`${byId("firmware-shelves")}.textContent.includes('sent to devices') && ${byId("firmware-shelves")}.textContent.replace(/\\s+/g, ' ')`, "the build to be listed"));
   await admin.run(`window.confirm = () => true; [...document.querySelectorAll('#firmware-shelves button')].find((b) => b.textContent === 'Remove').click()`);
   step("firmware removed", await admin.until(`${byId("firmware-shelves")}.textContent.includes('No builds held') && 'gone'`, "the build to go"));
+
+  // The face viewer: every look as a tile, and choosing one fills in its numbers.
+  await admin.run(`location.hash = '#face'`);
+  await admin.until(`document.querySelectorAll('.face-tile').length >= 20`, "the face tiles");
+  await admin.run(`document.querySelector('.face-tile[data-look="galaxy"]').click()`);
+  step("face viewer", await admin.until(`${byId("face-name")}.textContent.startsWith('galaxy') && document.querySelectorAll('#face-numbers tr').length === 13 && (document.querySelectorAll('.face-tile').length + ' looks, galaxy chosen')`, "a look to be chosen"));
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
   await admin.run(`history.go(-3)`);

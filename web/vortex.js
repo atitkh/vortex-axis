@@ -13,8 +13,11 @@ const KEYS = ["spin", "radius", "twist", "pulse", "pulseHz", "wander", "sparkle"
 // `wave` is how far the arms sway (radians at the tip) and `tilt` how far the figure is tipped away; most looks use neither.
 const look = (spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave = 0, tilt = 0) => ({ spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave, tilt });
 
+/** The fields of a look, in the order docs/face.md lists them. */
+export const LOOK_FIELDS = KEYS;
+
 // Idle picks among these at random, so it does not look like a loop.
-const IDLE = [
+export const IDLE = [
   ["calm", look(0.5, 0.85, 0.9, 0.03, 0.25, 0, 0, 1.0, 0.1, 0.78, 0.95)],
   ["breathe", look(0.35, 0.8, 0.8, 0.2, 0.18, 0, 0, 1.1, 0.15, 0.6, 1.0)],
   ["unwind", look(-0.4, 0.95, 1.25, 0.04, 0.3, 0, 0, 0.9, 0.2, 0.85, 0.8)],
@@ -31,7 +34,7 @@ const IDLE = [
   ["sway", look(0.1, 0.85, 0.95, 0.05, 0.2, 0, 0, 1, 0.2, 0.85, 0.9, 0.7, 0)],
 ];
 
-const LOOKS = {
+export const LOOKS = {
   setup: look(0.3, 0.7, 0.9, 0.1, 0.3, 0, 0, 1.0, 1.0, 0.65, 0.1),
   offline: look(0.18, 0.55, 1.1, 0.03, 0.2, 0, 0, 0.9, 0.3, 0.34, 0.42),
   listening: look(1.6, 0.45, 1.8, 0.08, 1.2, 0, 0, 1.2, 0.15, 1.0, 0.55),
@@ -64,7 +67,23 @@ export class Vortex {
     requestAnimationFrame(this.frame);
   }
 
+  /**
+   * Shows one look and stays on it, for a viewer: no drifting between idle looks. `mode` decides how
+   * the look is drawn (easing speed, the larger core while listening, whether a voice level is used).
+   */
+  hold(look, mode = "idle") {
+    this.mode = mode;
+    this.held = true;
+    this.target = { ...look };
+  }
+
+  /** Stops drawing for good, when the canvas is taken off the page. */
+  stop() {
+    this.stopped = true;
+  }
+
   setMode(mode) {
+    this.held = false;
     if (mode === this.mode) return;
     this.mode = mode;
     if (mode === "idle") this.pickIdle();
@@ -85,6 +104,7 @@ export class Vortex {
   }
 
   frame(time) {
+    if (this.stopped) return;
     requestAnimationFrame(this.frame);
     const dt = Math.min(0.1, this.last ? (time - this.last) / 1000 : 0);
     this.last = time;
@@ -104,7 +124,7 @@ export class Vortex {
 
   draw(dt) {
     const { ctx, canvas } = this;
-    if (this.mode === "idle") {
+    if (this.mode === "idle" && !this.held) {
       this.idleRemaining -= dt;
       if (this.idleRemaining <= 0) this.pickIdle();
     }

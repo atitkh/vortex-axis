@@ -473,3 +473,17 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
 .scrollbox { max-height: 380px; overflow-y: auto; border: 1px solid var(--line); background: var(--surface); }
 .scrollbox table { border: none; }
 #overview-events .scrollbox { max-height: 300px; }
+
+/* Face viewer: the face is made for a black screen, so its tiles stay black in either theme. */
+.face-stage { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; margin: 14px 0 6px; }
+.face-big { background: #000; border-radius: 6px; padding: 10px; flex: 0 0 auto; }
+.face-big canvas { width: 300px; height: 300px; display: block; }
+.face-detail { flex: 1 1 280px; min-width: 260px; }
+.face-detail h3 { margin-top: 0; }
+.face-detail table { margin-top: 10px; }
+.face-detail td { padding: 4px 10px; }
+.face-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; margin-top: 10px; }
+.face-tile { background: #000; border: 2px solid transparent; border-radius: 6px; padding: 6px 6px 4px; cursor: pointer; text-align: center; color: #b9c4cc; font: inherit; font-size: 13px; }
+.face-tile canvas { width: 100%; aspect-ratio: 1; display: block; }
+.face-tile:hover { border-color: var(--line-strong); }
+.face-tile.on { border-color: var(--link); color: #fff; }

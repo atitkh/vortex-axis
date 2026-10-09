@@ -39,6 +39,7 @@
     <a href="#speech" data-view="speech">Speech</a>
     <a href="#firmware" data-view="firmware">Firmware <span class="count" id="nav-firmware"></span></a>
     <a href="#wakewords" data-view="wakewords">Wake words</a>
+    <a href="#face" data-view="face">Face</a>
   </nav>
 
   <main>
@@ -193,6 +194,29 @@
       </div>
 
       <div id="firmware-shelves"></div>
+    </section>
+
+    <!-- Face: every look of the vortex, drawn live -->
+    <section class="view" id="face">
+      <div class="head"><h2>Face</h2></div>
+      <p class="help">Every look the vortex face has, drawn by the same code the web client uses. The boards draw the same looks from the same numbers. Idle looks are picked at random while nothing is happening; state looks follow what a device is doing.</p>
+      <div class="face-stage">
+        <div class="face-big"><canvas id="face-big"></canvas></div>
+        <div class="face-detail">
+          <h3 id="face-name"></h3>
+          <p class="help" id="face-reads"></p>
+          <div class="inline" id="face-voice-row">
+            <label for="face-voice">Voice level</label>
+            <input id="face-voice" type="range" min="0" max="100" value="0">
+            <span class="sub" id="face-voice-note"></span>
+          </div>
+          <table><tbody id="face-numbers"></tbody></table>
+        </div>
+      </div>
+      <h3>Idle looks</h3>
+      <div class="face-grid" id="face-idle"></div>
+      <h3>State looks</h3>
+      <div class="face-grid" id="face-state"></div>
     </section>
 
     <!-- Wake words: the models devices can listen with -->
