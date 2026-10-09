@@ -171,7 +171,7 @@ body:not(.busy) .stop { display: none; }
 .timer button:hover { color: var(--text); }
 .timer:has(button[hidden]) { padding-right: 14px; }
 /* Holding the face must not select it or bring up the phone's long-press menu. */
-.face { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.face { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
 .face.held { transform: scale(0.97); transition: transform 0.15s ease; }
 
 .notice { color: var(--warn); font-size: 13.5px; text-align: center; margin: 10px 0 0; }

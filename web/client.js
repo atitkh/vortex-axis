@@ -895,6 +895,13 @@ function endHold() {
 $("mic").addEventListener("pointerdown", (event) => {
   if (event.button > 0 || !identity || !online || !micAvailable || capture || starting) return;
   if (player.turnId || ["transcribing", "thinking", "speaking"].includes(turnState)) return; // a tap stops those
+  // A finger never stays quite still. Keeping hold of the touch means drifting off the face, or the
+  // phone deciding the touch is a scroll, does not end the hold: only lifting the finger does.
+  try {
+    $("mic").setPointerCapture(event.pointerId);
+  } catch {
+    // Not a real pointer (a test's made-up one): nothing to hold on to.
+  }
   clearTimeout(holdTimer);
   holdTimer = setTimeout(async () => {
     holding = true;
@@ -906,7 +913,7 @@ $("mic").addEventListener("pointerdown", (event) => {
     if (!holding && capture) stopCapture(true, "cancel"); // let go before the microphone was ready
   }, HOLD_MS);
 });
-for (const type of ["pointerup", "pointercancel", "pointerleave"]) $("mic").addEventListener(type, endHold);
+for (const type of ["pointerup", "pointercancel"]) $("mic").addEventListener(type, endHold);
 $("mic").addEventListener("contextmenu", (event) => event.preventDefault());
 
 // The face works like the board's screen: tap to talk, tap to finish, tap to stop it.
