@@ -169,6 +169,22 @@ void reportWakeModel(bool storedIsRunning) {
     if (!prefs.getString("id", "").isEmpty()) prefs.putUChar("try", 2);
 }
 
+/** Why the chip last started, in a word. A crash or a watchdog here is the first thing to look for when a device restarts by itself. */
+const char *resetReason() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON: return "power";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "panic";
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_USB: return "usb";
+        case ESP_RST_DEEPSLEEP: return "sleep";
+        default: return "other";
+    }
+}
+
 bool parseSetupString(const String &input, String &baseUrl, String &code) {
     String s = input;
     s.trim();
@@ -1127,6 +1143,8 @@ struct Client::Impl {
             payload["heap"] = ESP.getFreeHeap();
             payload["heapLow"] = ESP.getMinFreeHeap();
             payload["rssi"] = WiFi.RSSI();
+            // Why the device last started: "power", "software" (asked to), "panic" (it crashed), "watchdog", "brownout".
+            payload["lastStart"] = resetReason();
             handled = true;
         } else if (!strcmp(name, "reboot")) {
             handled = true;
@@ -1267,6 +1285,7 @@ struct Client::Impl {
             doc["readings"]["heap"] = ESP.getFreeHeap();
             doc["readings"]["uptimeS"] = millis() / 1000;
             doc["readings"]["axis"] = baseUrl;
+            doc["readings"]["lastStart"] = resetReason();
             if (wakeModelsTaken) {
                 Preferences wk;
                 wk.begin(WAKE_PREFS, true);
