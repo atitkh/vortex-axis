@@ -139,11 +139,11 @@ export class Hub implements TurnPort {
   }
 
   /**
-   * Chooses where agent-started output goes. A named client or room wins.
+   * Chooses where agent-started output goes. A named client or location wins.
    * Otherwise it is the client last spoken to, then the configured default
    * client, then any client that can speak or show text.
    */
-  pickOutput(target: { client?: string | undefined; room?: string | undefined }): Session {
+  pickOutput(target: { client?: string | undefined; location?: string | undefined }): Session {
     const canOutput = (s: Session) =>
       s.client.capabilities.includes("speaker") || s.client.capabilities.includes("screen");
     // A client that can speak is preferred over one that can only show text.
@@ -160,11 +160,11 @@ export class Hub implements TurnPort {
     }
 
     const able = [...this.online.values()].filter(canOutput);
-    if (target.room) {
-      const room = target.room.toLowerCase();
-      const inRoom = able.filter((s) => String(this.settings(s).room ?? "").toLowerCase() === room);
-      const session = best(inRoom);
-      if (!session) throw new Error(`no client that can speak or show text is online in "${target.room}"`);
+    if (target.location) {
+      const location = target.location.toLowerCase();
+      const there = able.filter((s) => String(this.settings(s).location ?? "").toLowerCase() === location);
+      const session = best(there);
+      if (!session) throw new Error(`no client that can speak or show text is online in "${target.location}"`);
       return session;
     }
 

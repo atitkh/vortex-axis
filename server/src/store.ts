@@ -106,6 +106,10 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+  // "room" became "location": a device may be somewhere that is not a room, such as a car.
+  `
+  UPDATE OR REPLACE settings SET key = 'location' WHERE key = 'room';
+  `,
 ];
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */

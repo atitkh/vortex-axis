@@ -45,7 +45,7 @@ describe("describing a client", () => {
     const body = await described("board");
 
     const schema = body.types.board as unknown as { settings: { key: string }[]; links: unknown[] };
-    expect(schema.settings.map((s) => s.key)).toEqual(["room", "voice", "sentencePauseMs", "wakeWord", "volume", "rotation", "listenCue"]);
+    expect(schema.settings.map((s) => s.key)).toEqual(["location", "voice", "sentencePauseMs", "wakeWord", "volume", "rotation", "listenCue"]);
     expect(schema.links).toEqual(description.links);
 
     const row = (body as unknown as { clients: { address: string | null; layers: unknown }[] }).clients[0]!;
@@ -64,10 +64,10 @@ describe("describing a client", () => {
 
   it("does not let a client replace a setting Axis owns", async () => {
     const { client } = await board();
-    client.send({ ...description, settings: [{ key: "room", label: "Fake", kind: "number" }], actions: description.actions });
+    client.send({ ...description, settings: [{ key: "location", label: "Fake", kind: "number" }], actions: description.actions });
     const body = await described("board");
-    const room = (body.types.board as unknown as { settings: { key: string; kind: string }[] }).settings.find((s) => s.key === "room");
-    expect(room?.kind).toBe("text");
+    const location = (body.types.board as unknown as { settings: { key: string; kind: string }[] }).settings.find((s) => s.key === "location");
+    expect(location?.kind).toBe("text");
   });
 });
 

@@ -214,7 +214,7 @@ describe("agent turns over the gateway", () => {
     expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("Hello from the agent.");
     const request = gateway.agentRequests[0];
     expect(request).toMatchObject({ agentId: "vertex", sessionKey: "vortex-axis" });
-    expect(request.message).toBe("[from: Desk, type: web, room: unknown, can: mic+speaker+screen]\nhi there");
+    expect(request.message).toBe("[from: Desk, type: web, location: unknown, can: mic+speaker+screen]\nhi there");
     expect(request.idempotencyKey).toMatch(/^axis-/);
     expect(Object.keys(request).sort()).toEqual(["agentId", "idempotencyKey", "message", "sessionKey"]);
   });
@@ -275,19 +275,25 @@ describe("commands from an agent", () => {
     expect(desk.client.types()).not.toContain("speak.start");
   });
 
-  it("speaks in a named room or on a named client", async () => {
+  it("speaks in a named location or on a named client", async () => {
     await pairWithGateway();
     const desk = await ready(["speaker"], { name: "Desk" });
     const bed = await ready(["speaker"], { name: "Bedside" });
-    await admin("PATCH", `/admin/settings/device/${bed.identity.clientId}`, { values: { room: "Bedroom" } });
+    await admin("PATCH", `/admin/settings/device/${bed.identity.clientId}`, { values: { location: "Bedroom" } });
 
     const finish = async (c: typeof desk.client) => {
       const end = await c.next("speak.end");
       c.send({ t: "playback", turnId: end.turnId, state: "finished" });
     };
-    const byRoom = gateway.invoke("vortex.axis.say", { text: "Good night.", room: "bedroom" });
+    const byLocation = gateway.invoke("vortex.axis.say", { text: "Good night.", location: "bedroom" });
     await finish(bed.client);
-    expect((await byRoom).payload).toMatchObject({ client: "Bedside", heard: true });
+    expect((await byLocation).payload).toMatchObject({ client: "Bedside", heard: true });
+
+    // "room" is the old word for a location and still works, as a target and as a setting name.
+    const byOldWord = await gateway.invoke("vortex.axis.timer", { action: "set", seconds: 600, room: "bedroom" });
+    expect(byOldWord.payload).toMatchObject({ set: { client: "Bedside" } });
+    const moved = await gateway.invoke("vortex.axis.config", { client: "Desk", key: "room", value: "Car" });
+    expect((moved.payload as { settings: Record<string, unknown> }).settings).toMatchObject({ location: "Car" });
 
     const byName = gateway.invoke("vortex.axis.say", { text: "Still up?", client: "desk" });
     await finish(desk.client);
@@ -332,10 +338,10 @@ describe("commands from an agent", () => {
   it("lists clients with what they can do", async () => {
     await pairWithGateway();
     const { identity } = await ready(["mic", "speaker"], { name: "Desk" });
-    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { room: "office" } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { location: "office" } });
     const result = await gateway.invoke("vortex.axis.clients", {});
     expect(result.payload.clients).toEqual([
-      { id: identity.clientId, name: "Desk", type: "web", room: "office", can: ["mic", "speaker"], online: true },
+      { id: identity.clientId, name: "Desk", type: "web", location: "office", can: ["mic", "speaker"], online: true },
     ]);
   });
 

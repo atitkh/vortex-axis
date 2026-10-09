@@ -166,11 +166,11 @@ describe("settings", () => {
     const identity = await newPairedClient();
     await admin("PATCH", "/admin/settings/global", { values: { volume: 50, voice: "nova", wakeWord: "hey vortex" } });
     await admin("PATCH", "/admin/settings/type/web", { values: { volume: 70, voice: "echo" } });
-    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { volume: 90, room: "office" } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { volume: 90, location: "office" } });
 
     const client = await connect(identity);
     const settings = await client.next("settings");
-    expect(settings.values).toEqual({ volume: 90, voice: "echo", wakeWord: "hey vortex", room: "office" });
+    expect(settings.values).toEqual({ volume: 90, voice: "echo", wakeWord: "hey vortex", location: "office" });
   });
 
   it("pushes a change to connected clients", async () => {

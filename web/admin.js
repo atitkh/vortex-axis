@@ -188,7 +188,7 @@ async function refresh() {
     renderGateway(gateway);
     renderNavTypes();
     renderClients();
-    renderRooms();
+    renderLocations();
     renderPairDone();
     renderView();
   } catch (error) {
@@ -424,16 +424,16 @@ function renderNavTypes() {
   );
 }
 
-/** Rooms already in use, offered when typing a room so one room is not spelled two ways. */
-function renderRooms() {
-  const rooms = [...new Set(lastClients.map((c) => c.settings.room).filter(Boolean))].sort();
-  $("room-list").replaceChildren(...rooms.map((r) => h("option", { value: r })));
+/** Locations already in use, offered when typing one so a place is not spelled two ways. */
+function renderLocations() {
+  const locations = [...new Set(lastClients.map((c) => c.settings.location).filter(Boolean))].sort();
+  $("location-list").replaceChildren(...locations.map((r) => h("option", { value: r })));
 }
 
 // --- settings: one editor for every layer ---------------------------------------
 
 /** Keys whose place is the device's own header, not a settings table. */
-const DEVICE_ONLY = new Set(["room"]);
+const DEVICE_ONLY = new Set(["location"]);
 const OWN_LABEL = { device: "this device", type: "this type", global: "all devices" };
 const FROM_LABEL = { type: "type", global: "all devices", default: "default" };
 
@@ -597,7 +597,7 @@ const clientId = (idOrName) => {
   return c?.id ?? idOrName;
 };
 
-/** Settings a device sets for itself, room excepted (it is shown on its own). */
+/** Settings a device sets for itself, location excepted (it is shown on its own). */
 const ownKeys = (c) => Object.keys(c.layers.device).filter((k) => !DEVICE_ONLY.has(k));
 
 function renderClients() {
@@ -610,7 +610,7 @@ function renderClients() {
   }
   const filter = $("client-filter").value.trim().toLowerCase();
   const shown = clients
-    .filter((c) => !filter || [c.name, c.type, c.settings.room].some((v) => String(v ?? "").toLowerCase().includes(filter)))
+    .filter((c) => !filter || [c.name, c.type, c.settings.location].some((v) => String(v ?? "").toLowerCase().includes(filter)))
     // Online first, then by name.
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
   if (!shown.length) {
@@ -625,7 +625,7 @@ function renderClients() {
       h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
       h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
       h("td", {}, h("a", { href: typeHref(c.type), class: typeName(c.type) === c.type ? "mono plainlink" : "plainlink", title: c.type }, typeName(c.type))),
-      h("td", {}, c.settings.room || h("span", { class: "sub" }, "none")),
+      h("td", {}, c.settings.location || h("span", { class: "sub" }, "none")),
       h("td", { class: "hide-narrow sub", title: own.join(", ") }, own.length ? plural(own.length, "own value") : "shared"),
       h("td", { class: "hide-narrow mono sub" }, c.version),
       h("td", { class: "hide-narrow sub tight" }, c.online ? "now" : ago(c.lastSeenAt)),
@@ -644,7 +644,7 @@ function renderClients() {
           h("th", { class: "tight" }, "State"),
           h("th", {}, "Name"),
           h("th", {}, "Type"),
-          h("th", {}, "Room"),
+          h("th", {}, "Location"),
           h("th", { class: "hide-narrow" }, "Settings"),
           h("th", { class: "hide-narrow" }, "Version"),
           h("th", { class: "hide-narrow tight" }, "Last seen"),
@@ -675,7 +675,7 @@ function renderDevice() {
   $("device-state").replaceChildren(stat(client.online ? "online" : `offline, last seen ${ago(client.lastSeenAt)}`, client.online ? "good" : ""));
   $("device-remove").disabled = false;
 
-  // Name and room are this device's alone, so they sit at the top and save as they change.
+  // Name and location are this device's alone, so they sit at the top and save as they change.
   const nameInput = h("input", { value: client.name, spellcheck: "false", maxlength: 60, "data-edit": "name" });
   nameInput.addEventListener("change", async () => {
     const name = nameInput.value.trim();
@@ -690,18 +690,18 @@ function renderDevice() {
     refresh();
   });
   nameInput.addEventListener("keydown", (event) => event.key === "Enter" && nameInput.blur());
-  const roomDef = { key: "room", label: "Room", kind: "text" };
-  const roomInput = h("input", { value: client.layers.device.room ?? "", placeholder: "none", list: "room-list", spellcheck: "false", "data-edit": "room" });
-  roomInput.addEventListener("change", () =>
-    saveSetting({ path: devicePath, def: roomDef, value: roomInput.value.trim() || null, below: { source: "default", value: undefined }, what: client.name }),
+  const locationDef = { key: "location", label: "Location", kind: "text" };
+  const locationInput = h("input", { value: client.layers.device.location ?? "", placeholder: "none", list: "location-list", spellcheck: "false", "data-edit": "location" });
+  locationInput.addEventListener("change", () =>
+    saveSetting({ path: devicePath, def: locationDef, value: locationInput.value.trim() || null, below: { source: "default", value: undefined }, what: client.name }),
   );
-  roomInput.addEventListener("keydown", (event) => event.key === "Enter" && roomInput.blur());
+  locationInput.addEventListener("keydown", (event) => event.key === "Enter" && locationInput.blur());
 
   const base = client.address ? `http://${client.address}` : "";
   const row = (label, ...value) => [h("label", {}, label), h("div", { class: "value" }, ...value)];
   $("device-head").replaceChildren(
     ...row("Name", nameInput),
-    ...row("Room", roomInput),
+    ...row("Location", locationInput),
     ...row(
       "Type",
       h("a", { href: typeHref(client.type), class: typeName(client.type) === client.type ? "mono" : "" }, typeName(client.type)),
@@ -1207,7 +1207,7 @@ function renderType() {
             { class: `link-row${c.online ? "" : " off"}`, onclick: (event) => event.target.closest("a") || (location.hash = deviceHref(c)) },
             h("td", { class: "tight" }, stat(c.online ? "online" : "offline", c.online ? "good" : "")),
             h("td", {}, h("a", { href: deviceHref(c) }, c.name)),
-            h("td", { class: "sub" }, c.settings.room || "no room"),
+            h("td", { class: "sub" }, c.settings.location || "no location"),
             h("td", { class: "sub" }, own.length ? `own: ${own.map((k) => labelFor(schema, k)).join(", ")}` : "all shared"),
           );
         }),
@@ -1307,7 +1307,7 @@ function renderPairDone() {
   $("code-value").textContent = "";
   $("setup-string").value = "";
   note("code-note", "That code has been used.");
-  $("pair-done").replaceChildren(`${fresh.name} (${fresh.type}) paired. `, h("a", { href: deviceHref(fresh) }, "Open it"), " to name it and set its room.");
+  $("pair-done").replaceChildren(`${fresh.name} (${fresh.type}) paired. `, h("a", { href: deviceHref(fresh) }, "Open it"), " to name it and set its location.");
   toast(`${fresh.name} paired.`);
 }
 

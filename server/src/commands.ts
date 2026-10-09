@@ -28,7 +28,7 @@ export const ADMIN_ONLY_COMMANDS = ["address", "reset", "update", "wake.model", 
 
 const TARGET_PROPERTIES = {
   client: { type: "string", description: "Name or id of one client. Use vortex_axis_clients to see them." },
-  room: { type: "string", description: "Room to reach, when no single client is meant." },
+  location: { type: "string", description: "Location to reach (a room, a car, ...), when no single client is meant." },
 };
 
 /** Tools published to agents. Only commands that work get a tool. */
@@ -39,7 +39,7 @@ export const NODE_TOOLS: NodeTool[] = [
     description:
       "Speak a short message aloud, or show it, on one of the user's VorteX Axis devices. Use for timely " +
       "things the user should hear without looking at a screen. Keep it to one or two sentences, with no " +
-      "formatting. With no client or room, it goes to the device the user last spoke to. The result says " +
+      "formatting. With no client or location, it goes to the device the user last spoke to. The result says " +
       "whether the device confirmed it was heard; if heard is false, do not assume the user got the message.",
     parameters: {
       type: "object",
@@ -57,7 +57,7 @@ export const NODE_TOOLS: NodeTool[] = [
       "hear them. Give no choices for an open question. The result has answer (the choice picked, or null) " +
       "and said (the user's own words, when they spoke or typed). answer null with said set means they said " +
       "something that matched no choice: read said and decide. timedOut means nobody answered. With no " +
-      "client or room, it goes to the device the user last spoke to.",
+      "client or location, it goes to the device the user last spoke to.",
     parameters: {
       type: "object",
       properties: {
@@ -76,7 +76,7 @@ export const NODE_TOOLS: NodeTool[] = [
       "Set, list or cancel timers on the user's VorteX Axis devices. When a timer is due the device chimes " +
       "and says so by itself; you do not need to do anything then. action set needs seconds, and takes a " +
       "short label such as pasta. action list shows the timers running with the seconds left. action cancel " +
-      "takes an id or a label, or all true. With no client or room, a new timer goes to the device the user " +
+      "takes an id or a label, or all true. With no client or location, a new timer goes to the device the user " +
       "last spoke to.",
     parameters: {
       type: "object",
@@ -113,7 +113,7 @@ export const NODE_TOOLS: NodeTool[] = [
     name: "vortex_axis_clients",
     command: "vortex.axis.clients",
     description:
-      "List the user's VorteX Axis devices: name, type, room, what each can do (mic, speaker, screen, " +
+      "List the user's VorteX Axis devices: name, type, location, what each can do (mic, speaker, screen, " +
       "buttons, vibration, sensors) and whether it is online.",
     parameters: { type: "object", properties: {} },
   },
@@ -121,7 +121,7 @@ export const NODE_TOOLS: NodeTool[] = [
     name: "vortex_axis_config",
     command: "vortex.axis.config",
     description:
-      "Read or change a setting on one VorteX Axis device, such as volume or room. Give only the client " +
+      "Read or change a setting on one VorteX Axis device, such as volume or location. Give only the client " +
       "to read all its settings. Give key and value to change one.",
     parameters: {
       type: "object",
@@ -146,6 +146,11 @@ export const NODE_TOOLS: NodeTool[] = [
     parameters: { type: "object", properties: {} },
   },
 ];
+
+/** The location a command names. "room" is the old word for it and is still accepted. */
+function placeNamed(params: Record<string, unknown>): string | undefined {
+  return text(params.location) ?? text(params.room);
+}
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -192,7 +197,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
       id: client.id,
       name: client.name,
       type: client.type,
-      room: typeof settings.room === "string" ? settings.room : null,
+      location: typeof settings.location === "string" ? settings.location : null,
       can: client.capabilities,
       online: Boolean(session),
     };
@@ -214,7 +219,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             ? text(params.text)
             : [text(params.title), text(params.body)].filter(Boolean).join(". ") || undefined;
         if (!words) throw new Error("there is nothing to say: text is empty");
-        const session = hub.pickOutput({ client: text(params.client), room: text(params.room) });
+        const session = hub.pickOutput({ client: text(params.client), location: placeNamed(params) });
         const { heard } = await hub.say(session, words);
         const shown = session.client.capabilities.includes("screen");
         // "heard" is the client's own confirmation that the audio played to the
@@ -238,7 +243,8 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const name = text(params.client);
         if (!name) throw new Error("say which client");
         const client = clientNamed(name);
-        const key = text(params.key);
+        // "room" is the old name for "location"; agents written before the change still say it.
+        const key = text(params.key) === "room" ? "location" : text(params.key);
         if (key !== undefined && "value" in params) {
           if (!isScalar(params.value)) throw new Error("value must be text, a number, true/false or null");
           store.patchLayer("device", client.id, { [key]: params.value });
@@ -276,7 +282,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         if (choices.length > 6) throw new Error("at most six choices");
         if (choices.some((c) => c.length > 64)) throw new Error("a choice is at most 64 characters");
         const seconds = typeof params.timeoutSeconds === "number" && Number.isFinite(params.timeoutSeconds) ? params.timeoutSeconds : 30;
-        const session = hub.pickOutput({ client: text(params.client), room: text(params.room) });
+        const session = hub.pickOutput({ client: text(params.client), location: placeNamed(params) });
         const caps = session.client.capabilities;
         // An answer has to come back somehow: by voice, or by picking a choice on a screen.
         if (!caps.includes("mic") && !(choices.length && caps.includes("screen"))) {
@@ -301,12 +307,12 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
       case "vortex.axis.timer": {
         const action = text(params.action) ?? "list";
         const name = text(params.client);
-        const room = text(params.room);
+        const location = placeNamed(params);
         if (action === "set") {
           const seconds = typeof params.seconds === "number" ? Math.round(params.seconds) : NaN;
           if (!Number.isFinite(seconds) || seconds < 1) throw new Error("say how long: seconds must be 1 or more");
           if (seconds > MAX_TIMER_SECONDS) throw new Error("a timer can be at most seven days");
-          const session = hub.pickOutput({ client: name, room });
+          const session = hub.pickOutput({ client: name, location });
           return { set: timerView(timers.set(session, seconds, text(params.label) ?? "")) };
         }
         const clientId = name ? clientNamed(name).id : undefined;

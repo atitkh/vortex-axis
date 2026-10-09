@@ -10,11 +10,11 @@ export interface ClientSchema {
 /** Settings Axis itself reads for every client, whatever it declares. */
 export const BUILT_IN_SETTINGS: SettingDef[] = [
   {
-    key: "room",
-    label: "Room",
+    key: "location",
+    label: "Location",
     kind: "text",
     group: "Axis",
-    help: "Where this device is. Agents can send speech to a room by name.",
+    help: "Where this device is: a room, a car, anywhere. Agents can send speech to a location by name.",
   },
   {
     key: "voice",

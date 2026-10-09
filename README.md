@@ -16,8 +16,8 @@ With Axis:
 
 - One connection point to OpenClaw, however many clients exist.
 - Thin firmware: capture audio, play audio, show state.
-- Settings (voice, persona, wake word, volume, room) are stored once and synced to every client.
-- The agent can address a room or a client, and Axis picks the right device.
+- Settings (voice, persona, wake word, volume, location) are stored once and synced to every client.
+- The agent can address a location or a client, and Axis picks the right device.
 
 ## How it fits together
 
@@ -30,7 +30,7 @@ With Axis:
 ```
 
 - **Client to Axis:** one encrypted WebSocket per client. JSON messages for control, binary frames for audio.
-- **Axis to OpenClaw:** Axis registers as one node. The target client or room is a parameter on Axis commands.
+- **Axis to OpenClaw:** Axis registers as one node. The target client or location is a parameter on Axis commands.
 - **Axis to speech:** OpenAI-compatible HTTP endpoints, so the STT and TTS backends stay swappable.
 
 ## Repository layout

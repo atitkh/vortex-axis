@@ -96,7 +96,7 @@ describe("a voice turn", () => {
     await client.turn("t1", "idle");
 
     expect(fakes.heard).toEqual([{ bytes: pcm(500).length, format: UPSTREAM_AUDIO_FORMAT }]);
-    expect(fakes.asked).toEqual(["[from: Desk, type: web, room: unknown, can: mic+speaker+screen]\nwhat time is it"]);
+    expect(fakes.asked).toEqual(["[from: Desk, type: web, location: unknown, can: mic+speaker+screen]\nwhat time is it"]);
     expect(fakes.spoken.map((s) => s.text)).toEqual(["It is eight o'clock.", "Time for a break."]);
 
     const turnStates = client.received.filter((m) => m.t === "turn").map((m) => (m as { state: string }).state);
@@ -155,13 +155,13 @@ describe("a voice turn", () => {
   it("uses the client's voice setting", async () => {
     const { identity, client } = await ready();
     await admin("PATCH", "/admin/settings/global", { values: { voice: "nova" } });
-    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { voice: "echo", room: "office" } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { voice: "echo", location: "office" } });
 
     client.send({ t: "text", turnId: "t1", text: "hello" });
     await client.next("speak.end");
 
     expect(fakes.spoken[0]!.voice).toBe("echo");
-    expect(fakes.asked[0]).toContain("room: office");
+    expect(fakes.asked[0]).toContain("location: office");
   });
 
   it("gives a client without a screen audio only", async () => {

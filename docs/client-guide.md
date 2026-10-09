@@ -94,7 +94,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `autoRotate` | Turn the picture with the device. | 1 |
 | `brightness` | Screen brightness, 10 to 255. | per board |
 
-- `room`, `voice`, `sentencePauseMs` and `wakeWord` belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret.)
+- `location`, `voice`, `sentencePauseMs` and `wakeWord` belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret.)
 - A setting takes effect when it arrives, without a restart, unless that is impossible; say so in its help text when it is.
 
 ## 8. Commands

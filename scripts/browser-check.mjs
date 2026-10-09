@@ -274,11 +274,11 @@ try {
   step("device value", await admin.until(`${source("#device-settings", "volume")} === 'this device' && ${row("#device-settings", "volume")}`, "the volume to save"));
   await admin.run(change("#device-settings input[data-edit=volume]", "150"));
   step("range refused", await admin.until(`(t => /at most 100/.test(t) && t)(${byId("toast")}.textContent)`, "the range error"));
-  // Rename and room, at the top of the device page.
+  // Rename and location, at the top of the device page.
   await admin.run(change("#device-head input[data-edit=name]", "Browser renamed"));
   step("renamed", await admin.until(`(t => t === 'Browser renamed' && t)(${byId("device-title")}.textContent)`, "the new name"));
-  await admin.run(change("#device-head input[data-edit=room]", "office"));
-  step("room", await admin.until(`(t => /office/.test(t) && t)(document.querySelector('#client-table tbody tr')?.textContent)`, "the room in the list"));
+  await admin.run(change("#device-head input[data-edit=location]", "office"));
+  step("location", await admin.until(`(t => /office/.test(t) && t)(document.querySelector('#client-table tbody tr')?.textContent)`, "the location in the list"));
   // The type page: a value every web device shares, which the device then shows as coming from its type.
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`document.querySelector('#type-settings input[data-edit=listenCue]')`, "the type page");

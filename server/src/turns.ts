@@ -647,9 +647,9 @@ export class TurnManager {
 
   private header(session: Session): string {
     const settings = this.port.settings(session);
-    const room = typeof settings.room === "string" && settings.room ? settings.room : "unknown";
+    const location = typeof settings.location === "string" && settings.location ? settings.location : "unknown";
     const { name, type, capabilities } = session.client;
-    return `[from: ${name}, type: ${type}, room: ${room}, can: ${capabilities.join("+") || "nothing"}]`;
+    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}]`;
   }
 
   /** Runs one turn. Resolves with a failure message, or undefined when it went through. */

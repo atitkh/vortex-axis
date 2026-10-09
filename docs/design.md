@@ -14,7 +14,7 @@ Mylo, the existing ESP32 voice device, is a separate product and stays as it is.
 
 ### 2.1 One OpenClaw node
 
-OpenClaw has no sub-device concept: a node is one WebSocket connection with one cryptographic device identity, and capabilities and commands are declared per connection. Axis therefore registers once and takes the target as a parameter on its own commands, for example a room or a client name. Routing lives in Axis.
+OpenClaw has no sub-device concept: a node is one WebSocket connection with one cryptographic device identity, and capabilities and commands are declared per connection. Axis therefore registers once and takes the target as a parameter on its own commands, for example a location or a client name. Routing lives in Axis.
 
 Consequence: OpenClaw sees only "Axis" as online. Per-client presence is available through an Axis command, not through OpenClaw's node list.
 
@@ -40,7 +40,7 @@ Axis routes on capabilities. A spoken reply needs a speaker. A yes/no question c
 All clients share one OpenClaw session, so a question asked at one client can be followed up from another. Axis gives the agent context in three ways:
 
 - **Session prompt (stable):** what Axis is, that replies may be spoken, and that client tools exist. OpenClaw applies this only when a session is created, so changing it starts a new session. Keep it small and change it rarely.
-- **Message header (per turn):** one short line added to each message naming the source client, its room and its capabilities, for example `[from: Desk, type: esp32s3-speaker, room: office, can: mic+speaker+screen]`. Built.
+- **Message header (per turn):** one short line added to each message naming the source client, its location and its capabilities, for example `[from: Desk, type: esp32s3-speaker, location: office, can: mic+speaker+screen]`. Built.
 - **Client list tool (on demand):** returns registered clients, which are online and what each can do.
 
 ## 3. Client protocol
@@ -88,7 +88,7 @@ Axis is the source of truth. Settings have three layers, with the more specific 
 
 1. Global: wake word, voice, persona.
 2. Client type: defaults shared by all clients of that type.
-3. Device: volume and room.
+3. Device: volume and location.
 
 Settings carry a version number. It is one counter for the whole hub, raised on any change in any layer. A client asks for anything newer than what it has and keeps its last copy for when Axis is unreachable. A client that is reset gets everything back from Axis.
 
@@ -107,7 +107,7 @@ OpenClaw filters node commands through an allowlist, and widening a node's decla
 
 | Command | Purpose |
 | --- | --- |
-| `vortex.axis.say` | Speak or show something on a client or in a room. |
+| `vortex.axis.say` | Speak or show something on a client or at a location. |
 | `vortex.axis.ask` | Ask a question with choices and return the answer. |
 | `vortex.axis.clients` | List clients, their state and capabilities. |
 | `vortex.axis.config` | Read or change a client's settings. |
@@ -124,7 +124,7 @@ Agents only see a command after Axis publishes it as a tool, so Axis publishes i
 
 **`vortex.axis.admin`** (`action` actions, run, rename or pairing_code). `actions` lists what each device described; `run` carries one of those out and returns what the device reported (never an action the device did not describe); `rename` renames a client; `pairing_code` makes a one-time code for a new device. Removing a client is deliberately not offered to agents: it cannot be undone and stays on the admin page.
 
-Where agent-started output goes: a named client, else a named room, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. A client in a conversation is waited for, up to 20 seconds.
+Where agent-started output goes: a named client, else a named location, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. A client in a conversation is waited for, up to 20 seconds.
 
 ## 7. Failure behavior
 
@@ -136,7 +136,7 @@ Where agent-started output goes: a named client, else a named room, else the cli
 
 SQLite, one file in one data folder bind-mounted from the host, through Node's built-in `node:sqlite`. It uses a rollback journal instead of write-ahead logging so the folder can live on network storage.
 
-- Stored: clients (name, type, room, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and the activity log described below.
+- Stored: clients (name, type, location, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and the activity log described below.
 - In memory only: who is online, the current output client, the active turn.
 - Not stored: audio and conversation history.
 
@@ -259,3 +259,7 @@ Found on Axis's own first pairing with a real gateway (2026-10-07):
 - Do not report the platform as `linux`. The gateway takes a Linux node host to be its own headless node: it warns about version drift, and it pins a device family (`Linux`) that the operator link, which sends none, then fails to match ("device identity changed and must be re-approved"). Axis reports the platform `vortex-axis`, which the gateway treats as a plain custom device.
 - `node.pluginSurface.refresh` is not a way to refresh tools. It wants a `surface` and fails without one. Publishing tools needs only `node.pluginTools.update`.
 - A gateway that is restarting answers connects with `UNAVAILABLE`. That is not a credential failure; retry soon.
+
+## Location, not room
+
+Renamed 2026-10-08. Where a device is was called its `room`; it is now its `location`, because a device may be in a car or anywhere else that is not a room. The setting key, the agent tools' target parameter, the client list and the per-turn header (`location: office`) all changed, and stored values were converted by a migration. Agents written before the change may still pass `room` as a target or as the setting name in `vortex.axis.config`; both are accepted. The header and the client list no longer say `room`.

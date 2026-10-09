@@ -62,7 +62,7 @@ More than one agent works on this repository, in separate sessions that share no
 ## Rules that are settled
 
 - Axis is a bridge. Do not add agent logic, conversation history or decision making beyond routing.
-- Axis is ONE OpenClaw node. The target client or room is a command parameter. Do not open one node connection per client.
+- Axis is ONE OpenClaw node. The target client or location is a command parameter (`room` is the old word for it and is still accepted from agents). Do not open one node connection per client.
 - Clients are types with capabilities (`mic`, `speaker`, `screen`, `buttons`, `vibration`, `sensors`). Route on capabilities, never on a hard-coded device name.
 - The wake word and silence detection run on the client. Axis never receives audio before a wake event.
 - Axis is the source of truth for settings: global, then client type, then device.
