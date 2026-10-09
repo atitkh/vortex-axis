@@ -356,6 +356,35 @@ describe("wake arbitration", () => {
     expect((await a.client.next("wake.result")).granted).toBe(false);
   });
 
+  it("ignores a wake word while another device is speaking in the same location", async () => {
+    const talker = await ready(["mic", "speaker"], { name: "Talker" });
+    const listener = await ready(["mic", "speaker"], { name: "Listener" });
+    const elsewhere = await ready(["mic", "speaker"], { name: "Elsewhere" });
+    const place = (who: typeof talker, location: string) => admin("PATCH", `/admin/settings/device/${who.identity.clientId}`, { values: { location } });
+    await place(talker, "Den");
+    await place(listener, "den");
+    await place(elsewhere, "kitchen");
+
+    talker.client.send({ t: "text", turnId: "t1", text: "tell me something" });
+    await talker.client.next("speak.end");
+
+    // The talker has not yet said it finished playing: what the listener hears is most likely the talker.
+    listener.client.send({ t: "wake", wakeId: "w1", score: 0.96, level: 0.4 });
+    expect(await listener.client.next("wake.result")).toMatchObject({ wakeId: "w1", granted: false });
+    // A device in another location is out of earshot and wakes as usual.
+    elsewhere.client.send({ t: "wake", wakeId: "w2", score: 0.9, level: 0.4 });
+    expect(await elsewhere.client.next("wake.result")).toMatchObject({ wakeId: "w2", granted: true });
+
+    const events = (await admin("GET", "/admin/activity")).body.events as { kind: string; text: string }[];
+    expect(events.find((e) => e.kind === "wake")?.text).toBe("Wake word on Listener ignored: Talker is speaking in the same location");
+
+    // Once the talker is done, the listener wakes again.
+    talker.client.send({ t: "playback", turnId: "t1", state: "finished" });
+    await talker.client.turn("t1", "idle");
+    listener.client.send({ t: "wake", wakeId: "w3", score: 0.96, level: 0.4 });
+    expect(await listener.client.next("wake.result", 0, (m) => m.wakeId === "w3")).toMatchObject({ granted: true });
+  });
+
   it("only accepts audio for a wake that was granted", async () => {
     const winner = await ready(["mic", "speaker"], { name: "Winner" });
     const loser = await ready(["mic", "speaker"], { name: "Loser" });

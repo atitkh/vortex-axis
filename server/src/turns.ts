@@ -35,6 +35,8 @@ export interface TurnOptions {
   record?: (turn: TurnRecord, session: Session) => void;
   /** Told when several clients heard the wake word at once: who answered, and a line saying how each scored. */
   contested?: (winnerId: string, text: string) => void;
+  /** Told when a wake word was put down to another device talking in the same location. */
+  wakeIgnored?: (clientId: string, text: string) => void;
 }
 
 type TurnMessage = Extract<
@@ -393,10 +395,19 @@ export class TurnManager {
   handle(session: Session, message: TurnMessage): void {
     const id = session.client.id;
     switch (message.t) {
-      case "wake":
+      case "wake": {
         if (!this.requireMic(session)) return;
+        // A device talking nearby is the likeliest thing to have said the wake word: its own microphone
+        // is told to ignore it, but the next device along hears it as clearly as it would a person.
+        const talking = this.speakingNear(session);
+        if (talking) {
+          this.port.send(session, { t: "wake.result", wakeId: message.wakeId, granted: false });
+          this.options.wakeIgnored?.(id, `Wake word on ${session.client.name} ignored: ${talking.client.name} is speaking in the same location`);
+          return;
+        }
         this.wake.report({ clientId: id, wakeId: message.wakeId, score: message.score, level: message.level });
         return;
+      }
 
       case "audio.start": {
         if (!this.requireMic(session)) return;
@@ -505,6 +516,22 @@ export class TurnManager {
   }
 
   /** What each client is in the middle of. A client doing nothing is not listed. */
+  /**
+   * Another client that is speaking aloud in the same location as this one, if any.
+   * Clients with no location set are never matched: nothing says they share a room.
+   */
+  private speakingNear(session: Session): Session | undefined {
+    const place = (s: Session) => String(this.port.settings(s).location ?? "").trim().toLowerCase();
+    const here = place(session);
+    if (!here) return undefined;
+    for (const [clientId, turn] of this.active) {
+      if (clientId === session.client.id || turn.thinking || turn.done || this.captures.has(clientId)) continue;
+      const other = this.port.session(clientId);
+      if (other && other.client.capabilities.includes("speaker") && place(other) === here) return other;
+    }
+    return undefined;
+  }
+
   now(): ClientNow[] {
     const list: ClientNow[] = [];
     for (const [clientId, ask] of this.asks) {
