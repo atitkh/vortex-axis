@@ -434,6 +434,9 @@ function renderView() {
   if (view.name === "wakewords") renderWakeWords();
 }
 
+// The face in the corner and on the sign-in page: the same one the devices wear.
+for (const id of ["brand-face", "signin-face"]) new Vortex($(id)).setMode("idle");
+
 // --- face: every look of the vortex, drawn live ----------------------------------------
 
 /** What each look is for, as docs/face.md words it. */

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
   <title>VorteX Axis admin</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/web/admin.css">
@@ -10,6 +11,7 @@
 <body>
 
 <form class="signin" id="signin-form">
+  <canvas id="signin-face" aria-hidden="true"></canvas>
   <h1>VorteX Axis</h1>
   <label for="token">Admin token</label>
   <input id="token" type="password" autocomplete="off" required autofocus>
@@ -20,7 +22,7 @@
 
 <div id="app" class="shell hidden">
   <header class="bar">
-    <span class="brand">VorteX Axis</span>
+    <span class="brand"><canvas id="brand-face" aria-hidden="true"></canvas>VorteX Axis</span>
     <div class="health" id="summary"></div>
     <button class="plain" id="signout">Sign out</button>
   </header>
