@@ -26,6 +26,20 @@ describe("web pages", () => {
     expect((await page("/web/style.css")).type).toMatch(/css/);
   });
 
+  it("stamps the addresses of its own files, so a new build is never served from an old copy", async () => {
+    const page = await fetch(`${ctx.base}/`);
+    expect(page.headers.get("cache-control")).toBe("no-cache");
+    const script = /src="(\/web\/client\.js\?v=[0-9a-f]{12})"/.exec(await page.text())?.[1];
+    expect(script).toBeTruthy();
+    const stamped = await fetch(`${ctx.base}${script}`);
+    expect(stamped.headers.get("cache-control")).toContain("immutable");
+    // The script's own imports carry the same stamp.
+    expect(await stamped.text()).toContain(`/web/vortex.js?v=${script!.split("=")[1]}`);
+    // An address with no stamp, or an old one, is checked every time.
+    expect((await fetch(`${ctx.base}/web/client.js`)).headers.get("cache-control")).toBe("no-cache");
+    expect((await fetch(`${ctx.base}/web/client.js?v=000000000000`)).headers.get("cache-control")).toBe("no-cache");
+  });
+
   it("serves nothing outside its list of files", async () => {
     expect((await page("/web/nope.js")).status).toBe(404);
     expect((await page("/web/..%2Fpackage.json")).status).toBe(404);

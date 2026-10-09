@@ -1,5 +1,5 @@
 import type { Timers } from "./timers.js";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -108,7 +108,31 @@ function loadWebFiles(dir: string | undefined): Map<string, { type: string; body
     const type = CONTENT_TYPES[extname(name)];
     if (type && /^[\w.-]+$/.test(name)) files.set(name, { type, body: readFileSync(join(dir, name)) });
   }
+  stampWebFiles(files);
   return files;
+}
+
+/** The stamp put on every address a page loads its own files by. Changes whenever any web file does. */
+let webVersion = "";
+
+/**
+ * Makes every reference from one web file to another carry a stamp of the
+ * current build (`/web/client.js?v=3f9a…`). A proxy or a phone may keep
+ * scripts and styles for hours whatever the server says; with the stamp, a
+ * new build is a new address, so the page that is always fetched fresh brings
+ * fresh scripts with it.
+ */
+function stampWebFiles(files: Map<string, { type: string; body: Buffer }>): void {
+  const hash = createHash("sha256");
+  for (const name of [...files.keys()].sort()) hash.update(name).update(files.get(name)!.body);
+  webVersion = hash.digest("hex").slice(0, 12);
+  for (const [name, file] of files) {
+    if (!/\.(html|js|css|webmanifest)$/.test(name)) continue;
+    const stamped = file.body
+      .toString()
+      .replace(/(\/web\/[\w.-]+\.(?:js|css|png)|\/sw\.js|\/manifest\.webmanifest)(?=["'`)\s])/g, `$1?v=${webVersion}`);
+    files.set(name, { type: file.type, body: Buffer.from(stamped) });
+  }
 }
 
 export interface HttpDeps {
@@ -341,7 +365,8 @@ export function createHttpHandler(deps: HttpDeps) {
           "content-security-policy": PAGE_POLICY,
           "content-type": file.type,
           "content-length": file.body.length,
-          "cache-control": "no-cache",
+          // A stamped address never changes what it means, so it may be kept for good; anything else is checked every time.
+          "cache-control": url.searchParams.get("v") === webVersion ? "public, max-age=31536000, immutable" : "no-cache",
         });
         res.end(file.body);
         return;
