@@ -95,9 +95,26 @@ export class Vortex {
     this.level = level;
   }
 
+  /**
+   * Idle looks to leave out, as a list of names or one string with commas (the `idleLooksOff` setting).
+   * Names it does not know are ignored, and if every look is named the first one stays, so there is always one.
+   */
+  setIdleOff(names) {
+    const off = new Set((Array.isArray(names) ? names : String(names ?? "").split(",")).map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+    this.idleOn = IDLE.map(([name], index) => (off.has(name) ? -1 : index)).filter((index) => index >= 0);
+    if (!this.idleOn.length) this.idleOn = [0];
+    // A look just switched off should not stay on screen until its time runs out.
+    if (this.mode === "idle" && !this.held && !this.idleOn.includes(this.idleIndex)) this.pickIdle();
+  }
+
   pickIdle() {
+    const on = this.idleOn ?? IDLE.map((_, index) => index);
     let next = this.idleIndex;
-    while (next === this.idleIndex) next = Math.floor(Math.random() * IDLE.length);
+    // Never the same look twice in a row, unless it is the only one left on.
+    while (next === this.idleIndex || !on.includes(next)) {
+      next = on[Math.floor(Math.random() * on.length)];
+      if (on.length === 1) break;
+    }
     this.idleIndex = next;
     this.idleRemaining = 7 + Math.random() * 10;
     this.target = { ...IDLE[next][1] };

@@ -487,3 +487,6 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
 .face-tile canvas { width: 100%; aspect-ratio: 1; display: block; }
 .face-tile:hover { border-color: var(--line-strong); }
 .face-tile.on { border-color: var(--link); color: #fff; }
+.face-cell { display: flex; flex-direction: column; gap: 4px; }
+.face-cell label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--dim); }
+.face-cell.off .face-tile { opacity: 0.4; }

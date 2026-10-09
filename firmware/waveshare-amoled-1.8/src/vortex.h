@@ -25,6 +25,9 @@ void setMode(Mode mode);
 /** Loudness of the voice being played, 0 to 1. Negative means "not known": the face pulses on its own. */
 void setLevel(float level);
 
+/** Idle looks to leave out: their names separated by commas, as the `idleLooksOff` setting holds them. */
+void setIdleOff(const char *names);
+
 /** Advances the animation by `seconds` and draws a frame. */
 const uint16_t *render(float seconds);
 

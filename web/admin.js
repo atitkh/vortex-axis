@@ -503,6 +503,34 @@ function applyFaceVoice() {
 }
 $("face-voice").addEventListener("input", applyFaceVoice);
 
+/** Idle looks switched off for every device: the `idleLooksOff` setting in the layer all devices share. */
+let idleOff = new Set();
+
+/** Saves which idle looks are off, and ticks and dims the tiles to match. */
+function showIdleOff() {
+  for (const cell of document.querySelectorAll("#face-idle .face-cell")) {
+    const off = idleOff.has(cell.dataset.look);
+    cell.classList.toggle("off", off);
+    cell.querySelector("input").checked = !off;
+  }
+}
+
+async function toggleIdle(name, on, box) {
+  const next = new Set(idleOff);
+  if (on) next.delete(name);
+  else next.add(name);
+  if (next.size >= IDLE.length) {
+    box.checked = true;
+    return note("face-note", "One look has to stay on.", "warn");
+  }
+  await act(box, "face-note", async () => {
+    const saved = await api("PATCH", "/admin/settings/global", { values: { idleLooksOff: [...next].join(",") || null } });
+    idleOff = new Set(String(saved.values.idleLooksOff ?? "").split(",").filter(Boolean));
+    note("face-note", `${name} is ${on ? "back in" : "out of"} the idle looks.`, "good");
+  });
+  showIdleOff();
+}
+
 function openFaces() {
   if (faces.length) return;
   const tile = (entry) => {
@@ -513,7 +541,9 @@ function openFaces() {
     face.now = { ...entry.look };
     face.hold(entry.look, entry.mode);
     faces.push(face);
-    return button;
+    if (entry.group !== "idle") return button;
+    const box = h("input", { type: "checkbox", checked: "", onchange: (event) => toggleIdle(entry.name, event.target.checked, event.target) });
+    return h("div", { class: "face-cell", "data-look": entry.name }, button, h("label", {}, box, "in the idle looks"));
   };
   const looks = allLooks();
   $("face-idle").replaceChildren(...looks.filter((l) => l.group === "idle").map(tile));
@@ -522,6 +552,14 @@ function openFaces() {
   bigFace.calm = false;
   faces.push(bigFace);
   chooseFace(faceChosen);
+  if (token) {
+    api("GET", "/admin/settings/global")
+      .then((layer) => {
+        idleOff = new Set(String(layer.values.idleLooksOff ?? "").split(",").map((n) => n.trim()).filter(Boolean));
+        showIdleOff();
+      })
+      .catch(() => undefined);
+  }
 }
 
 function closeFaces() {

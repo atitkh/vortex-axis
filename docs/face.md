@@ -174,6 +174,8 @@ Checked in this order; the first that applies wins.
 | Turn state `error` | error (the board until the next state; the web client for 5 s) |
 | Anything else | idle |
 
+**Idle looks can be switched off.** The setting `idleLooksOff` holds the names of idle looks to leave out, separated by commas (spaces and letter case do not matter; unknown names are ignored). It is one of Axis's own settings, so it reaches every client through the ordinary settings sync and can differ per type or device; the admin Face page edits the value all devices share. A client never picks a look named there, moves off one at once if it is showing when the setting arrives, and keeps the first idle look if every one is named.
+
 **Idle never loops.** Entering idle picks an idle look at random. Each lasts a random 7 to 17 seconds, then another is picked at random, never the same one twice in a row.
 
 ## 6. Per-device freedom

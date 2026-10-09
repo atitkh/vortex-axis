@@ -93,9 +93,23 @@ void fillCircle(float cx, float cy, float radius, uint16_t color) {
     }
 }
 
+// One bit per idle look: set means the look may be picked. Never left empty.
+uint32_t idleOn = 0xFFFFFFFFu;
+
+bool idleAllowed(int index) { return (idleOn >> index) & 1u; }
+
 void pickIdle() {
+    int allowed = 0, only = 0;
+    for (int i = 0; i < IDLE_COUNT; i++) {
+        if (idleAllowed(i)) {
+            allowed++;
+            only = i;
+        }
+    }
     int next = idleIndex;
-    while (next == idleIndex) next = esp_random() % IDLE_COUNT;
+    // Never the same look twice in a row, unless it is the only one left on.
+    if (allowed <= 1) next = only;
+    else while (next == idleIndex || !idleAllowed(next)) next = esp_random() % IDLE_COUNT;
     idleIndex = next;
     idleRemaining = 7.0f + randomUnit() * 10.0f;
     target = IDLE[idleIndex].look;
@@ -123,6 +137,28 @@ void setMode(Mode next) {
 }
 
 void setLevel(float value) { level = value; }
+
+void setIdleOff(const char *names) {
+    uint32_t on = 0;
+    for (int i = 0; i < IDLE_COUNT; i++) {
+        // A look is off when its whole name appears between commas, spaces aside.
+        bool off = false;
+        const size_t length = strlen(IDLE[i].name);
+        for (const char *at = names ? names : ""; *at && !off;) {
+            while (*at == ' ' || *at == ',') at++;
+            const char *end = at;
+            while (*end && *end != ',') end++;
+            const char *last = end;
+            while (last > at && last[-1] == ' ') last--;
+            off = (size_t)(last - at) == length && !strncasecmp(at, IDLE[i].name, length);
+            at = end;
+        }
+        if (!off) on |= 1u << i;
+    }
+    // With every look named there would be nothing to show: keep the first.
+    idleOn = on ? on : 1u;
+    if (mode == Mode::Idle && !idleAllowed(idleIndex)) pickIdle();
+}
 
 const char *idleName() { return IDLE[idleIndex].name; }
 

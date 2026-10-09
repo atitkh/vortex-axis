@@ -34,6 +34,13 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     default: 300,
     help: "Silence Axis puts between spoken sentences. Half of it after a comma, one and a half times at a new paragraph.",
   },
+  {
+    key: "idleLooksOff",
+    label: "Idle looks switched off",
+    kind: "text",
+    group: "Screen",
+    help: "Names of idle looks of the vortex face this device should not drift into, separated by commas. Easier to set on the Face page, which shows each one.",
+  },
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };

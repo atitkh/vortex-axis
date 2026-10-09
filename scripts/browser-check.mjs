@@ -315,6 +315,11 @@ try {
   await admin.until(`document.querySelectorAll('.face-tile').length >= 20`, "the face tiles");
   await admin.run(`document.querySelector('.face-tile[data-look="galaxy"]').click()`);
   step("face viewer", await admin.until(`${byId("face-name")}.textContent.startsWith('galaxy') && document.querySelectorAll('#face-numbers tr').length === 13 && (document.querySelectorAll('.face-tile').length + ' looks, galaxy chosen')`, "a look to be chosen"));
+  // Switching an idle look off saves it for every device, and the tile dims.
+  await admin.run(`document.querySelector('.face-cell[data-look="curl"] input').click()`);
+  step("idle look off", await admin.until(`document.querySelector('.face-cell[data-look="curl"]').classList.contains('off') && ${byId("face-note")}.textContent`, "the look to be switched off"));
+  const shared = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  if (shared.values.idleLooksOff !== "curl") throw new Error(`idleLooksOff was saved as ${JSON.stringify(shared.values.idleLooksOff)}`);
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
   await admin.run(`history.go(-4)`);
