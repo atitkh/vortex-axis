@@ -278,6 +278,8 @@ export function createHttpHandler(deps: HttpDeps) {
       // Whether it can be reached with its page closed, and what is being kept for it while it is away.
       notifications: deps.push?.has(id) ?? false,
       waiting: deps.delivery?.waitingFor(id) ?? 0,
+      // Sent to its closed page as notifications and not yet opened there.
+      notified: deps.delivery?.notifiedFor(id) ?? 0,
     };
   }
 

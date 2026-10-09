@@ -419,6 +419,9 @@ function route() {
   for (const section of document.querySelectorAll(".view")) section.classList.toggle("on", section.id === name);
   const navKey = name === "device" ? "clients" : name === "type" ? `type:${id}` : name;
   for (const a of document.querySelectorAll(".side a")) a.classList.toggle("on", a.dataset.view === navKey);
+  // On a phone the sidebar is a drawer: the bar says which page this is, and choosing one closes it.
+  $("where").textContent = document.querySelector(".side a.on")?.firstChild?.textContent.trim() ?? "";
+  openNav(false);
   renderView();
   // The face page animates twenty-odd canvases; they only run while it is open.
   if (name === "face") openFaces();
@@ -452,6 +455,16 @@ function renderView() {
   if (view.name === "integrations" || !lastIntegrations) loadIntegrations();
   renderAnnounceTargets();
 }
+
+function openNav(open) {
+  $("app").classList.toggle("nav-open", open);
+  $("menu").setAttribute("aria-expanded", String(open));
+}
+$("menu").addEventListener("click", () => openNav(!$("app").classList.contains("nav-open")));
+$("nav-shade").addEventListener("click", () => openNav(false));
+// A link to the page already showing changes no address, so the drawer is closed on the tap itself.
+$("nav").addEventListener("click", (event) => event.target.closest("a") && openNav(false));
+window.addEventListener("keydown", (event) => event.key === "Escape" && openNav(false));
 
 // The face in the corner and on the sign-in page: the same one the devices wear.
 for (const id of ["brand-face", "signin-face"]) new Vortex($(id)).setMode("idle");
@@ -1888,11 +1901,21 @@ function renderNow() {
   const box = $("live-now");
   const now = lastNow;
   const kept = lastClients.filter((c) => c.waiting);
-  if (!now || (!now.timers.length && !now.clients.length && !kept.length)) {
-    return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no timers, no questions, no conversations, no messages waiting."));
+  const notified = lastClients.filter((c) => c.notified);
+  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length)) {
+    return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no timers, no questions, no conversations, no messages or notifications waiting."));
   }
   const device = (id, name) => h("a", { href: `#clients/${encodeURIComponent(id)}` }, name);
   const rows = [
+    ...notified.map((c) =>
+      h("tr", {},
+        h("td", {}, "Notification"),
+        h("td", {}, device(c.id, c.name)),
+        h("td", {}, `${plural(c.notified, "message")} sent to its closed page, not opened there yet`),
+        h("td", {}),
+        h("td", {}),
+      ),
+    ),
     ...kept.map((c) =>
       h("tr", {},
         h("td", {}, "Kept message"),

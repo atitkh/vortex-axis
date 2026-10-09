@@ -129,8 +129,11 @@ describe("web push", () => {
       // Opened from the notification, the page asks what it missed, and is told once.
       const missed = () =>
         fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+      // Until then the admin page can see that one is waiting to be opened.
+      expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body.notified).toBe(1);
       expect((await missed()).messages).toEqual(["Dinner is ready."]);
       expect((await missed()).messages).toEqual([]);
+      expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body.notified).toBe(0);
     } finally {
       service.close();
     }

@@ -149,6 +149,11 @@ export class Delivery {
     return (this.held.get(clientId) ?? []).filter((h) => h.until > this.now()).length;
   }
 
+  /** How many messages went to a client as notifications and have not been shown in its page yet, for the admin page. */
+  notifiedFor(clientId: string): number {
+    return (this.notified.get(clientId) ?? []).filter((m) => m.until > this.now()).length;
+  }
+
   /** Says what was kept for a client that has just connected. */
   private async flush(session: Session): Promise<void> {
     const waiting = (this.held.get(session.client.id) ?? []).filter((h) => h.until > this.now());

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
   <title>VorteX Axis admin</title>
   <link rel="icon" href="data:,">
@@ -24,12 +24,14 @@
 
 <div id="app" class="shell hidden">
   <header class="bar">
-    <span class="brand"><canvas id="brand-face" aria-hidden="true"></canvas>VorteX Axis</span>
+    <button class="plain" id="menu" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav"><span></span></button>
+    <span class="brand"><canvas id="brand-face" aria-hidden="true"></canvas><span class="brand-name">VorteX Axis</span><span class="where" id="where"></span></span>
     <div class="health" id="summary"></div>
     <button class="plain" id="signout">Sign out</button>
   </header>
 
-  <nav class="side">
+  <div class="shade" id="nav-shade"></div>
+  <nav class="side" id="nav">
     <a href="#overview" data-view="overview">Overview <span class="count" id="nav-overview"></span></a>
     <a href="#live" data-view="live">Live <span class="count" id="nav-live"></span></a>
     <a href="#clients" data-view="clients">Clients <span class="count" id="nav-clients"></span></a>

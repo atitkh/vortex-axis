@@ -316,6 +316,10 @@ Added 2026-10-09.
 
 **One page for how it is going.** The Activity page was folded into the Overview (same tiles, strips and events, now with the charts and the 24 hours / 3 days / 7 days choice). The Now table (timers, questions, devices mid-turn, messages kept for a device that is away) moved to the Live page, which is the one place for what is happening this moment.
 
+**Phones.** Below 720 px the admin page is laid out for a phone: the sidebar is a drawer behind a menu button (the bar names the page that is open), fields are 16 px so iOS does not zoom on a tap, buttons are at least 40 px tall, any table that cannot shrink scrolls inside itself, long ids and addresses wrap, and the bar and page edges keep clear of the notch and the home indicator. `npm run browser-check` opens every admin page at 390 px and fails if anything reaches past the screen outside a box that scrolls, or a button is under 32 px tall.
+
+**Now, on the Live page.** Beside devices mid-turn, questions and timers, the Now table lists messages kept for a device that is away (`waiting`) and messages sent to a closed browser as notifications that its page has not shown yet (`notified`), both from `GET /admin/clients`.
+
 **Integrations.** `GET /admin/integrations` reports how the things around Axis stand: the MQTT link to Home Assistant (broker host, never the password), which browsers have notifications on, the public names, the gateway links, and the last backup. Axis does not run backups; `scripts/backup-data.sh` leaves `backup-status.json` in the data folder on every run, success or failure, and Axis reads it. A copy older than 26 hours is shown as a problem whatever the schedule.
 
 **Sign-in.** The admin token is kept for the tab (`sessionStorage`) unless "Remember on this device" is ticked, when it goes in `localStorage` until sign-out. The admin page is not served under a public name, so this is a convenience for the owner's own browsers.

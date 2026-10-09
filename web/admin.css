@@ -602,3 +602,109 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 .integration .form input.short { max-width: 8rem; }
 .integration .form .value { margin: 6px 0 0; }
 .integration .inline.actions { margin-top: 12px; }
+
+/* --- phones ---------------------------------------------------------------------------- */
+/* Below 720 px the sidebar becomes a drawer behind a menu button, tables that cannot shrink scroll
+   inside their own box, and everything meant to be pressed is big enough for a thumb. */
+
+#menu, .shade, .where { display: none; }
+
+@media (max-width: 720px) {
+  .shell { display: block; min-height: 100dvh; }
+  .bar { position: sticky; top: 0; z-index: 20; flex-wrap: wrap; gap: 4px 10px; padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); padding-top: max(8px, env(safe-area-inset-top)); border-bottom: 1px solid var(--line); }
+  #menu { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; margin-left: -6px; }
+  #menu span, #menu span::before, #menu span::after { display: block; width: 18px; height: 2px; border-radius: 1px; background: var(--text); content: ""; }
+  #menu span { position: relative; }
+  #menu span::before { position: absolute; top: -6px; }
+  #menu span::after { position: absolute; top: 6px; }
+  .brand { flex: 1; min-width: 0; }
+  .brand-name { display: none; }
+  .where { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar #signout { margin-left: 0; min-height: 40px; }
+  .bar .health { order: 3; flex-basis: 100%; gap: 2px 12px; font-size: 12.5px; }
+
+  .side {
+    position: fixed; z-index: 40; top: 0; bottom: 0; left: 0; width: min(280px, 82vw);
+    flex-direction: column; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--surface); border-right: 1px solid var(--line); border-bottom: none;
+    padding: max(14px, env(safe-area-inset-top)) 10px max(20px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    gap: 0; transform: translateX(-105%); transition: transform 0.18s ease; visibility: hidden;
+  }
+  .nav-open .side { transform: none; visibility: visible; }
+  .side a { white-space: normal; padding: 10px 14px; font-size: 15.5px; justify-content: space-between; }
+  .navhead { display: block; padding-top: 18px; }
+  .navgroup { flex-direction: column; }
+  .shade { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, 0.6); }
+  .nav-open .shade { display: block; }
+
+  main { padding: 14px max(14px, env(safe-area-inset-right)) calc(56px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+
+  /* A long id or address with no spaces breaks where it must, instead of widening the page. */
+  main { overflow-wrap: break-word; }
+  .mono, .value, .help, .msg, .sub { overflow-wrap: anywhere; }
+
+  /* 16 px in a field stops a phone zooming the page in when it is tapped. */
+  input, select, textarea { font-size: 16px; padding: 8px 10px; }
+  input.mono, textarea.mono { font-size: 14px; }
+  button, a.button { min-height: 40px; padding: 8px 16px; }
+  button.small { min-height: 34px; padding: 5px 12px; }
+  .seg button { min-height: 36px; }
+  input[type="checkbox"] { width: 20px; height: 20px; }
+  input[type="file"] { padding: 6px; }
+  .switch input { flex: none; }
+
+  .head { gap: 8px 10px; }
+  .head h2 { flex: 1 1 100%; font-size: 19px; }
+  .head .seg, .head input[type="search"] { flex: 1 1 100%; }
+  .head .seg button { flex: 1; }
+  #wakewords .head .help { flex: 1 1 100%; }
+
+  /* Any table may be wider than the screen; it scrolls inside itself and the page stays put. */
+  main table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  main table.settings { display: table; overflow: visible; table-layout: auto; }
+  .scrollbox table { display: table; }
+  .scrollbox { overflow-x: auto; }
+  table.events td.tight { white-space: normal; width: auto; }
+  td, th { padding: 8px 8px; }
+  td .inline { flex-wrap: nowrap; }
+
+  .tiles, .tiles.small { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tile { padding: 10px 12px; min-width: 0; }
+  .tile-value { font-size: 19px; overflow-wrap: anywhere; }
+  .chartbox { padding: 10px 12px; }
+
+  .inline { gap: 8px; }
+  .inline > input, .inline > select { flex: 1 1 100%; }
+  .announce .inline > select { flex: 1 1 100%; width: 100%; }
+  .announce .inline > button { flex: 1; }
+  .add #set-key { flex: 1 1 100%; }
+  .form { grid-template-columns: minmax(0, 1fr); }
+  .form > *, .form .contents > * { min-width: 0; }
+  .form.compact input, .integration .form input, .integration .form input.short, input.short { max-width: none; }
+  .code { font-size: 26px; }
+  pre, code { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+  .device-top { gap: 16px; }
+  .device-top > .form { min-width: 0; flex-basis: 100%; }
+  .device-preview { flex: 1 1 100%; }
+  .face-stage { gap: 12px; }
+  .face-big { flex: 1 1 100%; display: flex; justify-content: center; }
+  .face-big canvas { width: min(300px, 100%); height: auto; aspect-ratio: 1; }
+  .face-detail { min-width: 0; flex-basis: 100%; }
+  .face-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+
+  .turn-card, .integration { padding: 10px 12px; border-radius: 10px; }
+  .turn-head .sub { flex: 1 1 auto; }
+  .integration-head { flex-wrap: wrap; gap: 4px 12px; }
+  .step { min-width: 0; flex: 1 1 46%; }
+
+  .toast { bottom: calc(14px + env(safe-area-inset-bottom)); border-radius: 14px; width: max-content; }
+  .signin { margin-top: 6vh; }
+  .viz-tip { max-width: calc(100vw - 24px); }
+  .strip-row { grid-template-columns: 76px minmax(0, 1fr) 44px; }
+  details summary { padding: 8px 0; }
+}
+
+@media (max-width: 380px) {
+  .tiles, .tiles.small { grid-template-columns: 1fr; }
+}

@@ -149,7 +149,12 @@ async function openPage(url) {
       await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 }, sessionId);
     }
   };
-  return { run, until, click, front: () => call("Page.bringToFront", {}, sessionId) };
+  // Makes the page a phone's size, or its own again.
+  const phone = (on) =>
+    on
+      ? call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }, sessionId)
+      : call("Emulation.clearDeviceMetricsOverride", {}, sessionId);
+  return { run, until, click, phone, front: () => call("Page.bringToFront", {}, sessionId) };
 }
 
 const pills = (selector) =>
@@ -345,6 +350,46 @@ try {
   })()`);
   step("firmware uploaded", await admin.until(`${byId("firmware-shelves")}.textContent.includes('sent to devices') && ${byId("firmware-shelves")}.textContent.replace(/\\s+/g, ' ')`, "the build to be listed"));
   await admin.run(`window.confirm = () => true; [...document.querySelectorAll('#firmware-shelves button')].find((b) => b.textContent === 'Remove').click()`);
+  // Every page at a phone's width: nothing may stick out past the screen except inside a box that scrolls.
+  {
+    await admin.phone(true);
+    const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+    const pages = ["overview", "live", "clients", `clients/${known.clients[0].id}`, "type/web", "settings", "pair", "openclaw", "agent", "speech", "firmware", "wakewords", "face", "integrations"];
+    const wide = [];
+    for (const page of pages) {
+      await admin.run(`location.replace('#${page}')`);
+      await new Promise((r) => setTimeout(r, 700));
+      const found = JSON.parse(await admin.run(`(() => {
+        const w = document.documentElement.clientWidth, out = [];
+        for (const el of document.querySelectorAll('.bar, .bar *, main *')) {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height || r.right <= w + 1) continue;
+          let p = el.parentElement, boxed = false;
+          for (; p && p !== document.body; p = p.parentElement) if (getComputedStyle(p).overflowX !== 'visible') { boxed = true; break; }
+          if (!boxed) out.push(el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ')[0] : '') + '@' + Math.round(r.right));
+        }
+        const small = [...document.querySelectorAll('main button, main a.button, .bar button')].filter(b => b.offsetWidth && b.offsetHeight < 32).length;
+        // When the page is too wide and nothing in it explains why, name whatever reaches furthest, wherever it is.
+        if (!out.length && document.documentElement.scrollWidth > w) {
+          // Text can run out of a box that itself fits, so the box's own scroll width is what gives it away.
+          const far = [...document.querySelectorAll('body *')].filter((el) => el.offsetWidth && (el.getBoundingClientRect().right > w + 1 || el.getBoundingClientRect().left + el.scrollWidth > w + 1) && getComputedStyle(el).overflowX === 'visible').slice(-4);
+          out.push(...far.map((el) => 'far:' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ')[0] : '') + '@' + Math.round(el.getBoundingClientRect().right)));
+        }
+        return JSON.stringify({ over: document.documentElement.scrollWidth - w, who: out.slice(0, 5), small });
+      })()`));
+      if (found.over > 0 || found.who.length || found.small) wide.push(`${page}: ${found.over}px over, ${found.who.join(" ")}${found.small ? `, ${found.small} small buttons` : ""}`);
+    }
+    // The sidebar is a drawer here: shut until the menu button is pressed, and shut again once a page is chosen.
+    const shut = await admin.run(`getComputedStyle(${byId("nav")}).visibility === 'hidden' && getComputedStyle(${byId("menu")}).display !== 'none'`);
+    await admin.run(`location.replace('#firmware')`);
+    await admin.run(`${byId("menu")}.click()`);
+    const opened = await admin.until(`getComputedStyle(${byId("nav")}).visibility === 'visible'`, "the menu to open");
+    await admin.run(`document.querySelector('#nav a[data-view="firmware"]').click()`);
+    await admin.until(`getComputedStyle(${byId("nav")}).visibility === 'hidden' && ${byId("firmware")}.classList.contains('on') && ${byId("where")}.textContent === 'Firmware'`, "the menu to close on a choice");
+    await admin.phone(false);
+    if (wide.length) throw new Error(`at phone width: ${wide.join(" | ")}`);
+    step("phone width", `${pages.length} pages fit in 390 px; menu drawer shut=${shut}, opens=${opened}, closes on a choice`);
+  }
   step("firmware removed", await admin.until(`${byId("firmware-shelves")}.textContent.includes('No builds held') && 'gone'`, "the build to go"));
 
   // The face viewer: every look as a tile, and choosing one fills in its numbers.
