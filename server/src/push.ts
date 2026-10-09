@@ -140,7 +140,7 @@ export class PushService {
    * dropped the subscription (the person turned notifications off, or removed
    * the app); it is forgotten here too.
    */
-  async notify(clientId: string, message: PushMessage, ttlSeconds = 3600): Promise<PushOutcome> {
+  async notify(clientId: string, message: PushMessage, ttlSeconds = 3600, attempt = 1): Promise<PushOutcome> {
     const subscription = this.store.getPushSubscription(clientId);
     if (!subscription) return "failed";
     try {
@@ -169,6 +169,8 @@ export class PushService {
       }
       return "sent";
     } catch (error) {
+      // A push service now and then fails to answer in time. Once more is usually enough.
+      if (attempt === 1) return this.notify(clientId, message, ttlSeconds, 2);
       this.log(`push: could not reach the push service for ${clientId}: ${(error as Error).message}`);
       return "failed";
     }
