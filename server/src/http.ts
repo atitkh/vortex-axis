@@ -360,6 +360,18 @@ export function createHttpHandler(deps: HttpDeps) {
       return;
     }
 
+    // A client with a cancel button on its countdown, cancelling the timer it is showing.
+    if (method === "POST" && url.pathname === "/v1/timers/cancel" && deps.timers) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      const body = (await readJson(req)) as { id?: unknown };
+      if (typeof body.id !== "number") throw new HttpError(400, "say which timer: id");
+      const gone = deps.timers.cancel({ id: body.id });
+      if (gone.length) activity?.note("timer", client.id, `Timer "${gone[0]!.label || "Timer"}" cancelled from ${client.name}`);
+      return sendJson(res, 200, { cancelled: gone.length });
+    }
+
     // --- notifications for a browser client whose page is closed ---
     if (parts.length === 3 && parts[0] === "v1" && parts[1] === "push" && deps.push) {
       // The key a browser needs before it can subscribe. It is public.
@@ -400,7 +412,7 @@ export function createHttpHandler(deps: HttpDeps) {
         const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
         const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
         if (!client) throw new HttpError(401, "unknown client or wrong token");
-        return sendJson(res, 200, { asks: deps.delivery.openAsks(client.id) });
+        return sendJson(res, 200, { asks: deps.delivery.openAsks(client.id), messages: deps.delivery.takeNotified(client.id) });
       }
 
       // A choice picked from a notification. The one-time token in the notification is what proves the answer is real.

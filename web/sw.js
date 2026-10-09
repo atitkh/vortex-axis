@@ -25,7 +25,11 @@ self.addEventListener("push", (event) => {
       requireInteraction: Boolean(ask),
       // Buttons where the system has them (Android, desktop). An iPhone shows none: tapping opens the page, which offers the choices.
       actions: ask ? ask.choices.slice(0, 2).map((choice) => ({ action: `choice:${choice}`, title: choice })) : [],
-    }),
+    }).then(async () => {
+      // The number on the app's icon: how many notifications are waiting to be read.
+      const waiting = await self.registration.getNotifications();
+      await self.navigator.setAppBadge?.(waiting.length || 1);
+    }).catch(() => undefined),
   );
 });
 

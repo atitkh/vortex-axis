@@ -125,6 +125,12 @@ describe("web push", () => {
       const claims = JSON.parse(Buffer.from(String(post.headers.authorization).split(".")[1]!, "base64url").toString());
       expect(claims.aud).toBe(new URL(service.endpoint).origin);
       expect(JSON.parse(mine.open(post.body))).toMatchObject({ title: "Vortex", body: "Dinner is ready." });
+
+      // Opened from the notification, the page asks what it missed, and is told once.
+      const missed = () =>
+        fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+      expect((await missed()).messages).toEqual(["Dinner is ready."]);
+      expect((await missed()).messages).toEqual([]);
     } finally {
       service.close();
     }
@@ -188,6 +194,25 @@ describe("web push", () => {
     } finally {
       service.close();
     }
+  });
+});
+
+describe("a timer cancelled from a client's own screen", () => {
+  it("cancels the timer the client was shown, for that client only by its token", async () => {
+    const { identity, client } = await ready(["speaker", "screen"], { name: "Desk" });
+    const set = await invoke("vortex.axis.timer", { action: "set", seconds: 600, label: "tea", client: "Desk" });
+    const shown = await client.next("command", 0, (m) => m.name === "timer.next" && Number(m.params?.ms) > 0);
+    expect(shown.params).toMatchObject({ label: "tea", id: set.set.id });
+
+    const cancel = (headers: Record<string, string>, body: unknown) =>
+      fetch(`${ctx.base}/v1/timers/cancel`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+    const asMe = { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId };
+    expect((await cancel({}, { id: set.set.id })).status).toBe(401);
+    expect((await cancel(asMe, {})).status).toBe(400);
+    expect(await (await cancel(asMe, { id: set.set.id })).json()).toEqual({ cancelled: 1 });
+    expect((await invoke("vortex.axis.timer", { action: "list" })).timers).toEqual([]);
+    // The screen is told there is nothing left to count down.
+    await client.next("command", 0, (m) => m.name === "timer.next" && Number(m.params?.ms) === 0);
   });
 });
 

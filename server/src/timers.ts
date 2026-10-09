@@ -199,7 +199,8 @@ export class Timers {
     const next = all[0];
     const params = next
       ? // An unnamed timer is shown as "Timer 0:42". Its length would read like a second timer starting.
-        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: all.length }
+        // The id lets a client with a cancel button say which timer it means.
+        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: all.length, id: next.id }
       : { label: "", ms: 0, count: 0 };
     for (const session of only ? [only] : this.hub.sessions()) {
       if (!session.client.capabilities.includes("screen")) continue;

@@ -236,6 +236,18 @@ try {
   await client.until(`document.querySelector('#pills .pill')?.textContent === 'idle'`, "idle after speaking", 20000);
   step("last entries", await client.run(`[...document.querySelectorAll('.bubble')].slice(-2).map(b => b.className.replace('bubble ', '') + ': ' + b.textContent.slice(0, 50)).join(' | ')`));
 
+  // Holding the face: it listens while held and ends on release, and the click that follows the release does nothing.
+  const endsBefore = await client.run(`window.sent.filter(m => m.t === 'audio.end').length`);
+  const startsBefore = await client.run(`window.sent.filter(m => m.t === 'audio.start').length`);
+  await client.run(`${byId("mic")}.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }))`);
+  await client.until(`window.sent.filter(m => m.t === 'audio.start').length > ${startsBefore} && ${byId("mic")}.classList.contains('held')`, "listening while the face is held");
+  await new Promise((r) => setTimeout(r, 1800)); // longer than the pause that ends a tapped turn
+  if ((await client.run(`window.sent.filter(m => m.t === 'audio.end').length`)) !== endsBefore) throw new Error("a held turn ended before the face was let go");
+  await client.run(`${byId("mic")}.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); ${byId("mic")}.click()`);
+  await client.until(`window.sent.filter(m => m.t === 'audio.end').length > ${endsBefore}`, "the turn to end on release");
+  step("hold to talk", `ended on release (${await client.run(`window.sent.filter(m => m.t === 'audio.end').at(-1).reason`)}), starts ${await client.run(`window.sent.filter(m => m.t === 'audio.start').length - ${startsBefore}`)}`);
+  await client.until(`document.querySelector('#pills .pill')?.textContent === 'idle'`, "idle after the held turn", 20000);
+
   // --- back on the admin page ---------------------------------------------
   await admin.front();
   step("client listed", await admin.until(`document.querySelector('#client-table tbody tr')?.textContent.replace(/\\s+/g, ' ').slice(0, 80)`, "the client row"));

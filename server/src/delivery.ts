@@ -59,6 +59,8 @@ const MAX_HELD = 5;
 export class Delivery {
   private readonly held = new Map<string, Held[]>();
   private readonly asks = new Map<string, PendingAsk>();
+  /** What was sent to a closed browser as notifications, for the page to show once it is opened. */
+  private readonly notified = new Map<string, { text: string; until: number }[]>();
   private readonly now: () => number;
 
   constructor(private readonly options: DeliveryOptions) {
@@ -100,6 +102,10 @@ export class Delivery {
     if (this.options.push?.has(client.id)) {
       const outcome = await this.options.push.notify(client.id, { title: "Vortex", body: text, tag: "say" });
       if (outcome === "sent") {
+        // Kept a while as well, so the page can show it when the notification is tapped.
+        const kept = (this.notified.get(client.id) ?? []).filter((m) => m.until > this.now());
+        kept.push({ text, until: this.now() + this.options.holdMs });
+        this.notified.set(client.id, kept.slice(-MAX_HELD));
         this.options.note?.(client.id, `Sent to ${client.name} as a notification (its page is closed)`);
         return { client: client.name, heard: false, shown: true, note: "Its page is closed, so this went to it as a notification. Nothing was spoken." };
       }
@@ -221,6 +227,13 @@ export class Delivery {
     return [...this.asks]
       .filter(([, ask]) => ask.clientId === clientId)
       .map(([id, ask]) => ({ id, token: ask.token, question: ask.question, choices: ask.choices }));
+  }
+
+  /** The messages a client was sent as notifications and has not yet shown in its page. Handing them over forgets them. */
+  takeNotified(clientId: string): string[] {
+    const kept = (this.notified.get(clientId) ?? []).filter((m) => m.until > this.now());
+    this.notified.delete(clientId);
+    return kept.map((m) => m.text);
   }
 
   /** An answer picked from a notification. False when the question is no longer open or the answer is not one of its choices. */

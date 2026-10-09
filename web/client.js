@@ -357,7 +357,7 @@ function onMessage(message) {
       // The only thing Axis asks of this page: which timer is next, so it can count down.
       if (message.name === "timer.next") {
         const ms = Number(message.params?.ms) || 0;
-        nextTimer = ms > 0 ? { label: String(message.params.label ?? ""), endsAt: Date.now() + ms, count: Number(message.params.count) || 1 } : undefined;
+        nextTimer = ms > 0 ? { label: String(message.params.label ?? ""), endsAt: Date.now() + ms, count: Number(message.params.count) || 1, id: message.params.id } : undefined;
         renderTimer();
         send({ t: "command.result", id: message.id, ok: true });
       } else {
@@ -415,8 +415,24 @@ function renderTimer() {
   if (!nextTimer) return;
   const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = String(left % 60).padStart(2, "0");
   const clock = h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
-  line.textContent = `${nextTimer.label} ${clock}${nextTimer.count > 1 ? ` (+${nextTimer.count - 1})` : ""}`;
+  $("timer-text").textContent = `${nextTimer.label} ${clock}${nextTimer.count > 1 ? ` (+${nextTimer.count - 1})` : ""}`;
+  // An older Axis does not say which timer it is; then there is nothing to cancel by.
+  $("timer-cancel").hidden = typeof nextTimer.id !== "number";
 }
+$("timer-cancel").addEventListener("click", async () => {
+  if (!nextTimer || !identity) return;
+  $("timer-cancel").disabled = true;
+  try {
+    await fetch("/v1/timers/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId },
+      body: JSON.stringify({ id: nextTimer.id }),
+    });
+    // Axis sends the next timer, or none, to every screen once it is gone.
+  } finally {
+    $("timer-cancel").disabled = false;
+  }
+});
 setInterval(renderTimer, 1000);
 
 // --- speaking the reply ----------------------------------------------------
@@ -642,10 +658,10 @@ async function startCapture() {
       capture.quietSince = 0;
     } else if (capture.spoke) {
       capture.quietSince ||= now;
-      if (now - capture.quietSince > 1200) return stopCapture(true, "silence");
+      if (!holding && now - capture.quietSince > 1200) return stopCapture(true, "silence");
     }
     if (now - capture.startedAt > MAX_UTTERANCE_MS) stopCapture(true, "max");
-    else if (!capture.spoke && now - capture.startedAt > 6000) stopCapture(true, "cancel");
+    else if (!holding && !capture.spoke && now - capture.startedAt > 6000) stopCapture(true, "cancel");
   };
 
   send({ t: "audio.start", turnId, format: { encoding: "pcm_s16le", sampleRate: MIC_RATE, channels: 1 } });
@@ -667,8 +683,44 @@ function stopCapture(tellHub, reason = "silence") {
   renderFace();
 }
 
+// Holding the face is the other way to talk: it listens for as long as it is held and sends what was
+// said on release, with no waiting for a pause. A short press is still a tap.
+const HOLD_MS = 350;
+let holding = false;
+let holdTimer;
+let heldAt = 0;
+/** Set when a press turned into a hold, so the click that follows the release does nothing. */
+let swallowClick = false;
+
+function endHold() {
+  clearTimeout(holdTimer);
+  if (!holding) return;
+  holding = false;
+  $("mic").classList.remove("held");
+  // The microphone may still be starting (the browser asking for permission); then stop it as soon as it is up.
+  if (capture) stopCapture(true, capture.spoke || Date.now() - heldAt > 900 ? "silence" : "cancel");
+}
+
+$("mic").addEventListener("pointerdown", (event) => {
+  if (event.button > 0 || !identity || !online || !micAvailable || capture || starting) return;
+  if (player.turnId || ["transcribing", "thinking", "speaking"].includes(turnState)) return; // a tap stops those
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(async () => {
+    holding = true;
+    swallowClick = true;
+    heldAt = Date.now();
+    $("mic").classList.add("held");
+    player.ensure();
+    await startCapture();
+    if (!holding && capture) stopCapture(true, "cancel"); // let go before the microphone was ready
+  }, HOLD_MS);
+});
+for (const type of ["pointerup", "pointercancel", "pointerleave"]) $("mic").addEventListener(type, endHold);
+$("mic").addEventListener("contextmenu", (event) => event.preventDefault());
+
 // The face works like the board's screen: tap to talk, tap to finish, tap to stop it.
 $("mic").addEventListener("click", () => {
+  if (swallowClick) return void (swallowClick = false);
   player.ensure(); // a click is what lets the browser play sound later
   if (!identity || !online || starting) return;
   if (capture) return stopCapture(true, capture.spoke ? "silence" : "cancel");
@@ -715,6 +767,22 @@ function stopEverything() {
 $("stop").addEventListener("click", stopEverything);
 
 renderPills();
+// --- keeping the screen on -------------------------------------------------------------------
+// A phone dims and locks in the middle of a conversation. While this page is in front, ask the
+// system to keep the screen on; it lets go by itself when the page is hidden, so ask again each time.
+
+let wakeLock;
+async function keepAwake() {
+  if (!("wakeLock" in navigator) || document.visibilityState !== "visible" || !identity) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch {
+    // Low battery or the system saying no: the page still works, it just dims.
+  }
+}
+document.addEventListener("visibilitychange", keepAwake);
+keepAwake();
+
 // --- notifications while the page is closed ------------------------------------------------
 // A browser can be reached with its page closed if the person allows notifications. Axis then sends
 // what an agent wanted said here as a notification, and questions with their choices. An iPhone only
@@ -824,10 +892,16 @@ function showNotifiedAsk(ask) {
 let shownAsk = "";
 async function checkOpenAsks() {
   if (!identity || document.visibilityState !== "visible") return;
+  // The page is being looked at: nothing is unread any more.
+  navigator.clearAppBadge?.().catch(() => undefined);
+  worker?.getNotifications?.().then((shown) => shown.forEach((n) => !n.data?.ask && n.close())).catch(() => undefined);
   try {
     const res = await fetch("/v1/push/asks", { headers: asClient() });
     if (!res.ok) return;
-    const { asks } = await res.json();
+    const { asks, messages } = await res.json();
+    // What arrived as notifications while the page was closed: shown here, and kept in the history.
+    for (const text of messages ?? []) bubble("axis", text);
+    if (messages?.length) caption("", messages[messages.length - 1]);
     const ask = asks[asks.length - 1];
     if (ask && ask.id !== shownAsk) {
       shownAsk = ask.id;
