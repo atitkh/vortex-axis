@@ -523,7 +523,6 @@ void setup() {
     }
     // The wake word model takes a slab of internal memory in one piece, so it goes first, before Wi-Fi fragments the heap.
     const bool wakeOk = mic::loadWakeWord(&logOut);
-    mic::beginEchoCancel(&logOut);
     client.setLogSource(&logOut);
     client.begin(IDENTITY, &logOut);
     hasMic = hasSpeaker && mic::begin(client, &logOut);
@@ -681,11 +680,11 @@ void loop() {
     }
 
     if (started - lastReport >= 60000) {
-        logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u)\n",
+        logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u, largest piece %u)\n",
                          (unsigned long)(started / 1000), frames * 1000.0f / (started - lastReport),
                          drawMicros / 1000.0f / max(1u, (unsigned)frames), renderMicros / 1000.0f / max(1u, (unsigned)frames),
                          vortex::idleName(), (unsigned)ESP.getFreeHeap(),
-                         (unsigned)ESP.getMinFreeHeap());
+                         (unsigned)ESP.getMinFreeHeap(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         if (hasMic) {
             const mic::Stats m = mic::stats();
             const axis::Client::MicStats room = client.micStats();

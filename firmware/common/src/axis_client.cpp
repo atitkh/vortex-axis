@@ -14,6 +14,7 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <stdarg.h>
+#include <mbedtls/platform.h>
 
 #include "vad.h"
 
@@ -1695,7 +1696,16 @@ struct Client::Impl {
     }
 };
 
+// An encrypted connection needs about 45 KB for its buffers and handshake, and the framework is built to
+// take all of it from the small internal memory, which the Wi-Fi stack, the task stacks and the wake word
+// already share. On a board with the large (PSRAM) memory that is where it goes instead; without one, or
+// if that is full, it falls back to internal memory as before.
+static void *tlsCalloc(size_t count, size_t size) {
+    return heap_caps_calloc_prefer(count, size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
 void Client::begin(const Identity &identity, Stream *console) {
+    mbedtls_platform_set_calloc_free(tlsCalloc, free);
     impl_ = new Impl(*this);
     impl_->identity = identity;
     impl_->console = console;

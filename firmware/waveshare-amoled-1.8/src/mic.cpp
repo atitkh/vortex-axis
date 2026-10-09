@@ -241,18 +241,20 @@ bool loadWakeWord(Print *log) {
 
 bool beginEchoCancel(Print *log) {
     const uint32_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), spi = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    aec = aec_create(16000, 4, 1, AEC_MODE_SR_HIGH_PERF);
-    if (aec) {
-        aecChunk = aec_get_chunksize(aec);
+    aec_handle_t *made = aec_create(16000, 4, 1, AEC_MODE_SR_HIGH_PERF);
+    if (made) {
+        aecChunk = aec_get_chunksize(made);
         const size_t bytes = aecChunk * sizeof(int16_t);
         aecIn = (int16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM);
         aecRef = (int16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM);
         aecOut = (int16_t *)heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM);
         if (!aecIn || !aecRef || !aecOut || aecChunk + BLOCK * 2 > sizeof fifo / sizeof fifo[0]) {
-            aec_destroy(aec);
-            aec = nullptr;
+            aec_destroy(made);
+            made = nullptr;
         }
     }
+    // Set last: the microphone task starts using it the moment it is not null.
+    aec = made;
     if (log) {
         if (aec) log->printf("[aec] echo canceller ready: %u samples a frame, took %u bytes of internal memory and %u of the large memory\n",
                              (unsigned)aecChunk, (unsigned)(internal - heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
@@ -278,8 +280,22 @@ bool captureDone() { return capBuf && capGot >= capWant; }
 
 void setWakeEnabled(bool enabled) { wakeEnabled = enabled; }
 void setWakeSensitivity(uint8_t percent) { wake::setSensitivity(percent); }
-void setBargeIn(bool enabled) { bargeIn = enabled; }
-void setEchoCancel(bool enabled) { echoCancel = enabled; }
+// The canceller takes memory, so it is only started once both settings ask for it, and then it stays.
+static void wantEchoCancel() {
+    static bool tried = false;
+    if (bargeIn && echoCancel && !aec && !tried) {
+        tried = true;
+        beginEchoCancel(logOut);
+    }
+}
+void setBargeIn(bool enabled) {
+    bargeIn = enabled;
+    wantEchoCancel();
+}
+void setEchoCancel(bool enabled) {
+    echoCancel = enabled;
+    wantEchoCancel();
+}
 void captureClean(int16_t *buffer, size_t samples) {
     capCleanGot = 0;
     capClean = buffer;

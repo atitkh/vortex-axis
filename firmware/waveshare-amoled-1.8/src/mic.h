@@ -12,7 +12,7 @@ namespace mic {
 /** Loads the wake word model. Do this early, before Wi-Fi has taken its share of internal memory. */
 bool loadWakeWord(Print *log);
 
-/** Starts the echo canceller. Do this early too: it wants memory in one piece. False leaves the microphone as it is. */
+/** Starts the echo canceller. Called by itself the first time both `bargeIn` and `echoCancel` are on. False leaves the microphone as it is. */
 bool beginEchoCancel(Print *log);
 
 /** Starts the microphone task. The client must already be running. */
