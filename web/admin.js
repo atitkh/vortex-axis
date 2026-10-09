@@ -970,7 +970,22 @@ function renderDevice() {
       : []),
     // A browser can be reached with its page closed once the person there allows notifications.
     ...(client.type === "web"
-      ? row("When its page is closed", client.notifications ? "gets a notification" : h("span", { class: "sub" }, "not reachable (notifications are off in that browser)"))
+      ? row(
+          "When its page is closed",
+          client.notifications ? "gets a notification" : h("span", { class: "sub" }, "not reachable (notifications are off in that browser)"),
+          " ",
+          client.notifications
+            ? h("button", {
+                type: "button",
+                class: "small",
+                onclick: (event) =>
+                  act(event.target, "device-note", async () => {
+                    const told = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/notify-test`);
+                    note("device-note", `Test notification sent to ${told.sent}. It should appear there within a few seconds, open or closed.`, "good");
+                  }),
+              }, "Send a test")
+            : null,
+        )
       : []),
     ...(client.waiting ? row("Waiting for it", `${plural(client.waiting, "message")}, said when it is back`) : []),
     ...row("Id", h("span", { class: "mono sub" }, client.id)),

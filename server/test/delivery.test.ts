@@ -130,6 +130,21 @@ describe("web push", () => {
     }
   });
 
+  it("sends a test notification from the admin page, open or closed", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const { identity } = await ready(["screen", "speaker"], { name: "Laptop" });
+      expect((await admin("POST", `/admin/clients/${identity.clientId}/notify-test`)).status).toBe(409);
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      // The page is open and connected; the notification goes out all the same.
+      expect(await admin("POST", `/admin/clients/${identity.clientId}/notify-test`)).toMatchObject({ status: 200, body: { sent: "Laptop" } });
+      expect(JSON.parse(mine.open(service.posts[0]!.body))).toMatchObject({ title: "Vortex", body: "Test notification for Laptop." });
+    } finally {
+      service.close();
+    }
+  });
+
   it("forgets a subscription the browser has dropped, and keeps the message instead", async () => {
     const service = await pushService(410);
     const mine = browser();

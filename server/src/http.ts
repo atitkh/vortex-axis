@@ -627,6 +627,18 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, { removed: type });
         }
       }
+      // Sends a browser client a notification whether or not its page is open, to see that notifications reach it.
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "notify-test") {
+        const client = store.getClient(parts[2]!);
+        if (!client) throw new HttpError(404, "no such client");
+        if (!deps.push?.has(client.id)) throw new HttpError(409, `${client.name} has not turned notifications on`);
+        const outcome = await deps.push.notify(client.id, { title: "Vortex", body: `Test notification for ${client.name}.`, tag: "test" });
+        if (outcome === "gone") throw new HttpError(409, `${client.name}'s browser has dropped its subscription. Turn notifications on there again.`);
+        if (outcome !== "sent") throw new HttpError(502, "the browser's push service did not take it. The Axis log says why.");
+        activity?.note("admin", client.id, `Test notification sent to ${client.name}`);
+        return sendJson(res, 200, { sent: client.name });
+      }
+
       // Returns a device to how it was before it was set up, and forgets it here too. Only from the admin page.
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "reset") {
         const { client, session } = requireOnline(parts[2]!);
