@@ -278,12 +278,18 @@ try {
     await client.run(`(v => { v.value = '40'; v.dispatchEvent(new Event('input')); v.dispatchEvent(new Event('change')); })(${byId("volume")})`);
     await client.until(`JSON.parse(localStorage.getItem('axis-client-settings')).values.volume === 40`, "the volume to come back from Axis");
     step("volume from the client", `${app.store.getLayer("device", session.client.id).volume} % on Axis`);
+    // The controls are out of sight until the mark in the corner is pressed.
+    const tucked = await client.run(`${byId("sound-pop")}.classList.contains('hidden') && !${byId("sound")}.classList.contains('hidden') && document.querySelector('#footer #volume, #footer #mute') === null`);
+    await client.run(`${byId("sound")}.click()`);
+    if (!tucked || await client.run(`${byId("sound-pop")}.classList.contains('hidden')`)) throw new Error("the sound controls are not tucked behind the corner mark");
     await client.run(`${byId("mute")}.click()`);
     const mutedAt = Date.now();
     const whileMuted = await app.hub.say(session, "This one is not heard.");
-    step("muted", `heard=${whileMuted.heard} in ${Date.now() - mutedAt} ms, button says ${await client.run(`${byId("mute")}.textContent`)}, shown: ${await client.run(`${byId("said")}.textContent`)}`);
+    step("muted", `heard=${whileMuted.heard} in ${Date.now() - mutedAt} ms, button says ${await client.run(`${byId("mute")}.textContent`)}, corner mark ${await client.run(`${byId("sound")}.className`)}, shown: ${await client.run(`${byId("said")}.textContent`)}`);
     if (whileMuted.heard || Date.now() - mutedAt > 4000) throw new Error("a muted client was treated as playing the speech");
     await client.run(`${byId("mute")}.click()`);
+    await client.run(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+    if (!(await client.run(`${byId("sound-pop")}.classList.contains('hidden')`))) throw new Error("the sound controls stayed open after a press elsewhere");
     await app.store.patchLayer("device", session.client.id, { volume: null });
     app.hub.pushSettings();
 

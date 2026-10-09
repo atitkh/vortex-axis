@@ -262,10 +262,22 @@ body:not(.busy) .stop { display: none; }
 .drawer-foot { color: var(--faint); font-size: 11.5px; line-height: 1.4; margin: 0; padding: 10px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 .drawer { padding-top: env(safe-area-inset-top); }
 
-/* --- footer: sound ------------------------------------------------------------------ */
+/* --- sound: one mark in the corner, its controls only while it is open ----------------- */
 
-.foot { flex-wrap: wrap; row-gap: 4px; }
-.sound { display: inline-flex; align-items: center; gap: 8px; flex-basis: 100%; justify-content: center; }
-.sound input[type="range"] { width: min(160px, 40vw); accent-color: var(--accent); height: 22px; }
-.sound input[type="range"]:disabled { opacity: 0.35; }
-.foot .sound .ghost { border-color: var(--line); padding: 4px 12px; min-width: 6.5em; }
+.corner-right { position: relative; display: flex; align-items: center; gap: 8px; }
+.icon { background: none; border: none; padding: 6px; border-radius: 50%; color: var(--faint); line-height: 0; }
+.icon:hover, .icon[aria-expanded="true"] { color: var(--dim); }
+.icon .slash { display: none; }
+.icon.muted { color: var(--dim); }
+.icon.muted .wave { display: none; }
+.icon.muted .slash { display: inline; }
+.icon.low .far { display: none; }
+.sound-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 4;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 6px 6px 14px;
+  background: #0b0b0a; border: 1px solid var(--line); border-radius: 999px;
+}
+.sound-pop input[type="range"] { width: 120px; height: 20px; margin: 0; accent-color: var(--accent); }
+.sound-pop input[type="range"]:disabled { opacity: 0.35; }
+.sound-pop .ghost { font-size: 12px; padding: 3px 10px; min-width: 5.2em; }

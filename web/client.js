@@ -281,6 +281,8 @@ function forget(message = "") {
   online = false;
   show("talk", false);
   show("footer", false);
+  show("sound", false);
+  openSound(false);
   show("history-toggle", false);
   clearHistory();
   caption("", "");
@@ -331,6 +333,7 @@ function start() {
   show("pair", false);
   show("talk", true);
   show("footer", true);
+  show("sound", true);
   $("who").textContent = `Paired as ${identity.name}`;
   // Pairing can happen long after the page loaded; the notification button belongs to a paired client.
   queueMicrotask(() => showNotifyControl());
@@ -900,12 +903,24 @@ const MUTE_KEY = "axis-client-muted";
 let muted = localStorage.getItem(MUTE_KEY) === "1";
 
 function renderSound() {
-  $("mute").textContent = muted ? "Muted" : "Sound on";
-  $("mute").dataset.on = muted ? "" : "1";
+  // The mark in the corner says how things stand without being opened: struck through when muted, one wave when quiet.
+  $("sound").classList.toggle("muted", muted || player.volume === 0);
+  $("sound").classList.toggle("low", player.volume < 0.5);
+  $("sound").setAttribute("aria-label", muted ? "Sound: muted" : `Sound: ${Math.round(player.volume * 100)} %`);
+  $("mute").textContent = muted ? "Unmute" : "Mute";
   $("mute").setAttribute("aria-pressed", String(muted));
   $("volume").disabled = muted;
   if (document.activeElement !== $("volume")) $("volume").value = String(Math.round(player.volume * 100));
 }
+
+function openSound(open) {
+  show("sound-pop", open);
+  $("sound").setAttribute("aria-expanded", String(open));
+}
+$("sound").addEventListener("click", () => openSound($("sound-pop").classList.contains("hidden")));
+// It closes when anything else is pressed, like a menu.
+document.addEventListener("pointerdown", (event) => event.target.closest("#sound, #sound-pop") || openSound(false));
+document.addEventListener("keydown", (event) => event.key === "Escape" && openSound(false));
 $("mute").addEventListener("click", () => {
   muted = !muted;
   localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
@@ -915,7 +930,10 @@ $("mute").addEventListener("click", () => {
   renderSound();
 });
 // Dragging changes what is heard straight away; letting go is what tells Axis.
-$("volume").addEventListener("input", () => player.setVolume(Number($("volume").value)));
+$("volume").addEventListener("input", () => {
+  player.setVolume(Number($("volume").value));
+  renderSound();
+});
 $("volume").addEventListener("change", async () => {
   if (!identity) return;
   const volume = Number($("volume").value);

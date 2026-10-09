@@ -18,7 +18,22 @@
 
 <header class="corner">
   <div class="status" id="pills"></div>
-  <button type="button" class="ghost hidden" id="history-toggle" aria-expanded="false" aria-controls="history">History</button>
+  <div class="corner-right">
+    <!-- Sound is one small mark in the corner; the slider and mute only appear when it is pressed. -->
+    <button type="button" class="icon hidden" id="sound" aria-label="Sound" aria-expanded="false" aria-controls="sound-pop">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 9.5v5h3.5L12 18V6L7.500 9.5z"/>
+        <path class="wave" d="M15.500 9.200a4 4 0 0 1 0 5.600"/>
+        <path class="wave far" d="M18 6.800a7.500 7.500 0 0 1 0 10.400"/>
+        <path class="slash" d="M16 9.500l5 5m0-5l-5 5"/>
+      </svg>
+    </button>
+    <button type="button" class="ghost hidden" id="history-toggle" aria-expanded="false" aria-controls="history">History</button>
+    <div class="sound-pop hidden" id="sound-pop">
+      <input type="range" id="volume" min="0" max="100" step="5" value="100" aria-label="Volume">
+      <button type="button" class="ghost" id="mute" aria-pressed="false">Mute</button>
+    </div>
+  </div>
 </header>
 
 <main class="stage">
@@ -77,10 +92,6 @@
 </aside>
 
 <footer class="foot hidden" id="footer">
-  <span class="sound">
-    <button type="button" class="ghost" id="mute" aria-pressed="false">Sound on</button>
-    <input type="range" id="volume" min="0" max="100" step="5" value="100" aria-label="Volume">
-  </span>
   <span id="who"></span>
   <button type="button" class="ghost hidden" id="notify"></button>
   <span class="foot-note" id="notify-note"></span>
