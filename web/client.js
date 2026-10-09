@@ -282,7 +282,8 @@ function forget(message = "") {
   show("talk", false);
   show("footer", false);
   show("sound", false);
-  openSound(false);
+  show("bell", false);
+  closePops();
   show("history-toggle", false);
   clearHistory();
   caption("", "");
@@ -318,8 +319,23 @@ $("pair-form").addEventListener("submit", async (event) => {
   }
 });
 
+// Forgetting takes two presses of the same button, in a place nobody presses by accident: the name at
+// the bottom opens it, the first press asks, the second does it.
+let forgetArmed;
+function disarmForget() {
+  clearTimeout(forgetArmed);
+  forgetArmed = undefined;
+  $("forget").textContent = "Forget this pairing";
+  $("forget").classList.remove("sure");
+}
 $("forget").addEventListener("click", () => {
-  if (confirm("Forget this pairing? The hub keeps the client until it is removed on the admin page.")) forget();
+  if (forgetArmed) {
+    disarmForget();
+    return forget();
+  }
+  $("forget").textContent = "Press again to forget";
+  $("forget").classList.add("sure");
+  forgetArmed = setTimeout(disarmForget, 4000);
 });
 
 // --- connection ------------------------------------------------------------
@@ -913,14 +929,23 @@ function renderSound() {
   if (document.activeElement !== $("volume")) $("volume").value = String(Math.round(player.volume * 100));
 }
 
-function openSound(open) {
-  show("sound-pop", open);
-  $("sound").setAttribute("aria-expanded", String(open));
+// The small things in the corners (sound, notifications, the pairing) each open a little box when
+// pressed. One is open at a time, and it closes when anything else is pressed, like a menu.
+const POPS = [["sound", "sound-pop"], ["bell", "bell-pop"], ["who", "who-pop"]];
+function openPop(buttonId, open) {
+  for (const [button, box] of POPS) {
+    const on = open && button === buttonId;
+    show(box, on);
+    $(button).setAttribute("aria-expanded", String(on));
+  }
+  disarmForget();
 }
-$("sound").addEventListener("click", () => openSound($("sound-pop").classList.contains("hidden")));
-// It closes when anything else is pressed, like a menu.
-document.addEventListener("pointerdown", (event) => event.target.closest("#sound, #sound-pop") || openSound(false));
-document.addEventListener("keydown", (event) => event.key === "Escape" && openSound(false));
+const closePops = () => openPop("", false);
+for (const [button, box] of POPS) {
+  $(button).addEventListener("click", () => openPop(button, $(box).classList.contains("hidden")));
+}
+document.addEventListener("pointerdown", (event) => event.target.closest(POPS.flat().map((id) => `#${id}`).join(", ")) || closePops());
+document.addEventListener("keydown", (event) => event.key === "Escape" && closePops());
 $("mute").addEventListener("click", () => {
   muted = !muted;
   localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
@@ -1009,21 +1034,30 @@ function keyBytes(text) {
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
+/**
+ * The bell in the corner: plain when notifications are on, struck through when they are off. Pressing it
+ * opens the one button that changes that, with a line of explanation when something stands in the way.
+ */
 async function showNotifyControl() {
   const button = $("notify");
   const noteEl = $("notify-note");
   noteEl.textContent = "";
-  if (!identity) return show("notify", false);
+  show("notify", false);
+  if (!identity) return show("bell", false);
   if (!pushSupported) {
-    show("notify", false);
-    // The one case worth explaining: an iPhone can do it, but only from the Home Screen.
-    if (isApplePhone && !installed) noteEl.textContent = "To get notifications: Share, then Add to Home Screen, and open it from there.";
-    return;
+    // The one case worth a bell that cannot be switched on: an iPhone can do it, but only from the Home Screen.
+    const possible = isApplePhone && !installed;
+    if (possible) noteEl.textContent = "To get notifications on an iPhone: Share, then Add to Home Screen, and open Vortex from there.";
+    $("bell").className = "icon off";
+    return show("bell", possible);
   }
   const subscription = await worker?.pushManager.getSubscription();
+  $("bell").className = `icon ${subscription ? "on" : "off"}`;
+  $("bell").setAttribute("aria-label", subscription ? "Notifications: on" : "Notifications: off");
+  show("bell", true);
   show("notify", true);
-  button.textContent = subscription ? "Notifications on" : "Turn on notifications";
-  button.dataset.on = subscription ? "1" : "";
+  button.textContent = subscription ? "Turn notifications off" : "Turn notifications on";
+  noteEl.textContent = subscription ? "This browser gets what Vortex says while this page is closed." : "";
   if (Notification.permission === "denied") {
     button.disabled = true;
     noteEl.textContent = "Notifications are blocked for this page in the browser's settings.";

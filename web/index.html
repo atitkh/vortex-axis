@@ -28,7 +28,18 @@
         <path class="slash" d="M16 9.500l5 5m0-5l-5 5"/>
       </svg>
     </button>
+    <button type="button" class="icon hidden" id="bell" aria-label="Notifications" aria-expanded="false" aria-controls="bell-pop">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.500 16.500V11a5.500 5.500 0 0 1 11 0v5.500l1.500 1.500H5z"/>
+        <path d="M10.500 20.500a1.700 1.700 0 0 0 3 0"/>
+        <path class="slash" d="M4.500 4.500l15 15"/>
+      </svg>
+    </button>
     <button type="button" class="ghost hidden" id="history-toggle" aria-expanded="false" aria-controls="history">History</button>
+    <div class="pop bell-pop hidden" id="bell-pop">
+      <span class="pop-note" id="notify-note"></span>
+      <button type="button" class="ghost hidden" id="notify"></button>
+    </div>
     <div class="sound-pop hidden" id="sound-pop">
       <input type="range" id="volume" min="0" max="100" step="5" value="100" aria-label="Volume">
       <button type="button" class="ghost" id="mute" aria-pressed="false">Mute</button>
@@ -92,10 +103,11 @@
 </aside>
 
 <footer class="foot hidden" id="footer">
-  <span id="who"></span>
-  <button type="button" class="ghost hidden" id="notify"></button>
-  <span class="foot-note" id="notify-note"></span>
-  <button type="button" class="ghost" id="forget">Forget this pairing</button>
+  <!-- Who this browser is paired as. Pressing it is the way to the one thing that undoes that. -->
+  <button type="button" class="who" id="who" aria-expanded="false" aria-controls="who-pop"></button>
+  <div class="pop who-pop hidden" id="who-pop">
+    <button type="button" class="ghost" id="forget">Forget this pairing</button>
+  </div>
 </footer>
 
 <script type="module" src="/web/client.js"></script>

@@ -290,6 +290,12 @@ try {
     await client.run(`${byId("mute")}.click()`);
     await client.run(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
     if (!(await client.run(`${byId("sound-pop")}.classList.contains('hidden')`))) throw new Error("the sound controls stayed open after a press elsewhere");
+    // The pairing: its name at the bottom opens the way out, which takes two presses and is not taken here.
+    await client.run(`${byId("who")}.click()`);
+    await client.run(`${byId("forget")}.click()`);
+    const armed = await client.run(`!${byId("who-pop")}.classList.contains('hidden') && ${byId("forget")}.textContent`);
+    await client.run(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+    step("corner controls", `footer shows only "${await client.run(`[...${byId("footer")}.children].filter(e => !e.classList.contains('hidden')).map(e => e.textContent.trim()).join(' | ')`)}"; forget asks first: "${armed}", put away again=${await client.run(`${byId("who-pop")}.classList.contains('hidden') && ${byId("forget")}.textContent === 'Forget this pairing' && localStorage.getItem('axis-client-identity') !== null`)}; bell shown=${await client.run(`!${byId("bell")}.classList.contains('hidden')`)} (${await client.run(`${byId("bell")}.className`)})`);
     await app.store.patchLayer("device", session.client.id, { volume: null });
     app.hub.pushSettings();
 
