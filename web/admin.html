@@ -345,6 +345,11 @@
           <input id="agent-model" spellcheck="false">
           <label for="agent-token">Token <span class="set" id="agent-token-state"></span></label>
           <input id="agent-token" type="password" autocomplete="off" placeholder="leave empty to keep">
+          <label for="agent-prompt">System prompt</label>
+          <div>
+            <textarea id="agent-prompt" rows="12" spellcheck="false"></textarea>
+            <p class="help">Sent with every turn, ahead of the person's words. It tells the model it is a voice assistant and how to read the line that describes the device. Empty the box and save to go back to the built-in one. An OpenClaw agent has its own prompt and is not sent this.</p>
+          </div>
           <span></span>
           <div class="inline"><button id="agent-test">Test this endpoint</button><span class="sub">Sends one short message with what is typed above. Nothing is saved.</span></div>
         </div>

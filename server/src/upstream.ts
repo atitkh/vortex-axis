@@ -1,5 +1,5 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
-import { ChatCompletionsAgent, type Agent } from "./agent.js";
+import { ChatCompletionsAgent, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
 import type { Config } from "./config.js";
 import { OpenAiSpeechToText, OpenAiTextToSpeech } from "./speech.js";
 import type { Store } from "./store.js";
@@ -19,7 +19,14 @@ export interface RuntimeConfig {
     url: string;
     model: string;
     token: string;
+    /** For a chat endpoint only: the system message sent with every turn. Empty means the built-in one. */
+    systemPrompt: string;
   };
+}
+
+/** The system message a chat endpoint is sent: the admin's own, or the built-in one when none is set. */
+export function systemPromptFor(agent: Pick<RuntimeConfig["agent"], "systemPrompt">): string {
+  return agent.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
 }
 
 const META_KEY = "upstream_config";
@@ -41,6 +48,7 @@ function fromEnvironment(config: Config): RuntimeConfig {
       url: config.agent?.url ?? "",
       model: config.agent?.model ?? "",
       token: config.agent?.token ?? "",
+      systemPrompt: "",
     },
   };
 }
@@ -104,6 +112,10 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   if (rate !== undefined && (!Number.isInteger(rate) || rate < 8000 || rate > 48000)) {
     throw new Error("tts.sampleRate must be a whole number from 8000 to 48000");
   }
+  const prompt = p.agent?.systemPrompt;
+  if (prompt !== undefined && (typeof prompt !== "string" || prompt.length > 8000)) {
+    throw new Error("agent.systemPrompt must be text of at most 8000 characters");
+  }
   const backend = p.agent?.backend;
   if (backend !== undefined && backend !== "gateway" && backend !== "openai") {
     throw new Error('agent.backend must be "gateway" or "openai"');
@@ -118,7 +130,7 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   const next: Patch = {
     stt: { ...saved.stt, ...pick<RuntimeConfig["stt"]>(["url", "model", "apiKey"], p.stt) },
     tts: { ...saved.tts, ...pick<RuntimeConfig["tts"]>(["url", "model", "voice", "sampleRate", "apiKey"], p.tts) },
-    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token"], p.agent) },
+    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt"], p.agent) },
   };
   store.setMeta(META_KEY, JSON.stringify(next));
   return loadRuntimeConfig(store, config);
@@ -132,7 +144,7 @@ export function publicRuntimeConfig(rc: RuntimeConfig) {
   return {
     stt: { ...stt, apiKeySet: Boolean(sttKey) },
     tts: { ...tts, apiKeySet: Boolean(ttsKey) },
-    agent: { ...agent, tokenSet: Boolean(token) },
+    agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT },
   };
 }
 
@@ -150,7 +162,13 @@ export function applyRuntimeConfig(
   if (rc.agent.backend === "gateway") services.agent = gatewayAgent;
   else {
     services.agent = rc.agent.url
-      ? new ChatCompletionsAgent({ url: rc.agent.url, model: rc.agent.model, token: rc.agent.token || undefined, sessionKey })
+      ? new ChatCompletionsAgent({
+          url: rc.agent.url,
+          model: rc.agent.model,
+          token: rc.agent.token || undefined,
+          systemPrompt: systemPromptFor(rc.agent),
+          sessionKey,
+        })
       : undefined;
   }
 }
@@ -175,7 +193,7 @@ export function resample(pcm: Buffer, from: number, to: number): Buffer {
  * be tried before it is saved. A field left empty falls back to the saved one,
  * which is how a saved token is used without the page ever having it.
  */
-export async function testChatAgent(saved: RuntimeConfig["agent"], typed: { url?: unknown; model?: unknown; token?: unknown }) {
+export async function testChatAgent(saved: RuntimeConfig["agent"], typed: { url?: unknown; model?: unknown; token?: unknown; systemPrompt?: unknown }) {
   const text = (value: unknown, fallback: string) => (typeof value === "string" && value.trim() ? value.trim() : fallback);
   const url = text(typed.url, saved.url);
   const model = text(typed.model, saved.model);
@@ -187,11 +205,14 @@ export async function testChatAgent(saved: RuntimeConfig["agent"], typed: { url?
   };
   if (!url) return { ...report, error: "no chat endpoint given" };
   checkUrl("the chat endpoint", url);
-  const agent = new ChatCompletionsAgent({ url, model, token: token || undefined });
+  // The prompt as typed, so a change to it can be tried too; left out, the saved one.
+  const systemPrompt = systemPromptFor({ systemPrompt: typeof typed.systemPrompt === "string" ? typed.systemPrompt : saved.systemPrompt });
+  const agent = new ChatCompletionsAgent({ url, model, token: token || undefined, systemPrompt });
   const started = Date.now();
   try {
     let reply = "";
-    for await (const piece of agent.reply("This is a connection test. Reply with the single word: ready", AbortSignal.timeout(30_000))) {
+    const message = "[from: Test, type: web, location: unknown, can: screen]\nThis is a connection test. Reply with the single word: ready";
+    for await (const piece of agent.reply(message, AbortSignal.timeout(30_000))) {
       report.firstTextMs ??= Date.now() - started;
       reply += piece;
       if (reply.length > 400) break;

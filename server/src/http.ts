@@ -686,7 +686,7 @@ export function createHttpHandler(deps: HttpDeps) {
         }
         // Tries a chat endpoint as typed, before it is saved. Nothing is stored.
         if (method === "POST" && parts.length === 3 && parts[2] === "test-agent") {
-          const typed = (await readJson(req)) as { url?: unknown; model?: unknown; token?: unknown };
+          const typed = (await readJson(req)) as { url?: unknown; model?: unknown; token?: unknown; systemPrompt?: unknown };
           try {
             return sendJson(res, 200, await testChatAgent(loadRuntimeConfig(store, config).agent, typed));
           } catch (error) {

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_SYSTEM_PROMPT } from "../src/agent.js";
 import type { Agent } from "../src/agent.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
 import { resample } from "../src/upstream.js";
@@ -47,7 +48,7 @@ describe("runtime settings", () => {
     expect(res.body).toEqual({
       stt: { url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true },
       tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false },
-      agent: { backend: "gateway", url: "", model: "", tokenSet: false },
+      agent: { backend: "gateway", url: "", model: "", systemPrompt: "", tokenSet: false, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT },
     });
     expect(JSON.stringify(res.body)).not.toContain("stt-secret");
   });
@@ -104,7 +105,23 @@ describe("runtime settings", () => {
       expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("From the other harness.");
       expect(seen[0].auth).toBe("Bearer tok");
       expect(seen[0].body).toMatchObject({ model: "m1", stream: true, user: "vortex-axis" });
-      expect(seen[0].body.messages[0].content).toMatch(/^\[from: Panel.*\]\nhi again$/);
+      // The built-in system prompt goes first, then the person's words under the line describing the device.
+      expect(seen[0].body.messages.map((m: any) => m.role)).toEqual(["system", "user"]);
+      expect(seen[0].body.messages[0].content).toBe(DEFAULT_SYSTEM_PROMPT);
+      expect(seen[0].body.messages[1].content).toMatch(/^\[from: Panel.*\]\nhi again$/);
+
+      // A prompt of the admin's own replaces it; emptied, the built-in one is back.
+      await admin("PATCH", "/admin/config", { agent: { systemPrompt: "Answer like a pirate." } });
+      client.send({ t: "text", turnId: "t2b", text: "ahoy" });
+      await vi.waitFor(() => expect(seen.length).toBe(2));
+      expect(seen[1].body.messages[0]).toEqual({ role: "system", content: "Answer like a pirate." });
+      await admin("PATCH", "/admin/config", { agent: { systemPrompt: "" } });
+      await client.turn("t2b", "idle");
+      client.send({ t: "text", turnId: "t2c", text: "hello" });
+      await vi.waitFor(() => expect(seen.length).toBe(3));
+      await client.turn("t2c", "idle");
+      expect(seen[2].body.messages[0].content).toBe(DEFAULT_SYSTEM_PROMPT);
+      expect((await admin("PATCH", "/admin/config", { agent: { systemPrompt: "x".repeat(8001) } })).status).toBe(400);
 
       await admin("PATCH", "/admin/config", { agent: { backend: "gateway" } });
       client.send({ t: "text", turnId: "t3", text: "back" });

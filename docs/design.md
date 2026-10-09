@@ -263,3 +263,7 @@ Found on Axis's own first pairing with a real gateway (2026-10-07):
 ## Location, not room
 
 Renamed 2026-10-08. Where a device is was called its `room`; it is now its `location`, because a device may be in a car or anywhere else that is not a room. The setting key, the agent tools' target parameter, the client list and the per-turn header (`location: office`) all changed, and stored values were converted by a migration. Agents written before the change may still pass `room` as a target or as the setting name in `vortex.axis.config`; both are accepted. The header and the client list no longer say `room`.
+
+## System prompt for a chat endpoint
+
+Added 2026-10-08. A plain OpenAI-style chat endpoint has no prompt of its own, so Axis sends one as the `system` message ahead of every turn: `DEFAULT_SYSTEM_PROMPT` in `server/src/agent.ts` (voice assistant, short spoken answers, no markdown, how to read the bracketed device line, no tools), or the admin's own text from the Agent page (`agent.systemPrompt` in the runtime settings; empty means the built-in one). The device line stays in the user message because it differs per turn. An OpenClaw agent is never sent this: it has its own prompt, and the gateway link carries only the message.

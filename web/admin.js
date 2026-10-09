@@ -285,6 +285,9 @@ function fillConfig(config) {
   $("agent-backend").value = config.agent.backend;
   $("agent-url").value = config.agent.url;
   $("agent-model").value = config.agent.model;
+  // The box shows what is actually sent: the saved prompt, or the built-in one when none is saved.
+  defaultPrompt = config.agent.defaultSystemPrompt;
+  $("agent-prompt").value = config.agent.systemPrompt || defaultPrompt;
   $("agent-token-state").textContent = config.agent.tokenSet ? "(set)" : "";
   for (const id of ["stt-key", "tts-key", "agent-token"]) $(id).value = "";
   showBackend();
@@ -334,6 +337,13 @@ $("speech-test").addEventListener("click", (event) =>
   }),
 );
 
+let defaultPrompt = "";
+/** The prompt in the box, or nothing when it is the built-in one, so a later change to the built-in one is picked up. */
+function typedPrompt() {
+  const typed = $("agent-prompt").value.trim();
+  return typed === defaultPrompt.trim() ? "" : typed;
+}
+
 $("agent-test").addEventListener("click", (event) =>
   act(event.target, "agent-note", async () => {
     note("agent-note", "Asking the endpoint…");
@@ -341,6 +351,7 @@ $("agent-test").addEventListener("click", (event) =>
       url: $("agent-url").value.trim(),
       model: $("agent-model").value.trim(),
       token: $("agent-token").value,
+      systemPrompt: typedPrompt(),
     });
     if (r.ok) note("agent-note", `It works: first words after ${(r.firstTextMs / 1000).toFixed(1)} s, whole reply in ${(r.totalMs / 1000).toFixed(1)} s. It said: "${r.reply}". Not saved yet.`, "good");
     else note("agent-note", `It does not work: ${r.error}.`, "bad");
@@ -356,6 +367,7 @@ $("agent-save").addEventListener("click", (event) =>
           backend,
           url: $("agent-url").value.trim(),
           model: $("agent-model").value.trim(),
+          systemPrompt: typedPrompt(),
           ...secret("agent-token", "token"),
         },
       }),
