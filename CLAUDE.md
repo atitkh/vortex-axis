@@ -10,11 +10,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-09, at the commit that added seven idle looks (firmware 0.11.1). Update this line whenever you change this section.
+Last updated: 2026-10-09, at the commit that added `idleLooksOff` (firmware 0.11.3). Update this line whenever you change this section.
 
-Running state, 2026-10-09 01:40: both boards on 0.11.1 (echo canceller in the build, used only when `bargeIn` is on; `bargeIn` now off by default, see firmware/README.md "Interrupting" for the measurements). Agent backend is the OpenClaw gateway, agent `main`, with a short note sent as `extraSystemPrompt`. Internal memory on the boards is thin over TLS: free 35 KB, lowest 19 KB.
-
-Running state, 2026-10-08 20:20: the data folder is `/home/voltex/vortex-axis` on the host's local disk (`AXIS_DATA_PATH` in `.env`), no longer the NFS share: a busy share froze Axis (clients dropped, speech read as down). A user cron job runs `scripts/backup-data.sh` hourly at :17 and copies it to `/media/voltex/VS1/Docker/vortex-axis` (database by SQLite backup, plus `daily/` copies for a week, firmware, wake words). The first board was reset through the new admin route as a test and paired again, so it is now client `c_xvbxwqzjby` (was `c_54fe2emdnz`), on 0.10.3 at `https://vortex.atitkharel.com.np`. A second board (MAC ending 0B:F8) was erased and flashed with 0.10.3 by cable and is unpaired. Speech services are shown down only after two missed checks in a row (`steadyStatus` in `server/src/app.ts`).
+Running state, 2026-10-09 02:40: both boards on 0.11.3, at `https://vortex.atitkharel.com.np`. Free internal memory on a board is now about 83 KB (lowest 68 KB): encrypted connections take their buffers from PSRAM (`mbedtls_platform_set_calloc_free` in `Client::begin`; the framework is built with `MBEDTLS_INTERNAL_MEM_ALLOC`, which had them in internal memory and left about 32 KB free, 15 KB at worst). The echo canceller is in the build but only starts when both `bargeIn` and `echoCancel` are on; `bargeIn` is off by default (firmware/README.md, "Interrupting"). Axis ignores a wake word from a device while another device is speaking in the same location (`speakingNear` in `server/src/turns.ts`). Agent backend: OpenClaw gateway, agent `main`, short note sent as `extraSystemPrompt`. Axis's default device (`defaultClient`, global) is `VorteX-Axis-C484`; two OpenClaw jobs announce through `openclaw nodes notify --node "VorteX Axis"`.
 
 Built and running:
 
