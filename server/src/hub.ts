@@ -99,6 +99,10 @@ export class Hub implements TurnPort {
       maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
+      contested: (winnerId, text) => {
+        this.log(text);
+        this.activity?.note("wake", winnerId, text);
+      },
     });
   }
 

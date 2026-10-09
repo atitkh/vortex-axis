@@ -14,6 +14,8 @@ export interface WakeArbiterOptions {
   listeners: () => number;
   /** Called once per report with the outcome. */
   decide: (report: WakeReport, granted: boolean) => void;
+  /** Called once when more than one client reported the same wake word, with all of them and the one chosen. */
+  contested?: (reports: WakeReport[], winner: WakeReport) => void;
 }
 
 /**
@@ -77,5 +79,6 @@ export class WakeArbiter {
     );
     this.granted.set(winner.clientId, winner.wakeId);
     for (const report of reports) this.options.decide(report, report === winner);
+    if (reports.length > 1) this.options.contested?.(reports, winner);
   }
 }

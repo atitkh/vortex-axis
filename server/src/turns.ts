@@ -33,6 +33,8 @@ export interface TurnOptions {
   playbackGraceMs?: number;
   /** Told about every turn once it ends: timings and outcome, never the words. */
   record?: (turn: TurnRecord, session: Session) => void;
+  /** Told when several clients heard the wake word at once: who answered, and a line saying how each scored. */
+  contested?: (winnerId: string, text: string) => void;
 }
 
 type TurnMessage = Extract<
@@ -377,6 +379,13 @@ export class TurnManager {
       decide: (report, granted) => {
         const session = port.session(report.clientId);
         if (session) port.send(session, { t: "wake.result", wakeId: report.wakeId, granted });
+      },
+      contested: (reports, winner) => {
+        const percent = (n: number) => `${Math.round(n * 100)}%`;
+        const say = (r: (typeof reports)[number]) =>
+          `${port.session(r.clientId)?.client.name ?? r.clientId} (score ${percent(r.score)}, loudness ${percent(r.level)})`;
+        const rest = reports.filter((r) => r !== winner).map(say).join(", ");
+        options.contested?.(winner.clientId, `Wake word heard by ${reports.length} devices: ${say(winner)} answered; stood down: ${rest}`);
       },
     });
   }

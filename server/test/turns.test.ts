@@ -340,6 +340,11 @@ describe("wake arbitration", () => {
 
     expect(await near.client.next("wake.result")).toMatchObject({ wakeId: "wn", granted: true });
     expect(await far.client.next("wake.result")).toMatchObject({ wakeId: "wf", granted: false });
+
+    const events = (await admin("GET", "/admin/activity")).body.events as { kind: string; text: string }[];
+    expect(events.find((e) => e.kind === "wake")?.text).toBe(
+      "Wake word heard by 2 devices: Near (score 95%, loudness 30%) answered; stood down: Far (score 70%, loudness 90%)",
+    );
   });
 
   it("breaks a tie on loudness", async () => {
