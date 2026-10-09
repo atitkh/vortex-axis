@@ -78,6 +78,7 @@ export class Hub implements TurnPort {
   private readonly outputHoldMs: number;
   private readonly timeZone: string;
   private readonly wasQuiet = new Map<string, boolean>();
+  private readonly screens = new Map<string, { heard: string; said: string; at: number }>();
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly pingIntervalMs: number;
@@ -470,7 +471,31 @@ export class Hub implements TurnPort {
   }
 
   send(session: Session, message: ServerMessage): void {
+    this.remember(session.client.id, message);
     this.sendTo(session.socket, message);
+  }
+
+  /**
+   * Keeps the words a client was last sent, so the admin page can show what is on its screen. Held in
+   * memory only and dropped when the client goes: nothing said is ever written to disk.
+   */
+  private remember(clientId: string, message: ServerMessage): void {
+    if (message.t === "transcript") this.screens.set(clientId, { heard: message.text, said: "", at: Date.now() });
+    else if (message.t === "reply.text") {
+      const now = this.screens.get(clientId) ?? { heard: "", said: "", at: 0 };
+      // Pieces arrive a sentence at a time; the final message carries the whole reply.
+      const said = message.final ? message.text || now.said : `${now.said}${message.text}`;
+      this.screens.set(clientId, { heard: now.heard, said: said.slice(0, 2000), at: Date.now() });
+    } else if (message.t === "turn" && message.state === "listening") this.screens.delete(clientId);
+  }
+
+  /** The words each connected client was sent in the last minute: what it heard and what it was told. */
+  showing(): Record<string, { heard: string; said: string; at: number }> {
+    const out: Record<string, { heard: string; said: string; at: number }> = {};
+    for (const [clientId, screen] of this.screens) {
+      if (this.online.has(clientId) && Date.now() - screen.at < 60_000) out[clientId] = screen;
+    }
+    return out;
   }
 
   sendBinary(session: Session, data: Buffer): void {

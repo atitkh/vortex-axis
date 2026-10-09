@@ -99,6 +99,10 @@ describe("a voice turn", () => {
     expect(fakes.asked).toEqual(["[from: Desk, type: web, location: unknown, can: mic+speaker+screen]\nwhat time is it"]);
     expect(fakes.spoken.map((s) => s.text)).toEqual(["It is eight o'clock.", "Time for a break."]);
 
+    // The admin page can show what is on the client's screen: what was heard and what was said back.
+    const screens = (await admin("GET", "/admin/now")).body.screens as Record<string, { heard: string; said: string }>;
+    expect(Object.values(screens)).toMatchObject([{ heard: "what time is it", said: "It is eight o'clock. Time for a break." }]);
+
     const turnStates = client.received.filter((m) => m.t === "turn").map((m) => (m as { state: string }).state);
     expect(turnStates).toEqual(["listening", "transcribing", "thinking", "speaking", "idle"]);
 

@@ -511,3 +511,11 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
 .chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
 .chip { border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 9px; font-size: 12px; }
 .chip.no { color: var(--dim); border-style: dashed; text-decoration: line-through; }
+.device-screen { flex-direction: column; position: relative; }
+.device-words { color: #cfd8dc; font-size: 10px; line-height: 1.25; padding: 0 8px 6px; width: 100%; box-sizing: border-box; text-align: center; overflow: hidden; max-height: 46%; }
+.device-words:empty { display: none; }
+.device-words .heard { color: #7d8a91; }
+.device-words .timer { color: #9be7ff; font-variant-numeric: tabular-nums; font-size: 12px; }
+.device-words .pick { display: inline-block; border: 1px solid #456; border-radius: 8px; padding: 1px 6px; margin: 2px 2px 0; }
+.device-frame.board .device-screen canvas { width: 70%; }
+.device-frame.measured.browser .device-screen canvas, .device-frame.measured.board .device-screen canvas { width: auto; height: 62%; max-width: 86%; }

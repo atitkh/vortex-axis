@@ -150,6 +150,16 @@ function send(message) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
+/** Tells Axis the size of this window, so the admin page can draw this client at its real shape. */
+function reportScreen() {
+  send({ t: "sense", readings: { screenW: window.innerWidth, screenH: window.innerHeight } });
+}
+let resizeReport;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeReport);
+  resizeReport = setTimeout(reportScreen, 500);
+});
+
 // --- pairing ---------------------------------------------------------------
 
 function forget(message = "") {
@@ -275,6 +285,7 @@ function onMessage(message) {
   switch (message.t) {
     case "welcome":
       online = true;
+      reportScreen();
       break;
     case "settings":
       settings = { version: message.version, values: message.values };

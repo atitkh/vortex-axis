@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.11.3"
+#define AXIS_FIRMWARE_VERSION "0.11.4"
 
 namespace axis {
 
@@ -156,6 +156,12 @@ class Client {
     /** A synced setting, or the fallback when Axis has not set it. */
     String setting(const char *key, const char *fallback = "");
     long settingInt(const char *key, long fallback);
+
+    /**
+     * A number about this board for Axis to show, sent with the regular readings: for example its
+     * screen size. `key` must outlive the client (a string literal). A change is sent straight away.
+     */
+    void setReading(const char *key, long value);
 
     void onCommand(CommandHandler handler) { commandHandler_ = handler; }
 

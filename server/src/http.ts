@@ -725,6 +725,8 @@ export function createHttpHandler(deps: HttpDeps) {
             dueAt: t.dueAt,
           })),
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
+          // The words on each client's screen just now, for the sketch on its page. Never stored.
+          screens: hub.showing(),
         });
       }
       if (method === "DELETE" && parts.length === 3 && parts[1] === "timers") {

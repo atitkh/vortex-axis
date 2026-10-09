@@ -234,6 +234,11 @@ struct Client::Impl {
     bool welcomed = false;
     uint32_t lastPairAttempt = 0;
     uint32_t lastSense = 0;
+    // Readings the board adds to the regular ones, such as its screen size.
+    static const int MAX_BOARD_READINGS = 8;
+    const char *boardReadingKey[MAX_BOARD_READINGS] = {};
+    long boardReadingValue[MAX_BOARD_READINGS] = {};
+    int boardReadings = 0;
     String currentTurn;
     String consoleLine;
 
@@ -1324,6 +1329,9 @@ struct Client::Impl {
             doc["readings"]["uptimeS"] = millis() / 1000;
             doc["readings"]["axis"] = baseUrl;
             doc["readings"]["lastStart"] = resetReason();
+            xSemaphoreTake(lock, portMAX_DELAY);
+            for (int i = 0; i < boardReadings; i++) doc["readings"][boardReadingKey[i]] = boardReadingValue[i];
+            xSemaphoreGive(lock);
             if (wakeModelsTaken) {
                 Preferences wk;
                 wk.begin(WAKE_PREFS, true);
@@ -1859,6 +1867,24 @@ String Client::setting(const char *key, const char *fallback) {
     String out = value.isNull() ? String(fallback) : value.as<String>();
     xSemaphoreGive(impl_->lock);
     return out;
+}
+
+void Client::setReading(const char *key, long value) {
+    xSemaphoreTake(impl_->lock, portMAX_DELAY);
+    int at = 0;
+    while (at < impl_->boardReadings && strcmp(impl_->boardReadingKey[at], key)) at++;
+    if (at < Impl::MAX_BOARD_READINGS) {
+        if (at == impl_->boardReadings) {
+            impl_->boardReadingKey[at] = key;
+            impl_->boardReadings++;
+            impl_->boardReadingValue[at] = value - 1;  // so the first value counts as a change
+        }
+        if (impl_->boardReadingValue[at] != value) {
+            impl_->boardReadingValue[at] = value;
+            impl_->lastSense = 0;  // send the readings on the next pass
+        }
+    }
+    xSemaphoreGive(impl_->lock);
 }
 
 long Client::settingInt(const char *key, long fallback) {

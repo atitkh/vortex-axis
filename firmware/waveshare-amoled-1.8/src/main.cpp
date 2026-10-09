@@ -600,6 +600,9 @@ void setup() {
 }
 
 void loop() {
+    // The admin page draws this device at its real shape, the way up it is standing now.
+    client.setReading("screenW", display::width());
+    client.setReading("screenH", display::height());
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);

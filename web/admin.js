@@ -573,6 +573,9 @@ function closeFaces() {
 
 let deviceFace;
 
+/** Shortens text to fit a small sketch, keeping the end, which is what a device shows as a reply scrolls. */
+const clip = (text, length) => (text.length > length ? `…${text.slice(-length)}` : text);
+
 /** Stops the sketch's animation when the device page is left. */
 function closeDeviceFace() {
   deviceFace?.stop();
@@ -588,6 +591,16 @@ function renderDeviceSketch(client) {
   const can = (what) => client.capabilities.includes(what);
   const frame = $("device-frame");
   frame.className = `device-frame ${!can("screen") ? "plain" : client.type === "web" ? "browser" : "board"}${client.online ? "" : " is-offline"}`;
+  // A device that says how big its screen is gets a frame of that shape, the way up it stands now.
+  const w = Number(client.readings?.screenW), hgt = Number(client.readings?.screenH);
+  const screenBox = frame.querySelector(".device-screen");
+  const known = can("screen") && w > 0 && hgt > 0;
+  const ratio = known ? Math.min(2.4, Math.max(0.42, w / hgt)) : 0;
+  frame.classList.toggle("measured", known);
+  // Fit inside 200 by 230, whichever side runs out first.
+  frame.style.width = known ? `${Math.round(Math.min(200, 230 * ratio)) + (client.type === "web" ? 12 : 20)}px` : "";
+  screenBox.style.aspectRatio = known ? String(ratio) : "";
+  frame.title = known ? `${w} × ${hgt}` : "";
   $("device-face").hidden = !can("screen");
   $("device-noscreen").hidden = can("screen");
 
@@ -602,6 +615,22 @@ function renderDeviceSketch(client) {
     deviceFace.setIdleOff(client.settings.idleLooksOff);
     deviceFace.setMode(mode);
   } else closeDeviceFace();
+
+  // What is on its screen besides the face: a question with its choices, or the last words, and a timer.
+  const live = lastNow?.clients.find((c) => c.clientId === client.id);
+  const screen = lastNow?.screens?.[client.id];
+  const timer = (lastNow?.timers ?? []).slice().sort((x, y) => x.dueAt - y.dueAt)[0];
+  const words = [];
+  if (client.online && can("screen")) {
+    if (live?.state === "asked") {
+      words.push(h("div", {}, live.question ?? ""), h("div", {}, ...(live.choices ?? []).map((choice) => h("span", { class: "pick" }, choice))));
+    } else if (screen && (doing || Date.now() - screen.at < 20_000)) {
+      if (screen.heard) words.push(h("div", { class: "heard" }, clip(screen.heard, 90)));
+      if (screen.said) words.push(h("div", {}, clip(screen.said, 160)));
+    }
+    if (timer) words.push(h("div", { class: "timer" }, `${timer.label ? `${timer.label} ` : ""}${countdown(timer.dueAt - (lastNow?.at ?? Date.now()))}`));
+  }
+  $("device-words").replaceChildren(...words);
 
   $("device-doing").textContent = !client.online ? "Offline" : (DOING[doing] ?? "Idle");
   $("device-can").replaceChildren(
