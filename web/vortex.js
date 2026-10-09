@@ -8,9 +8,10 @@ const SIZE = 240; // the firmware's drawing size; everything below is in its uni
 const ARMS = 3;
 const DOTS_PER_ARM = 26;
 const MAX_RADIUS = SIZE / 2 - 14;
-const KEYS = ["spin", "radius", "twist", "pulse", "pulseHz", "wander", "sparkle", "dot", "r", "g", "b"];
+const KEYS = ["spin", "radius", "twist", "pulse", "pulseHz", "wander", "sparkle", "dot", "r", "g", "b", "wave", "tilt"];
 
-const look = (spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b) => ({ spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b });
+// `wave` is how far the arms sway (radians at the tip) and `tilt` how far the figure is tipped away; most looks use neither.
+const look = (spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave = 0, tilt = 0) => ({ spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave, tilt });
 
 // Idle picks among these at random, so it does not look like a loop.
 const IDLE = [
@@ -21,6 +22,13 @@ const IDLE = [
   ["curl", look(1.1, 0.58, 1.7, 0.05, 0.4, 0, 0, 0.9, 0.3, 0.55, 1.0)],
   ["drift", look(0.45, 0.75, 1.0, 0.04, 0.25, 14, 0, 1.0, 0.1, 0.85, 0.85)],
   ["shimmer", look(0.3, 0.88, 1.1, 0.03, 0.25, 0, 0.035, 1.0, 0.35, 0.75, 1.0)],
+  ["galaxy", look(0.6, 0.95, 1.15, 0.03, 0.25, 0, 0.012, 0.95, 0.4, 0.65, 1, 0, 0.55)],
+  ["tendril", look(0.25, 0.9, 0.7, 0.04, 0.3, 0, 0, 1, 0.1, 0.9, 0.75, 0.45, 0)],
+  ["bloom", look(0.2, 0.7, 0.35, 0.14, 0.22, 0, 0, 1.6, 0.25, 0.7, 1, 0, 0)],
+  ["pinwheel", look(1.4, 0.92, 0.18, 0.03, 0.3, 0, 0, 0.8, 0.1, 0.8, 1, 0, 0)],
+  ["deep", look(0.28, 0.66, 1.4, 0.1, 0.15, 8, 0, 1.15, 0.1, 0.4, 1, 0.2, 0.25)],
+  ["orbit", look(0.9, 1, 0.5, 0.03, 0.3, 0, 0, 1.1, 0.15, 0.75, 0.95, 0, 0.45)],
+  ["sway", look(0.1, 0.85, 0.95, 0.05, 0.2, 0, 0, 1, 0.2, 0.85, 0.9, 0.7, 0)],
 ];
 
 const LOOKS = {
@@ -45,6 +53,8 @@ export class Vortex {
     this.phase = 0;
     this.pulsePhase = 0;
     this.wanderPhase = 0;
+    this.wavePhase = 0;
+    this.tiltPhase = 0;
     this.level = -1;
     this.flash = new Float32Array(ARMS * DOTS_PER_ARM);
     this.last = 0;
@@ -108,12 +118,17 @@ export class Vortex {
     this.phase += now.spin * dt * motion;
     this.pulsePhase += now.pulseHz * 2 * Math.PI * dt * motion;
     this.wanderPhase += 0.6 * dt * motion;
+    this.wavePhase += 1.3 * dt * motion;
+    this.tiltPhase += 0.15 * dt * motion;
 
     // With a known loudness, the voice drives the size instead of a sine wave.
     const voiced = (this.mode === "speaking" || this.mode === "listening") && this.level >= 0;
     const voiceSwell = this.mode === "listening" ? 0.4 : now.pulse;
     const cx = SIZE / 2 + now.wander * Math.sin(this.wanderPhase);
     const cy = SIZE / 2 + now.wander * Math.sin(this.wanderPhase * 1.7 + 1);
+
+    // A tipped figure is squashed along one axis, and that axis turns slowly.
+    const axisCos = Math.cos(this.tiltPhase), axisSin = Math.sin(this.tiltPhase), squash = 1 - now.tilt;
 
     const scale = canvas.width / SIZE;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -134,11 +149,14 @@ export class Vortex {
 
         const swell = voiced ? voiceSwell * this.level : now.pulse * Math.sin(this.pulsePhase - t * 3);
         const radius = MAX_RADIUS * now.radius * (1 + swell) * Math.pow(t, 0.85);
-        const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t;
+        // The sway runs out along the arm like a wave, and is widest at the tip.
+        const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t + now.wave * t * Math.sin(this.wavePhase - t * 7);
         const glow = Math.min(1, 1 - 0.72 * t + spark);
         ctx.fillStyle = color(now.r * glow + spark * 0.5, now.g * glow + spark * 0.5, now.b * glow + spark * 0.5);
         ctx.beginPath();
-        ctx.arc(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle), now.dot * (1.4 + 4.2 * t), 0, 2 * Math.PI);
+        const x = radius * Math.cos(angle), y = radius * Math.sin(angle);
+        const along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
+        ctx.arc(cx + along * axisCos - across * axisSin, cy + along * axisSin + across * axisCos, now.dot * (1.4 + 4.2 * t), 0, 2 * Math.PI);
         ctx.fill();
       }
     }

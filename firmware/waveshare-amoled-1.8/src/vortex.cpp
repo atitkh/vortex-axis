@@ -23,6 +23,8 @@ struct Look {
     float sparkle;  // chance per dot per frame of a bright flash
     float dot;      // dot size multiplier
     float r, g, b;  // colour, 0 to 1
+    float wave;     // how far the arms sway from side to side, radians at the tip
+    float tilt;     // how far the figure is tipped away, 0 flat on to about 0.6
 };
 
 struct IdleLook {
@@ -39,6 +41,14 @@ const IdleLook IDLE[] = {
     {"curl", {1.10f, 0.58f, 1.70f, 0.05f, 0.40f, 0, 0, 0.9f, 0.30f, 0.55f, 1.00f}},
     {"drift", {0.45f, 0.75f, 1.00f, 0.04f, 0.25f, 14, 0, 1.0f, 0.10f, 0.85f, 0.85f}},
     {"shimmer", {0.30f, 0.88f, 1.10f, 0.03f, 0.25f, 0, 0.035f, 1.0f, 0.35f, 0.75f, 1.00f}},
+    // The looks below also use `wave` and `tilt`; the ones above leave both at 0.
+    {"galaxy", {0.60f, 0.95f, 1.15f, 0.03f, 0.25f, 0, 0.012f, 0.95f, 0.40f, 0.65f, 1.00f, 0, 0.55f}},
+    {"tendril", {0.25f, 0.90f, 0.70f, 0.04f, 0.30f, 0, 0, 1.00f, 0.10f, 0.90f, 0.75f, 0.45f, 0}},
+    {"bloom", {0.20f, 0.70f, 0.35f, 0.14f, 0.22f, 0, 0, 1.60f, 0.25f, 0.70f, 1.00f, 0, 0}},
+    {"pinwheel", {1.40f, 0.92f, 0.18f, 0.03f, 0.30f, 0, 0, 0.80f, 0.10f, 0.80f, 1.00f, 0, 0}},
+    {"deep", {0.28f, 0.66f, 1.40f, 0.10f, 0.15f, 8, 0, 1.15f, 0.10f, 0.40f, 1.00f, 0.20f, 0.25f}},
+    {"orbit", {0.90f, 1.00f, 0.50f, 0.03f, 0.30f, 0, 0, 1.10f, 0.15f, 0.75f, 0.95f, 0, 0.45f}},
+    {"sway", {0.10f, 0.85f, 0.95f, 0.05f, 0.20f, 0, 0, 1.00f, 0.20f, 0.85f, 0.90f, 0.70f, 0}},
 };
 const int IDLE_COUNT = sizeof IDLE / sizeof IDLE[0];
 
@@ -54,7 +64,7 @@ Mode mode = Mode::Offline;
 Look now = LOOK_OFFLINE, target = LOOK_OFFLINE;
 int idleIndex = 0;
 float idleRemaining = 0;
-float phase = 0, pulsePhase = 0, wanderPhase = 0;
+float phase = 0, pulsePhase = 0, wanderPhase = 0, wavePhase = 0, tiltPhase = 0;
 float level = -1;
 float flash[ARMS * DOTS_PER_ARM];
 
@@ -132,6 +142,8 @@ const uint16_t *render(float dt) {
     phase += now.spin * dt;
     pulsePhase += now.pulseHz * 2.0f * PI * dt;
     wanderPhase += 0.6f * dt;
+    wavePhase += 1.3f * dt;
+    tiltPhase += 0.15f * dt;
 
     // While speaking with a known loudness, the voice drives the size instead of a sine wave.
     const bool voiced = (mode == Mode::Speaking || mode == Mode::Listening) && level >= 0;
@@ -139,6 +151,9 @@ const uint16_t *render(float dt) {
     const float voiceSwell = mode == Mode::Listening ? 0.40f : now.pulse;
     const float cx = SIZE / 2 + now.wander * sinf(wanderPhase);
     const float cy = SIZE / 2 + now.wander * sinf(wanderPhase * 1.7f + 1.0f);
+
+    // A tipped figure is squashed along one axis, and that axis turns slowly.
+    const float axisCos = cosf(tiltPhase), axisSin = sinf(tiltPhase), squash = 1.0f - now.tilt;
 
     memset(frame, 0, SIZE * SIZE * sizeof(uint16_t));
     for (int arm = 0; arm < ARMS; arm++) {
@@ -151,9 +166,12 @@ const uint16_t *render(float dt) {
 
             const float swell = voiced ? voiceSwell * level : now.pulse * sinf(pulsePhase - t * 3.0f);
             const float radius = MAX_RADIUS * now.radius * (1.0f + swell) * powf(t, 0.85f);
-            const float angle = phase + arm * (2.0f * PI / ARMS) - now.twist * 2.0f * PI * t;
+            // The sway runs out along the arm like a wave, and is widest at the tip.
+            const float angle = phase + arm * (2.0f * PI / ARMS) - now.twist * 2.0f * PI * t + now.wave * t * sinf(wavePhase - t * 7.0f);
             const float glow = min(1.0f, (1.0f - 0.72f * t) + spark);
-            fillCircle(cx + radius * cosf(angle), cy + radius * sinf(angle), now.dot * (1.4f + 4.2f * t),
+            const float x = radius * cosf(angle), y = radius * sinf(angle);
+            const float along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
+            fillCircle(cx + along * axisCos - across * axisSin, cy + along * axisSin + across * axisCos, now.dot * (1.4f + 4.2f * t),
                        color565(now.r * glow + spark * 0.5f, now.g * glow + spark * 0.5f, now.b * glow + spark * 0.5f));
         }
     }

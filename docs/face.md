@@ -13,7 +13,7 @@ Nothing is streamed as pixels: each client draws the face itself from the turn s
 
 ## 1. The model
 
-The face is one drawing routine and a set of **looks**. A look is eleven numbers. The face always holds a **current** look and a **target** look; every frame the current look moves part of the way to the target, and the dots are drawn from the current look. A change of state only ever changes the target.
+The face is one drawing routine and a set of **looks**. A look is thirteen numbers. The face always holds a **current** look and a **target** look; every frame the current look moves part of the way to the target, and the dots are drawn from the current look. A change of state only ever changes the target.
 
 | Field | Meaning | Unit |
 | --- | --- | --- |
@@ -26,10 +26,12 @@ The face is one drawing routine and a set of **looks**. A look is eleven numbers
 | `sparkle` | Chance per dot per frame of a bright flash. | 0 to 1 |
 | `dot` | Multiplier on dot size. | |
 | `r`, `g`, `b` | Colour. | 0 to 1 each |
+| `wave` | How far the arms sway from side to side. 0 for most looks. | radians at the tip of an arm |
+| `tilt` | How far the figure is tipped away from the viewer. 0 is flat on. | 0 to about 0.6 |
 
 ## 2. The looks
 
-There are 13: 7 idle looks and 6 state looks. Values are exact; copy them.
+There are 20: 14 idle looks and 6 state looks. Values are exact; copy them.
 
 ### Idle looks
 
@@ -44,6 +46,20 @@ The face drifts between these at random while nothing is happening.
 | curl | 1.10 | 0.58 | 1.70 | 0.05 | 0.40 | 0 | 0 | 0.9 | 0.30 | 0.55 | 1.00 |
 | drift | 0.45 | 0.75 | 1.00 | 0.04 | 0.25 | 14 | 0 | 1.0 | 0.10 | 0.85 | 0.85 |
 | shimmer | 0.30 | 0.88 | 1.10 | 0.03 | 0.25 | 0 | 0.035 | 1.0 | 0.35 | 0.75 | 1.00 |
+
+Seven more idle looks were added on 2026-10-09. They also use `wave` and `tilt`; every look above, and every state look, has both at 0.
+
+| Name | spin | radius | twist | pulse | pulseHz | wander | sparkle | dot | r | g | b | wave | tilt | Reads as |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| galaxy | 0.60 | 0.95 | 1.15 | 0.03 | 0.25 | 0 | 0.012 | 0.95 | 0.40 | 0.65 | 1.00 | 0 | 0.55 | a disc seen at an angle, a few stars |
+| tendril | 0.25 | 0.90 | 0.70 | 0.04 | 0.30 | 0 | 0 | 1 | 0.10 | 0.90 | 0.75 | 0.45 | 0 | arms that ripple like something under water |
+| bloom | 0.20 | 0.70 | 0.35 | 0.14 | 0.22 | 0 | 0 | 1.6 | 0.25 | 0.70 | 1.00 | 0 | 0 | big soft dots, opening and closing like a flower |
+| pinwheel | 1.40 | 0.92 | 0.18 | 0.03 | 0.30 | 0 | 0 | 0.8 | 0.10 | 0.80 | 1.00 | 0 | 0 | nearly straight arms, turning briskly |
+| deep | 0.28 | 0.66 | 1.40 | 0.10 | 0.15 | 8 | 0 | 1.15 | 0.10 | 0.40 | 1.00 | 0.2 | 0.25 | small, dark blue, slow |
+| orbit | 0.90 | 1.00 | 0.50 | 0.03 | 0.30 | 0 | 0 | 1.1 | 0.15 | 0.75 | 0.95 | 0 | 0.45 | a tilted wheel, like rings |
+| sway | 0.10 | 0.85 | 0.95 | 0.05 | 0.20 | 0 | 0 | 1 | 0.20 | 0.85 | 0.90 | 0.7 | 0 | hardly turning, arms swaying from side to side |
+
+Idle looks stay in blues and blue-greens on purpose: green means listening, violet thinking, amber setup, red an error and grey offline, and an idle look must not be mistaken for one of those.
 
 ### State looks
 
@@ -62,7 +78,7 @@ At start-up the current and target looks are both `offline`.
 
 All sizes are in a 240 by 240 grid (`SIZE`); scale to the real screen. `dt` is the time since the last frame in seconds, **capped at 0.1** so a stall never makes the face jump.
 
-**Step 1: move towards the target.** For each of the eleven fields:
+**Step 1: move towards the target.** For each of the thirteen fields:
 
 ```
 k = 1 - exp(-dt * rate)        rate = 1.2 in idle, 5.0 in every other mode
@@ -77,6 +93,8 @@ Leaving idle feels immediate (about 0.2 s); drifting between idle looks is slow 
 phase       += now.spin * dt
 pulsePhase  += now.pulseHz * 2π * dt
 wanderPhase += 0.6 * dt
+wavePhase   += 1.3 * dt
+tiltPhase   += 0.15 * dt
 ```
 
 **Step 3: the centre.**
@@ -93,12 +111,17 @@ spark: if random() < now.sparkle then spark[a][i] = 1;  then spark[a][i] *= 0.86
 
 swell  = voiced ? voiceSwell * level : now.pulse * sin(pulsePhase - 3t)
 radius = MAX_RADIUS * now.radius * (1 + swell) * t^0.85
-angle  = phase + a * 2π/3 - now.twist * 2π * t
+angle  = phase + a * 2π/3 - now.twist * 2π * t + now.wave * t * sin(wavePhase - 7t)
 glow   = min(1, 1 - 0.72t + spark)
 colour = (now.r * glow + spark * 0.5,  now.g * glow + spark * 0.5,  now.b * glow + spark * 0.5), each clamped to 0..1
 size   = now.dot * (1.4 + 4.2t)                         (radius of the dot)
-filled circle at (cx + radius * cos(angle), cy + radius * sin(angle))
+x, y   = radius * cos(angle), radius * sin(angle)
+along  = x * cos(tiltPhase) + y * sin(tiltPhase)
+across = (y * cos(tiltPhase) - x * sin(tiltPhase)) * (1 - now.tilt)
+filled circle at (cx + along * cos(tiltPhase) - across * sin(tiltPhase),  cy + along * sin(tiltPhase) + across * cos(tiltPhase))
 ```
+
+The sway (`wave`) travels out along each arm and is widest at the tip. The tilt squashes the figure along one axis, as a disc looks when tipped away, and that axis turns slowly (`tiltPhase`), so the disc seems to wobble. With `wave` and `tilt` at 0 both lines change nothing.
 
 The `- 3t` in the breathing wave makes it reach each dot a little later than the one inside it, so it ripples outward instead of throbbing as one.
 
@@ -165,6 +188,6 @@ These may differ between devices; everything else above should not.
 
 ## 7. Adding a look or a mode
 
-- A new idle look is a row in the idle table here and in both implementations.
+- A new idle look is a row in one of the idle tables here and in both implementations. Keep its colour in the blues and blue-greens.
 - A new mode needs a row in the state table, a line in section 5, and a turn state or client condition that selects it.
 - Keep the voice rules in section 4 for any mode that follows a voice.
