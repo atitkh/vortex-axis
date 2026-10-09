@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { PROTOCOL_VERSION } from "@vortex-axis/protocol";
 import { ADMIN_TOKEN, TestClient, admin, connect, ctx, newPairedClient, pair, restart, socketUrl, useServer } from "./harness.js";
+import { steadyStatus } from "../src/app.js";
 
 void ADMIN_TOKEN;
 useServer();
@@ -266,5 +267,21 @@ describe("a client that goes silent", () => {
     expect((await admin("GET", `/admin/clients/${silent.clientId}`)).body.online).toBe(false);
     expect((await admin("GET", `/admin/clients/${alive.clientId}`)).body.online).toBe(true);
     ws.close();
+  });
+});
+
+describe("service status", () => {
+  it("calls a service down only after two missed checks in a row", () => {
+    const status = steadyStatus();
+    expect(status("up")).toBe("up");
+    expect(status("down")).toBe("up");
+    expect(status("up")).toBe("up");
+    expect(status("down")).toBe("up");
+    expect(status("down")).toBe("down");
+    expect(status("up")).toBe("up");
+  });
+
+  it("believes a miss at once when the service has not been seen up", () => {
+    expect(steadyStatus()("down")).toBe("down");
   });
 });

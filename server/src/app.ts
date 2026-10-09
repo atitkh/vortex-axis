@@ -30,6 +30,21 @@ export interface App {
 
 export const AXIS_VERSION = "0.1.0";
 
+/**
+ * Evens out a service's status checks: a service that was up is called down
+ * only after two missed checks in a row. One slow answer, such as when this
+ * machine is busy, is not the service going away.
+ */
+export function steadyStatus(): (checked: "up" | "down") => "up" | "down" {
+  let shown: "up" | "down" | undefined;
+  let misses = 0;
+  return (checked) => {
+    misses = checked === "up" ? 0 : misses + 1;
+    if (checked === "up" || shown !== "up" || misses >= 2) shown = checked;
+    return shown;
+  };
+}
+
 export interface StartOptions {
   log?: (line: string) => void;
   /** Stand-ins for upstream clients, for tests. A stand-in is never replaced by saved settings. */
@@ -103,11 +118,13 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   );
 
   // A service that is not configured counts as down, so clients can say so.
+  const sttStatus = steadyStatus();
+  const ttsStatus = steadyStatus();
   async function checkHealth(): Promise<void> {
     const check = (service: { healthy(): Promise<boolean> } | undefined) =>
       service ? service.healthy().then((ok) => (ok ? "up" : "down") as "up" | "down") : Promise.resolve("down" as const);
     const [openclaw, stt, tts] = await Promise.all([check(services.agent), check(services.stt), check(services.tts)]);
-    hub.setUpstream({ openclaw, stt, tts });
+    hub.setUpstream({ openclaw, stt: services.stt ? sttStatus(stt) : stt, tts: services.tts ? ttsStatus(tts) : tts });
   }
   applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
   Object.assign(services, options.services);
