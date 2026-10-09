@@ -58,6 +58,12 @@ export interface Config {
   outputHoldMs: number;
   /** How long something said to a client that is offline is kept for it. */
   messageHoldMs: number;
+  /** Where copies of the data folder go, as Axis sees it. Unset: no backup. */
+  backupDir: string | undefined;
+  /** Hours between copies. 0 makes one only when asked. */
+  backupEveryHours: number;
+  /** How many days a daily copy of the database is kept. */
+  backupKeepDays: number;
   /** Home Assistant, through its MQTT broker. Absent when no broker address is given. */
   homeAssistant: { url: string; discoveryPrefix: string } | undefined;
   /** The time zone quiet hours are told in, such as "America/Chicago". */
@@ -139,6 +145,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
     messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
+    backupDir: env.AXIS_BACKUP_DIR || undefined,
+    backupEveryHours: integer("AXIS_BACKUP_EVERY_HOURS", env.AXIS_BACKUP_EVERY_HOURS, 1),
+    backupKeepDays: Math.max(1, integer("AXIS_BACKUP_KEEP_DAYS", env.AXIS_BACKUP_KEEP_DAYS, 7)),
     timeZone: zone(env.AXIS_TIMEZONE || env.TZ),
     homeAssistant: env.AXIS_MQTT_URL ? { url: env.AXIS_MQTT_URL, discoveryPrefix: env.AXIS_HA_DISCOVERY_PREFIX || "homeassistant" } : undefined,
     // The compiled server sits in server/dist, two levels below the repository root.

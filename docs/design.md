@@ -320,7 +320,7 @@ Added 2026-10-09.
 
 **Now, on the Live page.** Beside devices mid-turn, questions and timers, the Now table lists messages kept for a device that is away (`waiting`) and messages sent to a closed browser as notifications that its page has not shown yet (`notified`), both from `GET /admin/clients`.
 
-**Integrations.** `GET /admin/integrations` reports how the things around Axis stand: the MQTT link to Home Assistant (broker host, never the password), which browsers have notifications on, the public names, the gateway links, and the last backup. Axis does not run backups; `scripts/backup-data.sh` leaves `backup-status.json` in the data folder on every run, success or failure, and Axis reads it. A copy older than 26 hours is shown as a problem whatever the schedule.
+**Integrations.** `GET /admin/integrations` reports how the things around Axis stand: the MQTT link to Home Assistant (broker host, never the password), which browsers have notifications on, the public names, the gateway links, and the backup (see "Backup" below).
 
 **Sign-in.** The admin token is kept for the tab (`sessionStorage`) unless "Remember on this device" is ticked, when it goes in `localStorage` until sign-out. The admin page is not served under a public name, so this is a convenience for the owner's own browsers.
 
@@ -338,3 +338,10 @@ Added 2026-10-09.
 
 **Sound on an iPhone.** A page's sound engine there has a state of its own, "interrupted", entered when the page goes to the background, the screen locks, or the microphone is let go; a page added to the Home Screen sometimes cannot be woken from it at all. And only the end of a touch counts as the press that may switch sound on, not its start. So the web client wakes the engine from any state that is not running (not only "suspended"), listens on `pointerup`, `touchend`, `click` and `keydown`, plays one sample of silence inside the press, and if the engine is still not running half a second later it is closed and built again on the next press. The notice follows the engine's state both ways. Written from the owner's report (the notice stayed and sound came back only sometimes); not reproduced or confirmed on a phone by the agent that wrote it. The phone's silent switch also silences a page's sound, with the page none the wiser; nothing here can detect that.
 
+## Backup
+
+Changed 2026-10-09: the backup is part of Axis (`server/src/backup.ts`), not a script run by the host's scheduler. A cron line outside the project did not move with the container, nothing in the repository described it, and Axis could only read what it left behind.
+
+The host names a second folder with `AXIS_BACKUP_PATH`; `compose.yaml` mounts it at `/backup` and sets `AXIS_BACKUP_DIR` only when that is given, so with none there is no backup and the admin page says so. Where the folder is has to be the host's decision, since a container writes only where it is let. How often (hours; 0 for only when asked) and how many daily copies are kept are hub settings, changed on the Integrations page like the others and saved over the environment's `AXIS_BACKUP_EVERY_HOURS` and `AXIS_BACKUP_KEEP_DAYS`.
+
+A run copies the database with SQLite's own backup to a file beside it, checks that copy, and only then sends it to the backup folder under a temporary name and moves it into place; it keeps one dated copy a day and mirrors `firmware/` and `wakewords/`. Every call that touches the backup folder is asynchronous: the folder is usually network storage, and on 2026-10-08 a saturated share stalled the whole server through synchronous database writes. The result of the last run is kept in `meta` and shown with a **Back up now** button; a failure, or no copy for well over the interval, goes on the Overview's attention list and, on a change, into the events.

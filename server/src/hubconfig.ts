@@ -16,6 +16,9 @@ export interface HubSettings {
   timeZone: string;
   activityDays: number;
   messageHoldMinutes: number;
+  /** Hours between backups (0: only when asked) and days a daily copy is kept. Where they go is the host's to say. */
+  backupEveryHours: number;
+  backupKeepDays: number;
 }
 
 const META_KEY = "hub_config";
@@ -41,6 +44,8 @@ function fromConfig(config: Config): HubSettings {
     timeZone: config.timeZone,
     activityDays: config.activityDays,
     messageHoldMinutes: Math.round(config.messageHoldMs / 60_000),
+    backupEveryHours: config.backupEveryHours,
+    backupKeepDays: config.backupKeepDays,
   };
 }
 
@@ -74,6 +79,8 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.timeZone = settings.timeZone;
   config.activityDays = settings.activityDays;
   config.messageHoldMs = settings.messageHoldMinutes * 60_000;
+  config.backupEveryHours = settings.backupEveryHours;
+  config.backupKeepDays = settings.backupKeepDays;
 }
 
 const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
@@ -149,6 +156,8 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
     patch.timeZone = zone;
   }
   if (body.activityDays !== undefined) patch.activityDays = whole(body.activityDays, "days of history", 1, 365);
+  if (body.backupEveryHours !== undefined) patch.backupEveryHours = whole(body.backupEveryHours, "hours between backups", 0, 168);
+  if (body.backupKeepDays !== undefined) patch.backupKeepDays = whole(body.backupKeepDays, "days a daily copy is kept", 1, 365);
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 
   const earlier = store.getMeta(META_KEY);

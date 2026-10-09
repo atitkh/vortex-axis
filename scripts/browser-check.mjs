@@ -7,7 +7,7 @@
 // "what time is it" and synthesis answers with a short tone, so every step runs anywhere.
 // Needs google-chrome on the PATH, or CHROME set to another Chromium browser. Exits non-zero if a step fails.
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,12 +51,14 @@ const stub = `http://127.0.0.1:${speech.address().port}`;
 const realSpeech = Boolean(process.env.STT && process.env.TTS);
 
 const dataDir = mkdtempSync(join(tmpdir(), "axischeck-data-"));
+const backupDir = mkdtempSync(join(tmpdir(), "axischeck-backup-"));
 const profile = mkdtempSync(join(tmpdir(), "axischeck-chrome-"));
 const app = await startApp(
   loadConfig({
     AXIS_HOST: "127.0.0.1",
     AXIS_PORT: "0",
     AXIS_DATA_DIR: dataDir,
+    AXIS_BACKUP_DIR: backupDir,
     AXIS_ADMIN_TOKEN: "browser-check",
     AXIS_STT_URL: process.env.STT || `${stub}/v1/audio/transcriptions`,
     AXIS_TTS_URL: process.env.TTS || `${stub}/v1/audio/speech`,
@@ -319,6 +321,10 @@ try {
   step("integration setting saved", await admin.until(`(t => /saved/.test(t) && t)(${byId("toast")}.textContent)`, "the save"));
   const hubSaved = await fetch(`${base}/admin/integrations`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
   if (hubSaved.settings.activityDays !== 5) throw new Error(`activityDays was saved as ${hubSaved.settings.activityDays}`);
+  // Backup: made from its card, into the folder this run was given.
+  await admin.run(`[...document.querySelectorAll('.integration button')].find(b => b.textContent === 'Back up now').click()`);
+  step("backup from the page", await admin.until(`(t => /Backup made/.test(t) && t)(${byId("toast")}.textContent) && [...document.querySelectorAll('.integration-head')].find(e => /^Backup/.test(e.textContent)).textContent.replace(/\\s+/g, ' ')`, "the backup", 20000));
+  if (!existsSync(join(backupDir, "axis.sqlite"))) throw new Error("the backup made from the page left no database copy");
   // Clearing the live view deletes the words Axis holds, and the page shows it.
   await admin.run(`location.hash = '#live'`);
   await admin.until(`document.querySelectorAll('#live-turns .turn-card').length >= 2 && ${byId("live-now")}.textContent`, "the live page again");
@@ -471,7 +477,7 @@ await app.close();
 chat.close();
 speech.close();
 await new Promise((r) => setTimeout(r, 800));
-for (const dir of [dataDir, profile]) {
+for (const dir of [dataDir, backupDir, profile]) {
   try {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   } catch {

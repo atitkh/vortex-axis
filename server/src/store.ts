@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, backup } from "node:sqlite";
 import type { Capability, Scalar, ScalarMap } from "@vortex-axis/protocol";
 import type { ClientSchema } from "./schema.js";
 import {
@@ -253,6 +253,11 @@ export class Store {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Writes a whole, consistent copy of the database to `path`, a few pages at a time so Axis carries on meanwhile. */
+  async backupTo(path: string): Promise<void> {
+    await backup(this.db, path, { rate: 200 });
   }
 
   private migrate(): void {

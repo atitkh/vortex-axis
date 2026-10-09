@@ -1,5 +1,3 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { UPSTREAM_AUDIO_FORMAT } from "@vortex-axis/protocol";
 import type { Agent } from "../src/agent.js";
@@ -168,14 +166,8 @@ describe("announce from the admin page", () => {
 describe("integrations", () => {
   it("says what Axis is connected to, without any secret", async () => {
     const { body } = await admin("GET", "/admin/integrations");
-    expect(body).toMatchObject({ homeAssistant: null, backup: null, notifications: { ready: true, clients: [] }, publicAddress: { hosts: [] } });
+    expect(body).toMatchObject({ homeAssistant: null, backup: { configured: false }, notifications: { ready: true, clients: [] }, publicAddress: { hosts: [] } });
     expect(JSON.stringify(body)).not.toContain(ADMIN_TOKEN);
-  });
-
-  it("reports the last backup the script left word of", async () => {
-    writeFileSync(join(ctx.dataDir, "backup-status.json"), JSON.stringify({ at: "2026-10-09T18:17:03Z", ok: true, to: "/mnt/copy", note: "" }));
-    const { body } = await admin("GET", "/admin/integrations");
-    expect(body.backup).toEqual({ at: Date.parse("2026-10-09T18:17:03Z"), ok: true, to: "/mnt/copy", note: "" });
   });
 });
 

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
 import { Activity } from "./activity.js";
+import { Backup } from "./backup.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
 import { WakeWordStore, WakeWordSync } from "./wakewords.js";
@@ -30,6 +31,8 @@ export interface App {
   /** Gets agent-started speech to a client by whatever route it has: live, by notification, or kept for later. */
   delivery: Delivery;
   push: PushService;
+  /** Copies the data folder to the backup folder on a schedule, when one is set up. */
+  backup: Backup;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -186,6 +189,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   quietTimer.unref();
   hub.onConnect(() => hub.checkQuiet());
 
+  const backup = new Backup({ store, config, activity, log });
+  backup.start();
+
   let healthTimer: NodeJS.Timeout | undefined;
   if (config.healthIntervalMs > 0) {
     void checkHealth();
@@ -194,7 +200,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -228,9 +234,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     timers,
     delivery,
     push,
+    backup,
     server,
     port,
     async close() {
+      backup.stop();
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
       clearInterval(forgetTimer);

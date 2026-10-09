@@ -23,7 +23,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/protocol/dist protocol/dist
 COPY --from=build /app/server/dist server/dist
 COPY web web
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data /backup && chown node:node /data /backup
 USER node
 VOLUME /data
 EXPOSE 8440

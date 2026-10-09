@@ -91,6 +91,20 @@ Whichever you use, think about `/admin`: it is protected by the admin token only
 
 Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there. It is safe there but not a good place for it: Axis waits on every database write, so a busy share freezes it, clients drop and the speech services read as down. Keep the folder on a local disk and copy it to the share with `scripts/backup-data.sh <data folder> <backup folder>` from cron; the copy has the same layout, so restoring is copying it back.
 
+### Backup and restore
+
+Set `AXIS_BACKUP_PATH` in `.env` to a folder on the host, on another disk than the data folder, and Axis copies its data there by itself: every hour unless changed, with how often and how many daily copies to keep set on the admin page under Integrations, where there is also a **Back up now** button and the result of the last run. A failed or overdue backup shows on the Overview. Nothing on the host has to be scheduled.
+
+The backup folder holds `axis.sqlite` (the latest copy of the database, checked before it replaces the one before), `daily/axis-YYYY-MM-DD.sqlite` (one a day), and mirrors of `firmware/` and `wakewords/`. The database includes the gateway tokens and client token hashes: keep the folder as private as the data folder.
+
+To restore, on the same host or another:
+
+1. `docker compose down`
+2. Copy `axis.sqlite` (or one of the daily copies, renamed to `axis.sqlite`) and the `firmware` and `wakewords` folders from the backup folder into the data folder, replacing what is there. Remove `axis.sqlite-journal` if one is left.
+3. `docker compose up -d`
+
+Devices and browsers keep working with the restored database as long as it is newer than their pairing; anything paired after the copy was made has to be paired again.
+
 ### Speech services
 
 Axis reaches speech recognition and synthesis through OpenAI-style HTTP endpoints, so each can be swapped by changing an address in `.env`:
@@ -160,7 +174,8 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `PATCH /admin/integrations` | Changes hub settings: `mqtt` `{host, port, user, password, discoveryPrefix}`, `publicHosts`, `trustedProxies`, `timeZone`, `activityDays`, `messageHoldMinutes`. Only the fields given change; a saved value wins over the environment. |
 | `GET /admin/wakes` | `?hours=168`. Wake words devices reported: device, score, loudness, the wake word in use and the outcome. |
 | `POST /admin/announce` | `{text, client?, location?, urgent?}`. Says it on one client, in one location, or on every client that can speak. |
-| `GET /admin/integrations` | How Home Assistant (MQTT), browser notifications, the public address, the gateway links and the last backup stand. No secrets. |
+| `GET /admin/integrations` | How Home Assistant (MQTT), browser notifications, the public address, the gateway links and the backup stand. No secrets. |
+| `POST /admin/backup` | Makes a backup now and answers with how it went. 409 when no backup folder is set up. |
 | `GET /admin/now` | What is going on this moment: timers, clients mid-turn, and the words on each screen (memory only). |
 | `GET`, `POST`, `DELETE /admin/firmware…` | The firmware builds kept per client type. |
 | `GET`, `POST`, `DELETE /admin/wakewords…` | The wake word models devices can be given. |

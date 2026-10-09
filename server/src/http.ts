@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
+import type { Backup } from "./backup.js";
 import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
 import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
@@ -148,6 +149,8 @@ export interface HttpDeps {
   live?: Live;
   /** The link to Home Assistant as it is now, when one is set up. It is rebuilt when its settings change. */
   homeAssistant?: () => HomeAssistant | undefined;
+  /** Copies of the data folder, when a backup folder is set up. */
+  backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
   applyHubSettings?: (changed: { mqtt: boolean }) => void;
   /** When this process started, for uptime. */
@@ -297,18 +300,6 @@ export function createHttpHandler(deps: HttpDeps) {
       out[client.type] = { ...withBuiltIns(store.getSchema(client.type), wakeIds()), ...(label ? { label } : {}) };
     }
     return out;
-  }
-
-  /** What the backup script last left in the data folder, if it has ever run against it. */
-  function backupStatus() {
-    try {
-      const told = JSON.parse(readFileSync(join(config.dataDir, "backup-status.json"), "utf8")) as { at?: unknown; ok?: unknown; to?: unknown; note?: unknown };
-      const at = Date.parse(String(told.at ?? ""));
-      if (!Number.isFinite(at)) return null;
-      return { at, ok: told.ok === true, to: String(told.to ?? ""), note: String(told.note ?? "") };
-    } catch {
-      return null;
-    }
   }
 
   function requireOnline(id: string) {
@@ -842,6 +833,13 @@ export function createHttpHandler(deps: HttpDeps) {
         });
         return;
       }
+      // Makes a backup now and answers when it is done, with how it went.
+      if (method === "POST" && parts.length === 2 && parts[1] === "backup" && deps.backup) {
+        if (!deps.backup.status().configured) throw new HttpError(409, "no backup folder is set up: set AXIS_BACKUP_PATH in the hub's .env and start Axis again");
+        const result = await deps.backup.run();
+        if (!result.ok) throw new HttpError(502, `the backup failed: ${result.error}`);
+        return sendJson(res, 200, deps.backup.status());
+      }
       // Forgets, now, every word Axis is holding in memory for the admin page: the live turns and the device sketches.
       if (method === "POST" && parts.length === 3 && parts[1] === "live" && parts[2] === "clear" && deps.live) {
         deps.live.clear();
@@ -885,7 +883,7 @@ export function createHttpHandler(deps: HttpDeps) {
             browsers: clients.filter((c) => c.type === "web").length,
           },
           publicAddress: { hosts: config.publicHosts, trustedProxies: config.trustedProxies },
-          backup: backupStatus(),
+          backup: deps.backup?.status() ?? null,
           gateway: { url: gw.url ?? null, operator: gw.operator.state, node: gw.node.state },
           timeZone: config.timeZone,
           messageHoldMs: config.messageHoldMs,

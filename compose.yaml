@@ -7,6 +7,8 @@ services:
     env_file: .env
     environment:
       AXIS_PORT: "8440"
+      # Backups are on only when a folder for them is named. Axis then sees it as /backup.
+      AXIS_BACKUP_DIR: ${AXIS_BACKUP_PATH:+/backup}
     # Lets the container reach services on the Docker host, such as the gateway.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -17,6 +19,9 @@ services:
     # it belongs to you and not to root.
     volumes:
       - ${AXIS_DATA_PATH:-./data}:/data
+      # Where Axis copies its data on a schedule: put it on another disk than the data folder.
+      # With AXIS_BACKUP_PATH unset this is an empty folder that nothing is written to.
+      - ${AXIS_BACKUP_PATH:-./backup}:/backup
 
 # A fixed subnet, so a host firewall can be told exactly which addresses Axis
 # calls from. Change AXIS_SUBNET if this range is already in use.

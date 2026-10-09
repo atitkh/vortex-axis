@@ -452,7 +452,8 @@ function renderView() {
     renderWakeWords();
     loadWakeScores();
   }
-  if (view.name === "integrations" || !lastIntegrations) loadIntegrations();
+  // Looked at often while its page is open, and now and then otherwise, for the overview's list of what needs attention.
+  if (view.name === "integrations" || Date.now() - integrationsAt > 60_000) loadIntegrations();
   renderAnnounceTargets();
 }
 
@@ -1875,6 +1876,8 @@ function attentionItems(data) {
     if (!c.lastSeenAt) add("warn", `${c.name} has never connected.`, `#clients/${encodeURIComponent(c.id)}`);
     else if (Date.now() - c.lastSeenAt > 10 * 60_000) add("warn", `${c.name} has been offline for ${duration(Date.now() - c.lastSeenAt)}.`, `#clients/${encodeURIComponent(c.id)}`);
   }
+  const trouble = backupTrouble(lastIntegrations?.backup);
+  if (trouble) add("bad", trouble, "#integrations");
   if (data) {
     // These look at fixed windows, whatever span the page is showing.
     const failed = data.recentTurns.filter((t) => t.outcome === "failed" && Date.now() - t.at < 3_600_000).length;
@@ -2388,7 +2391,7 @@ async function loadIntegrations() {
  * that is only shown, or [label, input, help] for something that can be changed; a card with inputs
  * gets a Save button, and `save` is handed what was typed, by input name.
  */
-function integration(title, [label, kind], rows, help, save) {
+function integration(title, [label, kind], rows, help, save, extra) {
   const noteEl = h("span", { class: "msg" });
   const card = h("div", { class: "integration" },
     h("div", { class: "integration-head" }, h("h3", {}, title), stat(label, kind)),
@@ -2420,12 +2423,21 @@ function integration(title, [label, kind], rows, help, save) {
               }
             },
           }, "Save"),
+          extra,
           noteEl,
         )
       : null,
     help ? h("p", { class: "help" }, help) : null,
   );
   return card;
+}
+
+/** What is wrong with the backup, in a sentence, or nothing when it is fine or not set up. */
+function backupTrouble(backup) {
+  if (!backup?.configured) return "";
+  if (backup.last && !backup.last.ok) return `The last backup failed: ${backup.last.error}`;
+  if (backup.overdue) return `No backup has been made for ${duration(Date.now() - backup.last.at)}.`;
+  return "";
 }
 
 /** An input for a card. Typing in one holds off the page's own redraws until it is saved. */
@@ -2437,9 +2449,7 @@ function renderIntegrations() {
   if (!d) return;
   const ha = d.homeAssistant;
   const backup = d.backup;
-  // A copy that has not been made for a day is worth a look, whatever its schedule.
-  const backupOld = backup && Date.now() - backup.at > 26 * 3_600_000;
-  const problems = [ha && !ha.connected, backup && (!backup.ok || backupOld)].filter(Boolean).length;
+  const problems = [ha && !ha.connected, backupTrouble(backup)].filter(Boolean).length;
   $("nav-integrations").textContent = problems ? String(problems) : "";
   $("nav-integrations").className = `count ${problems ? "bad" : ""}`.trim();
   const body = $("integrations-body");
@@ -2491,17 +2501,44 @@ function renderIntegrations() {
       ],
       "A browser client whose page is closed gets speech and questions as notifications, once somebody presses Turn on notifications in it. That is done in the browser itself; a browser's own page here has a button to send it a test.",
     ),
-    integration("Backup", backup ? (!backup.ok ? ["last copy failed", "bad"] : backupOld ? ["no copy for over a day", "bad"] : ["copied", "good"]) : ["nothing reported", ""],
-      backup
+    integration("Backup",
+      !backup?.configured ? ["off", ""]
+      : backup.running ? ["copying now", "warn"]
+      : !backup.last ? ["no copy made yet", "warn"]
+      : !backup.last.ok ? ["last copy failed", "bad"]
+      : backup.overdue ? ["overdue", "bad"]
+      : ["copied", "good"],
+      backup?.configured
         ? [
-            ["Last run", `${ago(backup.at)} (${new Date(backup.at).toLocaleString()})`],
-            ["Copied to", h("span", { class: "mono" }, backup.to)],
-            backup.note ? ["Note", backup.note] : null,
+            ["Copy every", field("backupEveryHours", set.backupEveryHours, { type: "number", min: 0, max: 168, class: "short" }), "Hours between copies. 0 makes one only when Back up now is pressed."],
+            ["Daily copies kept", field("backupKeepDays", set.backupKeepDays, { type: "number", min: 1, max: 365, class: "short" }), "Days. Besides the latest copy, one copy of the database a day is kept this long."],
+            ["Folder", h("span", {}, h("span", { class: "mono" }, backup.dir), " inside the container")],
+            backup.last && ["Last run", `${ago(backup.last.at)} (${new Date(backup.last.at).toLocaleString()})`],
+            backup.last?.ok && ["It took", `${ms(backup.last.ms)} for a ${(backup.last.bytes / 1024 / 1024).toFixed(1)} MB database`],
+            backup.last && !backup.last.ok && ["What went wrong", backup.last.error],
           ]
         : [],
-      backup
-        ? "Written by scripts/backup-data.sh each time it runs. Axis does not run it; a scheduled job on the host does, so where and how often is set there."
-        : h("span", {}, "Axis keeps everything in one data folder (", h("code", {}, d.dataDir), " as it sees it). Run ", h("code", {}, "scripts/backup-data.sh <data folder> <backup folder>"), " on a schedule and its result shows here."),
+      backup?.configured
+        ? h("span", {}, "Axis copies its database (checked before it replaces the last copy), firmware and wake words here by itself. Which folder on the host this is, is ", h("code", {}, "AXIS_BACKUP_PATH"), " in the hub's ", h("code", {}, ".env"), ". To restore, see the README.")
+        : h("span", {}, "Set ", h("code", {}, "AXIS_BACKUP_PATH"), " in the hub's ", h("code", {}, ".env"), " to a folder on the host, ideally on another disk, and start Axis again with ", h("code", {}, "docker compose up -d"), ". Axis then copies its data there by itself."),
+      backup?.configured ? (typed) => ({ backupEveryHours: Number(typed.backupEveryHours), backupKeepDays: Number(typed.backupKeepDays) }) : undefined,
+      backup?.configured
+        ? h("button", {
+            type: "button",
+            onclick: (event) => act(event.target, "", async () => {
+              event.target.textContent = "Copying…";
+              try {
+                await api("POST", "/admin/backup");
+                toast("Backup made.");
+              } finally {
+                event.target.textContent = "Back up now";
+                $("integrations-body").dataset.dirty = "";
+                integrationsAt = 0;
+                await loadIntegrations();
+              }
+            }),
+          }, "Back up now")
+        : null,
     ),
     integration("OpenClaw gateway", d.gateway.operator === "connected" && d.gateway.node === "connected" ? ["connected", "good"] : ["check the links", "warn"],
       [
