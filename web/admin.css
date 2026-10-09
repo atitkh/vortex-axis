@@ -490,3 +490,25 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
 .face-cell { display: flex; flex-direction: column; gap: 4px; }
 .face-cell label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--dim); }
 .face-cell.off .face-tile { opacity: 0.4; }
+
+/* Device page: a sketch of the device beside its details. */
+.device-top { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+.device-top > .form { flex: 1 1 420px; min-width: 300px; }
+.device-preview { flex: 0 0 220px; text-align: center; }
+.device-frame { margin: 0 auto; background: #111; border: 1px solid #333; box-shadow: 0 1px 0 #000 inset; }
+.device-frame.board { width: 164px; padding: 10px; border-radius: 26px; }
+.device-frame.board .device-screen { aspect-ratio: 368 / 448; border-radius: 16px; }
+.device-frame.browser { width: 216px; padding: 18px 6px 6px; border-radius: 8px; position: relative; }
+.device-frame.browser::before { content: "● ● ●"; position: absolute; top: 2px; left: 8px; font-size: 8px; letter-spacing: 2px; color: #666; }
+.device-frame.browser .device-screen { aspect-ratio: 16 / 10; border-radius: 3px; }
+.device-frame.plain { width: 120px; padding: 10px; border-radius: 60px; }
+.device-frame.plain .device-screen { aspect-ratio: 1; border-radius: 50%; background: #1a1a1a; }
+.device-screen { background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.device-screen canvas { width: 86%; aspect-ratio: 1; display: block; }
+.device-frame.browser .device-screen canvas { width: 54%; }
+.device-screen p { color: #777; font-size: 12px; margin: 0; }
+.device-frame.is-offline { opacity: 0.6; }
+.device-doing { margin: 10px 0 6px; font-weight: 600; }
+.chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+.chip { border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 9px; font-size: 12px; }
+.chip.no { color: var(--dim); border-style: dashed; text-decoration: line-through; }

@@ -412,6 +412,7 @@ function route() {
   // The face page animates twenty-odd canvases; they only run while it is open.
   if (name === "face") openFaces();
   else closeFaces();
+  if (name !== "device") closeDeviceFace();
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
   if (name === "activity") renderActivity();
@@ -566,6 +567,48 @@ function closeFaces() {
   for (const face of faces) face.stop();
   faces = [];
   bigFace = undefined;
+}
+
+// --- device page: a sketch of the device ------------------------------------------------
+
+let deviceFace;
+
+/** Stops the sketch's animation when the device page is left. */
+function closeDeviceFace() {
+  deviceFace?.stop();
+  deviceFace = undefined;
+}
+
+/**
+ * Draws the device as Axis understands it: a frame for the kind of thing it is, the face in the
+ * state it is in right now, and what it has. Built from the client record and the live "now" list,
+ * so it follows the device within a few seconds.
+ */
+function renderDeviceSketch(client) {
+  const can = (what) => client.capabilities.includes(what);
+  const frame = $("device-frame");
+  frame.className = `device-frame ${!can("screen") ? "plain" : client.type === "web" ? "browser" : "board"}${client.online ? "" : " is-offline"}`;
+  $("device-face").hidden = !can("screen");
+  $("device-noscreen").hidden = can("screen");
+
+  const doing = lastNow?.clients.find((c) => c.clientId === client.id)?.state;
+  // A device that has been asked something shows the question over its ordinary face.
+  const mode = !client.online ? "offline" : doing === "listening" || doing === "thinking" || doing === "speaking" ? doing : "idle";
+  if (can("screen")) {
+    if (!deviceFace) {
+      deviceFace = new Vortex($("device-face"));
+      deviceFace.calm = false;
+    }
+    deviceFace.setIdleOff(client.settings.idleLooksOff);
+    deviceFace.setMode(mode);
+  } else closeDeviceFace();
+
+  $("device-doing").textContent = !client.online ? "Offline" : (DOING[doing] ?? "Idle");
+  $("device-can").replaceChildren(
+    ...[["mic", "microphone"], ["speaker", "speaker"], ["screen", "screen"]].map(([key, label]) =>
+      h("span", { class: can(key) ? "chip" : "chip no", title: can(key) ? `It has a ${label}` : `No ${label}` }, label),
+    ),
+  );
 }
 
 /** Every client type that has a device, with how many are online. */
@@ -841,6 +884,8 @@ function renderDevice() {
     $("device-remove").disabled = true;
     return;
   }
+  // The sketch follows the device even while a field on the page is being edited.
+  renderDeviceSketch(client);
   if (busy($("device"))) return;
 
   const schema = lastTypes[client.type] || { settings: [], actions: [], links: [] };

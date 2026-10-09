@@ -279,6 +279,8 @@ try {
   step("renamed", await admin.until(`(t => t === 'Browser renamed' && t)(${byId("device-title")}.textContent)`, "the new name"));
   await admin.run(change("#device-head input[data-edit=location]", "office"));
   step("location", await admin.until(`(t => /office/.test(t) && t)(document.querySelector('#client-table tbody tr')?.textContent)`, "the location in the list"));
+  // The sketch beside the details: a browser frame for the web client, its state and what it has.
+  step("device sketch", await admin.until(`${byId("device-frame")}.classList.contains('browser') && ${byId("device-doing")}.textContent && document.querySelectorAll('#device-can .chip').length === 3 && (${byId("device-frame")}.className + ', ' + ${byId("device-doing")}.textContent)`, "the device sketch"));
   // The type page: a value every web device shares, which the device then shows as coming from its type.
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`document.querySelector('#type-settings input[data-edit=listenCue]')`, "the type page");
