@@ -201,9 +201,10 @@ export async function testChatAgent(saved: RuntimeConfig["agent"], typed: { url?
     report.reply = reply.trim().slice(0, 200);
     report.ok = true;
   } catch (error) {
-    const e = error as Error & { cause?: { code?: string; message?: string } };
-    report.error =
-      e.name === "TimeoutError" ? "no answer within 30 seconds" : e.cause?.code ? `could not connect (${e.cause.code})` : e.message;
+    // A failed connection arrives as "fetch failed" with the real reason one or two levels down.
+    const e = error as Error & { cause?: { code?: string; message?: string; errors?: { code?: string }[] } };
+    const why = e.cause?.code ?? e.cause?.errors?.[0]?.code ?? e.cause?.message;
+    report.error = e.name === "TimeoutError" ? "no answer within 30 seconds" : why ? `could not connect (${why})` : e.message;
   }
   return report;
 }
