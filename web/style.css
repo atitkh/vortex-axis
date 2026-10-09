@@ -301,3 +301,8 @@ body:not(.busy) .stop { display: none; }
 .who:hover, .who[aria-expanded="true"] { color: var(--dim); }
 .who-pop { bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
 #forget.sure { color: var(--bad); border-color: var(--bad); }
+
+/* The corner's marks sit close together; the drawer's own two line up the same way. */
+.corner-right { gap: 2px; }
+.drawer-actions { align-items: center; gap: 4px; }
+.icon[aria-expanded="true"] { color: var(--text); }

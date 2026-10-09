@@ -20,7 +20,7 @@
   <div class="status" id="pills"></div>
   <div class="corner-right">
     <!-- Sound is one small mark in the corner; the slider and mute only appear when it is pressed. -->
-    <button type="button" class="icon hidden" id="sound" aria-label="Sound" aria-expanded="false" aria-controls="sound-pop">
+    <button type="button" class="icon hidden" id="sound" aria-label="Sound" title="Sound" aria-expanded="false" aria-controls="sound-pop">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 9.5v5h3.5L12 18V6L7.500 9.5z"/>
         <path class="wave" d="M15.500 9.200a4 4 0 0 1 0 5.600"/>
@@ -28,14 +28,20 @@
         <path class="slash" d="M16 9.500l5 5m0-5l-5 5"/>
       </svg>
     </button>
-    <button type="button" class="icon hidden" id="bell" aria-label="Notifications" aria-expanded="false" aria-controls="bell-pop">
+    <button type="button" class="icon hidden" id="bell" aria-label="Notifications" title="Notifications" aria-expanded="false" aria-controls="bell-pop">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M6.500 16.500V11a5.500 5.500 0 0 1 11 0v5.500l1.500 1.500H5z"/>
         <path d="M10.500 20.500a1.700 1.700 0 0 0 3 0"/>
         <path class="slash" d="M4.500 4.500l15 15"/>
       </svg>
     </button>
-    <button type="button" class="ghost hidden" id="history-toggle" aria-expanded="false" aria-controls="history">History</button>
+    <button type="button" class="icon hidden" id="history-toggle" aria-label="History" title="History" aria-expanded="false" aria-controls="history">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.500 12a7.500 7.500 0 1 0 2.300-5.400"/>
+        <path d="M4.500 4.800v3.200h3.200"/>
+        <path d="M12 8v4.200l2.800 1.700"/>
+      </svg>
+    </button>
     <div class="pop bell-pop hidden" id="bell-pop">
       <span class="pop-note" id="notify-note"></span>
       <button type="button" class="ghost hidden" id="notify"></button>
@@ -89,7 +95,9 @@
     <span>History</span>
     <span class="drawer-actions">
       <button type="button" class="ghost" id="history-clear">Clear</button>
-      <button type="button" class="ghost" id="history-close">Close</button>
+      <button type="button" class="icon" id="history-close" aria-label="Close history" title="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6.500 6.500l11 11m0-11l-11 11"/></svg>
+      </button>
     </span>
   </div>
   <div class="filter" id="history-filter" role="group" aria-label="Show">
