@@ -288,6 +288,8 @@ function fillConfig(config) {
   // The box shows what is actually sent: the saved prompt, or the built-in one when none is saved.
   defaultPrompt = config.agent.defaultSystemPrompt;
   $("agent-prompt").value = config.agent.systemPrompt || defaultPrompt;
+  defaultNote = config.agent.defaultGatewayNote;
+  $("agent-note-text").value = config.agent.gatewayNote || defaultNote;
   $("agent-token-state").textContent = config.agent.tokenSet ? "(set)" : "";
   for (const id of ["stt-key", "tts-key", "agent-token"]) $(id).value = "";
   showBackend();
@@ -337,6 +339,13 @@ $("speech-test").addEventListener("click", (event) =>
   }),
 );
 
+let defaultNote = "";
+/** The note in the box, or nothing when it is the built-in one. */
+function typedNote() {
+  const typed = $("agent-note-text").value.trim();
+  return typed === defaultNote.trim() ? "" : typed;
+}
+
 let defaultPrompt = "";
 /** The prompt in the box, or nothing when it is the built-in one, so a later change to the built-in one is picked up. */
 function typedPrompt() {
@@ -368,6 +377,7 @@ $("agent-save").addEventListener("click", (event) =>
           url: $("agent-url").value.trim(),
           model: $("agent-model").value.trim(),
           systemPrompt: typedPrompt(),
+          gatewayNote: typedNote(),
           ...secret("agent-token", "token"),
         },
       }),

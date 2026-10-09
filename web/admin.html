@@ -336,6 +336,11 @@
             <input id="agent-id" list="agent-list" placeholder="gateway default" spellcheck="false">
             <datalist id="agent-list"></datalist>
           </div>
+          <label for="agent-note-text">Note to the agent</label>
+          <div>
+            <textarea id="agent-note-text" rows="8" spellcheck="false"></textarea>
+            <p class="help">Added to the agent's own system prompt on every turn from Axis: that it is speaking as a voice assistant, what the line describing the device means, and that the Axis tools reach the devices. Keep it free of anything that changes from turn to turn. Empty the box and save for the built-in one; a single <code>-</code> sends none.</p>
+          </div>
         </div>
 
         <div class="contents hidden" id="agent-openai">

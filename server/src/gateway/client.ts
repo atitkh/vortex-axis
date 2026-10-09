@@ -252,6 +252,13 @@ export class GatewayClient implements Agent, Credentials {
     return this.store.getMeta(META.agent) ?? this.options.agentId;
   }
 
+  /** Added to the agent's own system prompt on every turn. Empty sends nothing. */
+  private note = "";
+  private noteRefused = false;
+  setNote(note: string): void {
+    this.note = note;
+  }
+
   setAgentId(agentId: string | undefined): void {
     this.store.setMeta(META.agent, agentId || undefined);
   }
@@ -341,15 +348,27 @@ export class GatewayClient implements Agent, Credentials {
     try {
       // A stable session key needs an explicit agent: with several agents the
       // gateway refuses a key that no agent owns.
-      const ack = await this.operator.request(
-        "agent",
-        {
-          message,
-          idempotencyKey: `axis-${randomUUID()}`,
-          ...(agentId ? { agentId, sessionKey: this.options.sessionKey } : {}),
-        },
-        20_000,
-      );
+      const send = (withNote: boolean) =>
+        this.operator.request(
+          "agent",
+          {
+            message,
+            idempotencyKey: `axis-${randomUUID()}`,
+            ...(agentId ? { agentId, sessionKey: this.options.sessionKey } : {}),
+            ...(withNote ? { extraSystemPrompt: this.note } : {}),
+          },
+          20_000,
+        );
+      let ack;
+      try {
+        ack = await send(Boolean(this.note) && !this.noteRefused);
+      } catch (error) {
+        // A gateway too old to know the note refuses the whole request. Leave the note out from then on.
+        if (!this.note || this.noteRefused || !/extraSystemPrompt|unexpected|additional propert/i.test((error as Error).message)) throw error;
+        this.noteRefused = true;
+        this.options.log("the gateway refused the note to the agent; turns go without it");
+        ack = await send(false);
+      }
       runId = typeof ack?.runId === "string" ? ack.runId : "";
       for (const payload of early.splice(0)) handle(payload);
       yield* channel;

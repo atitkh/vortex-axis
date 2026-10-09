@@ -1,5 +1,5 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
-import { ChatCompletionsAgent, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
+import { ChatCompletionsAgent, DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
 import type { Config } from "./config.js";
 import { OpenAiSpeechToText, OpenAiTextToSpeech } from "./speech.js";
 import type { Store } from "./store.js";
@@ -21,7 +21,18 @@ export interface RuntimeConfig {
     token: string;
     /** For a chat endpoint only: the system message sent with every turn. Empty means the built-in one. */
     systemPrompt: string;
+    /**
+     * For an OpenClaw agent only: a note added to the agent's own system prompt.
+     * Empty means the built-in one; "-" means send none.
+     */
+    gatewayNote: string;
   };
+}
+
+/** The note an OpenClaw agent is sent: the admin's own, the built-in one, or none at all for "-". */
+export function gatewayNoteFor(agent: Pick<RuntimeConfig["agent"], "gatewayNote">): string {
+  const own = agent.gatewayNote.trim();
+  return own === "-" ? "" : own || DEFAULT_GATEWAY_NOTE;
 }
 
 /** The system message a chat endpoint is sent: the admin's own, or the built-in one when none is set. */
@@ -49,6 +60,7 @@ function fromEnvironment(config: Config): RuntimeConfig {
       model: config.agent?.model ?? "",
       token: config.agent?.token ?? "",
       systemPrompt: "",
+      gatewayNote: "",
     },
   };
 }
@@ -116,6 +128,10 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   if (prompt !== undefined && (typeof prompt !== "string" || prompt.length > 8000)) {
     throw new Error("agent.systemPrompt must be text of at most 8000 characters");
   }
+  const gatewayNote = p.agent?.gatewayNote;
+  if (gatewayNote !== undefined && (typeof gatewayNote !== "string" || gatewayNote.length > 4000)) {
+    throw new Error("agent.gatewayNote must be text of at most 4000 characters");
+  }
   const backend = p.agent?.backend;
   if (backend !== undefined && backend !== "gateway" && backend !== "openai") {
     throw new Error('agent.backend must be "gateway" or "openai"');
@@ -130,7 +146,7 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   const next: Patch = {
     stt: { ...saved.stt, ...pick<RuntimeConfig["stt"]>(["url", "model", "apiKey"], p.stt) },
     tts: { ...saved.tts, ...pick<RuntimeConfig["tts"]>(["url", "model", "voice", "sampleRate", "apiKey"], p.tts) },
-    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt"], p.agent) },
+    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt", "gatewayNote"], p.agent) },
   };
   store.setMeta(META_KEY, JSON.stringify(next));
   return loadRuntimeConfig(store, config);
@@ -144,7 +160,7 @@ export function publicRuntimeConfig(rc: RuntimeConfig) {
   return {
     stt: { ...stt, apiKeySet: Boolean(sttKey) },
     tts: { ...tts, apiKeySet: Boolean(ttsKey) },
-    agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT },
+    agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
   };
 }
 
@@ -159,6 +175,7 @@ export function applyRuntimeConfig(
   services.tts = rc.tts.url
     ? new OpenAiTextToSpeech({ ...rc.tts, voice: rc.tts.voice || undefined, apiKey: rc.tts.apiKey || undefined })
     : undefined;
+  gatewayAgent.setNote?.(gatewayNoteFor(rc.agent));
   if (rc.agent.backend === "gateway") services.agent = gatewayAgent;
   else {
     services.agent = rc.agent.url

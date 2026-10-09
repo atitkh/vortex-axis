@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceIdentity, authPayload, decodeSetupCode, toSocketUrl } from "../src/gateway/wire.js";
+import { DEFAULT_GATEWAY_NOTE } from "../src/agent.js";
 import { NODE_COMMANDS } from "../src/commands.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
 import { FakeGateway } from "./fake-gateway.js";
@@ -216,7 +217,18 @@ describe("agent turns over the gateway", () => {
     expect(request).toMatchObject({ agentId: "vertex", sessionKey: "vortex-axis" });
     expect(request.message).toBe("[from: Desk, type: web, location: unknown, can: mic+speaker+screen]\nhi there");
     expect(request.idempotencyKey).toMatch(/^axis-/);
-    expect(Object.keys(request).sort()).toEqual(["agentId", "idempotencyKey", "message", "sessionKey"]);
+    // The note rides beside the message as an addition to the agent's own prompt, not inside the words.
+    expect(request.extraSystemPrompt).toBe(DEFAULT_GATEWAY_NOTE);
+    expect(Object.keys(request).sort()).toEqual(["agentId", "extraSystemPrompt", "idempotencyKey", "message", "sessionKey"]);
+
+    await admin("PATCH", "/admin/config", { agent: { gatewayNote: "Be brief." } });
+    client.send({ t: "text", turnId: "t2", text: "again" });
+    await vi.waitFor(() => expect(gateway.agentRequests.length).toBe(2));
+    expect(gateway.agentRequests[1].extraSystemPrompt).toBe("Be brief.");
+    await admin("PATCH", "/admin/config", { agent: { gatewayNote: "-" } });
+    client.send({ t: "text", turnId: "t3", text: "and again" });
+    await vi.waitFor(() => expect(gateway.agentRequests.length).toBe(3));
+    expect("extraSystemPrompt" in gateway.agentRequests[2]).toBe(false);
   });
 
   it("falls back to the gateway's default agent", async () => {

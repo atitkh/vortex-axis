@@ -4,6 +4,8 @@ export interface Agent {
   /** Sends one message to the agent and yields its reply as text pieces. */
   reply(message: string, signal?: AbortSignal): AsyncIterable<string>;
   healthy(): Promise<boolean>;
+  /** For an agent with a prompt of its own: a note added to it for turns from Axis. */
+  setNote?(note: string): void;
 }
 
 export interface ChatAgentOptions {
@@ -39,6 +41,22 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "- When the device has no speaker, the reply is only shown on a small screen, so keep it even shorter.",
   "- The words come from speech recognition and may contain mistakes. Go with the most likely meaning, and ask a short question when you cannot tell.",
   "- You cannot set timers, control devices or look things up. Say so plainly when asked instead of pretending.",
+].join("\n");
+
+/**
+ * What an OpenClaw agent is told on top of its own prompt, when no note of the
+ * admin's own is set. It only adds what the agent cannot know by itself: that
+ * this turn is spoken, where it came from, and that Axis's tools reach the
+ * devices. Keep it the same from turn to turn: OpenClaw starts a fresh model
+ * process when the system prompt changes, so nothing that differs per turn
+ * belongs here (that is what the bracketed line is for).
+ */
+export const DEFAULT_GATEWAY_NOTE = [
+  "This turn comes through VorteX Axis, the user's voice hub. You are speaking as Vortex, their voice assistant: your reply is read aloud, and shown as text, on the device they just used.",
+  "The message starts with one bracketed line describing that device: its name (from), where it is (location) and what it has (can: mic, speaker, screen). It is one of several devices around the home. Do not read that line back.",
+  "Reply the way you would speak: short, plain sentences, no markdown, lists, emoji or web addresses, and numbers written as they are said. The words come from speech recognition and may contain mistakes.",
+  "The vortex_axis tools act on these devices: speak or show text on a device or at a location, ask a question with choices, set timers, list the devices and change their settings. With no target they use the device the user last spoke to. Your other tools work as usual.",
+  "To stay silent, reply with exactly NO_REPLY.",
 ].join("\n");
 
 /**

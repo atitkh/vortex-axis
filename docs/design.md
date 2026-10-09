@@ -267,3 +267,7 @@ Renamed 2026-10-08. Where a device is was called its `room`; it is now its `loca
 ## System prompt for a chat endpoint
 
 Added 2026-10-08. A plain OpenAI-style chat endpoint has no prompt of its own, so Axis sends one as the `system` message ahead of every turn: `DEFAULT_SYSTEM_PROMPT` in `server/src/agent.ts` (voice assistant, short spoken answers, no markdown, how to read the bracketed device line, no tools), or the admin's own text from the Agent page (`agent.systemPrompt` in the runtime settings; empty means the built-in one). The device line stays in the user message because it differs per turn. An OpenClaw agent is never sent this: it has its own prompt, and the gateway link carries only the message.
+
+## Note to an OpenClaw agent
+
+Added 2026-10-08. An OpenClaw agent has its own prompt, tools and memory, but nothing in it says that a turn from Axis is spoken or what the bracketed line means. Axis therefore sends a short note as `extraSystemPrompt` on the gateway `agent` request, beside the message, not inside it: `DEFAULT_GATEWAY_NOTE` in `server/src/agent.ts`, or the admin's own text (`agent.gatewayNote`; empty means the built-in one, `-` means none). The note must not change from turn to turn: OpenClaw starts a fresh model process when the system prompt changes, so per-turn facts stay in the bracketed line. A gateway that refuses the field gets the turn again without it, and no note from then on.
