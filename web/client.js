@@ -150,6 +150,27 @@ function send(message) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
+/**
+ * A page left open, or kept in memory by a phone, goes on running the scripts it was loaded with. Axis
+ * restarts when it is updated, which drops and reopens the connection, so that is the moment to ask
+ * whether this page is the current one, and to load the new one if nothing is going on.
+ */
+const MY_VERSION = new URL(import.meta.url).searchParams.get("v");
+async function checkForNewPage() {
+  if (!MY_VERSION) return;
+  try {
+    const { version } = await (await fetch("/v1/web-version", { cache: "no-store" })).json();
+    if (!version || version === MY_VERSION) return;
+    const reloadWhenQuiet = () => {
+      if (capture || starting || player.turnId || ask || turnState !== "idle") return setTimeout(reloadWhenQuiet, 3000);
+      location.reload();
+    };
+    reloadWhenQuiet();
+  } catch {
+    // Not reachable just now; the next connection asks again.
+  }
+}
+
 /** Tells Axis the size of this window, so the admin page can draw this client at its real shape. */
 function reportScreen() {
   send({ t: "sense", readings: { screenW: window.innerWidth, screenH: window.innerHeight } });
@@ -286,6 +307,7 @@ function onMessage(message) {
     case "welcome":
       online = true;
       reportScreen();
+      checkForNewPage();
       break;
     case "settings":
       settings = { version: message.version, values: message.values };

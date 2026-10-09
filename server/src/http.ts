@@ -348,6 +348,9 @@ export function createHttpHandler(deps: HttpDeps) {
       return sendJson(res, 200, { ok: true });
     }
 
+    // The stamp of the web files being served, so an open page can tell it has been replaced.
+    if (method === "GET" && url.pathname === "/v1/web-version") return sendJson(res, 200, { version: webVersion });
+
     // The pages themselves hold no secrets. Everything they do goes through
     // the same endpoints, with the same checks, as any other caller.
     if (method === "GET") {
