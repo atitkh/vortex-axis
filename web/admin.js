@@ -968,6 +968,11 @@ function renderDevice() {
           }, "Change"),
         )
       : []),
+    // A browser can be reached with its page closed once the person there allows notifications.
+    ...(client.type === "web"
+      ? row("When its page is closed", client.notifications ? "gets a notification" : h("span", { class: "sub" }, "not reachable (notifications are off in that browser)"))
+      : []),
+    ...(client.waiting ? row("Waiting for it", `${plural(client.waiting, "message")}, said when it is back`) : []),
     ...row("Id", h("span", { class: "mono sub" }, client.id)),
   );
 

@@ -223,3 +223,6 @@ body:not(.busy) .stop { display: none; }
   .face { width: min(44vmin, 300px); }
   body.has-words .face { width: min(34vmin, 220px); }
 }
+
+.foot-note { color: var(--faint); font-size: 12px; }
+.foot .ghost[data-on="1"] { color: var(--dim); }

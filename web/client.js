@@ -153,6 +153,8 @@ function send(message) {
 // --- pairing ---------------------------------------------------------------
 
 function forget(message = "") {
+  // The browser's push address belonged to this pairing: drop it, or it would keep getting notifications for a client that is gone.
+  worker?.pushManager.getSubscription().then((subscription) => subscription?.unsubscribe()).catch(() => undefined);
   identity = null;
   localStorage.removeItem(IDENTITY_KEY);
   localStorage.removeItem(SETTINGS_KEY);
@@ -213,6 +215,8 @@ function start() {
   show("talk", true);
   show("footer", true);
   $("who").textContent = `Paired as ${identity.name}`;
+  // Pairing can happen long after the page loaded; the notification button belongs to a paired client.
+  queueMicrotask(() => showNotifyControl());
   renderFace();
   // Find out now whether sound is allowed, so the notice is there before anyone speaks.
   player.ensure();
@@ -700,5 +704,128 @@ function stopEverything() {
 $("stop").addEventListener("click", stopEverything);
 
 renderPills();
+// --- notifications while the page is closed ------------------------------------------------
+// A browser can be reached with its page closed if the person allows notifications. Axis then sends
+// what an agent wanted said here as a notification, and questions with their choices. An iPhone only
+// offers this to a page that was added to the Home Screen.
+
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const installed = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const isApplePhone = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+let worker;
+
+const asClient = () => ({ authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId });
+
+/** Turns a base64url key into the bytes the browser wants. */
+function keyBytes(text) {
+  const padded = text.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(text.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+async function showNotifyControl() {
+  const button = $("notify");
+  const noteEl = $("notify-note");
+  noteEl.textContent = "";
+  if (!identity) return show("notify", false);
+  if (!pushSupported) {
+    show("notify", false);
+    // The one case worth explaining: an iPhone can do it, but only from the Home Screen.
+    if (isApplePhone && !installed) noteEl.textContent = "To get notifications: Share, then Add to Home Screen, and open it from there.";
+    return;
+  }
+  const subscription = await worker?.pushManager.getSubscription();
+  show("notify", true);
+  button.textContent = subscription ? "Notifications on" : "Turn on notifications";
+  button.dataset.on = subscription ? "1" : "";
+  if (Notification.permission === "denied") {
+    button.disabled = true;
+    noteEl.textContent = "Notifications are blocked for this page in the browser's settings.";
+  }
+}
+
+async function toggleNotifications() {
+  const button = $("notify");
+  button.disabled = true;
+  try {
+    const existing = await worker.pushManager.getSubscription();
+    if (existing) {
+      await fetch("/v1/push/subscription", { method: "DELETE", headers: asClient() });
+      await existing.unsubscribe();
+    } else {
+      if ((await Notification.requestPermission()) !== "granted") return;
+      const { key } = await (await fetch("/v1/push/key")).json();
+      const subscription = await worker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+      const saved = await fetch("/v1/push/subscription", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...asClient() },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      if (!saved.ok) {
+        await subscription.unsubscribe();
+        throw new Error("Axis did not accept it");
+      }
+    }
+  } catch (error) {
+    $("notify-note").textContent = `Could not change notifications: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    await showNotifyControl();
+  }
+}
+$("notify").addEventListener("click", toggleNotifications);
+
+/**
+ * A question that arrived as a notification, opened here: offer its choices. The answer goes back
+ * over plain HTTP with the one-time token from the notification, since it was asked while this page
+ * was closed and is not part of any turn on the socket.
+ */
+function showNotifiedAsk(ask) {
+  if (!ask || !Array.isArray(ask.choices)) return;
+  caption("", ask.question);
+  const box = $("choices");
+  box.replaceChildren(
+    ...ask.choices.map((choice) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice";
+      button.textContent = choice;
+      button.addEventListener("click", async () => {
+        box.classList.add("hidden");
+        box.replaceChildren();
+        const res = await fetch("/v1/push/answer", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: ask.id, token: ask.token, choice }),
+        }).catch(() => undefined);
+        caption("", res?.ok ? `You answered: ${choice}` : "That question is no longer open.", res?.ok ? "" : "error");
+      });
+      return button;
+    }),
+  );
+  box.classList.remove("hidden");
+}
+
+if (pushSupported) {
+  navigator.serviceWorker
+    .register("/sw.js")
+    .then(async (registration) => {
+      worker = registration;
+      await navigator.serviceWorker.ready;
+      showNotifyControl();
+    })
+    .catch(() => showNotifyControl());
+  navigator.serviceWorker.addEventListener("message", (event) => showNotifiedAsk(event.data?.ask));
+} else showNotifyControl();
+
+// Opened from a notification that carried a question.
+if (location.hash.startsWith("#ask=")) {
+  try {
+    showNotifiedAsk(JSON.parse(decodeURIComponent(location.hash.slice(5))));
+  } catch {
+    // A mangled link is not worth a message.
+  }
+  history.replaceState(null, "", "/");
+}
+
 if (identity) start();
 else show("pair", true);
