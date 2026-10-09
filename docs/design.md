@@ -336,3 +336,5 @@ Added 2026-10-09.
 
 **Timer.** The countdown is a small chip under the words (label, time, Cancel) in the same hairline pill as the rest of the page, not large accent text.
 
+**Sound on an iPhone.** A page's sound engine there has a state of its own, "interrupted", entered when the page goes to the background, the screen locks, or the microphone is let go; a page added to the Home Screen sometimes cannot be woken from it at all. And only the end of a touch counts as the press that may switch sound on, not its start. So the web client wakes the engine from any state that is not running (not only "suspended"), listens on `pointerup`, `touchend`, `click` and `keydown`, plays one sample of silence inside the press, and if the engine is still not running half a second later it is closed and built again on the next press. The notice follows the engine's state both ways. Written from the owner's report (the notice stayed and sound came back only sometimes); not reproduced or confirmed on a phone by the agent that wrote it. The phone's silent switch also silences a page's sound, with the page none the wiser; nothing here can detect that.
+

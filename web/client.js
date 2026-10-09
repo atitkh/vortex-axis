@@ -340,10 +340,17 @@ $("forget").addEventListener("click", () => {
 
 // --- connection ------------------------------------------------------------
 
-// Any click or key press on the page is what the browser waits for before it allows sound.
-for (const type of ["pointerdown", "keydown"]) {
-  document.addEventListener(type, () => identity && player.ensure(), { passive: true });
+// A press or a key is what the browser waits for before it allows sound. An iPhone only counts the END
+// of a touch (and the click that follows), not its start, so those are the ones listened for.
+for (const type of ["pointerup", "touchend", "click", "keydown"]) {
+  document.addEventListener(type, () => identity && player.ensure(true), { passive: true, capture: true });
 }
+// Coming back to the front: an iPhone pauses a page's sound while it is away. Try to wake it, and say so if it will not.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !identity || !player.context) return;
+  player.ensure();
+  setTimeout(() => show("sound-note", !player.audible()), 500);
+});
 
 function start() {
   show("pair", false);
@@ -594,22 +601,57 @@ const player = {
   ended: false,
   volume: 1,
 
-  ensure() {
+  /**
+   * Makes sure there is something to play sound with, and wakes it. `pressed` says this is being called
+   * from a press or a key, the only moment a browser lets sound be switched on.
+   *
+   * An iPhone needs more than the rest: it pauses a page's sound when the page goes to the background,
+   * the screen locks or the microphone is let go, into a state of its own ("interrupted"), and now and
+   * then leaves it unable to wake at all, most of all in a page added to the Home Screen. So anything
+   * that is not running is woken, and one that a press could not wake is thrown away and built again on
+   * the next press.
+   */
+  ensure(pressed = false) {
+    if (this.context?.state === "closed") this.context = undefined;
+    if (pressed && this.stuck && this.context && this.context.state !== "running") {
+      this.stop();
+      this.context.close().catch(() => {});
+      this.context = undefined;
+    }
     if (!this.context) {
-      this.context = new AudioContext();
-      this.gain = this.context.createGain();
+      const context = (this.context = new AudioContext());
+      this.stuck = false;
+      this.gain = context.createGain();
       this.gain.gain.value = this.volume;
       // The analyser measures the voice for the face BEFORE the volume, as the board does
       // (docs/face.md section 4), so a quiet setting does not shrink the speaking face.
-      this.analyser = this.context.createAnalyser();
+      this.analyser = context.createAnalyser();
       this.analyser.fftSize = 1024;
       this.samples = new Float32Array(this.analyser.fftSize);
       this.analyser.connect(this.gain);
-      this.gain.connect(this.context.destination);
-      // Hide the notice as soon as the browser lets sound through.
-      this.context.addEventListener("statechange", () => this.audible() && show("sound-note", false));
+      this.gain.connect(context.destination);
+      // The notice goes as soon as sound gets through, and comes back if the system takes it away again.
+      context.addEventListener("statechange", () => this.context === context && identity && show("sound-note", !this.audible()));
     }
-    if (this.context.state === "suspended") this.context.resume().catch(() => {});
+    if (this.context.state === "running") return;
+    const context = this.context;
+    context.resume().catch(() => {});
+    if (!pressed) return;
+    // A moment of silence played inside the press is what unlocks sound on an iPhone when waking alone does not.
+    try {
+      const blip = context.createBufferSource();
+      blip.buffer = context.createBuffer(1, 1, 22050);
+      blip.connect(context.destination);
+      blip.start(0);
+    } catch {
+      // Nothing lost: the wake above may still do it.
+    }
+    clearTimeout(this.wakeCheck);
+    this.wakeCheck = setTimeout(() => {
+      if (this.context !== context) return;
+      this.stuck = context.state !== "running";
+      show("sound-note", Boolean(identity) && this.stuck);
+    }, 500);
   },
 
   /** Loudness of what is playing now, 0 to 1. */
@@ -880,7 +922,7 @@ $("mic").addEventListener("click", () => {
   else $("say").focus();
 });
 
-$("sound-enable").addEventListener("click", () => player.ensure());
+$("sound-enable").addEventListener("click", () => player.ensure(true));
 
 function toggleHistory(open) {
   show("history", open);
