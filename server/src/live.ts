@@ -37,18 +37,22 @@ export interface LiveTurn {
   totalMs?: number;
 }
 
-export type LiveEvent = { type: "turn"; turn: LiveTurn } | { type: "wake"; wake: WakeRecord & { client: string } };
+export type LiveEvent =
+  | { type: "turn"; turn: LiveTurn }
+  | { type: "wake"; wake: WakeRecord & { client: string } }
+  /** Everything at once, after turns were forgotten: what a page should now show in place of what it had. */
+  | { type: "snapshot"; turns: LiveTurn[] };
 
 /** How many finished turns are kept to look back at. */
 const KEEP_TURNS = 30;
-/** How long a finished turn's words stay readable. */
+/** How long a finished turn's words are kept at all. After this they are deleted from memory, not merely hidden. */
 const WORDS_MS = 10 * 60_000;
 /** A turn open this long was lost track of. */
 const STALE_MS = 10 * 60_000;
 const MAX_WORDS = 4000;
 
 export class Live {
-  private readonly turns: LiveTurn[] = [];
+  private turns: LiveTurn[] = [];
   private readonly open = new Map<string, LiveTurn>();
   private readonly listeners = new Set<(event: LiveEvent) => void>();
 
@@ -60,16 +64,37 @@ export class Live {
     return () => this.listeners.delete(listener);
   }
 
-  /** Recent turns, newest first. Words of turns that ended a while ago are left out. */
+  /** Recent turns, newest first. */
   snapshot(): LiveTurn[] {
+    this.forgetOldWords();
+    return [...this.turns].reverse();
+  }
+
+  /**
+   * Deletes the words of turns that ended a while ago. Their timings stay. Called on a clock and
+   * before anything is handed out, so nothing said outlives its ten minutes in this process.
+   */
+  forgetOldWords(): void {
     const cutoff = this.now() - WORDS_MS;
-    return this.turns
-      .map((turn) => {
-        if (turn.endedAt === undefined || turn.endedAt > cutoff) return turn;
-        const { heard: _heard, said: _said, ...rest } = turn;
-        return rest;
-      })
-      .reverse();
+    let changed = false;
+    for (const turn of this.turns) {
+      if (turn.endedAt === undefined || turn.endedAt > cutoff) continue;
+      if (turn.heard === undefined && turn.said === undefined) continue;
+      delete turn.heard;
+      delete turn.said;
+      changed = true;
+    }
+    if (changed) this.publish({ type: "snapshot", turns: [...this.turns].reverse() });
+  }
+
+  /** Forgets every finished turn now, words and timings, and the words so far of any turn still running. */
+  clear(): void {
+    this.turns = this.turns.filter((turn) => turn.endedAt === undefined);
+    for (const turn of this.turns) {
+      delete turn.heard;
+      delete turn.said;
+    }
+    this.publish({ type: "snapshot", turns: [...this.turns].reverse() });
   }
 
   /** A turn reached a stage. The first stage of a turn is what makes it appear. */

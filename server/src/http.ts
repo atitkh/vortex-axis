@@ -7,6 +7,7 @@ import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMa
 import type { Activity } from "./activity.js";
 import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
+import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
 import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
@@ -145,8 +146,10 @@ export interface HttpDeps {
   activity?: Activity;
   /** Turns and wake words as they happen, for the Live view. */
   live?: Live;
-  /** The link to Home Assistant, when one is set up. */
-  homeAssistant?: HomeAssistant | undefined;
+  /** The link to Home Assistant as it is now, when one is set up. It is rebuilt when its settings change. */
+  homeAssistant?: () => HomeAssistant | undefined;
+  /** Carries saved hub settings to the parts of Axis that use them. */
+  applyHubSettings?: (changed: { mqtt: boolean }) => void;
   /** When this process started, for uptime. */
   startedAt?: number;
   version?: string;
@@ -802,7 +805,9 @@ export function createHttpHandler(deps: HttpDeps) {
         });
         const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
         write("snapshot", { at: now(), turns: deps.live.snapshot() });
-        const stop = deps.live.subscribe((event) => write(event.type, event.type === "turn" ? event.turn : event.wake));
+        const stop = deps.live.subscribe((event) =>
+          write(event.type, event.type === "turn" ? event.turn : event.type === "wake" ? event.wake : { at: now(), turns: event.turns }),
+        );
         // A line now and then keeps proxies from closing a quiet stream.
         const beat = setInterval(() => res.write(": still here\n\n"), 20_000);
         beat.unref();
@@ -811,6 +816,13 @@ export function createHttpHandler(deps: HttpDeps) {
           stop();
         });
         return;
+      }
+      // Forgets, now, every word Axis is holding in memory for the admin page: the live turns and the device sketches.
+      if (method === "POST" && parts.length === 3 && parts[1] === "live" && parts[2] === "clear" && deps.live) {
+        deps.live.clear();
+        hub.forgetScreens(true);
+        activity?.note("admin", "", "Live view cleared: the words of recent turns were deleted from memory");
+        return sendJson(res, 200, { cleared: true });
       }
       // Wake words devices reported: how sure each was and what came of it, for tuning the cutoff.
       if (method === "GET" && parts.length === 2 && parts[1] === "wakes") {
@@ -823,11 +835,25 @@ export function createHttpHandler(deps: HttpDeps) {
         });
       }
       // What Axis is connected to besides its devices and the agent, and whether each is working.
+      if (method === "PATCH" && parts.length === 2 && parts[1] === "integrations") {
+        const body = await readJson(req);
+        const before = JSON.stringify(config.homeAssistant ?? null);
+        try {
+          saveHubSettings(store, config, body, String(req.headers.host ?? ""));
+        } catch (error) {
+          throw new HttpError(400, (error as Error).message);
+        }
+        deps.applyHubSettings?.({ mqtt: JSON.stringify(config.homeAssistant ?? null) !== before });
+        // What changed is named, never its value: one of these is a password.
+        activity?.note("admin", "", `Hub settings saved: ${Object.keys(body as object).join(", ") || "nothing"}`);
+        return sendJson(res, 200, { settings: publicHubSettings(config) });
+      }
       if (method === "GET" && parts.length === 2 && parts[1] === "integrations") {
         const clients = store.listClients();
         const gw = gateway.status();
         return sendJson(res, 200, {
-          homeAssistant: deps.homeAssistant?.status() ?? null,
+          homeAssistant: deps.homeAssistant?.()?.status() ?? null,
+          settings: publicHubSettings(config),
           notifications: {
             ready: Boolean(deps.push),
             clients: clients.filter((c) => deps.push?.has(c.id)).map((c) => ({ id: c.id, name: c.name, online: hub.isOnline(c.id), waiting: deps.delivery?.waitingFor(c.id) ?? 0 })),

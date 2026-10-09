@@ -11,6 +11,7 @@ import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
 import { Delivery } from "./delivery.js";
 import { HomeAssistant } from "./homeassistant.js";
+import { applySavedHubSettings } from "./hubconfig.js";
 import { Live } from "./live.js";
 import { createHttpHandler } from "./http.js";
 import { PushService } from "./push.js";
@@ -65,6 +66,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const log = options.log ?? (() => {});
   const startedAt = Date.now();
   const store = new Store(config.dataDir);
+  // What an admin saved on the Integrations page wins over the environment, from here on.
+  applySavedHubSettings(store, config);
   const activity = new Activity(store, { retentionMs: config.activityDays * 86_400_000 });
   activity.start();
 
@@ -152,10 +155,31 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
   Object.assign(services, options.services);
 
-  const homeAssistant = config.homeAssistant
-    ? new HomeAssistant({ ...config.homeAssistant, hub, store, delivery, version: AXIS_VERSION, log })
-    : undefined;
-  homeAssistant?.start();
+  let homeAssistant: HomeAssistant | undefined;
+  const startHomeAssistant = () => {
+    homeAssistant?.stop();
+    homeAssistant = config.homeAssistant
+      ? new HomeAssistant({ ...config.homeAssistant, hub, store, delivery, version: AXIS_VERSION, log })
+      : undefined;
+    homeAssistant?.start();
+  };
+  startHomeAssistant();
+
+  /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
+  const applyHubSettings = (changed: { mqtt: boolean }) => {
+    hub.setTimeZone(config.timeZone);
+    activity.setRetention(config.activityDays * 86_400_000);
+    delivery.setHoldMs(config.messageHoldMs);
+    if (changed.mqtt) startHomeAssistant();
+  };
+
+  // Words kept in memory for the admin page are deleted when their time is up, not only hidden.
+  const forgetTimer = setInterval(() => {
+    live.forgetOldWords();
+    hub.forgetScreens();
+    delivery.prune();
+  }, 60_000);
+  forgetTimer.unref();
 
   // Quiet hours begin and end on the clock, not on an edit, so somebody has to look.
   const quietTimer = setInterval(() => hub.checkQuiet(), 60_000);
@@ -170,7 +194,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -209,6 +233,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     async close() {
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
+      clearInterval(forgetTimer);
       homeAssistant?.stop();
       timers.stop();
       gateway.stop();

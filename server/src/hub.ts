@@ -79,7 +79,7 @@ export class Hub implements TurnPort {
   private readonly online = new Map<string, Session>();
   private readonly turns: TurnManager;
   private readonly outputHoldMs: number;
-  private readonly timeZone: string;
+  private timeZone: string;
   private readonly wasQuiet = new Map<string, boolean>();
   private readonly screens = new Map<string, { heard: string; said: string; at: number }>();
   private readonly store: Store;
@@ -501,6 +501,19 @@ export class Hub implements TurnPort {
       const said = message.final ? message.text || now.said : `${now.said}${message.text}`;
       this.screens.set(clientId, { heard: now.heard, said: said.slice(0, 2000), at: Date.now() });
     } else if (message.t === "turn" && message.state === "listening") this.screens.delete(clientId);
+  }
+
+  /** Changes the clock quiet hours are told by, and looks at once whether that starts or ends any. */
+  setTimeZone(timeZone: string): void {
+    this.timeZone = timeZone;
+    this.checkQuiet();
+  }
+
+  /** Deletes the words kept for the admin page's device sketch: those past their minute, or all of them. */
+  forgetScreens(all = false): void {
+    for (const [clientId, screen] of this.screens) {
+      if (all || Date.now() - screen.at >= 60_000) this.screens.delete(clientId);
+    }
   }
 
   /** The words each connected client was sent in the last minute: what it heard and what it was told. */

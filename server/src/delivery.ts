@@ -125,6 +125,25 @@ export class Delivery {
     };
   }
 
+  /** Changes how long a message for a client that is away is kept. Messages already waiting keep the time they were given. */
+  setHoldMs(holdMs: number): void {
+    this.options.holdMs = holdMs;
+  }
+
+  /** Deletes messages whose time is up. They would never be said; this stops them sitting in memory until somebody asks. */
+  prune(): void {
+    for (const [clientId, list] of this.held) {
+      const live = list.filter((h) => h.until > this.now());
+      if (live.length) this.held.set(clientId, live);
+      else this.held.delete(clientId);
+    }
+    for (const [clientId, list] of this.notified) {
+      const live = list.filter((m) => m.until > this.now());
+      if (live.length) this.notified.set(clientId, live);
+      else this.notified.delete(clientId);
+    }
+  }
+
   /** How many messages are waiting for a client, for the admin page. */
   waitingFor(clientId: string): number {
     return (this.held.get(clientId) ?? []).filter((h) => h.until > this.now()).length;

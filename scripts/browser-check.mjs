@@ -259,6 +259,16 @@ try {
   step("live view", await admin.until(`document.querySelectorAll('#live-turns .turn-card').length >= 2 && /watching/.test(${byId("live-state")}.textContent) && [...document.querySelectorAll('#live-turns .turn-card')].find(c => /Typed/.test(c.textContent))?.textContent.replace(/\\s+/g, ' ').slice(0, 200)`, "the live turns"));
   await admin.run(`location.hash = '#integrations'`);
   step("integrations", await admin.until(`[...document.querySelectorAll('.integration-head')].map(e => e.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`, "the integrations"));
+  // A field edited where it is shown: the history length, saved from its own card.
+  await admin.run(`(i => { i.value = '5'; i.dispatchEvent(new Event('input', { bubbles: true })); i.closest('.integration').querySelector('button.primary').click(); })(document.querySelector('.integration input[name="activityDays"]'))`);
+  step("integration setting saved", await admin.until(`(t => /saved/.test(t) && t)(${byId("toast")}.textContent)`, "the save"));
+  const hubSaved = await fetch(`${base}/admin/integrations`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  if (hubSaved.settings.activityDays !== 5) throw new Error(`activityDays was saved as ${hubSaved.settings.activityDays}`);
+  // Clearing the live view deletes the words Axis holds, and the page shows it.
+  await admin.run(`location.hash = '#live'`);
+  await admin.until(`document.querySelectorAll('#live-turns .turn-card').length >= 2 && ${byId("live-now")}.textContent`, "the live page again");
+  await admin.run(`${byId("live-clear")}.click()`);
+  step("live view cleared", await admin.until(`document.querySelectorAll('#live-turns .turn-card').length === 0 && ${byId("live-turns")}.textContent.slice(0, 40)`, "the turns to go"));
   await admin.run(`location.hash = '#wakewords'`);
   step("wake scores", await admin.until(`${byId("wake-scores")}.textContent.slice(0, 50)`, "the wake scores"));
   // One message to every device, from the overview.
@@ -270,12 +280,11 @@ try {
   await admin.run(`location.hash = '#overview'`);
   step("overview", await admin.until(`${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ').trim() && document.querySelector('#overview-strips .strip') && ${byId("overview-tiles")}.textContent.replace(/\\s+/g, ' ')`, "the overview"));
   step("attention", await admin.run(`[...document.querySelectorAll('#attention li')].map(l => l.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`));
-  await admin.run(`location.hash = '#activity'`);
   step("activity turns", await admin.until(`document.querySelectorAll('#activity-turns tbody tr').length >= 2 && [...document.querySelectorAll('#activity-turns tbody tr')].map(r => r.children[2].textContent + ':' + r.children[3].textContent.trim()).join(', ')`, "the turns on the activity page"));
   step("activity chart drawn", await admin.until(`document.querySelector('#chart-turns svg') && 'yes'`, "the turns chart"));
   // The words of a turn must never reach the activity log: not on the page, not from the API.
   const wordsKept = await admin.run(`fetch('/admin/activity?hours=24', { headers: { authorization: 'Bearer browser-check' } })
-    .then(r => r.text()).then(t => /what time is it|nine o'clock/.test(t + document.getElementById('activity').textContent))`);
+    .then(r => r.text()).then(t => /what time is it|nine o'clock/.test(t + document.getElementById('activity-turns').textContent + document.getElementById('activity-events').textContent))`);
   step("no words stored", !wordsKept);
   if (wordsKept) throw new Error("what was said turned up in the activity log");
   await admin.run(`location.hash = '#clients'`);

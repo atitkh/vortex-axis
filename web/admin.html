@@ -32,7 +32,6 @@
   <nav class="side">
     <a href="#overview" data-view="overview">Overview <span class="count" id="nav-overview"></span></a>
     <a href="#live" data-view="live">Live <span class="count" id="nav-live"></span></a>
-    <a href="#activity" data-view="activity">Activity</a>
     <a href="#clients" data-view="clients">Clients <span class="count" id="nav-clients"></span></a>
     <a href="#pair" data-view="pair">Add a device</a>
     <span class="navhead">Settings</span>
@@ -49,13 +48,17 @@
   </nav>
 
   <main>
-    <!-- Overview: is everything all right? -->
+    <!-- Overview: is everything all right, and how has it been going? -->
     <section class="view" id="overview">
-      <div class="head"><h2>Overview</h2></div>
+      <div class="head">
+        <h2>Overview</h2>
+        <div class="seg" id="activity-range">
+          <button data-hours="24">24 hours</button><button data-hours="72">3 days</button><button data-hours="168">7 days</button>
+        </div>
+      </div>
       <ul class="attention" id="attention"></ul>
       <div class="tiles" id="overview-tiles"></div>
-      <h3>Now <a class="more" href="#live">Watch live</a></h3>
-      <div id="overview-now"></div>
+
       <h3>Say something</h3>
       <div class="announce">
         <textarea id="announce-text" rows="2" maxlength="1000" placeholder="Dinner is ready."></textarea>
@@ -67,38 +70,11 @@
         <p class="help">Spoken on every device that can speak, or on the one you pick. A browser whose page is closed gets it as a notification; a device that is away gets it if it comes back within a few minutes. In quiet hours it is shown without sound unless it is urgent.</p>
         <div id="announce-result"></div>
       </div>
-      <h3>Last 24 hours</h3>
+
+      <h3>Uptime</h3>
       <div id="overview-strips"></div>
-      <h3>Recent events <a class="more" href="#activity">All activity</a></h3>
-      <div id="overview-events"></div>
-    </section>
 
-    <!-- Live: turns and wake words as they happen -->
-    <section class="view" id="live">
-      <div class="head"><h2>Live</h2><span id="live-state"></span></div>
-      <p class="help">Each turn as it moves from listening to recognition, the agent and speech, with how long each step took. The words are shown here while a turn is fresh and are never stored: they leave this page after ten minutes and are gone when Axis restarts.</p>
-      <div id="live-turns"></div>
-      <h3>Wake words heard <a class="more" href="#wakewords">Scores by device</a></h3>
-      <div id="live-wakes"></div>
-    </section>
-
-    <!-- Integrations: what Axis is connected to besides its devices -->
-    <section class="view" id="integrations">
-      <div class="head"><h2>Integrations</h2></div>
-      <p class="help">What Axis is connected to besides its devices and the agent, and whether each is working. Most of these are set in the hub's <code>.env</code>; this page shows how they stand.</p>
-      <div id="integrations-body"></div>
-    </section>
-
-    <!-- Activity: turns, response times, uptime, events -->
-    <section class="view" id="activity">
-      <div class="head">
-        <h2>Activity</h2>
-        <div class="seg" id="activity-range">
-          <button data-hours="24">24 hours</button><button data-hours="72">3 days</button><button data-hours="168">7 days</button>
-        </div>
-      </div>
-      <div class="tiles" id="activity-tiles"></div>
-
+      <h3>Response times and turns</h3>
       <div class="charts">
         <div class="chartbox">
           <h4>Time to first sound</h4>
@@ -115,10 +91,7 @@
         <div id="chart-parts"></div>
       </div>
 
-      <h3>Uptime</h3>
-      <div id="activity-strips"></div>
-
-      <h3>Recent turns</h3>
+      <h3>Recent turns <a class="more" href="#live">Watch live</a></h3>
       <p class="help">Timings and outcomes only. What was said is never stored.</p>
       <div id="activity-turns"></div>
 
@@ -133,6 +106,25 @@
         </select>
       </div>
       <div id="activity-events"></div>
+    </section>
+
+    <!-- Live: turns and wake words as they happen -->
+    <section class="view" id="live">
+      <div class="head"><h2>Live</h2><span id="live-state"></span><button type="button" class="small" id="live-clear">Clear now</button></div>
+      <h3>Now</h3>
+      <div id="live-now"></div>
+      <h3>Turns</h3>
+      <p class="help">Each turn as it moves from listening to recognition, the agent and speech, with how long each step took. The words are never written to disk. Axis holds them in memory for ten minutes after a turn ends and then deletes them; <b>Clear now</b> deletes them at once, here and from the device sketches.</p>
+      <div id="live-turns"></div>
+      <h3>Wake words heard <a class="more" href="#wakewords">Scores by device</a></h3>
+      <div id="live-wakes"></div>
+    </section>
+
+    <!-- Integrations: what Axis is connected to besides its devices -->
+    <section class="view" id="integrations">
+      <div class="head"><h2>Integrations</h2></div>
+      <p class="help">What Axis is connected to besides its devices and the agent, and whether each is working. Most of these are set in the hub's <code>.env</code>; this page shows how they stand.</p>
+      <div id="integrations-body"></div>
     </section>
 
     <!-- Clients -->

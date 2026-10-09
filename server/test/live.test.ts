@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { UPSTREAM_AUDIO_FORMAT } from "@vortex-axis/protocol";
 import type { Agent } from "../src/agent.js";
-import type { LiveTurn } from "../src/live.js";
+import { Live, type LiveTurn } from "../src/live.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
-import { ADMIN_TOKEN, admin, ctx, ready, useServer } from "./harness.js";
+import { ADMIN_TOKEN, admin, ctx, ready, restart, useServer } from "./harness.js";
 
 const stt: SpeechToText = { transcribe: async () => "what time is it", healthy: async () => true };
 const tts: TextToSpeech = {
@@ -176,5 +176,99 @@ describe("integrations", () => {
     writeFileSync(join(ctx.dataDir, "backup-status.json"), JSON.stringify({ at: "2026-10-09T18:17:03Z", ok: true, to: "/mnt/copy", note: "" }));
     const { body } = await admin("GET", "/admin/integrations");
     expect(body.backup).toEqual({ at: Date.parse("2026-10-09T18:17:03Z"), ok: true, to: "/mnt/copy", note: "" });
+  });
+});
+
+describe("words held in memory", () => {
+  const record = { at: 0, clientId: "c1", kind: "text" as const, outcome: "answered" as const, totalMs: 5, heard: false };
+
+  it("are deleted ten minutes after a turn ends, and the timings stay", () => {
+    let now = 1_000_000;
+    const live = new Live(() => now);
+    const events: string[] = [];
+    live.subscribe((event) => events.push(event.type));
+    live.stage({ id: "c1", name: "Desk" }, "t1", "text", "thinking");
+    live.words("c1", "t1", { heard: "a secret", said: "an answer" });
+    live.end("c1", "t1", record);
+    now += 9 * 60_000;
+    live.forgetOldWords();
+    expect(live.snapshot()[0]).toMatchObject({ heard: "a secret", said: "an answer" });
+    now += 2 * 60_000;
+    live.forgetOldWords();
+    // Gone from the object itself, not left out of a copy.
+    expect(JSON.stringify(live.snapshot())).not.toMatch(/secret|answer"/);
+    expect(live.snapshot()[0]).toMatchObject({ client: "Desk", outcome: "answered", totalMs: 5 });
+    expect(events.at(-1)).toBe("snapshot");
+  });
+
+  it("are deleted at once when the view is cleared, and a turn still running carries on", () => {
+    const live = new Live();
+    live.stage({ id: "c1", name: "Desk" }, "t1", "text", "thinking");
+    live.words("c1", "t1", { heard: "first" });
+    live.end("c1", "t1", record);
+    live.stage({ id: "c1", name: "Desk" }, "t2", "text", "thinking");
+    live.words("c1", "t2", { heard: "second" });
+    live.clear();
+    expect(live.snapshot()).toHaveLength(1);
+    expect(JSON.stringify(live.snapshot())).not.toMatch(/first|second/);
+    live.end("c1", "t2", record);
+    expect(live.snapshot()[0]).toMatchObject({ outcome: "answered" });
+  });
+
+  it("can be cleared from the admin page", async () => {
+    const { client } = await ready(["screen"], { name: "Desk" });
+    client.send({ t: "text", turnId: "t1", text: "what time is it" });
+    await client.turn("t1", "idle");
+    expect(Object.keys((await admin("GET", "/admin/now")).body.screens)).toHaveLength(1);
+    const stream = await watch();
+    expect(stream.events[0]!.data.turns[0].heard).toBe("what time is it");
+    expect((await admin("POST", "/admin/live/clear")).status).toBe(200);
+    await stream.until(() => stream.events.filter((e) => e.event === "snapshot").length === 2);
+    expect(stream.events.at(-1)!.data.turns).toEqual([]);
+    expect((await admin("GET", "/admin/now")).body.screens).toEqual({});
+    stream.stop();
+  });
+});
+
+describe("hub settings on the integrations page", () => {
+  it("saves the clock and how long things are kept, and keeps them across a restart", async () => {
+    const saved = await admin("PATCH", "/admin/integrations", { timeZone: "Asia/Kathmandu", activityDays: 3, messageHoldMinutes: 25 });
+    expect(saved.status).toBe(200);
+    expect(saved.body.settings).toMatchObject({ timeZone: "Asia/Kathmandu", activityDays: 3, messageHoldMinutes: 25 });
+    await restart();
+    expect((await admin("GET", "/admin/integrations")).body.settings).toMatchObject({ timeZone: "Asia/Kathmandu", activityDays: 3, messageHoldMinutes: 25 });
+  });
+
+  it("refuses values that cannot work", async () => {
+    for (const body of [{ timeZone: "Mars/Olympus" }, { activityDays: 0 }, { trustedProxies: "not-an-address" }, { publicHosts: "https://example.org" }, { mqtt: { port: 70000 } }]) {
+      expect((await admin("PATCH", "/admin/integrations", body)).status).toBe(400);
+    }
+  });
+
+  it("will not make the name the page is being used at a public one", async () => {
+    const here = new URL(ctx.base).hostname;
+    const refused = await admin("PATCH", "/admin/integrations", { publicHosts: [here] });
+    expect(refused.status).toBe(400);
+    expect((await admin("PATCH", "/admin/integrations", { publicHosts: "axis.example.org", trustedProxies: "10.0.0.1" })).body.settings).toMatchObject({
+      publicHosts: ["axis.example.org"],
+      trustedProxies: ["10.0.0.1"],
+    });
+    // The admin page is still here, and gone under the new public name.
+    expect((await admin("GET", "/admin/status")).status).toBe(200);
+    const elsewhere = await fetch(`${ctx.base}/admin/status`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "x-forwarded-host": "axis.example.org" } });
+    expect(elsewhere.status).toBe(404);
+  });
+
+  it("sets up the Home Assistant link and never gives its password back", async () => {
+    const { body } = await admin("PATCH", "/admin/integrations", { mqtt: { host: "127.0.0.1", port: 1, user: "axis", password: "hunter2-secret" } });
+    expect(body.settings.mqtt).toEqual({ host: "127.0.0.1", port: 1, user: "axis", discoveryPrefix: "homeassistant", passwordSet: true });
+    const shown = await admin("GET", "/admin/integrations");
+    expect(shown.body.homeAssistant).toMatchObject({ broker: "127.0.0.1:1", user: "axis", connected: false });
+    expect(JSON.stringify(shown.body)).not.toContain("hunter2");
+    expect(JSON.stringify((await admin("GET", "/admin/activity")).body)).not.toContain("hunter2");
+    // An empty password keeps the one there is; an empty host switches the link off.
+    expect((await admin("PATCH", "/admin/integrations", { mqtt: { user: "other", password: "" } })).body.settings.mqtt).toMatchObject({ user: "other", passwordSet: true });
+    await admin("PATCH", "/admin/integrations", { mqtt: { host: "" } });
+    expect((await admin("GET", "/admin/integrations")).body.homeAssistant).toBeNull();
   });
 });

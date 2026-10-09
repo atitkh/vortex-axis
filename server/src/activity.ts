@@ -72,6 +72,12 @@ export class Activity {
     this.timer.unref();
   }
 
+  /** Changes how long history is kept. What is now too old goes at once. */
+  setRetention(retentionMs: number): void {
+    this.options.retentionMs = retentionMs;
+    this.prune();
+  }
+
   /** Notes a clean shutdown. Nothing is recorded after this. */
   stop(): void {
     if (this.timer) clearInterval(this.timer);
