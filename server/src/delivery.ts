@@ -36,6 +36,8 @@ interface Held {
 }
 
 interface PendingAsk {
+  clientId: string;
+  question: string;
   token: string;
   choices: string[];
   settle: (result: AskResult) => void;
@@ -198,6 +200,8 @@ export class Delivery {
       }, timeoutMs);
       timer.unref();
       this.asks.set(id, {
+        clientId: client.id,
+        question,
         token,
         choices,
         settle: (result) => {
@@ -207,6 +211,16 @@ export class Delivery {
         },
       });
     });
+  }
+
+  /**
+   * Questions sent to a client as notifications and still waiting. A page that has just been opened
+   * asks for these, because a phone does not reliably hand the page the notification that opened it.
+   */
+  openAsks(clientId: string): { id: string; token: string; question: string; choices: string[] }[] {
+    return [...this.asks]
+      .filter(([, ask]) => ask.clientId === clientId)
+      .map(([id, ask]) => ({ id, token: ask.token, question: ask.question, choices: ask.choices }));
   }
 
   /** An answer picked from a notification. False when the question is no longer open or the answer is not one of its choices. */

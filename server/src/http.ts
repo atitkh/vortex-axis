@@ -395,6 +395,14 @@ export function createHttpHandler(deps: HttpDeps) {
         return sendJson(res, 200, { notifications: true });
       }
 
+      // A browser client asking which questions are waiting for it, on being opened.
+      if (method === "GET" && parts[2] === "asks" && deps.delivery) {
+        const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+        const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+        if (!client) throw new HttpError(401, "unknown client or wrong token");
+        return sendJson(res, 200, { asks: deps.delivery.openAsks(client.id) });
+      }
+
       // A choice picked from a notification. The one-time token in the notification is what proves the answer is real.
       if (method === "POST" && parts[2] === "answer" && deps.delivery) {
         const body = (await readJson(req)) as { id?: unknown; token?: unknown; choice?: unknown };

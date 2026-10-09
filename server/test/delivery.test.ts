@@ -170,6 +170,12 @@ describe("web push", () => {
       const { ask } = JSON.parse(mine.open(service.posts[0]!.body));
       expect(ask).toMatchObject({ question: "Tea or coffee?", choices: ["Tea", "Coffee"] });
 
+      // A page that was just opened can ask what is waiting for it, since a phone may not say which notification opened it.
+      const waiting = (headers: Record<string, string>) => fetch(`${ctx.base}/v1/push/asks`, { headers });
+      expect((await waiting({})).status).toBe(401);
+      const mineToAnswer = await (await waiting({ authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId })).json();
+      expect(mineToAnswer.asks).toEqual([{ id: ask.id, token: ask.token, question: "Tea or coffee?", choices: ["Tea", "Coffee"] }]);
+
       const answer = (body: unknown) =>
         fetch(`${ctx.base}/v1/push/answer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       // A wrong token, or something that was not offered, is not an answer.

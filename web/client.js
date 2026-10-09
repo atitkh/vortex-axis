@@ -805,6 +805,31 @@ function showNotifiedAsk(ask) {
   box.classList.remove("hidden");
 }
 
+/**
+ * Asks Axis whether a question is waiting for this client, and shows it. A phone does not reliably tell
+ * the page which notification opened it (an iPhone opens the app at its start page and says nothing),
+ * so the page asks whenever it is opened or brought forward.
+ */
+let shownAsk = "";
+async function checkOpenAsks() {
+  if (!identity || document.visibilityState !== "visible") return;
+  try {
+    const res = await fetch("/v1/push/asks", { headers: asClient() });
+    if (!res.ok) return;
+    const { asks } = await res.json();
+    const ask = asks[asks.length - 1];
+    if (ask && ask.id !== shownAsk) {
+      shownAsk = ask.id;
+      showNotifiedAsk(ask);
+    }
+  } catch {
+    // Offline for the moment: the next time the page comes forward will do.
+  }
+}
+document.addEventListener("visibilitychange", checkOpenAsks);
+window.addEventListener("pageshow", checkOpenAsks);
+window.addEventListener("focus", checkOpenAsks);
+
 if (pushSupported) {
   navigator.serviceWorker
     .register("/sw.js")
@@ -814,7 +839,12 @@ if (pushSupported) {
       showNotifyControl();
     })
     .catch(() => showNotifyControl());
-  navigator.serviceWorker.addEventListener("message", (event) => showNotifiedAsk(event.data?.ask));
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.ask) {
+      shownAsk = event.data.ask.id;
+      showNotifiedAsk(event.data.ask);
+    }
+  });
 } else showNotifyControl();
 
 // Opened from a notification that carried a question.
@@ -826,6 +856,8 @@ if (location.hash.startsWith("#ask=")) {
   }
   history.replaceState(null, "", "/");
 }
+
+checkOpenAsks();
 
 if (identity) start();
 else show("pair", true);
