@@ -10,6 +10,7 @@ import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
 import type { LinkOptions } from "./gateway/link.js";
 import { Delivery } from "./delivery.js";
+import { HomeAssistant } from "./homeassistant.js";
 import { createHttpHandler } from "./http.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
@@ -148,6 +149,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
   Object.assign(services, options.services);
 
+  const homeAssistant = config.homeAssistant
+    ? new HomeAssistant({ ...config.homeAssistant, hub, store, delivery, version: AXIS_VERSION, log })
+    : undefined;
+  homeAssistant?.start();
+
   // Quiet hours begin and end on the clock, not on an edit, so somebody has to look.
   const quietTimer = setInterval(() => hub.checkQuiet(), 60_000);
   quietTimer.unref();
@@ -200,6 +206,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     async close() {
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
+      homeAssistant?.stop();
       timers.stop();
       gateway.stop();
       hub.closeAll();

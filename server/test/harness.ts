@@ -51,6 +51,8 @@ export function config(overrides: Partial<Config> = {}): Config {
     gateway: { url: undefined, agentId: undefined, sessionKey: "vortex-axis", displayName: "VorteX Axis" },
     outputHoldMs: 600_000,
     messageHoldMs: 600_000,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    homeAssistant: undefined,
     webDir: fileURLToPath(new URL("../../web", import.meta.url)),
     ...overrides,
   };

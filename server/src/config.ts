@@ -58,6 +58,8 @@ export interface Config {
   outputHoldMs: number;
   /** How long something said to a client that is offline is kept for it. */
   messageHoldMs: number;
+  /** Home Assistant, through its MQTT broker. Absent when no broker address is given. */
+  homeAssistant: { url: string; discoveryPrefix: string } | undefined;
   /** The time zone quiet hours are told in, such as "America/Chicago". */
   timeZone: string;
   /** Folder holding the web pages. Undefined serves none. */
@@ -138,6 +140,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
     messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
     timeZone: zone(env.AXIS_TIMEZONE || env.TZ),
+    homeAssistant: env.AXIS_MQTT_URL ? { url: env.AXIS_MQTT_URL, discoveryPrefix: env.AXIS_HA_DISCOVERY_PREFIX || "homeassistant" } : undefined,
     // The compiled server sits in server/dist, two levels below the repository root.
     webDir: env.AXIS_WEB_DIR || fileURLToPath(new URL("../../web", import.meta.url)),
   };
