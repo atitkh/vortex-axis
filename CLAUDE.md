@@ -10,7 +10,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-08, at the commit that added `lastStart` to diagnostics (firmware 0.10.2). Update this line whenever you change this section.
+Last updated: 2026-10-08, at the commit that added the admin reset (firmware 0.10.3) and moved the data folder to the local disk. Update this line whenever you change this section.
+
+Running state, 2026-10-08 20:20: the data folder is `/home/voltex/vortex-axis` on the host's local disk (`AXIS_DATA_PATH` in `.env`), no longer the NFS share: a busy share froze Axis (clients dropped, speech read as down). A user cron job runs `scripts/backup-data.sh` hourly at :17 and copies it to `/media/voltex/VS1/Docker/vortex-axis` (database by SQLite backup, plus `daily/` copies for a week, firmware, wake words). The first board was reset through the new admin route as a test and paired again, so it is now client `c_xvbxwqzjby` (was `c_54fe2emdnz`), on 0.10.3 at `https://vortex.atitkharel.com.np`. A second board (MAC ending 0B:F8) was erased and flashed with 0.10.3 by cable and is unpaired. Speech services are shown down only after two missed checks in a row (`steadyStatus` in `server/src/app.ts`).
 
 Built and running:
 

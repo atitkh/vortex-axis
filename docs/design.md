@@ -159,6 +159,8 @@ A setup string that starts `axis+tls://` makes the device pair, connect and upda
 
 Built 2026-10-08. `POST /admin/clients/:id/address {address}` sends a device the `address` command with the new base address for the same Axis (for example its public https name in place of a LAN address). The device first asks the new address for `/healthz`, over TLS with the certificate checked when it is https, and changes nothing if that fails. Then it connects through the new address with the pairing it already has, so it stays the same client with the same settings. It keeps the old address until that connection has been welcomed, and returns to it by itself after a minute and a half otherwise, also across a restart. A device reports the address it uses as the reading `axis`.
 
+`POST /admin/clients/:id/reset {wifi?}` (firmware 0.10.3) sends the `reset` command, also admin only. The device answers, then clears its pairing, its address for Axis, its synced settings and any stored wake word, and restarts; with `wifi` it forgets the Wi-Fi as well and comes back as its setup network. Its firmware is not touched. Axis removes the client once the device has agreed; a device that refuses (older firmware) is left as it was.
+
 This command, `update`, `wake.model` and `timer.next` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
 
 ### 7.3 Wake words from Axis

@@ -90,7 +90,7 @@ Browsers only allow the microphone on `https` or on `localhost`. Over plain `htt
 
 Whichever you use, think about `/admin`: it is protected by the admin token only, so do not put it on a public address.
 
-Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there.
+Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there. It is safe there but not a good place for it: Axis waits on every database write, so a busy share freezes it, clients drop and the speech services read as down. Keep the folder on a local disk and copy it to the share with `scripts/backup-data.sh <data folder> <backup folder>` from cron; the copy has the same layout, so restoring is copying it back.
 
 ### Speech services
 

@@ -274,6 +274,9 @@ struct Client::Impl {
     /** The detector loads its model once, at start, so a change of wake word ends in a restart, taken when nothing is going on. */
     bool restartWanted = false;
 
+    /** Set by the `reset` command: 1 forgets Axis and the settings, 2 forgets the Wi-Fi as well. Done once the answer has gone out. */
+    uint8_t resetWanted = 0;
+
     // --- moving to another address for Axis ---
     /** Set by the `address` command. Tried on the next tick, after the answer has gone out. */
     String addressWanted;
@@ -772,6 +775,26 @@ struct Client::Impl {
     }
 
     /**
+     * Returns the device to how it was before it was set up: no pairing, no
+     * address for Axis, no synced settings, no stored wake word. With
+     * `wifiToo` the Wi-Fi details go as well and it comes back up as its own
+     * setup network; without, it stays on the Wi-Fi and waits for a setup
+     * string. The firmware itself is not touched.
+     */
+    void factoryReset(bool wifiToo) {
+        logf("reset from Axis: forgetting pairing and settings%s", wifiToo ? " and Wi-Fi" : "");
+        socket.disconnect();
+        prefs.clear();
+        Preferences wk;
+        wk.begin(WAKE_PREFS, false);
+        wk.clear();
+        if (mountFiles()) LittleFS.remove(WAKE_FILE);
+        if (wifiToo) WiFi.disconnect(true, true);
+        delay(300);
+        ESP.restart();
+    }
+
+    /**
      * Moves to another address for Axis without pairing again. The new address
      * must answer as Axis before anything is changed; over https its
      * certificate is checked as always. Then the device connects through it
@@ -944,14 +967,18 @@ struct Client::Impl {
      * the running firmware as it was.
      */
     void runUpdate() {
-        logf("updating to %s (%u bytes)", updateVersion.c_str(), (unsigned)updateSize);
+        logf("updating to %s (%u bytes), free memory %u", updateVersion.c_str(), (unsigned)updateSize, (unsigned)ESP.getFreeHeap());
         cancelRecording();
         quiet();
         endAsk();
         update([](Snapshot &s) { s.updatePercent = 0; });
         // An encrypted connection takes about 45 KB of memory, and there is not room for two:
         // the socket is closed for the download and opens again afterwards if the update fails.
-        if (encrypted()) stopSocket();
+        if (encrypted()) {
+            stopSocket();
+            delay(300);  // give the closed connection's memory back before the next one is opened
+            logf("socket closed for the download, free memory %u", (unsigned)ESP.getFreeHeap());
+        }
         String problem;
         {
             WiFiClient plain;
@@ -1157,6 +1184,11 @@ struct Client::Impl {
             updateWanted = updatePath.startsWith("/") && updateSize > 0;
             if (updateWanted) payload["updating"] = updateVersion;
             handled = updateWanted;
+        } else if (!strcmp(name, "reset")) {
+            // The admin page returning this device to how it was before it was set up.
+            resetWanted = (doc["params"]["wifi"] | 0) ? 2 : 1;
+            payload["forgetting"] = resetWanted == 2 ? "pairing, settings and Wi-Fi" : "pairing and settings";
+            handled = true;
         } else if (!strcmp(name, "address")) {
             // The admin page moving this device to another address for the same Axis. The pairing stays.
             const String url = doc["params"]["url"] | "";
@@ -1253,6 +1285,11 @@ struct Client::Impl {
             }
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
+        if (resetWanted) {
+            socket.loop();  // let the answer out first
+            delay(200);
+            factoryReset(resetWanted == 2);
+        }
         if (!addressWanted.isEmpty()) {
             const String url = addressWanted;
             addressWanted = "";

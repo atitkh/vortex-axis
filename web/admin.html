@@ -134,6 +134,13 @@
       <div id="device-settings"></div>
 
 
+      <div id="device-reset-box" hidden>
+        <h3>Reset</h3>
+        <p class="help">Returns the device to how it was before it was set up: it forgets its pairing, its settings and any wake word it was sent, and it is removed here. Its firmware stays. With Wi-Fi forgotten too it comes back as its own setup network; otherwise it stays on the Wi-Fi and waits for a setup string.</p>
+        <button class="danger" id="device-reset">Reset this device</button>
+        <button class="danger" id="device-reset-wifi">Reset and forget Wi-Fi</button>
+      </div>
+
       <h3>Remove</h3>
       <p class="help">Its token stops working at once. It has to be paired again to come back.</p>
       <button class="danger" id="device-remove">Remove this client</button>

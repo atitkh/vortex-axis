@@ -113,6 +113,26 @@ describe("firmware for updates over Wi-Fi", () => {
     expect(listed.clients[0].actions.map((a: any) => a.name)).not.toContain("address");
   });
 
+  it("resets a device and forgets it, and leaves it alone when it cannot reset itself", async () => {
+    const identity = await newPairedClient({ type: "board", capabilities: ["speaker"], name: "Desk" });
+    const client = await connect(identity, { type: "board", capabilities: ["speaker"] });
+    await client.next("status");
+
+    const refused = admin("POST", `/admin/clients/${identity.clientId}/reset`, { wifi: true });
+    const first = await client.next("command", 0, (m) => m.name === "reset");
+    expect(first.params).toEqual({ wifi: 1 });
+    client.send({ t: "command.result", id: first.id, ok: false, error: "not implemented on this device" });
+    expect((await refused).status).toBe(409);
+    expect((await admin("GET", `/admin/clients/${identity.clientId}`)).status).toBe(200);
+
+    const asked = admin("POST", `/admin/clients/${identity.clientId}/reset`, {});
+    const second = await client.next("command", 0, (m) => m.name === "reset" && m.id !== first.id);
+    expect(second.params).toEqual({ wifi: 0 });
+    client.send({ t: "command.result", id: second.id, ok: true });
+    expect(await asked).toMatchObject({ status: 200, body: { reset: "Desk", wifi: false } });
+    expect((await admin("GET", "/admin/clients")).body.clients).toEqual([]);
+  });
+
   it("tells a connected device to update, and says so when it cannot", async () => {
     const identity = await newPairedClient({ type: "board", capabilities: ["speaker"], name: "Desk" });
     const client = await connect(identity, { type: "board", capabilities: ["speaker"] });

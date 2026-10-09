@@ -570,6 +570,24 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, { removed: type });
         }
       }
+      // Returns a device to how it was before it was set up, and forgets it here too. Only from the admin page.
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "reset") {
+        const { client, session } = requireOnline(parts[2]!);
+        const body = (await readJson(req)) as { wifi?: unknown };
+        const wifi = body.wifi === true;
+        let outcome;
+        try {
+          outcome = await hub.command(session, "reset", { wifi: wifi ? 1 : 0 });
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+        if (!outcome.ok) throw new HttpError(409, `${client.name} cannot reset itself (${outcome.error ?? "refused"}). Its firmware may be too old; remove it here and reset it by cable.`);
+        // The device has thrown its token away, so its record here is of no more use.
+        store.removeClient(client.id);
+        hub.disconnect(client.id);
+        activity?.note("admin", client.id, `${client.name} reset (${wifi ? "pairing, settings and Wi-Fi" : "pairing and settings"}) and removed`, "warn");
+        return sendJson(res, 200, { reset: client.name, wifi });
+      }
       // Moves a device to another address for Axis, keeping its pairing. Only here: agents have no way to send it.
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "address") {
         const { client, session } = requireOnline(parts[2]!);

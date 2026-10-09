@@ -752,6 +752,10 @@ function renderDevice() {
     ...row("Id", h("span", { class: "mono sub" }, client.id)),
   );
 
+  // Only firmware devices can reset themselves; they are the ones that report an address for Axis.
+  $("device-reset-box").hidden = !client.readings?.axis;
+  $("device-reset").disabled = $("device-reset-wifi").disabled = !client.online;
+
   // Actions: the device's own, plus announce for anything that can speak or show text.
   const canSay = client.capabilities.includes("speaker") || client.capabilities.includes("screen");
   const announceInput = h("input", { placeholder: client.online ? "Text to speak or show on this device" : "Offline", spellcheck: "false", disabled: !client.online });
@@ -864,6 +868,22 @@ function renderReadings(client) {
       : []),
   );
 }
+
+/** Tells a device to forget its pairing and settings (and its Wi-Fi, if asked), then drops it from the list. */
+function resetDevice(event, wifi) {
+  const client = lastClients.find((c) => c.id === view.id);
+  if (!client) return;
+  const what = wifi ? "its pairing, settings and Wi-Fi" : "its pairing and settings";
+  if (!confirm(`Reset ${client.name}? It forgets ${what} and has to be set up again. This cannot be undone.`)) return;
+  act(event.target, "device-note", async () => {
+    await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/reset`, { wifi });
+    toast(`${client.name} reset and removed.`);
+    location.hash = "#clients";
+    await refresh();
+  });
+}
+$("device-reset").addEventListener("click", (event) => resetDevice(event, false));
+$("device-reset-wifi").addEventListener("click", (event) => resetDevice(event, true));
 
 $("device-remove").addEventListener("click", (event) => {
   const client = lastClients.find((c) => c.id === view.id);
