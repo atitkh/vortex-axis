@@ -116,11 +116,13 @@ export class RealtimeTalk {
   private async session(clientId: string, wanted?: string): Promise<Open> {
     const existing = this.open.get(clientId);
     if (existing) return existing;
-    const provider = wanted || this.options.provider;
+    // "openai" names a provider; "openai/gpt-realtime-2.1-mini" a model of it as well.
+    const [provider, model] = (wanted || this.options.provider || "").split("/", 2);
     const sessionKey = this.options.sessionKey?.();
     const created = await this.options.source.call("talk.session.create", {
       ...(sessionKey ? { sessionKey } : {}),
       ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
       mode: "realtime",
       transport: "gateway-relay",
       brain: "agent-consult",

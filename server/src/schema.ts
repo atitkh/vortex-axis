@@ -83,7 +83,7 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     label: "Realtime voice provider (prototype)",
     kind: "text",
     group: "Axis",
-    help: "With \"realtime\": which of the gateway's realtime Talk providers to use, such as openai or xai. Empty leaves the choice to the gateway.",
+    help: "With \"realtime\": which of the gateway's realtime Talk providers to use, such as openai or xai, or a provider and one of its models as openai/gpt-realtime-2.1-mini. Empty leaves the choice to the gateway.",
   },
   {
     key: "idleLooksOff",
