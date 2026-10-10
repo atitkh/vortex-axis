@@ -5,7 +5,7 @@ import type { Agent } from "./agent.js";
 import { matchChoice, type AskResult } from "./ask.js";
 import type { Session } from "./hub.js";
 import { SentenceSplitter, type Piece } from "./sentences.js";
-import type { SpeechToText, TextToSpeech } from "./speech.js";
+import type { SpeechShare, SpeechToText, TextToSpeech } from "./speech.js";
 import type { Live } from "./live.js";
 import { Voiceprints, type Identity, type VoiceprintService } from "./voiceprint.js";
 import type { TurnRecord, WakeRecord } from "./store.js";
@@ -669,14 +669,14 @@ export class TurnManager {
    * played or shown it. `heard` is true only when the client confirmed that it
    * played the audio to the end.
    */
-  async say(session: Session, text: string, options: { silent?: boolean } = {}, waitMs = 20_000): Promise<{ heard: boolean }> {
+  async say(session: Session, text: string, options: { silent?: boolean; share?: SpeechShare } = {}, waitMs = 20_000): Promise<{ heard: boolean }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
     const outcome = { heard: false };
-    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text, ...(options.silent ? { silent: true } : {}) }, outcome);
+    const failure = await this.run(session, `say-${++this.sayCount}`, { say: text, ...(options.silent ? { silent: true } : {}), ...(options.share ? { share: options.share } : {}) }, outcome);
     if (failure) throw new Error(failure);
     return outcome;
   }
@@ -732,7 +732,7 @@ export class TurnManager {
   private async run(
     session: Session,
     turnId: string,
-    input: { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] } | { text: string } | { say: string; silent?: boolean },
+    input: { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] } | { text: string } | { say: string; silent?: boolean; share?: SpeechShare },
     outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
@@ -759,7 +759,9 @@ export class TurnManager {
     const outer = this.active.get(id);
     this.active.set(id, turn);
     const signal = turn.abort.signal;
-    const { stt, tts, agent } = this.services;
+    const { stt, agent } = this.services;
+    // Something said on several devices at once is made once and played on each (see SpeechShare).
+    const tts = "say" in input && input.share && this.services.tts ? input.share.for(this.services.tts) : this.services.tts;
     const caps = session.client.capabilities;
     const hasScreen = caps.includes("screen");
     const state = (s: "transcribing" | "thinking" | "idle", detail?: string) =>

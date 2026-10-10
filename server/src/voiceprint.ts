@@ -246,7 +246,7 @@ export class Voiceprints {
   async teach(voiceId: number, pcm: Buffer, format: AudioFormat): Promise<{ sampleId: number; seconds: number }> {
     const service = this.options.service();
     if (!service) throw new Error("no voiceprint service is set up");
-    const { embedding, seconds } = await service.embed(pcm, format);
+    const { embedding, seconds } = await service.embed(pcm, format, AbortSignal.timeout(20_000));
     const sampleId = this.options.store.addVoiceSample(voiceId, embedding, seconds, "recorded");
     if (sampleId === undefined) throw new Error("no such voice");
     this.profiles = undefined;
@@ -274,7 +274,7 @@ export class Voiceprints {
   async check(pcm: Buffer, format: AudioFormat): Promise<{ identity: Identity; scores: { name: string; score: number }[] }> {
     const service = this.options.service();
     if (!service) throw new Error("no voiceprint service is set up");
-    const { embedding } = await service.embed(pcm, format);
+    const { embedding } = await service.embed(pcm, format, AbortSignal.timeout(20_000));
     const scores = this.profileList().map((p) => ({ name: p.name, score: Math.round(cosine(p.embedding, embedding) * 100) / 100 }));
     scores.sort((a, b) => b.score - a.score);
     return { identity: this.judge(scores[0], 0), scores };

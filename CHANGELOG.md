@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.25.1 (2026-10-10)
+
+- **Said on several devices, made once.** Something said everywhere or in one location is synthesized once per voice and the same audio is played on each device (`SpeechShare` in `speech.ts`), so devices in one room start together instead of one after another, and the speech service is not asked for the same sentence again for each device. Stopping one device does not cut the others off.
+- **Voiceprints from the admin page wait longer.** A recording to teach or check a voice may wait up to 20 s for the service (a busy host once took over 5 s, and Axis gave up); a spoken turn still waits at most 3 s, so a slow service never holds up an answer.
+- **Speech services:** a caller that hangs up before the answer is ready is one log line, not a traceback.
+
 ## 0.25.0 (2026-10-10)
 
 - **Local speech in the stack.** `compose.yaml` now runs speech recognition (Parakeet), synthesis (Supertonic 3) and voiceprints (WeSpeaker) as three CPU containers from one new image, `speech/`, each behind OpenAI's audio API although none of the models has one. Each fetches its model on first start into `AXIS_MODELS_PATH`. Point `AXIS_STT_URL` and `AXIS_TTS_URL` (or the Speech page) at `vortex-axis-stt` and `vortex-axis-tts`, or anywhere else as before.

@@ -1,3 +1,4 @@
+import { SpeechShare } from "./speech.js";
 import { randomBytes } from "node:crypto";
 import type { Hub, Session } from "./hub.js";
 import type { PushService } from "./push.js";
@@ -74,7 +75,7 @@ export class Delivery {
    * Says something on a connected client. In the client's quiet hours it is shown without sound,
    * unless it is `urgent`; a client with no screen is then left alone.
    */
-  async sayOn(session: Session, text: string, urgent = false): Promise<Delivered> {
+  async sayOn(session: Session, text: string, urgent = false, share?: SpeechShare): Promise<Delivered> {
     const shown = session.client.capabilities.includes("screen");
     if (!urgent && this.options.hub.quiet(session.client)) {
       if (!shown) {
@@ -83,7 +84,7 @@ export class Delivery {
       await this.options.hub.say(session, text, { silent: true });
       return { client: session.client.name, heard: false, shown: true, note: "It is in its quiet hours: shown on its screen, not spoken. Mark it urgent to speak anyway." };
     }
-    const { heard } = await this.options.hub.say(session, text);
+    const { heard } = await this.options.hub.say(session, text, share ? { share } : {});
     return {
       client: session.client.name,
       heard,
@@ -197,9 +198,11 @@ export class Delivery {
     if (!speaking.length && !closed.length) {
       throw new Error(place ? `no client that can speak is online in "${location}"` : "no client that can speak is online");
     }
+    // Made once for all of them, so they start together.
+    const share = new SpeechShare();
     const results = await Promise.all([
       ...speaking.map((session) =>
-        this.sayOn(session, text, urgent).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
+        this.sayOn(session, text, urgent, share).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
       ),
       ...closed.map((client) => this.sayTo(client, text, urgent)),
     ]);

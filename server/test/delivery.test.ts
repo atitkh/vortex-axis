@@ -7,11 +7,13 @@ import { encryptPush } from "../src/push.js";
 import type { TextToSpeech } from "../src/speech.js";
 import { admin, connect, ctx, newPairedClient, ready, useServer } from "./harness.js";
 
-// A voice, so a client with a speaker is spoken to and can report it heard.
+// A voice, so a client with a speaker is spoken to and can report it heard. `made` lists what it was asked to say.
+const made: string[] = [];
 const tts: TextToSpeech = {
   format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
-  synthesize: () =>
+  synthesize: (text) =>
     (async function* () {
+      made.push(text);
       yield Buffer.alloc(400, 1);
     })(),
   healthy: async () => true,
@@ -253,6 +255,8 @@ describe("saying something everywhere", () => {
     const all = await everywhere;
     expect(all.heard).toBe(true);
     expect(all.clients.map((c: any) => c.client).sort()).toEqual(["Den", "Hall"]);
+    // Made once, played on both.
+    expect(made.filter((t) => t === "Dinner.")).toHaveLength(1);
     void panel;
 
     const inDen = invoke("vortex.axis.say", { text: "Den only.", everywhere: true, location: "Den" });

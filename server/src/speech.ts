@@ -57,6 +57,90 @@ async function reachable(endpointUrl: string, apiKey: string | undefined): Promi
   }
 }
 
+/**
+ * One message said on several devices at once is made once. A share is handed to every device's
+ * turn; the first to ask for a sentence in a voice has it made, and the rest play the same audio,
+ * from the start, as it comes. So devices in one room start together, and the speech service,
+ * which makes one sentence at a time, is not asked for the same thing over and over.
+ */
+export class SpeechShare {
+  private readonly bound = new WeakMap<TextToSpeech, TextToSpeech>();
+
+  /** `tts`, made to share its audio among everybody using this share. */
+  for(tts: TextToSpeech): TextToSpeech {
+    let shared = this.bound.get(tts);
+    if (!shared) {
+      shared = new SharedSpeech(tts);
+      this.bound.set(tts, shared);
+    }
+    return shared;
+  }
+}
+
+interface Clip {
+  chunks: Buffer[];
+  done: boolean;
+  error?: Error;
+  waiting: (() => void)[];
+}
+
+class SharedSpeech implements TextToSpeech {
+  readonly format: AudioFormat;
+  private readonly clips = new Map<string, Clip>();
+
+  constructor(private readonly tts: TextToSpeech) {
+    this.format = tts.format;
+  }
+
+  synthesize(text: string, options: { voice?: string | undefined }, signal?: AbortSignal): AsyncIterable<Buffer> {
+    const key = `${options.voice ?? ""}\u0000${text}`;
+    let clip = this.clips.get(key);
+    if (!clip) {
+      clip = { chunks: [], done: false, waiting: [] };
+      this.clips.set(key, clip);
+      void this.make(clip, text, options);
+    }
+    return this.read(clip, signal);
+  }
+
+  healthy(): Promise<boolean> {
+    return this.tts.healthy();
+  }
+
+  /** Made once, whoever stops listening: one device being stopped must not cut the others off. */
+  private async make(clip: Clip, text: string, options: { voice?: string | undefined }): Promise<void> {
+    const wake = () => clip.waiting.splice(0).forEach((resolve) => resolve());
+    try {
+      for await (const chunk of this.tts.synthesize(text, options, AbortSignal.timeout(120_000))) {
+        clip.chunks.push(chunk);
+        wake();
+      }
+    } catch (error) {
+      clip.error = error as Error;
+    } finally {
+      clip.done = true;
+      wake();
+    }
+  }
+
+  private async *read(clip: Clip, signal?: AbortSignal): AsyncIterable<Buffer> {
+    let next = 0;
+    for (;;) {
+      if (signal?.aborted) return;
+      if (next < clip.chunks.length) {
+        yield clip.chunks[next++]!;
+        continue;
+      }
+      if (clip.error) throw clip.error;
+      if (clip.done) return;
+      await new Promise<void>((resolve) => {
+        clip.waiting.push(resolve);
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
+  }
+}
+
 /** Speech recognition through an OpenAI-style `/v1/audio/transcriptions` endpoint. */
 export class OpenAiSpeechToText implements SpeechToText {
   constructor(private readonly endpoint: SpeechEndpoint) {}

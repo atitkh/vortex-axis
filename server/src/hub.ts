@@ -20,6 +20,7 @@ import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
+import type { SpeechShare } from "./speech.js";
 
 /** WebSocket close codes in the application range. */
 const CLOSE_PROTOCOL = 4400;
@@ -148,7 +149,7 @@ export class Hub implements TurnPort {
   }
 
   /** Says something an agent started on one client. Resolves when it has been played or shown. */
-  say(session: Session, text: string, options: { silent?: boolean } = {}): Promise<{ heard: boolean }> {
+  say(session: Session, text: string, options: { silent?: boolean; share?: SpeechShare } = {}): Promise<{ heard: boolean }> {
     return this.turns.say(session, text, options);
   }
 

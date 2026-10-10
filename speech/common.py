@@ -108,11 +108,16 @@ class Handler(BaseHTTPRequestHandler):
     def send_body(self, code, body, content_type):
         if isinstance(body, str):
             body = body.encode()
-        self.send_response(code)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # The caller gave up waiting before the answer was ready. Nothing to send it to.
+            log(f"{self.address_string()} hung up before the answer was sent")
+            self.close_connection = True
 
     def send_json(self, code, obj):
         self.send_body(code, json.dumps(obj), "application/json")
