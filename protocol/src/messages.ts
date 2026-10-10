@@ -216,6 +216,11 @@ export const Turn = message("turn", {
   state: TurnState,
   /** Short human-readable note, mainly for `error`. */
   detail: Type.Optional(Type.String({ maxLength: 256 })),
+  /**
+   * With `thinking`: the kind of work the agent has just picked up (`search`, `home`, `files`, ...), for a
+   * client that shows it as an icon. Sent again whenever it changes; a client that knows none of it ignores it.
+   */
+  doing: Type.Optional(Type.String({ maxLength: 24 })),
 });
 
 /** What speech recognition heard. */

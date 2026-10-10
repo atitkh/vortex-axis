@@ -438,6 +438,8 @@ function onMessage(message) {
       break;
     case "turn":
       turnState = message.state;
+      // While it thinks, the face shows what kind of thing the agent has picked up, when Axis says.
+      face.setIcon(message.state === "thinking" ? (message.doing ?? face.icon) : undefined);
       if (message.state === "transcribing") caption("…", "");
       if (message.state === "idle" && message.detail) {
         bubble("info", message.detail);

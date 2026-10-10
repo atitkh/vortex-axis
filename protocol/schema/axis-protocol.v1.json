@@ -777,6 +777,10 @@
         "detail": {
           "maxLength": 256,
           "type": "string"
+        },
+        "doing": {
+          "maxLength": 24,
+          "type": "string"
         }
       }
     },

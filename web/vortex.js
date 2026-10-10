@@ -4,6 +4,8 @@
 // copied from the firmware so a browser and a board look like the same thing. The specification
 // is docs/face.md; change it, this file and vortex.cpp together.
 
+import { ICONS, ICON_HOLE, ICON_PEN, ICON_SIZE } from "/web/icons.js";
+
 const SIZE = 240; // the firmware's drawing size; everything below is in its units
 const ARMS = 3;
 const DOTS_PER_ARM = 26;
@@ -59,6 +61,9 @@ export class Vortex {
     this.wavePhase = 0;
     this.tiltPhase = 0;
     this.level = -1;
+    // What the agent is doing while it thinks, as an icon in the middle; and how far it has faded in.
+    this.icon = undefined;
+    this.iconShown = 0;
     this.flash = new Float32Array(ARMS * DOTS_PER_ARM);
     this.last = 0;
     // Someone who asked for less motion gets the same face, turning slowly and without sparkle.
@@ -88,6 +93,16 @@ export class Vortex {
     this.mode = mode;
     if (mode === "idle") this.pickIdle();
     else this.target = { ...(LOOKS[mode] ?? LOOKS.offline) };
+  }
+
+  /**
+   * The kind of work to show in the middle while thinking (a name from icons.js), or nothing.
+   * A name this face has no icon for is nothing.
+   */
+  setIcon(name) {
+    const known = name && ICONS[name] ? name : undefined;
+    if (known) this.iconStrokes = ICONS[known];
+    this.icon = known;
   }
 
   /** Loudness of the voice, 0 to 1. Negative: not known, the face pulses on its own. */
@@ -150,6 +165,12 @@ export class Vortex {
     const k = 1 - Math.exp(-dt * rate);
     for (const key of KEYS) this.now[key] += (this.target[key] - this.now[key]) * k;
     const now = this.now;
+    // The icon is only ever there while thinking, and comes and goes quickly.
+    const wantIcon = this.mode === "thinking" && this.icon ? 1 : 0;
+    this.iconShown += (wantIcon - this.iconShown) * (1 - Math.exp(-dt * 6));
+    const eye = this.iconShown < 0.01 ? 0 : this.iconShown;
+    // The arms stand back from the centre to leave it room.
+    const hole = ICON_HOLE * eye;
 
     const motion = this.calm ? 0.3 : 1;
     this.phase += now.spin * dt * motion;
@@ -185,7 +206,8 @@ export class Vortex {
         const spark = this.flash[at];
 
         const swell = voiced ? voiceSwell * this.level : now.pulse * Math.sin(this.pulsePhase - t * 3);
-        const radius = MAX_RADIUS * now.radius * (1 + swell) * Math.pow(t, 0.85);
+        const reach = MAX_RADIUS * now.radius * (1 + swell);
+        const radius = hole + Math.max(0, reach - hole) * Math.pow(t, 0.85);
         // The sway runs out along the arm like a wave, and is widest at the tip.
         const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t + now.wave * t * Math.sin(this.wavePhase - t * 7);
         const glow = Math.min(1, 1 - 0.72 * t + spark);
@@ -201,8 +223,27 @@ export class Vortex {
     ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = color(0.55 + now.r * 0.45, 0.55 + now.g * 0.45, 0.55 + now.b * 0.45);
     ctx.beginPath();
-    ctx.arc(cx, cy, Math.max(1, core), 0, 2 * Math.PI);
-    ctx.fill();
+    ctx.arc(cx, cy, Math.max(1, core * (1 - eye)), 0, 2 * Math.PI);
+    if (eye < 1) ctx.fill();
+    if (eye > 0) {
+      // The icon takes the core's place and its colour, breathing a little with the figure.
+      const size = ICON_SIZE * (1 + 0.04 * Math.sin(this.pulsePhase)), unit = size / 24;
+      ctx.globalAlpha = eye;
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = ICON_PEN;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (const stroke of this.iconStrokes ?? []) {
+        for (let i = 0; i < stroke.length; i += 2) {
+          const x = cx + (stroke[i] - 12) * unit, y = cy + (stroke[i + 1] - 12) * unit;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 }
 

@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.19.0 (2026-10-10)
+
+- **The face shows what the agent is doing.** While it thinks, an icon appears in the middle of the vortex for the kind of work the agent has just picked up: search, web, home, calendar, list, files, code, timer, message, memory, image, or a small cog for anything else. The arms stand back from the centre to make room and the icon takes the core's place and colour. Twelve icons, each a few strokes, defined once in `web/icons.js`; `scripts/gen-icons.mjs` writes the board's copy.
+- With an OpenClaw gateway this needs nothing from the agent: Axis's operator link now declares `tool-events`, the gateway says which tools a turn picks up, and `server/src/doing.ts` reads the kind from the tool's name. Another agent backend shows the plain thinking face unless its reply stream names its tools.
+- `turn` gains an optional `doing` with `thinking` (additive to protocol 1). The web client draws it; board firmware 0.12.0 draws it.
+
 ## 0.18.1 (2026-10-10)
 
 - The scopes for questions and approvals are asked for when Axis is paired again with a setup code, and granted when that pairing is approved. 0.18.0 asked for them on a third link beside the two it has; the real gateway refuses that (a token for fewer scopes is refused when more are asked with it, and so is a connection with no credential), so the third link is gone. With either switch on and the scope missing, the Agent tools page says to pair again. If the gateway refuses the wider set after all, the operator link goes back to the scopes it had.

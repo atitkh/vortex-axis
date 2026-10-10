@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.11.9"
+#define AXIS_FIRMWARE_VERSION "0.12.0"
 
 namespace axis {
 
@@ -124,6 +124,8 @@ struct Snapshot {
      * The task's steps by name when the agent gave them, one to a line, each led by how it stands:
      * `x` done, `>` in hand, `-` still to come. Empty when it gave none.
      */
+    /** While thinking: the kind of work the agent has picked up, as Axis names it ("search", "home", ...). Empty when it has not said. */
+    String doing;
     String taskSteps;
     /** The other tasks going on, a line each, led by `!` for one that waits for the person and a space otherwise. */
     String taskOthers;

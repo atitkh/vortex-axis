@@ -390,6 +390,7 @@ static void present() {
         case Turn::Transcribing:
         case Turn::Thinking:
             vortex::setMode(Mode::Thinking);
+            vortex::setIcon(state.doing.c_str());
             return show("Thinking", COLOR_HEAD, state.transcript);
         case Turn::Speaking:
             vortex::setMode(Mode::Speaking);

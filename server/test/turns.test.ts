@@ -14,6 +14,8 @@ class Fakes {
   /** Bytes of audio produced per sentence. */
   audioBytes = 1000;
   agentDelayMs = 0;
+  /** Tools the agent says it picks up before it answers. */
+  tools: string[] = [];
   failAgent = false;
   /** Delay before each chunk of synthesized audio, to make synthesis slow. */
   ttsChunkDelayMs = 0;
@@ -54,11 +56,12 @@ class Fakes {
   };
 
   agent: Agent = {
-    reply: (message, signal) => {
+    reply: (message, signal, onTool) => {
       const self = this;
       return (async function* () {
         self.asked.push(message);
         if (self.failAgent) throw new Error("agent answered HTTP 502");
+        for (const tool of self.tools) onTool?.(tool);
         for (const piece of self.reply) {
           if (self.agentDelayMs) await new Promise((r) => setTimeout(r, self.agentDelayMs));
           if (signal?.aborted) return;
@@ -117,6 +120,17 @@ describe("a voice turn", () => {
     expect((await client.next("speak.start")).format.sampleRate).toBe(24000);
     // Two sentences of 1000 bytes, with a 300 ms pause between them (14400 bytes at 24 kHz).
     expect(Buffer.concat(client.audio).length).toBe(2000 + 14400);
+  });
+
+  it("says what kind of work the agent has picked up while it thinks, once per kind", async () => {
+    fakes.tools = ["web_search", "sessions_search", "mcp__HomeAssistant__HassTurnOn", "some_new_thing"];
+    const { client } = await ready(["screen", "speaker"]);
+    client.send({ t: "text", turnId: "t1", text: "hello" });
+    await client.next("speak.end");
+    fakes.tools = [];
+    const thinking = client.received.filter((m) => m.t === "turn" && m.state === "thinking").map((m) => m.doing);
+    // The plain "thinking" first; then each kind as it changes, the second search not told again.
+    expect(thinking).toEqual([undefined, "search", "home", "tool"]);
   });
 
   it("starts speaking before the agent has finished", async () => {

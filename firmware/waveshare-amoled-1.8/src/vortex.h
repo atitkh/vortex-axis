@@ -22,6 +22,12 @@ bool begin();
 
 void setMode(Mode mode);
 
+/**
+ * The kind of work to show in the middle while thinking (a name from icons.h), or nothing for
+ * null, an empty name or one this face has no icon for.
+ */
+void setIcon(const char *name);
+
 /** Loudness of the voice being played, 0 to 1. Negative means "not known": the face pulses on its own. */
 void setLevel(float level);
 

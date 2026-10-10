@@ -197,3 +197,31 @@ The admin page has a Face page (`#face`) that draws every look live with `web/vo
 - A new idle look is a row in one of the idle tables here and in both implementations. Keep its colour in the blues and blue-greens.
 - A new mode needs a row in the state table, a line in section 5, and a turn state or client condition that selects it.
 - Keep the voice rules in section 4 for any mode that follows a voice.
+
+## 8. What the agent is doing
+
+While the face is `thinking`, Axis may name the kind of work the agent has picked up (`doing` on the `turn` message). The face then shows an icon for it in the middle, in place of the core. Outside `thinking` there is never an icon.
+
+**The icons.** Twelve: `search`, `web`, `home`, `calendar`, `list`, `files`, `code`, `timer`, `message`, `memory`, `image`, `tool`. Each is a few strokes (lines through points) on a 24 by 24 grid, drawn with a round pen. They are defined once, in `web/icons.js`; `node scripts/gen-icons.mjs` writes `firmware/waveshare-amoled-1.8/src/icons.h` from it, with circles already cut into straight pieces. Change an icon there and run the script; never edit the header.
+
+**Each frame**, before step 2:
+
+```
+want       = (mode is thinking and an icon is set) ? 1 : 0
+iconShown += (want - iconShown) * (1 - exp(-dt * 6))
+eye        = iconShown < 0.01 ? 0 : iconShown
+hole       = 36 * eye
+```
+
+The icon last set stays the one drawn while it fades out, so a change of mode never shows a half-drawn nothing.
+
+**The arms stand back.** In step 4 the radius of a dot becomes
+
+```
+reach  = MAX_RADIUS * now.radius * (1 + swell)
+radius = hole + max(0, reach - hole) * t^0.85
+```
+
+With `hole` 0 this is the line step 4 already has. With an icon up, the innermost dots sit on a ring of radius 36 round it and the outer ones barely move.
+
+**The icon**, in step 5: the core is drawn at `core * (1 - eye)` (not at all when `eye` is 1). Then the icon, centred on `(cx, cy)`, in the core's colour at brightness `eye`, in a square of side `52 * (1 + 0.04 * sin(pulsePhase))`, with a pen 3.4 wide. A point `(x, y)` of the grid lands at `cx + (x - 12) * side / 24`, the same for `y`.

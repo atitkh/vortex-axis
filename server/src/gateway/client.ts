@@ -121,7 +121,8 @@ export class GatewayClient implements Agent, Credentials {
       ...common,
       role: "operator",
       scopes: this.granted(),
-      caps: [],
+      // So the gateway says which tools an agent picks up during a turn Axis started.
+      caps: ["tool-events"],
       // A wider set the gateway will not honour after all must not cost the turns their link.
       onRefused: (code) => {
         if (code !== "AUTH_SCOPE_MISMATCH" || this.granted().length === BASE_SCOPES.length) return;
@@ -391,7 +392,7 @@ export class GatewayClient implements Agent, Credentials {
     return this.defaultAgentId;
   }
 
-  async *reply(message: string, signal?: AbortSignal): AsyncIterable<string> {
+  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = await this.resolveAgentId();
     const channel = new Channel<string>();
@@ -410,6 +411,10 @@ export class GatewayClient implements Agent, Credentials {
           sent = data.text;
           if (delta) channel.push(delta);
         }
+      } else if (payload.stream === "tool" && data.phase === "start" && typeof data.name === "string" && !data.hideFromChannelProgress) {
+        // The gateway sends these to a link that declared `tool-events`, for the runs that link started.
+        this.options.log(`agent picked up ${data.name}`);
+        onTool?.(data.name);
       } else if (payload.stream === "lifecycle" && data.phase === "end") {
         const final = typeof data.terminalReply?.text === "string" ? data.terminalReply.text : "";
         if (final.startsWith(sent) && final.length > sent.length) channel.push(final.slice(sent.length));

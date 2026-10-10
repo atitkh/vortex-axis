@@ -1,4 +1,5 @@
 #include "vortex.h"
+#include "icons.h"
 
 #include <esp_heap_caps.h>
 #include <esp_random.h>
@@ -115,6 +116,31 @@ void pickIdle() {
     target = IDLE[idleIndex].look;
 }
 
+// What the agent is doing while it thinks: the icon wanted (-1 for none), the one being drawn, and how far it has faded in.
+int icon = -1, iconDrawn = -1;
+float iconShown = 0;
+
+/** Draws the icon over the core's place with a round pen, `eye` bright. */
+void drawIcon(float cx, float cy, float eye, float r, float g, float b) {
+    if (iconDrawn < 0) return;
+    const float unit = icons::SIZE * (1.0f + 0.04f * sinf(pulsePhase)) / 240.0f;  // POINTS are tenths of a 24 grid
+    const uint16_t color = color565(r * eye, g * eye, b * eye);
+    const uint8_t *at = icons::POINTS + icons::ICONS[iconDrawn].start;
+    for (int stroke = 0; stroke < icons::ICONS[iconDrawn].strokes; stroke++) {
+        const int count = *at++;
+        for (int i = 0; i + 1 < count; i++) {
+            const float x0 = cx + (at[i * 2] - 120) * unit, y0 = cy + (at[i * 2 + 1] - 120) * unit;
+            const float x1 = cx + (at[i * 2 + 2] - 120) * unit, y1 = cy + (at[i * 2 + 3] - 120) * unit;
+            // A round pen is a dot set down every pixel or so along the line.
+            const int steps = max(1, (int)(hypotf(x1 - x0, y1 - y0) / 1.2f));
+            for (int k = 0; k <= steps; k++) {
+                fillCircle(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps, icons::PEN / 2, color);
+            }
+        }
+        at += count * 2;
+    }
+}
+
 }  // namespace
 
 bool begin() {
@@ -137,6 +163,16 @@ void setMode(Mode next) {
 }
 
 void setLevel(float value) { level = value; }
+
+void setIcon(const char *name) {
+    int found = -1;
+    for (int i = 0; name && *name && i < icons::COUNT && found < 0; i++) {
+        if (!strcmp(name, icons::ICONS[i].name)) found = i;
+    }
+    // The one on show stays drawn while it fades, so only a new one replaces it.
+    if (found >= 0) iconDrawn = found;
+    icon = found;
+}
 
 void setIdleOff(const char *names) {
     uint32_t on = 0;
@@ -175,6 +211,13 @@ const uint16_t *render(float dt) {
     const float *b = &target.spin;
     for (size_t i = 0; i < sizeof(Look) / sizeof(float); i++) a[i] += (b[i] - a[i]) * k;
 
+    // The icon is only ever there while thinking, and comes and goes quickly.
+    const float wantIcon = mode == Mode::Thinking && icon >= 0 ? 1.0f : 0.0f;
+    iconShown += (wantIcon - iconShown) * (1.0f - expf(-dt * 6.0f));
+    const float eye = iconShown < 0.01f ? 0.0f : iconShown;
+    // The arms stand back from the centre to leave it room.
+    const float hole = icons::HOLE * eye;
+
     phase += now.spin * dt;
     pulsePhase += now.pulseHz * 2.0f * PI * dt;
     wanderPhase += 0.6f * dt;
@@ -201,7 +244,8 @@ const uint16_t *render(float dt) {
             spark *= 0.86f;
 
             const float swell = voiced ? voiceSwell * level : now.pulse * sinf(pulsePhase - t * 3.0f);
-            const float radius = MAX_RADIUS * now.radius * (1.0f + swell) * powf(t, 0.85f);
+            const float reach = MAX_RADIUS * now.radius * (1.0f + swell);
+            const float radius = hole + max(0.0f, reach - hole) * powf(t, 0.85f);
             // The sway runs out along the arm like a wave, and is widest at the tip.
             const float angle = phase + arm * (2.0f * PI / ARMS) - now.twist * 2.0f * PI * t + now.wave * t * sinf(wavePhase - t * 7.0f);
             const float glow = min(1.0f, (1.0f - 0.72f * t) + spark);
@@ -212,7 +256,10 @@ const uint16_t *render(float dt) {
         }
     }
     const float core = 7.0f + (mode == Mode::Listening ? 6.0f : 3.0f) * (voiced ? level : sinf(pulsePhase));
-    fillCircle(cx, cy, core, color565(0.55f + now.r * 0.45f, 0.55f + now.g * 0.45f, 0.55f + now.b * 0.45f));
+    const float coreR = 0.55f + now.r * 0.45f, coreG = 0.55f + now.g * 0.45f, coreB = 0.55f + now.b * 0.45f;
+    if (eye < 1.0f) fillCircle(cx, cy, core * (1.0f - eye), color565(coreR, coreG, coreB));
+    // The icon takes the core's place and its colour.
+    if (eye > 0.0f) drawIcon(cx, cy, eye, coreR, coreG, coreB);
     return frame;
 }
 

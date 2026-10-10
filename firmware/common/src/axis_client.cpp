@@ -730,8 +730,12 @@ struct Client::Impl {
             enterTurn(doc["turnId"]);
             const Turn turn = turnFromName(doc["state"]);
             const String detail = doc["detail"] | "";
-            logf("turn %s %s", doc["state"] | "", detail.c_str());
+            const String doing = doc["doing"] | "";
+            logf("turn %s %s%s", doc["state"] | "", detail.c_str(), doing.c_str());
             update([&](Snapshot &s) {
+                // What the agent is doing holds until it says something else or stops thinking.
+                if (turn != Turn::Thinking) s.doing = "";
+                else if (!doing.isEmpty()) s.doing = doing;
                 s.turn = turn;
                 if (turn == Turn::Error) s.note = detail.isEmpty() ? String("Something went wrong") : detail;
                 else if (turn != Turn::Idle) s.note = "";

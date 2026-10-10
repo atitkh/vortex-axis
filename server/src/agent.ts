@@ -1,8 +1,11 @@
 import { drain } from "./drain.js";
 
 export interface Agent {
-  /** Sends one message to the agent and yields its reply as text pieces. */
-  reply(message: string, signal?: AbortSignal): AsyncIterable<string>;
+  /**
+   * Sends one message to the agent and yields its reply as text pieces. An agent that says which
+   * tools it picks up on the way calls `onTool` with each one's name; most do not.
+   */
+  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void): AsyncIterable<string>;
   healthy(): Promise<boolean>;
   /** For an agent with a prompt of its own: a note added to it for turns from Axis. */
   setNote?(note: string): void;

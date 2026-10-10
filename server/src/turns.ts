@@ -1,3 +1,4 @@
+import { doingFor } from "./doing.js";
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
 import { matchChoice, type AskResult } from "./ask.js";
@@ -789,7 +790,14 @@ export class TurnManager {
         stage("thinking");
         if ("text" in input) live?.words(id, turnId, { heard: text });
         turn.thinking = true;
-        source = agent.reply(`${this.header(session)}\n${text}`, signal);
+        // The tools the agent picks up on the way show as an icon on the face, by kind.
+        let doing: string | undefined;
+        source = agent.reply(`${this.header(session)}\n${text}`, signal, (tool) => {
+          const kind = doingFor(tool);
+          if (kind === doing || !turn.thinking || signal.aborted || !hasScreen) return;
+          doing = kind;
+          this.port.send(session, { t: "turn", turnId, state: "thinking", doing: kind });
+        });
       }
 
       const speaker =
