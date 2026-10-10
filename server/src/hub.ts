@@ -149,8 +149,8 @@ export class Hub implements TurnPort {
   }
 
   /** Puts a question to the person at a client. See `TurnManager.ask`. */
-  ask(session: Session, question: string, choices: string[], timeoutMs: number): Promise<AskResult> {
-    return this.turns.ask(session, question, choices, timeoutMs);
+  ask(session: Session, question: string, choices: string[], timeoutMs: number, options: { silent?: boolean; signal?: AbortSignal } = {}): Promise<AskResult> {
+    return this.turns.ask(session, question, choices, timeoutMs, options);
   }
 
   /** What each client is in the middle of, for the admin page. */

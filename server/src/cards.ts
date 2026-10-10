@@ -37,6 +37,8 @@ export interface CardMirrorOptions {
   source: CardSource;
   progress: Pick<Progress, "update" | "clear" | "touch">;
   enabled: () => boolean;
+  /** What a session is waiting on the person for, if anything: a question or an approval, in a few words. */
+  waitingOn?: (sessionKey: string) => string | undefined;
   log?: (line: string) => void;
   /** How often sessions with a task on show are asked whether anybody is still at work. */
   pollMs?: number;
@@ -86,6 +88,11 @@ export class CardMirror {
     this.shown.clear();
   }
 
+  /** Looks at a session's card again: what it waits on has changed. */
+  refresh(sessionKey: string): void {
+    if (this.shown.has(taskIdFor(sessionKey))) this.changed(sessionKey);
+  }
+
   private changed(sessionKey: string): void {
     if (!this.options.enabled()) return;
     clearTimeout(this.waiting.get(sessionKey));
@@ -115,8 +122,10 @@ export class CardMirror {
       const done = steps.every((s) => s.status === "completed");
       const current = steps.find((s) => s.status === "in_progress") ?? steps.find((s) => s.status === "pending");
       // Steps left and the agent's turn over: it stopped to ask, or it was stopped. Either way it is the person's move.
-      const state = done ? "done" : session && !session.active ? "blocked" : "running";
-      const told = JSON.stringify([steps, state, session?.title]);
+      // A question or an approval it is waiting on says so itself, and says what.
+      const asking = done ? undefined : this.options.waitingOn?.(sessionKey);
+      const state = done ? "done" : asking || (session && !session.active) ? "blocked" : "running";
+      const told = JSON.stringify([steps, state, session?.title, asking]);
       const before = this.shown.get(id);
       if (before?.told === told) return;
       // A card left finished from an earlier piece of work is not news when Axis first hears of it.
@@ -125,7 +134,7 @@ export class CardMirror {
       this.options.progress.update({
         id,
         title: session?.title ?? "Agent",
-        note: done ? "" : (current?.step ?? "").slice(0, 80),
+        note: done ? "" : (asking ?? current?.step ?? "").slice(0, 80),
         steps: steps.slice(0, 12),
         state,
       });

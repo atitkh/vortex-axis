@@ -23,6 +23,9 @@ export interface HubSettings {
   mcpPublic: boolean;
   /** Whether the OpenClaw gateway's progress cards are shown as tasks. */
   mirrorCards: boolean;
+  /** Whether its agents' questions, and the approvals they wait on, are put to the person on a device. */
+  mirrorQuestions: boolean;
+  mirrorApprovals: boolean;
 }
 
 const META_KEY = "hub_config";
@@ -52,6 +55,8 @@ function fromConfig(config: Config): HubSettings {
     backupKeepDays: config.backupKeepDays,
     mcpPublic: config.mcpPublic,
     mirrorCards: config.mirrorCards,
+    mirrorQuestions: config.mirrorQuestions,
+    mirrorApprovals: config.mirrorApprovals,
   };
 }
 
@@ -89,6 +94,8 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.backupKeepDays = settings.backupKeepDays;
   config.mcpPublic = settings.mcpPublic;
   config.mirrorCards = settings.mirrorCards;
+  config.mirrorQuestions = settings.mirrorQuestions;
+  config.mirrorApprovals = settings.mirrorApprovals;
 }
 
 const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
@@ -173,6 +180,11 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
   if (body.mirrorCards !== undefined) {
     if (typeof body.mirrorCards !== "boolean") throw new Error("mirrorCards must be true or false");
     patch.mirrorCards = body.mirrorCards;
+  }
+  for (const key of ["mirrorQuestions", "mirrorApprovals"] as const) {
+    if (body[key] === undefined) continue;
+    if (typeof body[key] !== "boolean") throw new Error(`${key} must be true or false`);
+    patch[key] = body[key] as boolean;
   }
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 

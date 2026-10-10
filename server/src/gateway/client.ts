@@ -90,6 +90,10 @@ export class GatewayClient implements Agent, Credentials {
   private readonly node: GatewayLink;
   private readonly agentListeners = new Set<(payload: any) => void>();
   private readonly eventListeners = new Set<(event: string, payload: any) => void>();
+  /** A second operator link, for what needs scopes the first was never given: see `watch`. */
+  private watcher: GatewayLink | undefined;
+  private watching: string[] = [];
+  private readonly linkCommon: Pick<LinkOptions, "displayName" | "version" | "log" | "onState" | "timing">;
   private invokeHandler: InvokeHandler | undefined;
   private defaultAgentId: string | undefined;
   private presenceTimer: NodeJS.Timeout | undefined;
@@ -108,6 +112,7 @@ export class GatewayClient implements Agent, Credentials {
       onState: () => options.onStateChange?.(),
       ...(options.timing ? { timing: options.timing } : {}),
     };
+    this.linkCommon = { displayName: common.displayName, version: common.version, log: common.log, onState: common.onState, ...(options.timing ? { timing: options.timing } : {}) };
     this.operator = new GatewayLink({
       ...common,
       role: "operator",
@@ -153,6 +158,59 @@ export class GatewayClient implements Agent, Credentials {
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     this.operator.stop();
     this.node.stop();
+    this.watcher?.stop();
+  }
+
+  /**
+   * Listens for what the first operator link has no scope for: questions agents put to the person
+   * (`operator.questions`) and approvals they wait on (`operator.approvals`). A scope the gateway has
+   * not granted this device yet has to be approved there by a person, and until then the connection
+   * that asks for it is refused. So the asking is done on a link of its own: turns and tool calls go on
+   * over the first two whatever becomes of this one. It shares the operator's token and may store a
+   * newer one the gateway hands it, but can never drop the token or spend a setup code.
+   */
+  watch(scopes: string[]): void {
+    const wanted = [...new Set(scopes)].sort();
+    if (wanted.join() === this.watching.join()) return;
+    this.watching = wanted;
+    this.watcher?.stop();
+    this.watcher = undefined;
+    if (!wanted.length) return void this.options.onStateChange?.();
+    const outer = this;
+    const credentials: Credentials = {
+      url: () => outer.url(),
+      identity: () => outer.device,
+      deviceToken: () => outer.deviceToken("operator"),
+      bootstrapToken: () => undefined,
+      mayRedeem: () => false,
+      bootstrapRejected: () => undefined,
+      storeTokens: (_from, tokens) => {
+        if (tokens.operator) outer.storeTokens("operator", { operator: tokens.operator });
+      },
+      dropDeviceToken: () => undefined,
+    };
+    this.watcher = new GatewayLink({
+      ...this.linkCommon,
+      credentials,
+      role: "operator",
+      scopes: ["operator.read", ...wanted],
+      caps: [],
+      // Only what this link is for: the first link already hears the rest.
+      onEvent: (event, payload) => {
+        if (!/^(question|exec\.approval|plugin\.approval)\./.test(event)) return;
+        for (const listener of this.eventListeners) listener(event, payload);
+      },
+      onConnected: () => {
+        for (const listener of this.eventListeners) listener("watch.connected", {});
+      },
+    });
+    this.watcher.start();
+  }
+
+  /** Asks the gateway something over the watching link. */
+  callWatch(method: string, params: unknown): Promise<any> {
+    if (!this.watcher?.connected) return Promise.reject(new Error("the gateway has not let Axis listen for this yet"));
+    return this.watcher.request(method, params);
   }
 
   /** Sets what runs when an agent calls one of the node's commands. */
@@ -280,6 +338,8 @@ export class GatewayClient implements Agent, Credentials {
       commands: this.options.commands,
       operator: link(this.operator),
       node: link(this.node),
+      /** The link that listens for questions and approvals, when either is switched on. */
+      watch: this.watcher ? { ...link(this.watcher), scopes: this.watching } : null,
     };
   }
 

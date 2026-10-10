@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-10 03:00, at Axis 0.17.0 and board firmware 0.11.9 (progress: an OpenClaw agent's progress card is mirrored as a task with no tool call, `server/src/cards.ts`; several tasks at once with the one that needs the person first; steps, bar, chime, Away switch and finished tasks from 0.16). Update this line whenever you change this section.
+Last updated: 2026-10-10 03:45, at Axis 0.18.0 and board firmware 0.11.9 (an OpenClaw agent's questions and approvals are put to the person on a device, `server/src/agentasks.ts`, over a third gateway link that holds the new scopes; progress cards mirrored since 0.17). Update this line whenever you change this section.
 
 **Running now:** see `CLAUDE.local.md`. That file is NOT in the repository (it is in `.gitignore`): it holds what is particular to one installation, such as host names, addresses, the public name, device names and which agent answers. If you are working on the installation this checkout belongs to, read it and keep it current; never write such details in this file or anywhere else that is committed. In general terms: Axis runs in Docker on port 8440 with its data folder on a local disk, backs itself up hourly to a mounted folder, is reached from outside under a public name through a tunnel with `/admin` kept to the local network, and serves two Waveshare boards and a few browser clients through an OpenClaw gateway.
 
@@ -175,6 +175,7 @@ npm run deploy                        # docker compose up -d --build with the co
 - `server/src/activity.ts`: the activity log: turn timings and outcomes (never words), events (connections, service states, Axis start and stop, settings and admin changes), uptime timelines and the summary `GET /admin/activity` returns. Stored in the `turns` and `events` tables, pruned after `AXIS_ACTIVITY_DAYS`.
 - `server/src/upstream.ts`: the speech and agent settings an admin can change at runtime, and the speech test.
 - `server/src/progress.ts`: tasks agents report on, in memory, told to every screen; `server/src/cards.ts` feeds it from the OpenClaw gateway's progress cards.
+- `server/src/agentasks.ts`: questions and approvals OpenClaw agents wait on, put to the person through `hub.ask` and answered back to the gateway.
 - `server/src/delivery.ts`: gets agent-started speech to a client by whatever route it has: live, a notification to a closed browser, or kept until it is back; one message to many clients; questions by notification. `commands.ts` and `homeassistant.ts` both go through it.
 - `server/src/push.ts`: Web Push with Node's own crypto (the `aes128gcm` encryption and the VAPID signature). Subscriptions are in the `push_subscriptions` table, Axis's key pair in `meta`.
 - `server/src/quiet.ts`: quiet hours by the clock. The hub caps volume and brightness in the settings it sends (`withQuiet`) and `delivery.ts` shows without speaking; no firmware knows about quiet hours.

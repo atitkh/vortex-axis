@@ -17,6 +17,7 @@ import { HomeAssistant } from "./homeassistant.js";
 import { applySavedHubSettings } from "./hubconfig.js";
 import { Live } from "./live.js";
 import { createHttpHandler } from "./http.js";
+import { AgentAsks } from "./agentasks.js";
 import { CardMirror } from "./cards.js";
 import { Progress } from "./progress.js";
 import { PushService } from "./push.js";
@@ -180,8 +181,40 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   progress.start();
   // An OpenClaw agent's own step list reaches the screens with no tool call.
-  const cards = new CardMirror({ source: gateway, progress, enabled: () => config.mirrorCards, log });
+  // What such an agent waits on the person for, a question or an approval, is put to them on a device;
+  // or, while Home Assistant says they are away, on a phone that takes notifications.
+  const asks: AgentAsks = new AgentAsks({
+    source: gateway,
+    questions: () => config.mirrorQuestions,
+    approvals: () => config.mirrorApprovals,
+    onChange: (sessionKey) => cards.refresh(sessionKey),
+    log,
+    note: (text) => activity.note("agent", "", text, "info"),
+    route: {
+      ask: async ({ question, choices, timeoutMs, silent, signal }) => {
+        if (store.getMeta("away") === "1") {
+          const phone = store.listClients().find((client) => delivery.canAskByNotification(client, choices));
+          if (phone) return delivery.askByNotification(phone, question, choices, timeoutMs);
+        }
+        let session;
+        try {
+          session = hub.pickOutput({});
+        } catch {
+          return undefined;
+        }
+        const caps = session.client.capabilities;
+        if (!caps.includes("mic") && !(choices.length && caps.includes("screen"))) return undefined;
+        // A choice to tap needs a screen; without one an approval cannot be given here at all.
+        if (silent && !caps.includes("screen")) return undefined;
+        return hub.ask(session, question, choices, timeoutMs, { silent, signal });
+      },
+    },
+  });
+  const cards: CardMirror = new CardMirror({ source: gateway, progress, enabled: () => config.mirrorCards, waitingOn: (sessionKey) => asks.waitingOn(sessionKey), log });
   cards.start();
+  /** The scopes Axis asks the gateway for beyond its own turns, by what is switched on. */
+  const watchGateway = () =>
+    gateway.watch([...(config.mirrorQuestions ? ["operator.questions"] : []), ...(config.mirrorApprovals ? ["operator.approvals"] : [])]);
   const tools = new ToolAccess(store, activity);
   const invoke = tools.guard(
     createInvokeHandler({ hub, store, timers, delivery, progress, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
@@ -216,6 +249,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity.setRetention(config.activityDays * 86_400_000);
     delivery.setHoldMs(config.messageHoldMs);
     if (changed.mqtt) startHomeAssistant();
+    watchGateway();
   };
 
   // Words kept in memory for the admin page are deleted when their time is up, not only hidden.
@@ -265,6 +299,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   const port = (server.address() as AddressInfo).port;
   gateway.start();
+  watchGateway();
   timers.start();
   recordLinks();
 
@@ -285,6 +320,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       backup.stop();
       progress.stop();
       cards.stop();
+      asks.stop();
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
       clearInterval(forgetTimer);

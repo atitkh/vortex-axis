@@ -453,6 +453,15 @@
         <p class="help">An agent on the linked OpenClaw gateway keeps a list of steps for long work. With this on, Axis shows it on the screens with no tool call: named after where you talk to the agent, waiting for you when the agent has stopped with steps left, done when every step is. Scheduled jobs are left out. An agent on anything else reports with the progress tool.</p>
         <p class="msg" id="mirror-note"></p>
       </div>
+      <h3>OpenClaw questions and approvals</h3>
+      <div>
+        <label class="switch"><input type="checkbox" id="mirror-questions"> Put an OpenClaw agent's questions to me on a device</label>
+        <p class="help">When an agent on the gateway asks you something, the device you last used shows it and says it, with the choices to tap or to say. While Home Assistant says you are away it goes to your phone as a notification. It can still be answered wherever else it appears; the first answer counts. A secret is never asked for here.</p>
+        <label class="switch"><input type="checkbox" id="mirror-approvals"> Offer approvals on a device</label>
+        <p class="help">When an agent needs your leave to run a command or use a tool, a device with a screen shows what it is, silently, with Allow once and Deny. Only a tap allows; a voice can only refuse. A standing permission is never given from here.</p>
+        <p class="help" id="watch-state"></p>
+        <p class="msg" id="asks-note"></p>
+      </div>
       <h3>Connect a harness by MCP</h3>
       <div class="form">
         <label>Address</label>

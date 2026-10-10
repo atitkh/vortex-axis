@@ -587,15 +587,18 @@ export class TurnManager {
    * question is spoken first (and shown). Then the client offers the choices
    * and listens: a choice picked on the screen, something said or something
    * typed all answer it. Resolves with `answer: null` when what was said
-   * matched no choice, or nobody answered within `timeoutMs`.
+   * matched no choice, or nobody answered within `timeoutMs`. With `silent`
+   * the question is shown and not spoken. `signal` takes the question back,
+   * for one that has been answered somewhere else in the meantime.
    */
-  async ask(session: Session, question: string, choices: string[], timeoutMs: number): Promise<AskResult> {
+  async ask(session: Session, question: string, choices: string[], timeoutMs: number, options: { silent?: boolean; signal?: AbortSignal } = {}): Promise<AskResult> {
     const id = session.client.id;
     const caps = session.client.capabilities;
     // Somebody who cannot see the choices has to hear them.
     const spoken =
       choices.length && !caps.includes("screen") ? `${question} ${choices.join(", ")}?` : question;
-    await this.say(session, spoken);
+    await this.say(session, spoken, options.silent ? { silent: true } : {});
+    if (options.signal?.aborted) return { answer: null };
     if (this.port.session(id) !== session) throw new Error(`${session.client.name} disconnected`);
     if (this.busy(session)) throw new Error(`${session.client.name} is busy with a conversation`);
 
@@ -621,6 +624,9 @@ export class TurnManager {
         hardStop: Date.now() + timeoutMs + 30_000,
       });
       this.port.send(session, { t: "ask", askId, question: question.slice(0, 500), choices, timeoutMs });
+      options.signal?.addEventListener("abort", () => {
+        if (this.asks.get(id)?.askId === askId) this.endAsk(session, { answer: null });
+      }, { once: true });
     });
   }
 

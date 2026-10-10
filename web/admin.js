@@ -2504,6 +2504,15 @@ function renderTools() {
   $("mcp-url").value = url;
   $("mcp-snippet").value = JSON.stringify({ mcpServers: { "vortex-axis": { type: "http", url, headers: { Authorization: "Bearer YOUR_TOKEN" } } } }, null, 2);
   $("mirror-cards").checked = d.mirrorCards;
+  $("mirror-questions").checked = d.mirrorQuestions;
+  $("mirror-approvals").checked = d.mirrorApprovals;
+  // Each of the two needs the gateway's leave, given there by a person, once.
+  const WATCH = {
+    connected: "The gateway lets Axis listen for these.",
+    pairing_required: "Waiting for you to approve this on the gateway: Axis has asked for more than it had. Run `openclaw devices list` there and approve the request from VorteX Axis.",
+    connecting: "Connecting to the gateway.",
+  };
+  $("watch-state").textContent = d.watch ? (WATCH[d.watch.state] ?? `Not listening: ${d.watch.error ?? d.watch.state}.`) + ` Asked for: ${d.watch.scopes.join(", ")}.` : "";
   $("mcp-public").checked = d.public;
   $("mcp-public").disabled = !d.publicHosts.length;
   $("mcp-public-help").textContent = d.publicHosts.length
@@ -2542,6 +2551,14 @@ function renderTools() {
   );
 }
 
+for (const [id, key] of [["mirror-questions", "mirrorQuestions"], ["mirror-approvals", "mirrorApprovals"]]) {
+  $(id).addEventListener("change", (event) =>
+    act(event.target, "asks-note", async () => {
+      await api("PATCH", "/admin/integrations", { [key]: event.target.checked });
+      await loadTools(true);
+    }),
+  );
+}
 $("mirror-cards").addEventListener("change", (event) =>
   act(event.target, "mirror-note", async () => {
     await api("PATCH", "/admin/integrations", { mirrorCards: event.target.checked });
