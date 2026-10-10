@@ -58,6 +58,14 @@ export const AudioStart = message("audio.start", {
   format: AudioFormat,
   /** Present when the turn began with a granted wake. */
   wakeId: Type.Optional(Id),
+  /**
+   * What made the client start listening: the wake word, a tap, a press held down, listening on
+   * after an answer, or a question Axis asked. Optional: an older client says nothing, and Axis
+   * then knows only whether there was a wake word.
+   */
+  trigger: Type.Optional(
+    Type.Union([Type.Literal("wake"), Type.Literal("tap"), Type.Literal("hold"), Type.Literal("follow_up"), Type.Literal("question")]),
+  ),
 });
 
 /** Closes the upstream audio stream. */

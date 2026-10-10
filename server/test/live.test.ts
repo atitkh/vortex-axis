@@ -106,6 +106,50 @@ describe("live view", () => {
   });
 });
 
+describe("what made a device listen", () => {
+  const spoken = async (client: any, turnId: string, start: Record<string, unknown>) => {
+    client.send({ t: "audio.start", turnId, format: UPSTREAM_AUDIO_FORMAT, ...start });
+    client.sendAudio(Buffer.alloc(3200, 1));
+    client.send({ t: "audio.end", turnId, reason: "silence" });
+    await client.next("speak.end", 0, (m: any) => m.turnId === turnId);
+    client.send({ t: "playback", turnId, state: "finished" });
+    await client.turn(turnId, "idle");
+  };
+
+  it("is kept with the turn: a tap, a hold, the wake word, or nothing when an older device does not say", async () => {
+    const { client } = await ready(["mic", "speaker"], { name: "Desk" });
+    const stream = await watch();
+    await spoken(client, "t1", { trigger: "tap" });
+    await spoken(client, "t2", { trigger: "hold" });
+    await spoken(client, "t3", { trigger: "follow_up" });
+    await spoken(client, "t4", {});
+    client.send({ t: "wake", wakeId: "w1", score: 0.9, level: 0.5 });
+    await client.next("wake.result");
+    // An older device: a wake word, and no word about what made it listen.
+    await spoken(client, "t5", { wakeId: "w1" });
+
+    const { recentTurns } = (await admin("GET", "/admin/activity")).body;
+    expect(recentTurns.map((t: any) => [t.kind, t.startedBy ?? null]).reverse()).toEqual([
+      ["voice", "tap"],
+      ["voice", "hold"],
+      ["voice", "follow_up"],
+      ["voice", null],
+      ["voice", "wake"],
+    ]);
+    // The live view says so from the moment listening starts, not only at the end.
+    const first = stream.events.find((e) => e.event === "turn" && e.data.startedBy);
+    expect(first!.data).toMatchObject({ startedBy: "tap" });
+    expect(first!.data.outcome).toBeUndefined();
+    stream.stop();
+  });
+
+  it("refuses a trigger the protocol does not know", async () => {
+    const { client } = await ready(["mic", "speaker"]);
+    client.sendRaw(JSON.stringify({ t: "audio.start", turnId: "t1", format: UPSTREAM_AUDIO_FORMAT, trigger: "telepathy" }));
+    expect((await client.next("error")).code).toBe("bad_message");
+  });
+});
+
 describe("wake word log", () => {
   it("keeps every wake word a device reports, with its score and what came of it", async () => {
     const near = await ready(["mic", "speaker"], { name: "Near" });

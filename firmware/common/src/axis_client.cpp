@@ -255,6 +255,8 @@ struct Client::Impl {
     bool wakePending = false, wakeToSend = false, startSent = false, onset = false, endWanted = false, quietWanted = false;
     const char *endReason = "silence";
     String wakeId, turnId;
+    /** What made this recording start, told to Axis with `audio.start`: wake, tap, follow_up or question. */
+    const char *trigger = "tap";
     float wakeScore = 0, wakeLevel = 0;
     uint32_t wakeSentAt = 0, recordingCount = 0, droppedSamples = 0;
     size_t settleLeft = 0;
@@ -1437,7 +1439,7 @@ struct Client::Impl {
      */
     void startFollowUp() {
         const long waitMs = self.settingInt("followUpMs", 6000);
-        if (waitMs > 0) listenUnasked(waitMs, false);
+        if (waitMs > 0) listenUnasked(waitMs, false, "follow_up");
     }
 
     /**
@@ -1460,7 +1462,7 @@ struct Client::Impl {
         askDeadline = millis() + timeoutMs;
         if (!askDeadline) askDeadline = 1;
         logf("asked: %s (%u choices)", state.question.c_str(), (unsigned)state.choiceCount);
-        listenUnasked((long)min(timeoutMs, (uint32_t)20000), true);
+        listenUnasked((long)min(timeoutMs, (uint32_t)20000), true, "question");
     }
 
     /** The question is over. A recording nobody has spoken into goes with it. */
@@ -1480,7 +1482,7 @@ struct Client::Impl {
     }
 
     /** Opens the microphone without a wake word or a tap, for `waitMs` of silence at most. Client task only. */
-    void listenUnasked(long waitMs, bool withCue) {
+    void listenUnasked(long waitMs, bool withCue, const char *why) {
         if (!outRing || !self.online_) return;
         const VadLimits limits = vadLimits();
         const size_t cue = withCue ? cueSamples() : 0;
@@ -1490,6 +1492,7 @@ struct Client::Impl {
             dropRecordingLocked();
             vad.begin((uint32_t)constrain(waitMs, 1000, 30000), limits.silenceMs, limits.maxMs);
             wakeId = "";
+            trigger = why;
             turnId = newTurnId();
             quietWanted = false;
             preFill = 0;
@@ -1581,8 +1584,9 @@ struct Client::Impl {
             doc["format"]["sampleRate"] = MIC_RATE;
             doc["format"]["channels"] = 1;
             if (!wid.isEmpty()) doc["wakeId"] = wid;
+            doc["trigger"] = trigger;
             send(doc);
-            logf("recording %s", tid.c_str());
+            logf("recording %s (%s)", tid.c_str(), trigger);
         }
         if (count) socket.sendBIN((uint8_t *)block, count * sizeof(int16_t));
         if (sendEnd) {
@@ -1793,6 +1797,7 @@ void Client::wakeHeard(float score, float level) {
         m.dropRecordingLocked();
         m.vad.begin(limits.onsetMs, limits.silenceMs, limits.maxMs);
         m.wakeId = "w" + String(millis()) + "-" + String(++m.recordingCount);
+        m.trigger = "wake";
         m.turnId = m.newTurnId();
         m.wakeScore = constrain(score, 0.0f, 1.0f);
         m.wakeLevel = constrain(level, 0.0f, 1.0f);
@@ -1816,6 +1821,7 @@ bool Client::startListening() {
         m.dropRecordingLocked();
         m.vad.begin(limits.onsetMs, limits.silenceMs, limits.maxMs);
         m.wakeId = "";
+        m.trigger = "tap";
         m.turnId = m.newTurnId();
         m.quietWanted = true;
         m.settleLeft = cue;

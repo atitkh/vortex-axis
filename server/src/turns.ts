@@ -63,6 +63,8 @@ interface PendingAsk {
 
 interface Capture {
   turnId: string;
+  /** What made the client listen, when it is known. */
+  startedBy: TurnRecord["startedBy"];
   startedAt: number;
   format: AudioFormat;
   chunks: Buffer[];
@@ -431,8 +433,11 @@ export class TurnManager {
         // An answer to a question asked mid-turn must not cancel the turn that is waiting for it.
         if (!this.asks.has(id)) this.cancelActive(session, true);
         const bytesPerMs = (message.format.sampleRate * 2) / 1000;
+        // An older client does not say what made it listen; a wake word is still known by its id.
+        const startedBy = message.trigger ?? (message.wakeId !== undefined ? "wake" : undefined);
         this.captures.set(id, {
           turnId: message.turnId,
+          startedBy,
           format: message.format,
           chunks: [],
           startedAt: Date.now(),
@@ -441,6 +446,7 @@ export class TurnManager {
         });
         this.port.send(session, { t: "turn", turnId: message.turnId, state: "listening" });
         this.options.live?.stage(session.client, message.turnId, "voice", "listening");
+        if (startedBy) this.options.live?.words(id, message.turnId, { startedBy });
         return;
       }
 
@@ -453,7 +459,7 @@ export class TurnManager {
           this.options.live?.end(id, capture.turnId);
           return;
         }
-        void this.run(session, capture.turnId, { pcm: Buffer.concat(capture.chunks), format: capture.format });
+        void this.run(session, capture.turnId, { pcm: Buffer.concat(capture.chunks), format: capture.format, startedBy: capture.startedBy });
         return;
       }
 
@@ -702,7 +708,7 @@ export class TurnManager {
   private async run(
     session: Session,
     turnId: string,
-    input: { pcm: Buffer; format: AudioFormat } | { text: string } | { say: string; silent?: boolean },
+    input: { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] } | { text: string } | { say: string; silent?: boolean },
     outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
@@ -716,6 +722,7 @@ export class TurnManager {
       totalMs: 0,
       heard: false,
       ...("pcm" in input ? { speechMs: Math.round(input.pcm.length / ((input.format.sampleRate * 2) / 1000)) } : {}),
+      ...("pcm" in input && input.startedBy ? { startedBy: input.startedBy } : {}),
     };
     let finish!: () => void;
     const turn: ActiveTurn = {

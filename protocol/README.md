@@ -64,6 +64,7 @@ client                                   Axis
 - A client that receives `wake.result` with `granted: false` discards its buffer and stays quiet.
 - A client that is the only one online is granted immediately.
 - A turn can also start without a wake: a button press sends `audio.start` directly, and a typed message sends `text`.
+- `audio.start` may say what made the client listen, as `trigger`: `wake`, `tap`, `hold`, `follow_up` (listening on after an answer) or `question` (answering something Axis asked). It is optional and only recorded with the turn; nothing depends on it. A client that leaves it out is known to have heard the wake word when it sends a `wakeId`, and is otherwise just "spoken".
 - `turnId` is chosen by the client. `wakeId` links the turn to the wake that began it.
 - `transcript` and `reply.text` are sent only to clients with the `screen` capability. Each `reply.text` with `final: false` carries the next piece of the reply; the one with `final: true` carries the whole reply.
 - A client without the `speaker` capability gets no `speak.*` frames, only text.

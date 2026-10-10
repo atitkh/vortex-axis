@@ -176,6 +176,30 @@
           "minLength": 1,
           "maxLength": 64,
           "type": "string"
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "const": "wake",
+              "type": "string"
+            },
+            {
+              "const": "tap",
+              "type": "string"
+            },
+            {
+              "const": "hold",
+              "type": "string"
+            },
+            {
+              "const": "follow_up",
+              "type": "string"
+            },
+            {
+              "const": "question",
+              "type": "string"
+            }
+          ]
         }
       }
     },

@@ -1999,6 +1999,9 @@ const OUTCOMES = {
   failed: ["failed", "bad"],
 };
 const KINDS = { voice: "spoken", text: "typed", say: "agent spoke" };
+/** What made a device listen, for a spoken turn. A device on older firmware does not say, unless it was the wake word. */
+const STARTED_BY = { wake: "wake word", tap: "tap", hold: "held", follow_up: "follow-up", question: "answering a question" };
+const kindOf = (turn) => `${KINDS[turn.kind] ?? turn.kind}${turn.kind === "voice" && STARTED_BY[turn.startedBy] ? `, ${STARTED_BY[turn.startedBy]}` : ""}`;
 
 /**
  * The overview: what needs attention, the figures, and the history behind them. `withHistory` false
@@ -2078,7 +2081,7 @@ function renderOverview(withHistory = true) {
                 {},
                 h("td", { class: "tight sub", title: new Date(r.at).toLocaleString() }, clock(r.at, activityRange > 24)),
                 h("td", {}, h("a", { href: `#clients/${encodeURIComponent(r.clientId)}` }, r.clientName)),
-                h("td", { class: "sub" }, KINDS[r.kind] ?? r.kind),
+                h("td", { class: "sub" }, kindOf(r)),
                 h("td", { title: r.error ?? "" }, h("span", { class: `stat ${kind}`.trim() }, label), r.outcome === "answered" && !r.heard && r.kind !== "text" ? h("span", { class: "sub" }, " · not confirmed heard") : null),
                 ...[r.speechMs, r.sttMs, r.agentMs, r.firstAudioMs, r.totalMs].map((v) => h("td", { class: "num" }, ms(v))),
               );
@@ -2259,7 +2262,7 @@ function liveTurnCard(turn) {
   return h("div", { class: `turn-card${running ? " running" : ""}` },
     h("div", { class: "turn-head" },
       h("a", { href: `#clients/${encodeURIComponent(turn.clientId)}` }, turn.client),
-      h("span", { class: "sub" }, `${KINDS[turn.kind] ?? turn.kind} · ${second(turn.startedAt)}`),
+      h("span", { class: "sub" }, `${kindOf(turn)} · ${second(turn.startedAt)}`),
       stat(label, kind),
     ),
     h("div", { class: "steps" }, ...steps),

@@ -17,6 +17,8 @@ export interface LiveTurn {
   clientId: string;
   client: string;
   kind: TurnRecord["kind"];
+  /** For a spoken turn, what made the device listen, when it is known. */
+  startedBy?: NonNullable<TurnRecord["startedBy"]>;
   startedAt: number;
   /** Each stage the turn reached and when. */
   stages: { name: LiveStage; at: number }[];
@@ -120,9 +122,10 @@ export class Live {
   }
 
   /** The words of a turn as they become known. `said` is added to what was said so far. */
-  words(clientId: string, turnId: string, words: { heard?: string; said?: string }): void {
+  words(clientId: string, turnId: string, words: { heard?: string; said?: string; startedBy?: TurnRecord["startedBy"] }): void {
     const turn = this.open.get(`${clientId}/${turnId}`);
     if (!turn) return;
+    if (words.startedBy) turn.startedBy = words.startedBy;
     if (words.heard !== undefined) turn.heard = words.heard.slice(0, MAX_WORDS);
     // Pieces come a sentence at a time, without the space that was between them.
     if (words.said) turn.said = `${turn.said && !/\s$/.test(turn.said) ? `${turn.said} ` : turn.said ?? ""}${words.said}`.slice(0, MAX_WORDS);

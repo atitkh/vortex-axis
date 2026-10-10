@@ -767,7 +767,8 @@ async function micReady() {
 /** True while a recording is being set up; taps then are ignored, so only one starts. */
 let starting = false;
 
-async function startCapture() {
+/** `trigger` is what made the page listen ("tap" or "hold"), told to Axis for its record of the turn. */
+async function startCapture(trigger = "tap") {
   if (capture || starting || !online) return;
   starting = true;
   // Speaking over a reply interrupts it, like a button on a device would.
@@ -856,7 +857,7 @@ async function startCapture() {
     else if (!holding && !capture.spoke && now - capture.startedAt > 6000) stopCapture(true, "cancel");
   };
 
-  send({ t: "audio.start", turnId, format: { encoding: "pcm_s16le", sampleRate: MIC_RATE, channels: 1 } });
+  send({ t: "audio.start", turnId, format: { encoding: "pcm_s16le", sampleRate: MIC_RATE, channels: 1 }, trigger });
   caption("", "");
   renderFace();
 }
@@ -910,7 +911,7 @@ $("mic").addEventListener("pointerdown", (event) => {
     heldAt = Date.now();
     $("mic").classList.add("held");
     player.ensure();
-    await startCapture();
+    await startCapture("hold");
     if (!holding && capture) stopCapture(true, "cancel"); // let go before the microphone was ready
   }, HOLD_MS);
 });

@@ -142,6 +142,10 @@ const MIGRATIONS: string[] = [
     last_used_at INTEGER
   );
   `,
+  // What made a device start listening for a spoken turn: the wake word, a tap, and so on.
+  `
+  ALTER TABLE turns ADD COLUMN started_by TEXT;
+  `,
 ];
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -168,6 +172,7 @@ interface TurnRow {
   first_audio_ms: number | null;
   total_ms: number;
   heard: number;
+  started_by: string | null;
 }
 
 interface EventRow {
@@ -201,6 +206,8 @@ export interface TurnRecord {
   clientId: string;
   /** voice: spoken; text: typed; say: started by an agent. */
   kind: "voice" | "text" | "say";
+  /** For a spoken turn, what made the device listen. Absent when the device did not say and there was no wake word. */
+  startedBy?: "wake" | "tap" | "hold" | "follow_up" | "question" | undefined;
   outcome: "answered" | "silent" | "no_speech" | "interrupted" | "failed";
   error?: string | undefined;
   /** How long the person spoke. */
@@ -449,11 +456,11 @@ export class Store {
   addTurn(t: TurnRecord): void {
     this.db
       .prepare(
-        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard, started_by) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(t.at, t.clientId, t.kind, t.outcome, t.error ?? null, t.speechMs ?? null, t.sttMs ?? null, t.agentMs ?? null,
-        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0);
+        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0, t.startedBy ?? null);
   }
 
   /** Turns that started in [from, to), oldest first. */
@@ -475,6 +482,7 @@ export class Store {
       firstAudioMs: r.first_audio_ms ?? undefined,
       totalMs: r.total_ms,
       heard: r.heard === 1,
+      ...(r.started_by ? { startedBy: r.started_by as NonNullable<TurnRecord["startedBy"]> } : {}),
     }));
   }
 
