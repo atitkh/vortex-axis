@@ -511,6 +511,17 @@ try {
   step("idle look off", await admin.until(`document.querySelector('.face-cell[data-look="curl"]').classList.contains('off') && ${byId("face-note")}.textContent`, "the look to be switched off"));
   const shared = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
   if (shared.values.idleLooksOff !== "curl") throw new Error(`idleLooksOff was saved as ${JSON.stringify(shared.values.idleLooksOff)}`);
+  // Tool icons: one tile per kind, shown large when chosen, and the style saved for every device.
+  await admin.run(`document.querySelector('.face-tile[data-look="icon:home"]').click()`);
+  step("tool icons", await admin.until(`${byId("face-name")}.textContent === 'home (tool icon)' && document.querySelectorAll('#face-icons .face-tile').length === 12 && document.querySelector('#face-icon-style button.on')?.dataset.style === 'dots' && '12 kinds, home chosen, shown as dots'`, "the tool icons"));
+  // Something is really drawn in the middle of the large face: with the icon made of dots, the core is gone and the house's roof is lit.
+  // The faces only move while their page is the one in front.
+  await admin.front();
+  step("tool icon drawn", await admin.until(`(() => { const c = ${byId("face-big")}, g = c.getContext('2d'), w = c.width; const lit = (x0, y0, x1, y1) => { const d = g.getImageData(Math.round(w * x0), Math.round(w * y0), Math.round(w * (x1 - x0)), Math.round(w * (y1 - y0))).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) n++; return n; }; const roof = lit(0.4, 0.25, 0.6, 0.37), core = lit(0.45, 0.45, 0.55, 0.55); return roof > 30 && core === 0 && 'roof lit (' + roof + ' px), centre dark'; })()`, "the dots to form the house", 8000));
+  await admin.run(`document.querySelector('#face-icon-style button[data-style="line"]').click()`);
+  step("tool icon style", await admin.until(`document.querySelector('#face-icon-style button.on')?.dataset.style === 'line' && ${byId("face-icons-note")}.textContent`, "the style to be saved"));
+  const styled = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  if (styled.values.toolIcons !== "line") throw new Error(`toolIcons was saved as ${JSON.stringify(styled.values.toolIcons)}`);
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
   await admin.run(`history.go(-4)`);

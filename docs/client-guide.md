@@ -96,6 +96,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `brightness` | Screen brightness, 10 to 255. | per board |
 
 - `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client: Axis sends a lower `volume` and `brightness` while they last.)
+- `toolIcons` is Axis's too: how a client with the vortex face shows the `doing` of a `turn` while thinking, `dots`, `line` or `off` (`docs/face.md`, section 8).
 - `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).
 - A setting takes effect when it arrives, without a restart, unless that is impossible; say so in its help text when it is.
 

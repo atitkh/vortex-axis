@@ -258,6 +258,15 @@
       <div class="face-grid" id="face-idle"></div>
       <h3>State looks</h3>
       <div class="face-grid" id="face-state"></div>
+      <h3>Tool icons</h3>
+      <p class="help">While it thinks, the face can show what kind of tool the agent has picked up. Choose how, for every device; it applies a few seconds after the change. Each kind is drawn below as the devices will show it. Only an OpenClaw agent says which tools it uses. <span class="msg" id="face-icons-note"></span></p>
+      <div class="seg" id="face-icon-style" role="group" aria-label="How tool icons are shown">
+        <button type="button" data-style="dots">Dot shapes</button>
+        <button type="button" data-style="line">Line at the core</button>
+        <button type="button" data-style="off">Off</button>
+      </div>
+      <p class="help" id="face-icon-style-help"></p>
+      <div class="face-grid" id="face-icons"></div>
     </section>
 
     <!-- Wake words: the models devices can listen with -->

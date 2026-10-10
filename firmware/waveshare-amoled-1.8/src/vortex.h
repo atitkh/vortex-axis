@@ -28,6 +28,12 @@ void setMode(Mode mode);
  */
 void setIcon(const char *name);
 
+/** How an icon is shown while thinking: not at all, drawn with a pen at the core, or made of the face's own dots. */
+enum class IconStyle : uint8_t { Off, Line, Dots };
+
+/** The `toolIcons` setting: "off", "line" or "dots". Anything else, or nothing, is dots. */
+void setIconStyle(const char *name);
+
 /**
  * Which way up the screen is: 0, 90, 180 or 270, as the display is turned. The vortex is round and
  * is sent to the panel as it is, whatever the rotation; an icon has a top, so it is turned to match.

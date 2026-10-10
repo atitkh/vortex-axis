@@ -210,6 +210,7 @@ static void applySettings() {
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     speaker::setVolume((int)client.settingInt("volume", 60));
     vortex::setIdleOff(client.setting("idleLooksOff").c_str());
+    vortex::setIconStyle(client.setting("toolIcons").c_str());
     mic::setWakeEnabled(client.settingInt("wakeListen", 1) != 0);
     mic::setWakeSensitivity((uint8_t)constrain(client.settingInt("wakeSense", 0), 0, 99));
     mic::setBargeIn(client.settingInt("bargeIn", 0) != 0);

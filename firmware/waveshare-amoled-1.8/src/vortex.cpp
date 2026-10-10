@@ -119,6 +119,9 @@ void pickIdle() {
 // What the agent is doing while it thinks: the icon wanted (-1 for none), the one being drawn, and how far it has faded in.
 int icon = -1, iconDrawn = -1;
 float iconShown = 0;
+// The style asked for, and the one being drawn, which stays while an icon fades out.
+IconStyle iconStyle = IconStyle::Dots, iconDrawnStyle = IconStyle::Dots;
+float flowPhase = 0;
 // The frame goes to the panel unturned, so what has a top is turned here: a step right and a step down
 // on the upright icon are (rightX, rightY) and (downX, downY) in the frame.
 float rightX = 1, rightY = 0, downX = 0, downY = 1;
@@ -179,6 +182,10 @@ void setRotation(int degrees) {
     }
 }
 
+void setIconStyle(const char *name) {
+    iconStyle = name && !strcmp(name, "off") ? IconStyle::Off : name && !strcmp(name, "line") ? IconStyle::Line : IconStyle::Dots;
+}
+
 void setIcon(const char *name) {
     int found = -1;
     for (int i = 0; name && *name && i < icons::COUNT && found < 0; i++) {
@@ -227,11 +234,23 @@ const uint16_t *render(float dt) {
     for (size_t i = 0; i < sizeof(Look) / sizeof(float); i++) a[i] += (b[i] - a[i]) * k;
 
     // The icon is only ever there while thinking, and comes and goes quickly.
-    const float wantIcon = mode == Mode::Thinking && icon >= 0 ? 1.0f : 0.0f;
+    const float wantIcon = mode == Mode::Thinking && icon >= 0 && iconStyle != IconStyle::Off ? 1.0f : 0.0f;
     iconShown += (wantIcon - iconShown) * (1.0f - expf(-dt * 6.0f));
-    const float eye = iconShown < 0.01f ? 0.0f : iconShown;
-    // The arms stand back from the centre to leave it room.
-    const float hole = icons::HOLE * eye;
+    // Easing never quite arrives; close enough is there, or a speck of the core would stay for good.
+    const float eye = iconShown < 0.01f ? 0.0f : iconShown > 0.985f ? 1.0f : iconShown;
+    if (wantIcon > 0) iconDrawnStyle = iconStyle;
+    const bool asDots = iconDrawnStyle == IconStyle::Dots && iconDrawn >= 0;
+    // Drawn with a pen, the arms stand back from the centre to leave it room. Made of dots, the arms are the icon.
+    const float hole = asDots ? 0.0f : icons::HOLE * eye;
+    flowPhase += 5.0f * dt;
+    // A dot shape breathes with the figure and sways a little, so it never sits still.
+    const float shapeUnit = icons::SHAPE_SIZE / 240.0f * (1.0f + 0.05f * sinf(pulsePhase));  // SHAPES are tenths of a 24 grid
+    const float sway = 0.07f * sinf(wavePhase), swayCos = cosf(sway), swaySin = sinf(sway);
+    const uint8_t *shape = asDots ? icons::SHAPES[iconDrawn] : nullptr;
+    const uint8_t *tint = asDots ? icons::TINTS[iconDrawn] : nullptr;
+    const float shapeR = asDots ? (0.55f + now.r * 0.45f) * 0.6f + tint[0] / 255.0f * 0.4f : 0;
+    const float shapeG = asDots ? (0.55f + now.g * 0.45f) * 0.6f + tint[1] / 255.0f * 0.4f : 0;
+    const float shapeB = asDots ? (0.55f + now.b * 0.45f) * 0.6f + tint[2] / 255.0f * 0.4f : 0;
 
     phase += now.spin * dt;
     pulsePhase += now.pulseHz * 2.0f * PI * dt;
@@ -266,15 +285,32 @@ const uint16_t *render(float dt) {
             const float glow = min(1.0f, (1.0f - 0.72f * t) + spark);
             const float x = radius * cosf(angle), y = radius * sinf(angle);
             const float along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
-            fillCircle(cx + along * axisCos - across * axisSin, cy + along * axisSin + across * axisCos, now.dot * (1.4f + 4.2f * t),
-                       color565(now.r * glow + spark * 0.5f, now.g * glow + spark * 0.5f, now.b * glow + spark * 0.5f));
+            float px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
+            float size = now.dot * (1.4f + 4.2f * t);
+            float red = now.r * glow + spark * 0.5f, green = now.g * glow + spark * 0.5f, blue = now.b * glow + spark * 0.5f;
+            if (asDots && eye > 0) {
+                // Each dot has a place on the icon: the arms take turns along its strokes. It goes there
+                // by the straight way, and a wave of light runs along the strokes once it has arrived.
+                const int n = i * ARMS + arm;
+                const float ux = (shape[n * 2] - 120) * shapeUnit, uy = (shape[n * 2 + 1] - 120) * shapeUnit;
+                const float ix = ux * swayCos - uy * swaySin, iy = ux * swaySin + uy * swayCos;
+                // The frame goes to the panel unturned; the icon has a top.
+                px += (SIZE / 2 + ix * rightX + iy * downX - px) * eye;
+                py += (SIZE / 2 + ix * rightY + iy * downY - py) * eye;
+                size += (icons::SHAPE_DOT - size) * eye;
+                const float lit = 0.62f + 0.38f * sinf(flowPhase - n * 0.33f) + spark * 0.5f;
+                red += (shapeR * lit - red) * eye;
+                green += (shapeG * lit - green) * eye;
+                blue += (shapeB * lit - blue) * eye;
+            }
+            fillCircle(px, py, size, color565(red, green, blue));
         }
     }
     const float core = 7.0f + (mode == Mode::Listening ? 6.0f : 3.0f) * (voiced ? level : sinf(pulsePhase));
     const float coreR = 0.55f + now.r * 0.45f, coreG = 0.55f + now.g * 0.45f, coreB = 0.55f + now.b * 0.45f;
     if (eye < 1.0f) fillCircle(cx, cy, core * (1.0f - eye), color565(coreR, coreG, coreB));
     // The icon takes the core's place and its colour.
-    if (eye > 0.0f) drawIcon(cx, cy, eye, coreR, coreG, coreB);
+    if (eye > 0.0f && !asDots) drawIcon(cx, cy, eye, coreR, coreG, coreB);
     return frame;
 }
 

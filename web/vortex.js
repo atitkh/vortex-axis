@@ -4,7 +4,10 @@
 // copied from the firmware so a browser and a board look like the same thing. The specification
 // is docs/face.md; change it, this file and vortex.cpp together.
 
-import { ICONS, ICON_HOLE, ICON_PEN, ICON_SIZE } from "/web/icons.js";
+import { ICONS, ICON_HOLE, ICON_PEN, ICON_SIZE, ICON_TINTS, SHAPE_DOT, SHAPE_SIZE, iconDots } from "/web/icons.js";
+
+/** How an icon is shown while thinking: not at all, drawn with a pen at the core, or made of the face's own dots. */
+export const ICON_STYLES = ["off", "line", "dots"];
 
 const SIZE = 240; // the firmware's drawing size; everything below is in its units
 const ARMS = 3;
@@ -64,6 +67,8 @@ export class Vortex {
     // What the agent is doing while it thinks, as an icon in the middle; and how far it has faded in.
     this.icon = undefined;
     this.iconShown = 0;
+    this.iconStyle = "dots";
+    this.flowPhase = 0;
     this.flash = new Float32Array(ARMS * DOTS_PER_ARM);
     this.last = 0;
     // Someone who asked for less motion gets the same face, turning slowly and without sparkle.
@@ -101,8 +106,18 @@ export class Vortex {
    */
   setIcon(name) {
     const known = name && ICONS[name] ? name : undefined;
-    if (known) this.iconStrokes = ICONS[known];
+    if (known) {
+      // The one on show stays drawn while it fades, so only a new one replaces it.
+      this.iconStrokes = ICONS[known];
+      this.iconPoints = iconDots(known);
+      this.iconTint = ICON_TINTS[known] ?? [1, 1, 1];
+    }
     this.icon = known;
+  }
+
+  /** How icons are shown: "off", "line" or "dots" (the `toolIcons` setting). Anything else is "dots". */
+  setIconStyle(style) {
+    this.iconStyle = ICON_STYLES.includes(style) ? style : "dots";
   }
 
   /** Loudness of the voice, 0 to 1. Negative: not known, the face pulses on its own. */
@@ -166,11 +181,21 @@ export class Vortex {
     for (const key of KEYS) this.now[key] += (this.target[key] - this.now[key]) * k;
     const now = this.now;
     // The icon is only ever there while thinking, and comes and goes quickly.
-    const wantIcon = this.mode === "thinking" && this.icon ? 1 : 0;
+    const wantIcon = this.mode === "thinking" && this.icon && this.iconStyle !== "off" ? 1 : 0;
     this.iconShown += (wantIcon - this.iconShown) * (1 - Math.exp(-dt * 6));
-    const eye = this.iconShown < 0.01 ? 0 : this.iconShown;
-    // The arms stand back from the centre to leave it room.
-    const hole = ICON_HOLE * eye;
+    // Easing never quite arrives; close enough is there, or a speck of the core would stay for good.
+    const eye = this.iconShown < 0.01 ? 0 : this.iconShown > 0.985 ? 1 : this.iconShown;
+    // The style on show stays the one drawn while it fades, like the icon itself.
+    if (wantIcon) this.iconDrawnStyle = this.iconStyle;
+    const asDots = this.iconDrawnStyle === "dots" && this.iconPoints;
+    // Drawn with a pen, the arms stand back from the centre to leave it room. Made of dots, the arms are the icon.
+    const hole = asDots ? 0 : ICON_HOLE * eye;
+    this.flowPhase += 5 * dt;
+    // A dot shape breathes with the figure and sways a little, so it never sits still.
+    const shapeUnit = (SHAPE_SIZE / 24) * (1 + 0.05 * Math.sin(this.pulsePhase));
+    const sway = 0.07 * Math.sin(this.wavePhase), swayCos = Math.cos(sway), swaySin = Math.sin(sway);
+    const tint = this.iconTint ?? [1, 1, 1];
+    const shapeColor = [0, 1, 2].map((c) => (0.55 + [now.r, now.g, now.b][c] * 0.45) * 0.6 + tint[c] * 0.4);
 
     const motion = this.calm ? 0.3 : 1;
     this.phase += now.spin * dt * motion;
@@ -211,11 +236,27 @@ export class Vortex {
         // The sway runs out along the arm like a wave, and is widest at the tip.
         const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t + now.wave * t * Math.sin(this.wavePhase - t * 7);
         const glow = Math.min(1, 1 - 0.72 * t + spark);
-        ctx.fillStyle = color(now.r * glow + spark * 0.5, now.g * glow + spark * 0.5, now.b * glow + spark * 0.5);
-        ctx.beginPath();
         const x = radius * Math.cos(angle), y = radius * Math.sin(angle);
         const along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
-        ctx.arc(cx + along * axisCos - across * axisSin, cy + along * axisSin + across * axisCos, now.dot * (1.4 + 4.2 * t), 0, 2 * Math.PI);
+        let px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
+        let size = now.dot * (1.4 + 4.2 * t);
+        let red = now.r * glow + spark * 0.5, green = now.g * glow + spark * 0.5, blue = now.b * glow + spark * 0.5;
+        if (asDots && eye > 0) {
+          // Each dot has a place on the icon: the arms take turns along its strokes. It goes there
+          // by the straight way, and a wave of light runs along the strokes once it has arrived.
+          const n = i * ARMS + arm;
+          const ix = (this.iconPoints[n * 2] - 12) * shapeUnit, iy = (this.iconPoints[n * 2 + 1] - 12) * shapeUnit;
+          px += (SIZE / 2 + ix * swayCos - iy * swaySin - px) * eye;
+          py += (SIZE / 2 + ix * swaySin + iy * swayCos - py) * eye;
+          size += (SHAPE_DOT - size) * eye;
+          const lit = 0.62 + 0.38 * Math.sin(this.flowPhase - n * 0.33) + spark * 0.5;
+          red += (shapeColor[0] * lit - red) * eye;
+          green += (shapeColor[1] * lit - green) * eye;
+          blue += (shapeColor[2] * lit - blue) * eye;
+        }
+        ctx.fillStyle = color(red, green, blue);
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, 2 * Math.PI);
         ctx.fill();
       }
     }
@@ -225,7 +266,7 @@ export class Vortex {
     ctx.beginPath();
     ctx.arc(cx, cy, Math.max(1, core * (1 - eye)), 0, 2 * Math.PI);
     if (eye < 1) ctx.fill();
-    if (eye > 0) {
+    if (eye > 0 && !asDots) {
       // The icon takes the core's place and its colour, breathing a little with the figure.
       const size = ICON_SIZE * (1 + 0.04 * Math.sin(this.pulsePhase)), unit = size / 24;
       ctx.globalAlpha = eye;

@@ -50,3 +50,75 @@ export const ICON_SIZE = 52;
 export const ICON_PEN = 3.4;
 /** How far the arms stand back from the centre to make room for an icon, in the 240 grid. */
 export const ICON_HOLE = 36;
+
+// --- the same icons, made of the face's own dots ----------------------------------------
+
+/** How many dots the face has: three arms of twenty-six. An icon made of dots uses every one. */
+export const ICON_DOTS = 78;
+/** Side of the square a dot shape fills, in the face's 240 grid, and the radius of each dot in it. */
+export const SHAPE_SIZE = 150;
+export const SHAPE_DOT = 2.9;
+
+/**
+ * A colour each kind leans towards when it is drawn in dots, so something changes even at a
+ * glance from across the room. Red, green, blue, 0 to 1.
+ */
+export const ICON_TINTS = {
+  search: [0.35, 0.85, 1.0],
+  web: [0.4, 0.6, 1.0],
+  home: [1.0, 0.72, 0.3],
+  calendar: [1.0, 0.5, 0.6],
+  list: [0.5, 1.0, 0.6],
+  files: [0.9, 0.9, 1.0],
+  code: [0.65, 1.0, 0.35],
+  timer: [1.0, 0.6, 0.25],
+  message: [0.3, 1.0, 0.85],
+  memory: [0.75, 0.5, 1.0],
+  image: [1.0, 0.45, 0.9],
+  tool: [0.8, 0.82, 0.9],
+};
+
+/**
+ * Where each of the face's dots goes to draw an icon: `count` points set evenly along its strokes,
+ * as x, y, x, y, ... on the 24 grid, to one decimal. Every stroke gets at least one dot and
+ * otherwise its share by length, so a short stroke is not lost and a long one is not thin.
+ */
+export function iconDots(name, count = ICON_DOTS) {
+  const strokes = ICONS[name];
+  if (!strokes) return undefined;
+  const lengthOf = (stroke) => {
+    let length = 0;
+    for (let i = 2; i < stroke.length; i += 2) length += Math.hypot(stroke[i] - stroke[i - 2], stroke[i + 1] - stroke[i - 1]);
+    return length;
+  };
+  const lengths = strokes.map(lengthOf);
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  const share = lengths.map((length) => Math.max(1, Math.round((count * length) / total)));
+  // Rounding leaves a dot or two over or short: the longest stroke takes the difference.
+  const longest = lengths.indexOf(Math.max(...lengths));
+  share[longest] += count - share.reduce((sum, n) => sum + n, 0);
+
+  const points = [];
+  strokes.forEach((stroke, index) => {
+    const n = share[index], step = lengths[index] / n;
+    let piece = 0, before = 0;
+    for (let k = 0; k < n; k++) {
+      const at = (k + 0.5) * step;
+      // Walk to the straight piece this distance falls on.
+      for (;;) {
+        const length = Math.hypot(stroke[piece * 2 + 2] - stroke[piece * 2], stroke[piece * 2 + 3] - stroke[piece * 2 + 1]);
+        if (at <= before + length || piece * 2 + 4 >= stroke.length) {
+          const along = length ? Math.min(1, (at - before) / length) : 0;
+          points.push(
+            Math.round((stroke[piece * 2] + (stroke[piece * 2 + 2] - stroke[piece * 2]) * along) * 10) / 10,
+            Math.round((stroke[piece * 2 + 1] + (stroke[piece * 2 + 3] - stroke[piece * 2 + 1]) * along) * 10) / 10,
+          );
+          break;
+        }
+        before += length;
+        piece++;
+      }
+    }
+  });
+  return points;
+}

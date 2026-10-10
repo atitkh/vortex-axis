@@ -752,3 +752,7 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 .task-steps li[data-state="done"]::before { content: "\2713\00a0"; color: var(--listen, var(--accent)); }
 .task-steps li[data-state="running"] { color: var(--text); }
 .task-steps li[data-state="running"]::before { content: "\25B8\00a0"; color: var(--accent); }
+
+/* Face page: the tool icons, and how they are shown. With them off the tiles show the plain thinking face, dimmed. */
+#face-icon-style { margin: 4px 0 2px; }
+#face-icons.off .face-tile { opacity: 0.45; }

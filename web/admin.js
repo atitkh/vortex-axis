@@ -6,6 +6,7 @@
 // (all devices, type, device) are the server's; this page only presents them.
 
 import { IDLE, LOOKS, LOOK_FIELDS, Vortex } from "/web/vortex.js";
+import { ICONS } from "/web/icons.js";
 import { clock, hideTip, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -523,7 +524,68 @@ function allLooks() {
   ];
 }
 
+/** Which tools show as each kind of icon, in the words of the page. */
+const ICON_READS = {
+  search: "looking something up: a web search, a search of its sessions or files",
+  web: "reading a web page or using a browser",
+  home: "Home Assistant: lights, switches, the state of a room",
+  calendar: "the calendar and its events",
+  list: "tasks, to-dos, notes and other lists",
+  files: "reading or changing a file or a document",
+  code: "running a command or a script",
+  timer: "timers, reminders and scheduled jobs",
+  message: "saying or sending something: a device, a chat, a mail",
+  memory: "its own memory and notes",
+  image: "making or looking at a picture",
+  tool: "any other tool",
+};
+const ICON_STYLE_HELP = {
+  dots: "The face's own dots leave their arms and form the icon, in a colour of its kind, then swirl back.",
+  line: "The arms stand back from the centre and the icon is drawn there with a pen, in the face's colour.",
+  off: "Nothing is shown: the face thinks the way it always has.",
+};
+let iconStyle = "dots";
+/** The small faces under Tool icons, by kind, so a change of style reaches them. */
+let iconFaces = [];
+
+/** Shows one kind of tool icon on the large face, as the devices draw it in the style chosen. */
+function chooseIcon(kind) {
+  faceChosen = `icon:${kind}`;
+  for (const tile of document.querySelectorAll(".face-tile")) tile.classList.toggle("on", tile.dataset.look === faceChosen);
+  $("face-name").textContent = `${kind} (tool icon)`;
+  $("face-reads").textContent = `Shown while thinking when the agent picks up ${ICON_READS[kind] ?? "a tool of this kind"}.`;
+  $("face-numbers").replaceChildren();
+  $("face-voice-row").hidden = true;
+  if (!bigFace) return;
+  bigFace.hold(LOOKS.thinking, "thinking");
+  bigFace.setLevel(-1);
+  bigFace.setIconStyle(iconStyle);
+  bigFace.setIcon(kind);
+}
+
+/** Marks the style in force and draws every icon that way. */
+function showIconStyle() {
+  for (const button of $("face-icon-style").querySelectorAll("button")) button.classList.toggle("on", button.dataset.style === iconStyle);
+  $("face-icon-style-help").textContent = ICON_STYLE_HELP[iconStyle];
+  $("face-icons").classList.toggle("off", iconStyle === "off");
+  for (const face of iconFaces) face.setIconStyle(iconStyle);
+  if (faceChosen.startsWith("icon:")) bigFace?.setIconStyle(iconStyle);
+}
+
+for (const button of $("face-icon-style").querySelectorAll("button")) {
+  button.addEventListener("click", () =>
+    act(button, "face-icons-note", async () => {
+      const saved = await api("PATCH", "/admin/settings/global", { values: { toolIcons: button.dataset.style } });
+      iconStyle = String(saved.values.toolIcons ?? "dots");
+      showIconStyle();
+      note("face-icons-note", iconStyle === "off" ? "Tool icons are off on every device." : `Every device now shows tool icons as ${iconStyle === "dots" ? "dot shapes" : "a line at the core"}.`, "good");
+    }),
+  );
+}
+
 function chooseFace(name) {
+  if (name.startsWith("icon:")) return chooseIcon(name.slice(5));
+  bigFace?.setIcon(undefined);
   const entry = allLooks().find((l) => l.name === name) ?? allLooks()[0];
   faceChosen = entry.name;
   for (const tile of document.querySelectorAll(".face-tile")) tile.classList.toggle("on", tile.dataset.look === entry.name);
@@ -596,6 +658,23 @@ function openFaces() {
   const looks = allLooks();
   $("face-idle").replaceChildren(...looks.filter((l) => l.group === "idle").map(tile));
   $("face-state").replaceChildren(...looks.filter((l) => l.group === "state").map(tile));
+  // One small face per kind of tool, thinking, with its icon up.
+  iconFaces = [];
+  $("face-icons").replaceChildren(
+    ...Object.keys(ICONS).map((kind) => {
+      const canvas = h("canvas");
+      const face = new Vortex(canvas);
+      face.calm = false;
+      face.now = { ...LOOKS.thinking };
+      face.hold(LOOKS.thinking, "thinking");
+      face.setIconStyle(iconStyle);
+      face.setIcon(kind);
+      faces.push(face);
+      iconFaces.push(face);
+      return h("button", { type: "button", class: "face-tile", "data-look": `icon:${kind}`, title: ICON_READS[kind], onclick: () => chooseIcon(kind) }, canvas, kind);
+    }),
+  );
+  showIconStyle();
   bigFace = new Vortex($("face-big"));
   bigFace.calm = false;
   faces.push(bigFace);
@@ -605,6 +684,8 @@ function openFaces() {
       .then((layer) => {
         idleOff = new Set(String(layer.values.idleLooksOff ?? "").split(",").map((n) => n.trim()).filter(Boolean));
         showIdleOff();
+        iconStyle = ["dots", "line", "off"].includes(layer.values.toolIcons) ? layer.values.toolIcons : "dots";
+        showIconStyle();
       })
       .catch(() => undefined);
   }
@@ -613,6 +694,7 @@ function openFaces() {
 function closeFaces() {
   for (const face of faces) face.stop();
   faces = [];
+  iconFaces = [];
   bigFace = undefined;
 }
 
@@ -660,6 +742,7 @@ function renderDeviceSketch(client) {
       deviceFace.calm = false;
     }
     deviceFace.setIdleOff(client.settings.idleLooksOff);
+    deviceFace.setIconStyle(client.settings.toolIcons);
     deviceFace.setMode(mode);
   } else closeDeviceFace();
 

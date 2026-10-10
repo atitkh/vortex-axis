@@ -209,7 +209,7 @@ While the face is `thinking`, Axis may name the kind of work the agent has picke
 ```
 want       = (mode is thinking and an icon is set) ? 1 : 0
 iconShown += (want - iconShown) * (1 - exp(-dt * 6))
-eye        = iconShown < 0.01 ? 0 : iconShown
+eye        = iconShown < 0.01 ? 0 : iconShown > 0.985 ? 1 : iconShown
 hole       = 36 * eye
 ```
 
@@ -225,3 +225,31 @@ radius = hole + max(0, reach - hole) * t^0.85
 With `hole` 0 this is the line step 4 already has. With an icon up, the innermost dots sit on a ring of radius 36 round it and the outer ones barely move.
 
 **The icon**, in step 5: the core is drawn at `core * (1 - eye)` (not at all when `eye` is 1). Then the icon, centred on `(cx, cy)`, in the core's colour at brightness `eye`, in a square of side `52 * (1 + 0.04 * sin(pulsePhase))`, with a pen 3.4 wide. A point `(x, y)` of the grid lands at `cx + (x - 12) * side / 24`, the same for `y`. The vortex has no top and a device may send it to its panel unturned; the icon has one, so a device that turns its screen turns the icon with it (`vortex::setRotation` on the board).
+
+### The same icons in dots
+
+The setting `toolIcons` says how an icon is shown: `dots` (the default, and what anything unknown means), `line` (everything above in this section) or `off` (`want` is always 0). The style last shown stays the one drawn while an icon fades out.
+
+In `dots` there is no pen and no hole (`hole = 0`): the face's own 78 dots draw the icon. `iconDots` in `web/icons.js` sets 78 points evenly along the icon's strokes, each stroke getting its share by length and at least one; the generator writes them into `icons.h` as `SHAPES`. Dot `i` of arm `a` goes to point `n = i * 3 + a`, so the three arms take turns along the strokes.
+
+Before the dots, each frame:
+
+```
+flowPhase += 5 * dt
+unit   = 150 / 24 * (1 + 0.05 * sin(pulsePhase))          the shape fills a square of side 150 and breathes
+sway   = 0.07 * sin(wavePhase)                            and turns a little from side to side
+shade  = (0.55 + now.colour * 0.45) * 0.6 + tint * 0.4     the core's colour, leaning to the kind's tint (ICON_TINTS)
+```
+
+Then for each dot, after its place on the arm `(px, py)`, its `size` and its colour are worked out as in step 4:
+
+```
+(ix, iy) = point n, less (12, 12), times unit, turned by sway
+px   += (SIZE/2 + ix - px) * eye              the straight way from the arm to the icon
+py   += (SIZE/2 + iy - py) * eye
+size += (2.9 - size) * eye
+lit   = 0.62 + 0.38 * sin(flowPhase - 0.33 * n) + spark * 0.5
+colour += (shade * lit - colour) * eye
+```
+
+The core is drawn at `core * (1 - eye)` as in the line style, and nothing is drawn over it. A device that turns its screen turns `(ix, iy)` the same way it turns the line icon.

@@ -76,6 +76,15 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     group: "Screen",
     help: "Names of idle looks of the vortex face this device should not drift into, separated by commas. Easier to set on the Face page, which shows each one.",
   },
+  {
+    key: "toolIcons",
+    label: "Tool icons while thinking",
+    kind: "choice",
+    group: "Screen",
+    options: ["dots", "line", "off"],
+    default: "dots",
+    help: "How the vortex face shows what kind of tool the agent has picked up: \"dots\" forms the icon out of the face's own dots, \"line\" draws it at the core, \"off\" shows nothing. The Face page shows each.",
+  },
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };

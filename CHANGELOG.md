@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.20.0 (2026-10-10)
+
+- **Tool icons made of the face's own dots.** A third way to show what the agent has picked up: all 78 dots leave their arms and settle along the icon's strokes, in a colour of its kind, with a wave of light running along them, then swirl back into the vortex. No drawn lines; the same twelve shapes, each sampled into 78 points.
+- **Three styles, chosen on the Face page:** dot shapes (the default now), the line icon at the core from 0.19, or off. It is the shared setting `toolIcons` (`dots`, `line`, `off`), so it can also be set per type or device like any other. The Face page draws all twelve kinds live in the style chosen, and any one large.
+- Board firmware 0.12.2 draws the dot shapes and follows the setting.
+
 ## 0.19.1 (2026-10-10)
 
 - Board firmware 0.12.1: the icon stands upright whichever way the screen is turned. The face is sent to the panel unturned, being round, and the icon went with it: on a board standing at 90 degrees it lay on its side.

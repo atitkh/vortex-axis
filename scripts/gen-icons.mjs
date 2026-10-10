@@ -3,7 +3,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ICONS, ICON_HOLE, ICON_PEN, ICON_SIZE } from "../web/icons.js";
+import { ICONS, ICON_DOTS, ICON_HOLE, ICON_PEN, ICON_SIZE, ICON_TINTS, SHAPE_DOT, SHAPE_SIZE, iconDots } from "../web/icons.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tenths = (value) => Math.max(0, Math.min(240, Math.round(value * 10)));
@@ -14,6 +14,9 @@ for (const [name, strokes] of Object.entries(ICONS)) {
   icons.push({ name, start: points.length, strokes: strokes.length });
   for (const stroke of strokes) points.push(stroke.length / 2, ...stroke.map(tenths));
 }
+
+const dots = Object.keys(ICONS).map((name) => `    {${iconDots(name).map(tenths).join(", ")}},`);
+const tints = Object.keys(ICONS).map((name) => `    {${(ICON_TINTS[name] ?? [1, 1, 1]).map((v) => Math.round(v * 255)).join(", ")}},`);
 
 const lines = [];
 for (let i = 0; i < points.length; i += 20) lines.push(`    ${points.slice(i, i + 20).join(", ")},`);
@@ -50,6 +53,20 @@ static const Icon ICONS[] = {
 ${icons.map((icon) => `    {"${icon.name}", ${icon.start}, ${icon.strokes}},`).join("\n")}
 };
 const int COUNT = sizeof(ICONS) / sizeof(ICONS[0]);
+
+// The same icons made of the face's own dots: where each of its ${ICON_DOTS} dots goes, as x, y pairs in
+// tenths of the 24 grid, in the order of ICONS. And the colour each kind leans towards, red, green, blue.
+const int DOTS = ${ICON_DOTS};
+const float SHAPE_SIZE = ${SHAPE_SIZE};
+const float SHAPE_DOT = ${SHAPE_DOT};
+
+static const uint8_t SHAPES[][DOTS * 2] = {
+${dots.join("\n")}
+};
+
+static const uint8_t TINTS[][3] = {
+${tints.join("\n")}
+};
 
 }  // namespace icons
 `,

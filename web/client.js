@@ -28,6 +28,7 @@ let upstream = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 let turnState = "idle";
 const face = new Vortex($("face"));
 face.setIdleOff(settings.values.idleLooksOff);
+face.setIconStyle(settings.values.toolIcons);
 // A failed turn shows the problem look for a while, then the face settles again.
 let errorUntil = 0;
 
@@ -432,6 +433,8 @@ function onMessage(message) {
       player.setVolume(settings.values.volume);
       renderSound();
       face.setIdleOff(settings.values.idleLooksOff);
+      face.setIconStyle(settings.values.toolIcons);
+face.setIconStyle(settings.values.toolIcons);
       break;
     case "status":
       upstream = message.upstream;
