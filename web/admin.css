@@ -712,3 +712,9 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 /* A table inside a scrolling box keeps its column names in view. */
 .scrollbox thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .scrollbox table.numbers { display: table; }
+
+/* --- agent tools ---------------------------------------------------------------------- */
+.newtoken { margin-top: 12px; padding: 10px 14px 12px; border: 1px solid var(--good); border-radius: 12px; max-width: 760px; }
+.newtoken .msg { margin: 0 0 8px; }
+#tools textarea { max-width: 760px; }
+#tools .add { max-width: 760px; }

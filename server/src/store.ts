@@ -132,6 +132,16 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX wakes_at ON wakes (at);
   `,
+  // Tokens agents use to reach Axis's tools over MCP. Hashes only, like client tokens.
+  `
+  CREATE TABLE agent_tokens (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+  );
+  `,
 ];
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -203,6 +213,14 @@ export interface TurnRecord {
   totalMs: number;
   /** The client confirmed it played the reply to the end. */
   heard: boolean;
+}
+
+/** A token an agent holds for the MCP door. The token itself is never kept. */
+export interface AgentTokenRecord {
+  id: number;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
 }
 
 /** One wake word as a device reported it. */
@@ -536,6 +554,37 @@ export class Store {
       .prepare("SELECT * FROM clients WHERE id = ? OR lower(name) = lower(?) ORDER BY id = ? DESC LIMIT 1")
       .get(idOrName, idOrName, idOrName) as ClientRow | undefined;
     return row ? toRecord(row) : undefined;
+  }
+
+  // --- agent tokens ------------------------------------------------------------
+
+  addAgentToken(name: string, tokenHash: string): number {
+    return Number(this.db.prepare("INSERT INTO agent_tokens (name, token_hash, created_at) VALUES (?, ?, ?)").run(name, tokenHash, this.now()).lastInsertRowid);
+  }
+
+  listAgentTokens(): AgentTokenRecord[] {
+    const rows = this.db.prepare("SELECT id, name, created_at, last_used_at FROM agent_tokens ORDER BY id").all() as unknown as {
+      id: number;
+      name: string;
+      created_at: number;
+      last_used_at: number | null;
+    }[];
+    return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastUsedAt: r.last_used_at }));
+  }
+
+  findAgentToken(tokenHash: string): AgentTokenRecord | undefined {
+    const r = this.db.prepare("SELECT id, name, created_at, last_used_at FROM agent_tokens WHERE token_hash = ?").get(tokenHash) as
+      | { id: number; name: string; created_at: number; last_used_at: number | null }
+      | undefined;
+    return r ? { id: r.id, name: r.name, createdAt: r.created_at, lastUsedAt: r.last_used_at } : undefined;
+  }
+
+  touchAgentToken(id: number): void {
+    this.db.prepare("UPDATE agent_tokens SET last_used_at = ? WHERE id = ?").run(this.now(), id);
+  }
+
+  removeAgentToken(id: number): boolean {
+    return Number(this.db.prepare("DELETE FROM agent_tokens WHERE id = ?").run(id).changes) === 1;
   }
 
   // --- push subscriptions ---------------------------------------------------

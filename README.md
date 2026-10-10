@@ -91,6 +91,16 @@ Whichever you use, think about `/admin`: it is protected by the admin token only
 
 Axis is one container with one data folder on the host (`./data` by default, or wherever `AXIS_DATA_PATH` points). Everything host-specific is an environment variable, so moving hosts means copying that folder and the `.env` file. The folder may sit on network storage: the database uses a rollback journal, which is safe there. It is safe there but not a good place for it: Axis waits on every database write, so a busy share freezes it, clients drop and the speech services read as down. Keep the folder on a local disk and copy it to the share with `scripts/backup-data.sh <data folder> <backup folder>` from cron; the copy has the same layout, so restoring is copying it back.
 
+### Agents and tools
+
+An agent uses Axis through eight tools (say, ask, timer, clients, config, sense, diag, admin). The OpenClaw gateway gets them through the node link. Any other harness gets them by MCP: on the admin page under **Agent tools**, make a token, then add Axis to the harness as a remote MCP server:
+
+```json
+{ "mcpServers": { "vortex-axis": { "type": "http", "url": "http://<axis host>:8440/mcp", "headers": { "Authorization": "Bearer <token>" } } } }
+```
+
+To have that harness also answer when somebody speaks, give its OpenAI-style chat address on the **Agent** page. The two are separate connections: Axis sends the words over the chat address, and the harness calls the tools over MCP. The same page switches individual tools off for every agent.
+
 ### Backup and restore
 
 Set `AXIS_BACKUP_PATH` in `.env` to a folder on the host, on another disk than the data folder, and Axis copies its data there by itself: every hour unless changed, with how often and how many daily copies to keep set on the admin page under Integrations, where there is also a **Back up now** button and the result of the last run. A failed or overdue backup shows on the Overview. Nothing on the host has to be scheduled.
@@ -169,6 +179,10 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type. |
 | `POST /admin/clients/:id/notify-test` | Sends a browser client a test notification, page open or closed. 409 when it has notifications off. |
 | `POST /v1/volume` | A client setting its own volume, with its own token: `{volume: 0-100}`. Nothing else can be changed this way. |
+| `POST /mcp` | The MCP server (streamable HTTP, JSON answers): `initialize`, `tools/list`, `tools/call`. Needs an agent token as a Bearer token. Hidden under a public name unless switched on. |
+| `GET /admin/mcp` | Agent tools: each tool and whether it is on, the agent tokens (never the tokens themselves), and whether MCP answers under the public name. |
+| `POST /admin/mcp/tokens` | `{name}`. Makes an agent token and returns it, once. `DELETE /admin/mcp/tokens/:id` revokes one. |
+| `PATCH /admin/mcp/tools` | `{tool_name: true or false, ...}`. Switches tools on or off for every agent, by MCP and by the OpenClaw node. |
 | `GET /admin/live` | A stream that stays open (server-sent events): `snapshot` with the recent turns, then `turn` each time a turn reaches a stage or ends, and `wake` for each wake word a device reports. Words are memory only. |
 | `POST /admin/live/clear` | Deletes, now, the words Axis holds in memory for the admin page: finished live turns and the device sketches. |
 | `PATCH /admin/integrations` | Changes hub settings: `mqtt` `{host, port, user, password, discoveryPrefix}`, `publicHosts`, `trustedProxies`, `timeZone`, `activityDays`, `messageHoldMinutes`. Only the fields given change; a saved value wins over the environment. |

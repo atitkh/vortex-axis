@@ -12,7 +12,9 @@ import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
 import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
-import type { GatewayClient } from "./gateway/client.js";
+import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
+import { createMcpHandler } from "./mcp.js";
+import type { ToolAccess } from "./tools.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
@@ -149,6 +151,9 @@ export interface HttpDeps {
   live?: Live;
   /** The link to Home Assistant as it is now, when one is set up. It is rebuilt when its settings change. */
   homeAssistant?: () => HomeAssistant | undefined;
+  /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
+  tools?: ToolAccess;
+  invoke?: InvokeHandler;
   /** Copies of the data folder, when a backup folder is set up. */
   backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
@@ -219,6 +224,10 @@ export function createHttpHandler(deps: HttpDeps) {
       .filter(Boolean);
     return names.some((name) => config.publicHosts.includes(name));
   }
+
+  const mcp = deps.tools && deps.invoke ? createMcpHandler({ tools: deps.tools, invoke: deps.invoke, version: deps.version ?? "" }) : undefined;
+  /** Wrong agent tokens per address, shut out the same way wrong admin tokens are. */
+  const mcpFailures = new Map<string, { count: number; until: number }>();
 
   const adminFailures = new Map<string, { count: number; until: number }>();
   let pairFailures: number[] = [];
@@ -412,6 +421,51 @@ export function createHttpHandler(deps: HttpDeps) {
       const gone = deps.timers.cancel({ id: body.id });
       if (gone.length) activity?.note("timer", client.id, `Timer "${gone[0]!.label || "Timer"}" cancelled from ${client.name}`);
       return sendJson(res, 200, { cancelled: gone.length });
+    }
+
+    // The MCP door: an agent harness calling Axis's tools. One POST, one JSON-RPC message (or a batch), one JSON answer.
+    if (url.pathname === "/mcp" && mcp && deps.tools) {
+      // Under a public name it does not exist unless that was asked for, like the admin side.
+      if (isPublic(req) && !config.mcpPublic) throw new HttpError(404, "not found");
+      const address = addressOf(req);
+      const locked = mcpFailures.get(address);
+      if (locked && locked.count >= ADMIN_FAILURES) {
+        if (now() < locked.until) throw new HttpError(429, "too many wrong tokens from this address, wait five minutes");
+        mcpFailures.delete(address);
+      }
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      if (!deps.tools.authenticate(token)) {
+        if (token) {
+          const failed = mcpFailures.get(address) ?? { count: 0, until: 0 };
+          failed.count += 1;
+          failed.until = now() + ADMIN_LOCK_MS;
+          mcpFailures.set(address, failed);
+          if (failed.count === ADMIN_FAILURES) activity?.note("admin", "", `Ten wrong agent tokens from ${address}; that address is shut out for five minutes`, "warn");
+          if (mcpFailures.size > 5000) mcpFailures.clear();
+        }
+        res.setHeader("www-authenticate", "Bearer");
+        throw new HttpError(401, "missing or wrong agent token: make one on the VorteX Axis admin page and send it as a Bearer token");
+      }
+      mcpFailures.delete(address);
+      // Axis sends nothing unasked, so there is no stream to open and no session to end.
+      if (method !== "POST") {
+        res.setHeader("allow", "POST");
+        throw new HttpError(405, "this MCP server answers POST only");
+      }
+      let body: unknown;
+      try {
+        body = await readJson(req);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 413) throw error;
+        return sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "the request body is not valid JSON" } });
+      }
+      const answer = await mcp(body);
+      if (answer === undefined) {
+        res.writeHead(202, SECURITY_HEADERS);
+        res.end();
+        return;
+      }
+      return sendJson(res, 200, answer);
     }
 
     // A client with a volume control of its own, turning itself up or down. It can change nothing else, and only for itself.
@@ -832,6 +886,40 @@ export function createHttpHandler(deps: HttpDeps) {
           stop();
         });
         return;
+      }
+      // Agents: the tools they have, and the tokens that let a harness in by MCP.
+      if (parts[1] === "mcp" && deps.tools) {
+        const access = deps.tools;
+        if (method === "GET" && parts.length === 2) {
+          return sendJson(res, 200, {
+            path: "/mcp",
+            public: config.mcpPublic,
+            publicHosts: config.publicHosts,
+            tokens: access.tokens(),
+            tools: access.list().map(({ name, description, enabled }) => ({ name, description, enabled })),
+          });
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "tokens") {
+          const body = (await readJson(req)) as { name?: unknown };
+          try {
+            return sendJson(res, 201, access.createToken(typeof body.name === "string" ? body.name : ""));
+          } catch (error) {
+            throw new HttpError(400, (error as Error).message);
+          }
+        }
+        if (method === "DELETE" && parts.length === 4 && parts[2] === "tokens") {
+          if (!access.revokeToken(Number(parts[3]))) throw new HttpError(404, "no such token");
+          return sendJson(res, 200, { revoked: Number(parts[3]) });
+        }
+        if (method === "PATCH" && parts.length === 3 && parts[2] === "tools") {
+          const body = await readJson(req);
+          try {
+            access.set(body as Record<string, unknown>);
+          } catch (error) {
+            throw new HttpError(400, (error as Error).message);
+          }
+          return sendJson(res, 200, { tools: access.list().map(({ name, enabled }) => ({ name, enabled })) });
+        }
       }
       // Makes a backup now and answers when it is done, with how it went.
       if (method === "POST" && parts.length === 2 && parts[1] === "backup" && deps.backup) {

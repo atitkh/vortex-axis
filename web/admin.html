@@ -42,6 +42,7 @@
     <span class="navhead">Hub</span>
     <a href="#openclaw" data-view="openclaw">OpenClaw <span class="count" id="nav-openclaw"></span></a>
     <a href="#agent" data-view="agent">Agent</a>
+    <a href="#tools" data-view="tools">Agent tools</a>
     <a href="#speech" data-view="speech">Speech</a>
     <a href="#firmware" data-view="firmware">Firmware <span class="count" id="nav-firmware"></span></a>
     <a href="#wakewords" data-view="wakewords">Wake words</a>
@@ -431,6 +432,48 @@
         <span></span>
         <div class="inline"><button class="primary" id="agent-save">Save</button><span class="msg" id="agent-note"></span></div>
       </div>
+    </section>
+
+    <!-- Agent tools: what agents can do through Axis, and how a harness connects by MCP -->
+    <section class="view" id="tools">
+      <div class="head"><h2>Agent tools</h2></div>
+      <p class="help">What an agent can do through Axis. The same tools reach an agent two ways: the OpenClaw gateway gets them through the node link, and any other harness gets them by MCP, connecting to the address below with a token made here. Who answers when somebody speaks is a separate matter, on the <a href="#agent">Agent</a> page.</p>
+
+      <h3>Tools</h3>
+      <p class="help">A tool switched off is taken from every agent at once, by both ways in. <span class="msg" id="tools-note"></span></p>
+      <div id="tools-list"></div>
+
+      <h3>Connect a harness by MCP</h3>
+      <div class="form">
+        <label>Address</label>
+        <div>
+          <div class="inline"><input id="mcp-url" class="mono" readonly><button type="button" id="mcp-url-copy">Copy</button></div>
+          <p class="help">Give the harness this as a remote MCP server ("streamable HTTP") with a token below as its Bearer token. It is the address you are using this page at; a harness on another machine needs a name it can reach Axis by.</p>
+        </div>
+        <label>Outside the network</label>
+        <div>
+          <label class="switch"><input type="checkbox" id="mcp-public"> <span id="mcp-public-label">Also answer under the public name</span></label>
+          <p class="help" id="mcp-public-help"></p>
+        </div>
+        <label>Settings to paste</label>
+        <div>
+          <textarea id="mcp-snippet" class="mono" rows="9" readonly spellcheck="false"></textarea>
+          <p class="help">The shape most harnesses take. Put a token in place of <code>YOUR_TOKEN</code>.</p>
+        </div>
+      </div>
+
+      <h3>Tokens</h3>
+      <p class="help">One for each harness, so one can be taken away without the others noticing. A token lets its holder use every tool that is switched on.</p>
+      <div id="mcp-tokens"></div>
+      <div class="inline add">
+        <input id="mcp-token-name" placeholder="Name, such as the harness that will use it" maxlength="60" spellcheck="false">
+        <button class="primary" type="button" id="mcp-token-new">Make a token</button>
+      </div>
+      <div class="newtoken hidden" id="mcp-token-made">
+        <p class="msg good">Copy it now. It is not shown again.</p>
+        <div class="inline"><input id="mcp-token-value" class="mono" readonly><button type="button" id="mcp-token-copy">Copy</button></div>
+      </div>
+      <p class="msg" id="mcp-note"></p>
     </section>
 
     <!-- Speech -->

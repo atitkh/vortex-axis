@@ -404,7 +404,7 @@ $("agent-save").addEventListener("click", (event) =>
 
 // --- sections ----------------------------------------------------------------
 
-const VIEWS = ["overview", "live", "integrations", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords", "face"];
+const VIEWS = ["overview", "live", "integrations", "tools", "clients", "pair", "settings", "type", "openclaw", "agent", "speech", "firmware", "wakewords", "face"];
 
 /** Shows one section, picked by the address: #clients, #clients/<id>, #type/<type>, #pair, ... */
 function route() {
@@ -454,6 +454,7 @@ function renderView() {
   }
   // Looked at often while its page is open, and now and then otherwise, for the overview's list of what needs attention.
   if (view.name === "integrations" || Date.now() - integrationsAt > 60_000) loadIntegrations();
+  if (view.name === "tools") loadTools();
   renderAnnounceTargets();
 }
 
@@ -2368,6 +2369,138 @@ function renderWakeScores() {
       h("span", {}, h("i", { class: "linekey", style: "background:var(--text)" }), "the stored cutoff"),
     ),
   );
+}
+
+// --- agent tools: what agents can do through Axis, and the MCP door -----------------------------
+
+let lastTools;
+let toolsAt = 0;
+
+async function loadTools(force = false) {
+  if (!force && Date.now() - toolsAt < 10_000) return;
+  toolsAt = Date.now();
+  try {
+    lastTools = await api("GET", "/admin/mcp");
+  } catch (error) {
+    if (error.status === 401) signOut("That token was not accepted.");
+    return;
+  }
+  renderTools();
+}
+
+/** What each tool is for, in a line, for somebody deciding whether to leave it on. */
+const TOOL_READS = {
+  vortex_axis_say: "Speak or show a message on a device. The gateway's own notify command is this tool too.",
+  vortex_axis_ask: "Ask the person a question and wait for the answer.",
+  vortex_axis_timer: "Set, list and cancel timers.",
+  vortex_axis_admin: "Run a device's actions, rename a device, make a pairing code.",
+  vortex_axis_clients: "List the devices: names, locations, what each can do.",
+  vortex_axis_config: "Read and change device settings such as volume.",
+  vortex_axis_sense: "Read what a device reports about itself.",
+  vortex_axis_diag: "Check that Axis and its services are working.",
+};
+
+function renderTools() {
+  const d = lastTools;
+  if (!d || view.name !== "tools") return;
+  const key = JSON.stringify(d);
+  if ($("tools").dataset.drawn === key || busy($("tools"))) return;
+  $("tools").dataset.drawn = key;
+
+  $("tools-list").replaceChildren(
+    h("table", {},
+      h("tbody", {},
+        ...d.tools.map((tool) =>
+          h("tr", { class: tool.enabled ? "" : "off" },
+            h("td", { class: "tight" },
+              h("label", { class: "switch" },
+                h("input", {
+                  type: "checkbox", checked: tool.enabled, "aria-label": tool.name,
+                  onchange: async (event) => {
+                    try {
+                      await api("PATCH", "/admin/mcp/tools", { [tool.name]: event.target.checked });
+                      note("tools-note", `${tool.name} is ${event.target.checked ? "on" : "off"} for every agent.`, "good");
+                    } catch (error) {
+                      note("tools-note", error.message, "bad");
+                    }
+                    loadTools(true);
+                  },
+                }),
+              ),
+            ),
+            h("td", { class: "mono tight" }, tool.name),
+            h("td", { class: "sub" }, TOOL_READS[tool.name] ?? tool.description),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  const url = `${location.origin}${d.path}`;
+  $("mcp-url").value = url;
+  $("mcp-snippet").value = JSON.stringify({ mcpServers: { "vortex-axis": { type: "http", url, headers: { Authorization: "Bearer YOUR_TOKEN" } } } }, null, 2);
+  $("mcp-public").checked = d.public;
+  $("mcp-public").disabled = !d.publicHosts.length;
+  $("mcp-public-help").textContent = d.publicHosts.length
+    ? d.public
+      ? `Agents can connect at https://${d.publicHosts[0]}${d.path} with a token. The admin page stays local.`
+      : `Off: under ${d.publicHosts.join(", ")} the MCP address does not exist, like this admin page. Switch it on only for a harness that runs outside your network.`
+    : "Axis has no public name, so it is reachable on the local network only.";
+
+  $("mcp-tokens").replaceChildren(
+    d.tokens.length
+      ? h("table", { class: "numbers" },
+          h("thead", {}, h("tr", {}, h("th", {}, "For"), h("th", {}, "Made"), h("th", {}, "Last used"), h("th", {}))),
+          h("tbody", {},
+            ...d.tokens.map((token) =>
+              h("tr", {},
+                h("td", {}, token.name),
+                h("td", { class: "sub" }, ago(token.createdAt)),
+                h("td", { class: "sub" }, token.lastUsedAt ? ago(token.lastUsedAt) : "never"),
+                h("td", { class: "num" },
+                  h("button", {
+                    type: "button", class: "small danger",
+                    onclick: (event) => {
+                      if (!confirm(`Revoke the token for ${token.name}? Whatever uses it loses the tools at once.`)) return;
+                      act(event.target, "mcp-note", async () => {
+                        await api("DELETE", `/admin/mcp/tokens/${token.id}`);
+                        await loadTools(true);
+                      });
+                    },
+                  }, "Revoke"),
+                ),
+              ),
+            ),
+          ),
+        )
+      : h("p", { class: "empty" }, "No tokens yet, so nothing can connect by MCP."),
+  );
+}
+
+$("mcp-public").addEventListener("change", (event) =>
+  act(event.target, "mcp-note", async () => {
+    await api("PATCH", "/admin/integrations", { mcpPublic: event.target.checked });
+    await loadTools(true);
+  }),
+);
+$("mcp-token-new").addEventListener("click", (event) =>
+  act(event.target, "mcp-note", async () => {
+    note("mcp-note", "");
+    const made = await api("POST", "/admin/mcp/tokens", { name: $("mcp-token-name").value });
+    $("mcp-token-name").value = "";
+    $("mcp-token-value").value = made.token;
+    $("mcp-token-made").classList.remove("hidden");
+    // Blurred first, so the list below is redrawn with the new token in it.
+    document.activeElement?.blur();
+    await loadTools(true);
+  }),
+);
+for (const [button, field] of [["mcp-url-copy", "mcp-url"], ["mcp-token-copy", "mcp-token-value"]]) {
+  $(button).addEventListener("click", async (event) => {
+    await navigator.clipboard?.writeText($(field).value).catch(() => $(field).select());
+    event.target.textContent = "Copied";
+    setTimeout(() => (event.target.textContent = "Copy"), 1500);
+  });
 }
 
 // --- integrations ----------------------------------------------------------------------

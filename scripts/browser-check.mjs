@@ -321,6 +321,27 @@ try {
   step("integration setting saved", await admin.until(`(t => /saved/.test(t) && t)(${byId("toast")}.textContent)`, "the save"));
   const hubSaved = await fetch(`${base}/admin/integrations`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
   if (hubSaved.settings.activityDays !== 5) throw new Error(`activityDays was saved as ${hubSaved.settings.activityDays}`);
+  // Agent tools: a token made on the page lets an MCP client in; a tool switched off there is gone for it.
+  {
+    await admin.run(`location.hash = '#tools'`);
+    await admin.until(`document.querySelectorAll('#tools-list tbody tr').length === 8 && ${byId("mcp-url")}.value.endsWith('/mcp')`, "the tools page");
+    await admin.run(`${byId("mcp-token-name")}.value = 'Browser check'; ${byId("mcp-token-new")}.click()`);
+    const agentToken = await admin.until(`!${byId("mcp-token-made")}.classList.contains('hidden') && ${byId("mcp-token-value")}.value`, "the new token");
+    await admin.until(`/Browser check/.test(${byId("mcp-tokens")}.textContent)`, "the token in the list");
+    const mcp = (method, params) =>
+      fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${agentToken}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => r.json());
+    const before = (await mcp("tools/list")).result.tools.length;
+    await admin.run(`document.querySelector('#tools-list input[aria-label="vortex_axis_admin"]').click()`);
+    await admin.until(`/vortex_axis_admin is off/.test(${byId("tools-note")}.textContent)`, "the tool to be switched off");
+    const after = (await mcp("tools/list")).result.tools.map((t) => t.name);
+    const listed = (await mcp("tools/call", { name: "vortex_axis_clients", arguments: {} })).result;
+    if (after.includes("vortex_axis_admin") || listed.isError) throw new Error("the MCP door did not follow the page");
+    step("agent tools by MCP", `token made on the page works; ${before} tools, ${after.length} after switching admin off; clients tool answered with ${listed.structuredContent.clients.length} device(s)`);
+    await admin.run(`document.querySelector('#tools-list input[aria-label="vortex_axis_admin"]').click()`);
+    await admin.until(`/vortex_axis_admin is on/.test(${byId("tools-note")}.textContent)`, "the tool to be switched back on");
+    await admin.run(`location.hash = '#integrations'`);
+    await admin.until(`document.querySelectorAll('.integration').length >= 5`, "the integrations page again");
+  }
   // Backup: made from its card, into the folder this run was given.
   await admin.run(`[...document.querySelectorAll('.integration button')].find(b => b.textContent === 'Back up now').click()`);
   step("backup from the page", await admin.until(`(t => /Backup made/.test(t) && t)(${byId("toast")}.textContent) && [...document.querySelectorAll('.integration-head')].find(e => /^Backup/.test(e.textContent)).textContent.replace(/\\s+/g, ' ')`, "the backup", 20000));
@@ -410,7 +431,7 @@ try {
   {
     await admin.phone(true);
     const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
-    const pages = ["overview", "live", "clients", `clients/${known.clients[0].id}`, "type/web", "settings", "pair", "openclaw", "agent", "speech", "firmware", "wakewords", "face", "integrations"];
+    const pages = ["overview", "live", "tools", "clients", `clients/${known.clients[0].id}`, "type/web", "settings", "pair", "openclaw", "agent", "speech", "firmware", "wakewords", "face", "integrations"];
     const wide = [];
     for (const page of pages) {
       await admin.run(`location.replace('#${page}')`);

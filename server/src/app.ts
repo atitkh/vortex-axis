@@ -6,6 +6,7 @@ import { Activity } from "./activity.js";
 import { Backup } from "./backup.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
+import { ToolAccess } from "./tools.js";
 import { WakeWordStore, WakeWordSync } from "./wakewords.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
@@ -33,6 +34,8 @@ export interface App {
   push: PushService;
   /** Copies the data folder to the backup folder on a schedule, when one is set up. */
   backup: Backup;
+  /** Which tools agents have, and the tokens that let a harness in by MCP. */
+  tools: ToolAccess;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -142,9 +145,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       activity.note("message", clientId, text, level ?? "info");
     },
   });
-  gateway.onInvokeCommand(
+  // One function carries out every tool call, whichever door it came in by: the OpenClaw node here, MCP in http.ts.
+  const tools = new ToolAccess(store, activity);
+  const invoke = tools.guard(
     createInvokeHandler({ hub, store, timers, delivery, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
   );
+  gateway.onInvokeCommand(invoke);
 
   // A service that is not configured counts as down, so clients can say so.
   const sttStatus = steadyStatus();
@@ -200,7 +206,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -235,6 +241,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     delivery,
     push,
     backup,
+    tools,
     server,
     port,
     async close() {

@@ -51,6 +51,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     gateway: { url: undefined, agentId: undefined, sessionKey: "vortex-axis", displayName: "VorteX Axis" },
     outputHoldMs: 600_000,
     messageHoldMs: 600_000,
+    mcpPublic: false,
     backupDir: undefined,
     backupEveryHours: 1,
     backupKeepDays: 7,
