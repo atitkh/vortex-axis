@@ -116,9 +116,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // One object for the life of the process: the turn logic reads it on every
   // turn, so a settings change takes effect without a restart.
   const services: Services = {};
-  // PROTOTYPE: the gateway's realtime voice, for devices set to it. It talks in the same conversation as typed and spoken turns.
+  // The gateway's realtime voice, for devices set to it. It talks in the same conversation as typed and spoken turns,
+  // and only while the agent is an OpenClaw gateway that Axis is connected to.
   const talk = new RealtimeTalk({
     source: gateway,
+    available: () => services.agent === gateway && gateway.status().operator.state === "connected",
     sessionKey: () => (gateway.agentId() ? `agent:${gateway.agentId()}:${config.gateway.sessionKey}` : undefined),
     provider: process.env.AXIS_TALK_PROVIDER || undefined,
     log,
@@ -287,7 +289,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

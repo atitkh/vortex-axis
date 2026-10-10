@@ -181,6 +181,8 @@ try {
   step("agent form", await admin.run(`'backend=' + ${byId("agent-backend")}.value + ', chat fields shown=' + !${byId("agent-openai")}.classList.contains('hidden')`));
   await admin.run(`${byId("speech-test")}.click()`);
   step("speech test", await admin.until(`(t => /Synthesis/.test(t) && t)(${byId("speech-note")}.textContent)`, "the speech test", 60000));
+  // Realtime voice is offered only through an OpenClaw gateway; with the stub agent here the page says so and hides the controls.
+  step("realtime voice", await admin.until(`${byId("talk-state")}.textContent === 'needs OpenClaw' && ${byId("talk-body")}.classList.contains('hidden') && ${byId("talk-note")}.textContent`, "the realtime voice section"));
   await admin.run(`${byId("gw-code")}.value = 'junk'; ${byId("gw-pair")}.click()`);
   step("bad setup code", await admin.until(`${byId("gw-note")}.textContent`, "the setup code error"));
   await admin.run(`location.hash = '#settings'`);

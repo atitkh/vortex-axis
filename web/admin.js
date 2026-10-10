@@ -160,7 +160,7 @@ async function signIn() {
   $("signin-form").classList.add("hidden");
   $("app").classList.remove("hidden");
   route();
-  await Promise.all([loadConfig().catch(() => {}), refresh()]);
+  await Promise.all([loadConfig().catch(() => {}), loadTalk().catch(() => {}), refresh()]);
   clearInterval(timer);
   timer = setInterval(() => document.hidden || refresh(), 3000);
 }
@@ -317,6 +317,56 @@ function fillConfig(config) {
   showBackend();
 }
 
+// --- realtime voice, on the Speech page -----------------------------------------------
+
+let lastTalk;
+
+/** Whether realtime voice can be used here, which voices there are, and what the devices are set to. */
+async function loadTalk() {
+  lastTalk = await api("GET", "/admin/talk").catch(() => undefined);
+  const d = lastTalk;
+  $("talk-body").classList.toggle("hidden", !d?.available);
+  $("talk-state").replaceChildren(!d ? "" : d.available ? stat(d.mode === "realtime" ? "in use" : "ready", d.mode === "realtime" ? "good" : "") : stat("needs OpenClaw", ""));
+  if (!d?.available) {
+    return note("talk-note", d ? "This needs an OpenClaw gateway as the agent, connected. With another agent, or none, devices use the recognition and the voice above." : "");
+  }
+  for (const button of $("talk-mode").querySelectorAll("button")) button.classList.toggle("on", button.dataset.mode === d.mode);
+  const own = d.overrides.map((o) => `${o.name} (${o.mode})`).join(", ");
+  $("talk-mode-help").textContent =
+    (d.mode === "realtime" ? "Every device is answered by the realtime voice" : "Every device is answered the usual way") +
+    (own ? `, except those set otherwise on their own page: ${own}.` : ". One device can be set differently on its own page, under Who hears and speaks.");
+  const options = [h("option", { value: "" }, "the gateway's choice"), ...d.providers.map((p) => h("option", { value: p.id }, p.label === p.id ? p.id : `${p.label} (${p.id})`))];
+  // A provider typed in by hand, or with a model named after it, is still shown as what is set.
+  if (d.provider && !d.providers.some((p) => p.id === d.provider)) options.push(h("option", { value: d.provider }, d.provider));
+  $("talk-provider").replaceChildren(...options);
+  $("talk-provider").value = d.provider;
+  if (d.error) note("talk-note", `The gateway would not list its voices: ${d.error}`, "warn");
+}
+
+for (const button of $("talk-mode").querySelectorAll("button")) {
+  button.addEventListener("click", () =>
+    act(button, "talk-note", async () => {
+      await api("PATCH", "/admin/settings/global", { values: { voiceMode: button.dataset.mode === "realtime" ? "realtime" : null } });
+      await loadTalk();
+      note("talk-note", button.dataset.mode === "realtime" ? "Devices are now answered by the realtime voice, from the next thing said." : "Devices are answered the usual way again.", "good");
+    }),
+  );
+}
+$("talk-provider").addEventListener("change", (event) =>
+  act(event.target, "talk-note", async () => {
+    await api("PATCH", "/admin/settings/global", { values: { voiceProvider: event.target.value || null } });
+    await loadTalk();
+    note("talk-note", "Saved. It is used the next time a device starts talking to the voice.", "good");
+  }),
+);
+$("talk-test").addEventListener("click", (event) =>
+  act(event.target, "talk-note", async () => {
+    note("talk-note", "Opening a session with the voice…");
+    const r = await api("POST", "/admin/talk/test", { provider: $("talk-provider").value });
+    note("talk-note", r.ok ? `It works: the voice answered in ${r.ms} ms.` : `It does not work: ${r.message}.`, r.ok ? "good" : "bad");
+  }),
+);
+
 async function loadConfig() {
   fillConfig(await api("GET", "/admin/config"));
   api("GET", "/admin/gateway/agents")
@@ -466,6 +516,7 @@ function renderView() {
   // Looked at often while its page is open, and now and then otherwise, for the overview's list of what needs attention.
   if (view.name === "integrations" || Date.now() - integrationsAt > 60_000) loadIntegrations();
   if (view.name === "tools") loadTools();
+  if (view.name === "speech") loadTalk();
   renderAnnounceTargets();
 }
 

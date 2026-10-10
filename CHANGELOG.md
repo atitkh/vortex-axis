@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.23.0 (2026-10-10)
+
+- **Realtime voice is a proper option now**, no longer a prototype. The Speech page has a **Realtime voice** section: one switch for what every device uses (Axis's own recognition and voice, or the realtime voice), the choice among the realtime voices the gateway offers, and **Try it**, which opens a session with the voice and closes it again to say whether it really works. A device can still be set differently on its own page.
+- It is offered only while the agent is an OpenClaw gateway that Axis is connected to. Otherwise the section says so, and a device set to realtime is answered the usual way instead of failing.
+- **The agent is asked to talk, not to write.** The note Axis adds for an OpenClaw agent, and the prompt it sends a plain chat endpoint, now ask for speech as a person speaks it: the answer first in a sentence or two, contractions, a small spoken touch where it fits, more offered instead of said, no opening praise or filler. The earlier wording ("short, plain sentences") was reaching the agent and got exactly that.
+
 ## 0.22.2 (2026-10-10)
 
 - **Speech no longer races after a pause in it.** Axis sends a device no more sound than its buffer holds, by reckoning how much it has played. A gap in the sound was reckoned as room in the buffer, so whatever came after the gap went out all at once: more than a board could hold, and it dropped pieces, which sounded like the speech being wound forward. Now a device that has played everything simply has nothing in hand. This is in the part every voice goes through, though only a voice that arrives in fits and starts, like the realtime one, showed it.
@@ -18,7 +24,7 @@ Still the realtime voice prototype of 0.22.0.
 
 ## 0.22.0 (2026-10-10)
 
-A PROTOTYPE, to try and to take out again if it is not liked: `git revert` the commits from "0.22.0 PROTOTYPE" on, or just leave every device on `local`.
+Built as a prototype to try; kept, and made a proper option in 0.23.0.
 
 - **Realtime voice as a second way to answer a spoken turn.** A device set to `voiceMode: realtime` has what it hears sent through the OpenClaw gateway's Talk relay to a realtime voice model, which answers in its own voice. Small things it answers itself; real work it hands to the agent, which Axis asks as it always does (same conversation, tool icons on the face) and whose answer the model then says. Off unless a device is set to it; `voiceProvider` picks the gateway's provider (`google`, or `openai/gpt-realtime-2.1-mini` for a model of one).
 - Server only: no firmware and no protocol change. It is half-duplex: the device still decides when the person has stopped, and an interrupt stops the playback. Talking over the answer is not part of it.

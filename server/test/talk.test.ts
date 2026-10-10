@@ -157,6 +157,7 @@ const asked: string[] = [];
 let gapMs = 0;
 const talk = {
   format: TALK_FORMAT,
+  available: () => true,
   converse: async (clientId: string, _pcm: Buffer, _format: unknown, handlers: any) => {
     asked.push(clientId);
     if (gapMs) {
@@ -214,5 +215,18 @@ describe("a device set to realtime voice", () => {
     // allowance that second takes most of a second to send. Counted as room, it went out in an instant.
     const afterGap = frames[frames.length - 1]!.at - frames[1]!.at;
     expect(afterGap).toBeGreaterThan(500);
+  });
+
+  it("says on the admin page that it needs an OpenClaw gateway, when there is none to go through", async () => {
+    // The agent in these tests is not a gateway, so the real service has nothing to go through.
+    const state = (await admin("GET", "/admin/talk")).body;
+    expect(state).toMatchObject({ available: false, providers: [], mode: "local", provider: "" });
+    expect((await admin("POST", "/admin/talk/test", { provider: "google" })).status).toBe(409);
+
+    // What is set for every device, and a device that goes its own way, are told all the same.
+    const { identity } = await ready(["mic", "speaker"], { name: "Kitchen" });
+    await admin("PATCH", "/admin/settings/global", { values: { voiceMode: "realtime", voiceProvider: "google" } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { voiceMode: "local" } });
+    expect((await admin("GET", "/admin/talk")).body).toMatchObject({ mode: "realtime", provider: "google", overrides: [{ name: "Kitchen", mode: "local" }] });
   });
 });

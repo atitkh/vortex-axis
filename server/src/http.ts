@@ -10,6 +10,7 @@ import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
 import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
+import type { RealtimeTalk } from "./talk.js";
 import type { Progress } from "./progress.js";
 import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
@@ -161,6 +162,7 @@ export interface HttpDeps {
   invoke?: InvokeHandler;
   /** Long work agents are doing, shown on the screens and on the admin page. */
   progress?: Progress;
+  talk?: RealtimeTalk;
   /** Copies of the data folder, when a backup folder is set up. */
   backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
@@ -1037,6 +1039,40 @@ export function createHttpHandler(deps: HttpDeps) {
           startedAt,
           uptimeMs: Date.now() - startedAt,
         });
+      }
+      // Realtime voice: whether it can be used, which of the gateway's voices there are, and a try of one.
+      if (parts[1] === "talk" && deps.talk) {
+        const talk = deps.talk;
+        if (method === "GET" && parts.length === 2) {
+          const global = store.getLayer("global", "");
+          const available = talk.available();
+          let providers: Awaited<ReturnType<RealtimeTalk["providers"]>> = [];
+          let error: string | undefined;
+          if (available) {
+            try {
+              providers = await talk.providers();
+            } catch (problem) {
+              error = (problem as Error).message;
+            }
+          }
+          return sendJson(res, 200, {
+            available,
+            providers,
+            ...(error ? { error } : {}),
+            mode: global.voiceMode === "realtime" ? "realtime" : "local",
+            provider: typeof global.voiceProvider === "string" ? global.voiceProvider : "",
+            // Devices that go their own way, whatever is set for all.
+            overrides: store.listClients().flatMap((client) => {
+              const own = store.getLayer("device", client.id).voiceMode;
+              return typeof own === "string" ? [{ id: client.id, name: client.name, mode: own }] : [];
+            }),
+          });
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "test") {
+          if (!talk.available()) throw new HttpError(409, "realtime voice needs an OpenClaw gateway as the agent, connected");
+          const body = (await readJson(req)) as { provider?: unknown };
+          return sendJson(res, 200, await talk.probe(typeof body?.provider === "string" && body.provider ? body.provider : undefined));
+        }
       }
       if (parts[1] === "config") {
         if (method === "GET" && parts.length === 2) {

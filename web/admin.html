@@ -550,6 +550,30 @@
         <button id="speech-test">Test both</button>
       </div>
       <p class="msg" id="speech-note"></p>
+
+      <h3>Realtime voice <span id="talk-state"></span></h3>
+      <p class="help">A second way to answer what is said, in place of the recognition and the voice above. What a device hears goes through the OpenClaw gateway to a realtime voice model, which answers in its own voice and hands real work to the agent. It is quicker for small things and sounds more like talk. The sound leaves this network for the provider, who may charge for it, and a person cannot talk over the answer.</p>
+      <div id="talk-body">
+        <div class="form">
+          <label>Devices use</label>
+          <div>
+            <div class="seg" id="talk-mode" role="group" aria-label="Who hears and speaks">
+              <button type="button" data-mode="local">Recognition and voice above</button>
+              <button type="button" data-mode="realtime">Realtime voice</button>
+            </div>
+            <p class="help" id="talk-mode-help"></p>
+          </div>
+          <label for="talk-provider">Voice from</label>
+          <div>
+            <div class="inline">
+              <select id="talk-provider"></select>
+              <button type="button" id="talk-test">Try it</button>
+            </div>
+            <p class="help">The realtime voices the gateway offers. "Try it" opens a session and closes it again: the gateway lists a voice before its credentials have been tried, so this is how to know one works.</p>
+          </div>
+        </div>
+      </div>
+      <p class="msg" id="talk-note"></p>
     </section>
   </main>
 </div>

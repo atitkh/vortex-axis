@@ -15,7 +15,7 @@ export interface Services {
   stt?: SpeechToText | undefined;
   tts?: TextToSpeech | undefined;
   agent?: Agent | undefined;
-  /** PROTOTYPE: a realtime voice model that hears and speaks itself, for devices set to `voiceMode: realtime`. */
+  /** A realtime voice model that hears and speaks itself, for devices set to `voiceMode: realtime`. */
   talk?: RealtimeTalk | undefined;
 }
 
@@ -762,8 +762,8 @@ export class TurnManager {
       let text = "";
       if ("say" in input) {
         // Nothing to transcribe and nobody to ask: the words are already here.
-      } else if ("pcm" in input && this.services.talk && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id)) {
-        // PROTOTYPE: the whole turn is the realtime voice model's. It hears the utterance, answers in its own
+      } else if ("pcm" in input && this.services.talk?.available() && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id)) {
+        // The whole turn is the realtime voice model's. It hears the utterance, answers in its own
         // voice, and hands real work to the agent itself. An open question is still answered the local way.
         const talk = this.services.talk;
         state("thinking");

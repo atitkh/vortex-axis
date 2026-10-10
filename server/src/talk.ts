@@ -1,7 +1,7 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
 
 /**
- * PROTOTYPE (0.22): a second way to answer a spoken turn. Instead of Axis's own
+ * A second way to answer a spoken turn, beside Axis's own speech recognition and voice. Instead of Axis's own
  * chain (recognise the speech, ask the agent, synthesise the reply), the
  * person's audio goes to a realtime voice model through the OpenClaw gateway's
  * Talk relay, and the model's own voice comes back. The model answers small
@@ -14,8 +14,10 @@ import type { AudioFormat } from "@vortex-axis/protocol";
  * detection fires, and plays what comes back. Talking over the answer is not
  * part of this; an interrupt stops the playback and cancels the output.
  *
- * The audio leaves the house and the model is paid for by the minute, so it is
- * off unless a device is set to it (`voiceMode: realtime`).
+ * The audio leaves the house and the model is its provider's to charge for, so
+ * it is off unless it is chosen: for every device on the Speech page, or for
+ * one on its own page (`voiceMode: realtime`). It needs an OpenClaw gateway as
+ * the agent, and one of that gateway's realtime voices with working credentials.
  */
 
 /** The part of the gateway link this needs. */
@@ -65,6 +67,8 @@ export interface RealtimeTalkOptions {
   sessionKey?: (() => string | undefined) | undefined;
   /** The realtime provider to ask for; the gateway's own choice when unset. */
   provider?: string | undefined;
+  /** False while there is no OpenClaw gateway to do this through: turns then go Axis's own way. */
+  available?: () => boolean;
   log?: (line: string) => void;
   /** A session nobody has used for this long is closed: it costs while it is open. */
   idleMs?: number;
@@ -118,6 +122,39 @@ export class RealtimeTalk {
 
   stop(): void {
     for (const [clientId] of this.open) this.close(clientId);
+  }
+
+  /** Whether there is a gateway to do this through right now. */
+  available(): boolean {
+    return this.options.available?.() ?? true;
+  }
+
+  /** The gateway's realtime voices that can be reached this way. "ready" is the gateway's word for it, given before any credential is tried. */
+  async providers(): Promise<{ id: string; label: string; models: string[]; ready: boolean }[]> {
+    const catalog = await this.options.source.call("talk.catalog", {});
+    const list: any[] = Array.isArray(catalog?.realtime?.providers) ? catalog.realtime.providers : [];
+    return list
+      // A provider that names its transports has to name the relay; one that names none is reached the gateway's way.
+      .filter((p) => typeof p?.id === "string" && (!Array.isArray(p.transports) || p.transports.includes("gateway-relay")))
+      .map((p) => ({ id: p.id as string, label: String(p.label ?? p.id), models: Array.isArray(p.models) ? p.models.map(String) : [], ready: p.configured === true }));
+  }
+
+  /**
+   * Opens a session with a provider and closes it again, to learn whether its voice can really be reached:
+   * the gateway takes a session before the provider has been tried, and only then says ready or not.
+   */
+  async probe(provider?: string): Promise<{ ok: boolean; provider?: string; model?: string; ms: number; message: string }> {
+    const started = Date.now();
+    const id = `probe-${started}`;
+    try {
+      const session = await this.session(id, provider);
+      await session.ready;
+      return { ok: true, ms: Date.now() - started, message: "The voice answered and is listening." };
+    } catch (error) {
+      return { ok: false, ms: Date.now() - started, message: (error as Error).message };
+    } finally {
+      this.close(id);
+    }
   }
 
   /** Ends a client's session, if it has one. The next turn starts a new one. */
