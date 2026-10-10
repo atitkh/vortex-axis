@@ -395,6 +395,45 @@ export class GatewayClient implements Agent, Credentials {
   async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = await this.resolveAgentId();
+    yield* this.follow(async () => {
+      // A stable session key needs an explicit agent: with several agents the
+      // gateway refuses a key that no agent owns.
+      const send = (withNote: boolean) =>
+        this.operator.request(
+          "agent",
+          {
+            message,
+            idempotencyKey: `axis-${randomUUID()}`,
+            ...(agentId ? { agentId, sessionKey: this.options.sessionKey } : {}),
+            ...(withNote ? { extraSystemPrompt: this.note } : {}),
+          },
+          20_000,
+        );
+      let ack;
+      try {
+        ack = await send(Boolean(this.note) && !this.noteRefused);
+      } catch (error) {
+        // A gateway too old to know the note refuses the whole request. Leave the note out from then on.
+        if (!this.note || this.noteRefused || !/extraSystemPrompt|unexpected|additional propert/i.test((error as Error).message)) throw error;
+        this.noteRefused = true;
+        this.options.log("the gateway refused the note to the agent; turns go without it");
+        ack = await send(false);
+      }
+      return ack;
+    }, signal, onTool, onState);
+  }
+
+  /**
+   * Has the gateway run an agent consult for a realtime Talk relay session (`talk.client.toolCall`), and
+   * yields the agent's answer. The gateway keeps such a consult out of the conversation's visible turns:
+   * what was said and what was answered are already there as the voice's own transcript.
+   */
+  consult(params: { sessionKey: string; relaySessionId: string; callId: string; args: unknown }, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
+    return this.follow(() => this.operator.request("talk.client.toolCall", { ...params, name: "openclaw_agent_consult" }, 20_000), signal, onTool, onState);
+  }
+
+  /** Starts an agent run with `start`, which resolves with the gateway's acknowledgement, and yields what the run says. */
+  private async *follow(start: () => Promise<any>, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
     const channel = new Channel<string>();
     let runId: string | undefined;
     let sent = "";
@@ -448,29 +487,7 @@ export class GatewayClient implements Agent, Credentials {
     signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      // A stable session key needs an explicit agent: with several agents the
-      // gateway refuses a key that no agent owns.
-      const send = (withNote: boolean) =>
-        this.operator.request(
-          "agent",
-          {
-            message,
-            idempotencyKey: `axis-${randomUUID()}`,
-            ...(agentId ? { agentId, sessionKey: this.options.sessionKey } : {}),
-            ...(withNote ? { extraSystemPrompt: this.note } : {}),
-          },
-          20_000,
-        );
-      let ack;
-      try {
-        ack = await send(Boolean(this.note) && !this.noteRefused);
-      } catch (error) {
-        // A gateway too old to know the note refuses the whole request. Leave the note out from then on.
-        if (!this.note || this.noteRefused || !/extraSystemPrompt|unexpected|additional propert/i.test((error as Error).message)) throw error;
-        this.noteRefused = true;
-        this.options.log("the gateway refused the note to the agent; turns go without it");
-        ack = await send(false);
-      }
+      const ack = await start();
       runId = typeof ack?.runId === "string" ? ack.runId : "";
       for (const payload of early.splice(0)) handle(payload);
       yield* channel;

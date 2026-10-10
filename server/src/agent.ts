@@ -12,6 +12,11 @@ export interface Agent {
    */
   reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string>;
   healthy(): Promise<boolean>;
+  /**
+   * For an agent behind an OpenClaw gateway: does the work a realtime voice session has handed over, the
+   * gateway's own way, which keeps it out of the conversation's visible turns. Yields the answer.
+   */
+  consult?(params: { sessionKey: string; relaySessionId: string; callId: string; args: unknown }, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string>;
   /** For an agent with a prompt of its own: a note added to it for turns from Axis. */
   setNote?(note: string): void;
 }

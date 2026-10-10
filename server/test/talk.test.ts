@@ -88,8 +88,9 @@ describe("realtime voice through the gateway's Talk relay", () => {
     let answer!: (text: string) => void;
     const turn = talk.converse("c1", speech(200), UPSTREAM_AUDIO_FORMAT, {
       signal: new AbortController().signal,
-      consult: (question) => {
-        asked.push(question);
+      consult: (work) => {
+        expect(work).toMatchObject({ callId: "t1", relaySessionId: "relay-1", args: { question: "Are the lights on?" } });
+        asked.push(work.question);
         return new Promise<string>((resolve) => (answer = resolve));
       },
     });

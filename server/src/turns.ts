@@ -145,6 +145,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * Sends speech to one client: cuts it into frames the client can receive and
  * holds back so the client is never sent more audio than it can buffer.
  */
+/** How much of a realtime voice's answer is in hand before a device is sent any, so it does not run dry. */
+const REALTIME_HEAD_START_MS = 600;
+
 class Speaker {
   private carry: Buffer = Buffer.alloc(0);
   private startedAt = 0;
@@ -766,6 +769,8 @@ export class TurnManager {
         turn.thinking = true;
         const speaker = caps.includes("speaker") ? new Speaker(this.port, session, turnId, talk.format, signal, () => Boolean(turn.silenced)) : undefined;
         let shown = "";
+        let waiting: Buffer[] | undefined = [];
+        const headStart = (talk.format.sampleRate * 2 * REALTIME_HEAD_START_MS) / 1000;
         const provider = this.port.settings(session).voiceProvider;
         const result = await talk.converse(id, input.pcm, input.format, {
           signal,
@@ -782,16 +787,23 @@ export class TurnManager {
             if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece, final: false });
           },
           // Real work goes to the agent Axis always asks, in the same conversation, and its tools show on the face as ever.
-          consult: async (question, consultSignal) => {
+          consult: async (work, consultSignal) => {
             if (!agent) throw new Error("the agent is not set up");
             let doing: string | undefined;
-            let answer = "";
-            for await (const piece of agent.reply(`${this.header(session)}\n${question}`, consultSignal, (tool) => {
+            const onTool = (tool: string) => {
               const kind = doingFor(tool);
               if (!kind || kind === doing || !hasScreen) return;
               doing = kind;
               this.port.send(session, { t: "turn", turnId, state: "thinking", doing: kind });
-            })) answer += piece;
+            };
+            // An OpenClaw gateway runs the work itself and keeps it out of the chat, where what was said and
+            // answered already stands as the voice's transcript. Any other agent is simply asked.
+            const source =
+              agent.consult && work.sessionKey
+                ? agent.consult({ sessionKey: work.sessionKey, relaySessionId: work.relaySessionId, callId: work.callId, args: work.args }, consultSignal, onTool)
+                : agent.reply(`${this.header(session)}\n${work.question}`, consultSignal, onTool);
+            let answer = "";
+            for await (const piece of source) answer += piece;
             return answer;
           },
           onAudio: async (chunk) => {
@@ -800,9 +812,20 @@ export class TurnManager {
               stage("speaking");
               record.firstAudioMs ??= Date.now() - started;
             }
-            await speaker?.write(chunk);
+            if (!speaker) return;
+            // The model's voice arrives about as fast as it is spoken. A device that starts playing the first
+            // piece at once runs dry between pieces, which is heard as a buzz. So a little is held back first.
+            if (waiting) {
+              waiting.push(chunk);
+              if (waiting.reduce((sum, piece) => sum + piece.length, 0) < headStart) return;
+              chunk = Buffer.concat(waiting);
+              waiting = undefined;
+            }
+            await speaker.write(chunk);
           },
         });
+        // An answer shorter than the head start is all still waiting.
+        if (waiting?.length && speaker && !signal.aborted) await speaker.write(Buffer.concat(waiting));
         if (signal.aborted) return "interrupted";
         if (!result.answered) {
           record.outcome = "no_speech";

@@ -36,9 +36,20 @@ export interface TalkHandlers {
    * The model wants the agent to do real work: it has told the person it is checking, and waits for
    * what this resolves with to say the actual answer. Without it the model is told the agent cannot be asked.
    */
-  consult?: (question: string, signal: AbortSignal) => Promise<string>;
+  consult?: (work: Consult, signal: AbortSignal) => Promise<string>;
   /** The realtime provider to ask for when a session has to be opened (the `voiceProvider` setting). */
   provider?: string | undefined;
+}
+
+/** Work the voice model has handed to the agent. */
+export interface Consult {
+  /** The question in words, for an agent that is asked like anybody else. */
+  question: string;
+  /** What the gateway needs to run it itself: the call as the model made it, and the session it belongs to. */
+  callId: string;
+  args: unknown;
+  relaySessionId: string;
+  sessionKey: string | undefined;
 }
 
 export interface TalkOutcome {
@@ -66,6 +77,8 @@ export interface RealtimeTalkOptions {
 
 interface Open {
   id: string;
+  /** The conversation it was opened in, as the gateway was told. */
+  sessionKey?: string | undefined;
   ready: Promise<void>;
   closeTimer?: NodeJS.Timeout | undefined;
   /** Told each of this session's events while a turn is in hand. */
@@ -138,7 +151,7 @@ export class RealtimeTalk {
       throw new Error(`the realtime voice session wants sound Axis does not send (${created.audio.inputEncoding} at ${rate} Hz)`);
     }
     let isReady!: () => void, isNot!: (error: Error) => void;
-    const session: Open = { id, ready: new Promise<void>((resolve, reject) => ((isReady = resolve), (isNot = reject))) };
+    const session: Open = { id, sessionKey, ready: new Promise<void>((resolve, reject) => ((isReady = resolve), (isNot = reject))) };
     // The provider says when it is listening, or that it cannot be reached; a relay that says neither is tried anyway after a moment.
     session.listener = (event) => {
       if (event.type === "ready") isReady();
@@ -240,7 +253,7 @@ export class RealtimeTalk {
           consulting++;
           clearTimeout(timer);
           void handlers
-            .consult(question, handlers.signal)
+            .consult({ question, callId, args: event.args ?? {}, relaySessionId: session.id, sessionKey: session.sessionKey }, handlers.signal)
             .then((answer) => submit(handlers.signal.aborted ? { status: "cancelled" } : { result: answer.trim() || "Done, with nothing to report." }))
             .catch((error: Error) => submit({ error: error.message }))
             .finally(() => {
