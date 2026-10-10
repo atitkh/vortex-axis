@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT } from "../src/agent.js";
+import { AXIS_VERSION } from "../src/version.js";
 import type { Agent } from "../src/agent.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
 import { resample } from "../src/upstream.js";
@@ -48,7 +49,7 @@ describe("web pages", () => {
 
   it("still guards the API behind the page", async () => {
     expect((await fetch(`${ctx.base}/admin/status`)).status).toBe(401);
-    expect((await admin("GET", "/admin/status")).body).toMatchObject({ version: "0.1.0", clientsOnline: 0, clientsKnown: 0 });
+    expect((await admin("GET", "/admin/status")).body).toMatchObject({ version: AXIS_VERSION, clientsOnline: 0, clientsKnown: 0 });
   });
 });
 

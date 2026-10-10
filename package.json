@@ -1,5 +1,6 @@
 {
   "name": "vortex-axis",
+  "version": "0.14.0",
   "private": true,
   "description": "Hub between thin client devices and an OpenClaw agent",
   "workspaces": [
@@ -15,7 +16,8 @@
     "start": "node server/dist/index.js",
     "browser-check": "npm run build && node scripts/browser-check.mjs",
     "latency-probe": "node scripts/latency-probe.mjs",
-    "push-firmware": "node scripts/push-firmware.mjs"
+    "push-firmware": "node scripts/push-firmware.mjs",
+    "deploy": "AXIS_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build"
   },
   "engines": {
     "node": ">=24"

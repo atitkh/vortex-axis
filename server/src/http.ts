@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PAIR_PATH, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
+import { PAIR_PATH, PROTOCOL_VERSION, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
 import type { Backup } from "./backup.js";
 import type { Delivery } from "./delivery.js";
@@ -101,7 +101,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /** Reads the web pages into memory once. Only files in this flat list can ever be served. */
-function loadWebFiles(dir: string | undefined): Map<string, { type: string; body: Buffer }> {
+function loadWebFiles(dir: string | undefined, version = ""): Map<string, { type: string; body: Buffer }> {
   const files = new Map<string, { type: string; body: Buffer }>();
   if (!dir) return files;
   let names: string[];
@@ -112,7 +112,11 @@ function loadWebFiles(dir: string | undefined): Map<string, { type: string; body
   }
   for (const name of names) {
     const type = CONTENT_TYPES[extname(name)];
-    if (type && /^[\w.-]+$/.test(name)) files.set(name, { type, body: readFileSync(join(dir, name)) });
+    if (!type || !/^[\w.-]+$/.test(name)) continue;
+    let body = readFileSync(join(dir, name));
+    // The pages say which Axis they came with: the web client reports it as its own version.
+    if (/\.(html|js)$/.test(name)) body = Buffer.from(body.toString().replaceAll("__AXIS_VERSION__", version || "0.0.0"));
+    files.set(name, { type, body });
   }
   stampWebFiles(files);
   return files;
@@ -161,6 +165,8 @@ export interface HttpDeps {
   /** When this process started, for uptime. */
   startedAt?: number;
   version?: string;
+  /** The commit this build was made from, when the build was told. */
+  commit?: string;
   gateway: GatewayClient;
   services: Services;
   /** Wake word models, and the thing that keeps devices on the one their settings choose. */
@@ -180,7 +186,7 @@ export interface HttpDeps {
 export function createHttpHandler(deps: HttpDeps) {
   const { config, store, hub, gateway, services, activity } = deps;
   const startedAt = deps.startedAt ?? Date.now();
-  const web = loadWebFiles(config.webDir);
+  const web = loadWebFiles(config.webDir, deps.version);
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
   const firmware = new FirmwareStore(config.dataDir);
@@ -1005,6 +1011,9 @@ export function createHttpHandler(deps: HttpDeps) {
       if (method === "GET" && parts.length === 2 && parts[1] === "status") {
         return sendJson(res, 200, {
           version: deps.version ?? "",
+          commit: deps.commit ?? "",
+          // A different number altogether: how devices and Axis talk, not which release this is.
+          protocol: PROTOCOL_VERSION,
           upstream: hub.upstreamStatus(),
           clientsOnline: [...hub.sessions()].length,
           clientsKnown: store.listClients().length,

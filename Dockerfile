@@ -11,7 +11,10 @@ RUN npm run build
 
 # Runtime stage: production dependencies and compiled output only.
 FROM node:24-alpine
+# Which commit this was built from, shown beside the version. Set by `npm run deploy`.
+ARG AXIS_COMMIT=""
 ENV NODE_ENV=production \
+    AXIS_COMMIT=$AXIS_COMMIT \
     AXIS_HOST=0.0.0.0 \
     AXIS_PORT=8440 \
     AXIS_DATA_DIR=/data

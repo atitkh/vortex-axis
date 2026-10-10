@@ -1,6 +1,9 @@
 services:
   vortex-axis:
-    build: .
+    build:
+      context: .
+      args:
+        AXIS_COMMIT: ${AXIS_COMMIT:-}
     image: vortex-axis:local
     container_name: vortex-axis
     restart: unless-stopped

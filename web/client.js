@@ -5,7 +5,8 @@ import { Vortex } from "/web/vortex.js";
 
 const $ = (id) => document.getElementById(id);
 const PROTOCOL = 1;
-const VERSION = "0.1.0";
+// Filled in by Axis when it serves this file: the web client is whatever version the Axis it came from is.
+const VERSION = "__AXIS_VERSION__";
 const IDENTITY_KEY = "axis-client-identity";
 const SETTINGS_KEY = "axis-client-settings";
 const MIC_RATE = 16000;

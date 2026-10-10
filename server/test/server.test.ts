@@ -285,3 +285,18 @@ describe("service status", () => {
     expect(steadyStatus()("down")).toBe("down");
   });
 });
+
+describe("version", () => {
+  it("is one number, written once, for the server, its packages and the web pages", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { AXIS_VERSION } = await import("../src/version.js");
+    const of = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")).version;
+    expect(AXIS_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect([of("../../package.json"), of("../package.json"), of("../../protocol/package.json")]).toEqual([AXIS_VERSION, AXIS_VERSION, AXIS_VERSION]);
+    expect((await admin("GET", "/admin/status")).body).toMatchObject({ version: AXIS_VERSION, protocol: 1 });
+    // The web client is handed the same number to report as its own.
+    const page = await (await fetch(`${ctx.base}/web/client.js`)).text();
+    expect(page).toContain(`const VERSION = "${AXIS_VERSION}";`);
+    expect(page).not.toContain("__AXIS_VERSION__");
+  });
+});

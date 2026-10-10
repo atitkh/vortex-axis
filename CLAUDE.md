@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-09 20:05, at the commit that made Axis an MCP server. Update this line whenever you change this section.
+Last updated: 2026-10-09 21:30, at the commit that gave Axis a version number (0.14.0). Update this line whenever you change this section.
 
 **Running now:** Axis in Docker on voltex-ubuntu, port 8440, data in `/home/voltex/vortex-axis` (local disk; Axis itself copies it every hour to `/media/voltex/VS1/Docker/vortex-axis`, mounted as `/backup` through `AXIS_BACKUP_PATH`; there is no cron job and no backup script any more). Public name `https://vortex.atitkharel.com.np` through a Cloudflare Tunnel; `/admin` is LAN and tailnet only. Two Waveshare boards (`VorteX-Axis-C484`, `VorteX-Axis-0BF8`) on firmware 0.11.4 over the public address, plus web clients "Brave Windows" and "iPhone", both with notifications on. Agent backend: the OpenClaw gateway, agent `main` (the `vertex` agent fails on voice: its conversation is larger than its local model's context). Axis's default device is `VorteX-Axis-C484`. `.env` also sets `AXIS_TIMEZONE=America/Chicago` and `AXIS_MQTT_URL` (Home Assistant).
 
@@ -142,7 +142,7 @@ npm run browser-check                 # both pages in headless Chrome, stub spee
 AXIS_ADMIN_TOKEN=... npm run latency-probe   # times real turns through a running Axis (uses the real agent)
 AXIS_ADMIN_TOKEN=... npm run push-firmware -- <type> --update   # upload a firmware build and update devices over Wi-Fi
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
-docker compose up -d --build          # needs .env, see .env.example
+npm run deploy                        # docker compose up -d --build with the commit passed in; needs .env, see .env.example
 ```
 
 `npm test` and `npm run typecheck` build `protocol/` first, because the server imports its compiled output.
@@ -203,5 +203,8 @@ Build in a board folder with `~/.platformio/penv/bin/pio run`. Ship it over Wi-F
 
 - Keep docs current: a decision that changes behavior goes into `docs/design.md` in the same change.
 - No secrets, tokens or internal addresses in the repository.
+- **Versions.** Axis (server, admin page and web client together) has ONE version, written once in the top-level `package.json`; `server/src/version.ts` reads it and the web files are handed it when served. `server/package.json` and `protocol/package.json` carry the same number (a test fails if they differ). Bump all three and the lockfile with one command, `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version`, in the commit that changes what Axis does: the middle number for a batch of new things, the last for fixes, and add a line to `CHANGELOG.md` in the same commit. Tag a release `vX.Y.Z`.
+- It is NOT the device protocol's version (`PROTOCOL_VERSION`, one whole number, changed only when devices and Axis must talk differently, shown as "device protocol 1") and NOT a firmware version (counted per device type, in the firmware's own files). Never write one where another is meant.
+- Deploy with `npm run deploy`, not bare `docker compose up -d --build`: it passes the commit into the build, which the admin page shows beside the version.
 - Releases are git tags.
 - `.gitea/workflows/test.yml` runs the type check, the tests and a schema freshness check on every push to `main`.

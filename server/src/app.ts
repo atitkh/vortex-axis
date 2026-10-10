@@ -7,6 +7,7 @@ import { Backup } from "./backup.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
 import { ToolAccess } from "./tools.js";
+import { AXIS_COMMIT, AXIS_VERSION } from "./version.js";
 import { WakeWordStore, WakeWordSync } from "./wakewords.js";
 import type { Config } from "./config.js";
 import { GatewayClient } from "./gateway/client.js";
@@ -42,7 +43,7 @@ export interface App {
   close(): Promise<void>;
 }
 
-export const AXIS_VERSION = "0.1.0";
+export { AXIS_VERSION };
 
 /**
  * Evens out a service's status checks: a service that was up is called down
@@ -206,7 +207,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, startedAt }),
+    createHttpHandler({ config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

@@ -1,0 +1,38 @@
+# Changelog
+
+What changed in VorteX Axis, newest first. One number covers the server and its web pages (the admin page and the web client), which ship together; it is written once, in the top-level `package.json`. Firmware counts its own versions per device type, and the device protocol has its own single number that changes only when devices and Axis must change how they talk.
+
+Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
+
+## 0.14.0 (2026-10-09)
+
+The first numbered release. The number and the commit of the build are shown at the foot of the admin page's sidebar, and the web client reports the number as its own.
+
+- **Tools for any agent.** Axis is an MCP server (`POST /mcp`) offering the same eight tools as the OpenClaw node, from one list and one function. Agent tokens and a switch per tool are on the admin page under Agent tools.
+- **Backup built in.** Axis copies its database, firmware and wake words to a mounted folder on a schedule, with settings, a Back up now button and warnings on the admin page. The host cron job and its script are gone.
+- **Admin page.** Live view (each turn step by step, wake words, timers, questions, kept messages, Clear now); Activity folded into Overview; Integrations with editable hub settings; a Say something box; wake word scores per device; remembered sign-in; a phone layout with a menu drawer; switches drawn properly.
+- **Web client.** History that marks announcements, notifications and questions (answered or not) and keeps them in the browser; volume and mute, notifications and history as small marks in the corner; forgetting a pairing takes two presses; the timer is a small chip; sound recovers on an iPhone; holding the face to talk survives a drifting finger.
+- **Server.** Words held in memory for the admin page are deleted after ten minutes; a client that says it is not playing sound is no longer waited for; the chat endpoint's default system prompt knows about the tools.
+
+## Earlier on 2026-10-09 (before numbering)
+
+- Web client as an installable app with notifications (Web Push), questions answered from a notification, hold-to-talk, screen kept awake, a timer countdown with cancel.
+- Messages kept for clients that are away; say on every device; quiet hours; every client as a Home Assistant device through MQTT.
+- Web files loaded by stamped addresses, and a page that reloads itself when Axis has a newer one.
+- Admin page in the web client's theme, a Face page, a sketch of each device, test buttons for a chat endpoint and a notification.
+- A wake word ignored while another device speaks in the same location. Firmware 0.11.0 to 0.11.4: echo cancelling, more idle looks, encrypted connections taking memory from PSRAM.
+
+## 2026-10-08
+
+- Admin page redesign: sections, a page per device and per client type, fleet-first settings; activity log, uptime and charts.
+- Agent commands ask, timer and admin; firmware updates over Wi-Fi; TLS for devices; protections for a public address; wake word models served by Axis; moving a device to another address; resetting a device.
+- A system prompt for chat endpoints and a note for OpenClaw agents; "room" became "location".
+- Speech synthesized a sentence ahead, one at a time; a crash on streamed replies fixed.
+- Firmware for the Waveshare ESP32-S3 AMOLED board from first boot to 0.10.3: setup network, pairing, the vortex face, speaker, microphone, the on-device wake word, follow-up listening.
+
+## 2026-10-07
+
+- The client protocol (version 1 draft); the server: pairing, tokens, settings sync, the admin API, a Docker image.
+- Voice and text turns: wake arbitration, recognition, the agent, sentence-by-sentence speech.
+- The OpenClaw gateway link: device identity, the operator and node roles, pairing by setup code; commands named `vortex.axis.*`.
+- The first admin page and web client; a headless browser check.

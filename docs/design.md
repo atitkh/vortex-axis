@@ -360,3 +360,13 @@ Added 2026-10-09. Until now an agent could only use Axis's tools as an OpenClaw 
 
 **Tools on and off.** One list on the admin page, kept in `meta` as `tools_off`, for every agent alike. MCP stops listing a tool that is off and refuses a call to it. The node still declares all its commands to the gateway (changing the declared list can cost a re-approval) and Axis refuses the call; `system.notify` follows `vortex_axis_say`.
 
+## Versions
+
+Added 2026-10-09. There are three kinds of version and they answer three different questions.
+
+- **Axis's version** (`0.14.0`): which release of the server and its web pages this is. One number for both, since they ship in one container and cannot be mismatched; written once in the top-level `package.json`. The web client reports it as its own version, as a board reports its firmware's. Shown with the build's commit at the foot of the admin sidebar. History in `CHANGELOG.md`.
+- **The device protocol's version** (`1`): whether a device and Axis can talk at all. A single whole number, never dotted, so it cannot be mistaken for a release; it changes only when the messages change in a way old devices could not follow, and Axis keeps answering the one before. Always written out as "device protocol".
+- **A firmware's version** (`0.11.4`): which build a device of one type runs, counted per device type, compared by Axis when it offers an update.
+
+Until this date the server and web client both said 0.1.0 from their first commit: nothing forced a number on them the way updates over Wi-Fi forced one on firmware.
+

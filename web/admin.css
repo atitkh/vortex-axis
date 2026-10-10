@@ -736,3 +736,7 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 .switch input[type="checkbox"]:checked::after { left: 16px; background: var(--on-ink); }
 .switch input[type="checkbox"]:disabled { opacity: 0.4; cursor: default; }
 .switch input[type="checkbox"]:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
+
+/* Which Axis this is, small, at the foot of the sidebar. */
+.about { margin: auto 0 0; padding: 18px 12px 2px; display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; color: var(--faint); }
+.about .mono { font-size: 11px; }

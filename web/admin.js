@@ -207,7 +207,17 @@ async function refresh() {
   }
 }
 
+/** Which Axis this is, at the foot of the sidebar: the release, the build, and (a different thing) the device protocol. */
+function renderAbout(status) {
+  $("about").replaceChildren(
+    h("span", { title: "The release of Axis and its web pages" }, `Axis ${status.version || "?"}`),
+    status.commit ? h("span", { class: "mono", title: "The commit this build was made from" }, status.commit) : null,
+    h("span", { title: "How devices and Axis talk to each other. It changes only when that does, and has nothing to do with the release number." }, `device protocol ${status.protocol}`),
+  );
+}
+
 function renderSummary(status) {
+  renderAbout(status);
   const up = (name, value) => stat(name, value === "up" ? "good" : value === "down" ? "bad" : "");
   $("summary").replaceChildren(
     up("agent", status.upstream.openclaw),

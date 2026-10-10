@@ -1,3 +1,4 @@
+import { AXIS_VERSION } from "../src/version.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceIdentity, authPayload, decodeSetupCode, toSocketUrl } from "../src/gateway/wire.js";
 import { DEFAULT_GATEWAY_NOTE } from "../src/agent.js";
@@ -138,7 +139,7 @@ describe("pairing with the gateway", () => {
   it("declares the full command list and publishes tools and presence", async () => {
     await pairWithGateway();
     const node = gateway.connects.filter((c) => c.role === "node").at(-1);
-    expect(node.client).toMatchObject({ id: "node-host", mode: "node", platform: "vortex-axis", displayName: "VorteX Axis", version: "0.1.0" });
+    expect(node.client).toMatchObject({ id: "node-host", mode: "node", platform: "vortex-axis", displayName: "VorteX Axis", version: AXIS_VERSION });
     expect(gateway.connects.every((c) => c.client.platform === "vortex-axis" && c.client.deviceFamily === undefined)).toBe(true);
     expect(node.commands).toEqual([...NODE_COMMANDS]);
     expect(node.scopes).toEqual([]);
@@ -378,7 +379,7 @@ describe("commands from an agent", () => {
     await until(async () => (await gateway.invoke("vortex.axis.sense", { client: "Watch" })).payload.readings[0]?.readings.battery === 0.7, "the reading");
 
     const diag = (await gateway.invoke("vortex.axis.diag", {})).payload;
-    expect(diag).toMatchObject({ version: "0.1.0", clientsOnline: 1, clientsKnown: 1, upstream: { openclaw: "up" } });
+    expect(diag).toMatchObject({ version: AXIS_VERSION, clientsOnline: 1, clientsKnown: 1, upstream: { openclaw: "up" } });
   });
 
   it("answers the newer commands over the gateway, and refuses one it does not know", async () => {
