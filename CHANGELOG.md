@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.23.1 (2026-10-10)
+
+- A realtime voice is played at 70 % of how it arrives: it comes in louder than the local voice, and a board's small speaker buzzed with it. The setting `realtimeVolume` (10 to 100 %) changes that, for all devices or one.
+
 ## 0.23.0 (2026-10-10)
 
 - **Realtime voice is a proper option now**, no longer a prototype. The Speech page has a **Realtime voice** section: one switch for what every device uses (Axis's own recognition and voice, or the realtime voice), the choice among the realtime voices the gateway offers, and **Try it**, which opens a session with the voice and closes it again to say whether it really works. A device can still be set differently on its own page.

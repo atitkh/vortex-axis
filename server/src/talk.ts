@@ -106,6 +106,28 @@ export function resample(pcm: Buffer, from: number, to: number): Buffer {
   return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
 }
 
+/**
+ * Turns 16-bit sound up or down. A realtime voice comes in louder than a local one, and a small
+ * speaker that is driven too hard buzzes. `odd` carries a half sample from one piece to the next.
+ */
+export function scale(pcm: Buffer, gain: number, odd: { byte?: number | undefined } = {}): Buffer {
+  let data = pcm;
+  if (odd.byte !== undefined) {
+    data = Buffer.concat([Buffer.from([odd.byte]), pcm]);
+    odd.byte = undefined;
+  }
+  if (data.length % 2) {
+    odd.byte = data[data.length - 1]!;
+    data = data.subarray(0, data.length - 1);
+  }
+  if (gain === 1) return data;
+  const out = Buffer.allocUnsafe(data.length);
+  for (let at = 0; at < data.length; at += 2) {
+    out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(data.readInt16LE(at) * gain))), at);
+  }
+  return out;
+}
+
 export class RealtimeTalk {
   readonly format = TALK_FORMAT;
   private readonly open = new Map<string, Open>();

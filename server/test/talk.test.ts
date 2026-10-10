@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { UPSTREAM_AUDIO_FORMAT } from "@vortex-axis/protocol";
 import type { Agent } from "../src/agent.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
-import { RealtimeTalk, TALK_FORMAT, resample } from "../src/talk.js";
+import { RealtimeTalk, TALK_FORMAT, resample, scale } from "../src/talk.js";
 import { admin, ready, useServer } from "./harness.js";
 
 /** A gateway's Talk relay, as far as Axis sees it: it takes calls and can be made to say things. */
@@ -38,6 +38,17 @@ describe("realtime voice through the gateway's Talk relay", () => {
     expect(resample(speech(1000, 24000), 24000, 24000).length).toBe(48000);
     const ramp = Buffer.from(new Int16Array([0, 300, 600]).buffer);
     expect([...new Int16Array(resample(ramp, 2, 4).buffer)].slice(0, 4)).toEqual([0, 150, 300, 450]);
+  });
+
+  it("turns sound down, whole samples at a time", () => {
+    const samples = (pcm: Buffer) => Array.from({ length: pcm.length / 2 }, (_, i) => pcm.readInt16LE(i * 2));
+    const loud = Buffer.from(new Int16Array([1000, -2000, 32767, -32768]).buffer);
+    expect(samples(scale(loud, 0.7))).toEqual([700, -1400, 22937, -22938]);
+    expect(samples(scale(loud, 1))).toEqual([1000, -2000, 32767, -32768]);
+    // A piece that ends in the middle of a sample hands the half on to the next.
+    const odd: { byte?: number | undefined } = {};
+    const first = scale(loud.subarray(0, 3), 0.5, odd), second = scale(loud.subarray(3, 8), 0.5, odd);
+    expect(samples(Buffer.concat([first, second]))).toEqual([500, -1000, 16384, -16384]);
   });
 
   it("sends an utterance with quiet after it and plays back the answer", async () => {

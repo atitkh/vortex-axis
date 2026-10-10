@@ -1,4 +1,4 @@
-import type { RealtimeTalk } from "./talk.js";
+import { scale, type RealtimeTalk } from "./talk.js";
 import { doingFor } from "./doing.js";
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
@@ -145,6 +145,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * Sends speech to one client: cuts it into frames the client can receive and
  * holds back so the client is never sent more audio than it can buffer.
  */
+/** How loud a realtime voice is played, in percent of how it arrives, unless a setting says otherwise. */
+const REALTIME_VOLUME = 70;
+
 class Speaker {
   private carry: Buffer = Buffer.alloc(0);
   private startedAt = 0;
@@ -772,6 +775,9 @@ export class TurnManager {
         const speaker = caps.includes("speaker") ? new Speaker(this.port, session, turnId, talk.format, signal, () => Boolean(turn.silenced)) : undefined;
         let shown = "";
         const provider = this.port.settings(session).voiceProvider;
+        const level = this.port.settings(session).realtimeVolume;
+        const gain = Math.min(100, Math.max(10, typeof level === "number" ? level : REALTIME_VOLUME)) / 100;
+        const odd: { byte?: number | undefined } = {};
         const result = await talk.converse(id, input.pcm, input.format, {
           signal,
           provider: typeof provider === "string" && provider ? provider : undefined,
@@ -812,8 +818,8 @@ export class TurnManager {
               stage("speaking");
               record.firstAudioMs ??= Date.now() - started;
             }
-            // The model's voice is sent on as it comes.
-            await speaker?.write(chunk);
+            // The model's voice is sent on as it comes, turned down to sit beside the local one.
+            await speaker?.write(scale(chunk, gain, odd));
           },
         });
         if (signal.aborted) return "interrupted";

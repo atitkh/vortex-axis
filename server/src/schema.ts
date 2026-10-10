@@ -86,6 +86,17 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     help: "With \"realtime\": which of the gateway's realtime Talk providers to use, such as openai or xai, or a provider and one of its models as openai/gpt-realtime-2.1-mini. Empty leaves the choice to the gateway.",
   },
   {
+    key: "realtimeVolume",
+    label: "Realtime voice loudness",
+    kind: "number",
+    group: "Axis",
+    min: 10,
+    max: 100,
+    unit: "%",
+    default: 70,
+    help: "A realtime voice arrives louder than the local one. This is how much of that it is played at, before the device's own volume; 100 leaves it as it comes.",
+  },
+  {
     key: "idleLooksOff",
     label: "Idle looks switched off",
     kind: "text",

@@ -45,7 +45,7 @@ describe("describing a client", () => {
     const body = await described("board");
 
     const schema = body.types.board as unknown as { settings: { key: string }[]; links: unknown[] };
-    expect(schema.settings.map((s) => s.key)).toEqual(["location", "voice", "sentencePauseMs", "quietFrom", "quietTo", "quietVolume", "quietBrightness", "voiceMode", "voiceProvider", "idleLooksOff", "toolIcons", "toolIconMs", "toolIconDots", "wakeWord", "volume", "rotation", "listenCue"]);
+    expect(schema.settings.map((s) => s.key)).toEqual(["location", "voice", "sentencePauseMs", "quietFrom", "quietTo", "quietVolume", "quietBrightness", "voiceMode", "voiceProvider", "realtimeVolume", "idleLooksOff", "toolIcons", "toolIconMs", "toolIconDots", "wakeWord", "volume", "rotation", "listenCue"]);
     expect(schema.links).toEqual(description.links);
 
     const row = (body as unknown as { clients: { address: string | null; layers: unknown }[] }).clients[0]!;
