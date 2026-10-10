@@ -218,7 +218,9 @@ export const Turn = message("turn", {
   detail: Type.Optional(Type.String({ maxLength: 256 })),
   /**
    * With `thinking`: the kind of work the agent has just picked up (`search`, `home`, `files`, ...), for a
-   * client that shows it as an icon. Sent again whenever it changes; a client that knows none of it ignores it.
+   * client that shows it as an icon; or why its run is held up (`compacting`, `retrying`), for one that
+   * shows that as a look; or `none` when it is neither any more. Sent again whenever it changes; a client
+   * that knows none of it ignores it.
    */
   doing: Type.Optional(Type.String({ maxLength: 24 })),
 });

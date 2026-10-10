@@ -444,7 +444,9 @@ face.setIconStyle(settings.values.toolIcons);
     case "turn":
       turnState = message.state;
       // While it thinks, the face shows what kind of thing the agent has picked up, when Axis says.
-      face.setIcon(message.state === "thinking" ? (message.doing ?? face.icon) : undefined);
+      // And when its run is held up, the face says so by how it moves.
+      if (message.state !== "thinking") face.setDoing(undefined);
+      else if (message.doing !== undefined) face.setDoing(message.doing);
       if (message.state === "transcribing") caption("…", "");
       if (message.state === "idle" && message.detail) {
         bubble("info", message.detail);

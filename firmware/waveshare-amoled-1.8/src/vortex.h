@@ -23,6 +23,13 @@ bool begin();
 void setMode(Mode mode);
 
 /**
+ * What Axis says the agent is doing while it thinks: a kind of tool (shown as an icon, see setIcon), a
+ * reason its run is held up ("compacting", "retrying": shown as a look of its own, with no icon), or
+ * nothing, which is plain thinking. Call it after setMode.
+ */
+void setDoing(const char *name);
+
+/**
  * The kind of work to show in the middle while thinking (a name from icons.h), or nothing for
  * null, an empty name or one this face has no icon for.
  */

@@ -48,6 +48,15 @@ export const LOOKS = {
   error: look(0.15, 0.62, 0.7, 0.12, 0.5, 5, 0, 1.0, 1.0, 0.18, 0.12),
 };
 
+/**
+ * Looks for a run that is held up while the face is thinking: the agent says why, and the face shows
+ * it by how it moves, with no icon. docs/face.md section 9.
+ */
+export const HELD = {
+  compacting: look(0.9, 0.42, 2.4, 0.14, 0.5, 0, 0, 1.0, 0.35, 0.55, 1.0),
+  retrying: look(-2.2, 0.7, 1.0, 0.1, 1.6, 0, 0, 1.0, 1.0, 0.7, 0.25),
+};
+
 export class Vortex {
   /** Draws into `canvas` until stopped. Modes: setup, offline, idle, listening, thinking, speaking, error. */
   constructor(canvas) {
@@ -115,6 +124,16 @@ export class Vortex {
       this.iconTint = ICON_TINTS[known] ?? [1, 1, 1];
     }
     this.icon = known;
+  }
+
+  /**
+   * What Axis says the agent is doing while it thinks (`doing` on a `turn`): a kind of tool, shown
+   * as an icon; a reason its run is held up, shown as a look; or nothing, which is plain thinking.
+   */
+  setDoing(name) {
+    const held = name ? HELD[name] : undefined;
+    this.setIcon(held ? undefined : name);
+    if (this.mode === "thinking" && !this.held) this.target = { ...(held ?? LOOKS.thinking) };
   }
 
   /** How icons are shown: "off", "line" or "dots" (the `toolIcons` setting). Anything else is "dots". */

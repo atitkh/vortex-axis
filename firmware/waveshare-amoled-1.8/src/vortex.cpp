@@ -57,6 +57,9 @@ const Look LOOK_SETUP = {0.30f, 0.70f, 0.90f, 0.10f, 0.30f, 0, 0, 1.0f, 1.00f, 0
 const Look LOOK_OFFLINE = {0.18f, 0.55f, 1.10f, 0.03f, 0.20f, 0, 0, 0.9f, 0.30f, 0.34f, 0.42f};
 const Look LOOK_LISTENING = {1.60f, 0.45f, 1.80f, 0.08f, 1.20f, 0, 0, 1.2f, 0.15f, 1.00f, 0.55f};
 const Look LOOK_THINKING = {4.60f, 0.78f, 1.30f, 0.05f, 0.90f, 0, 0.02f, 0.9f, 0.62f, 0.40f, 1.00f};
+// A run that is held up while the face is thinking (docs/face.md section 9).
+const Look LOOK_COMPACTING = {0.90f, 0.42f, 2.40f, 0.14f, 0.50f, 0, 0, 1.0f, 0.35f, 0.55f, 1.00f};
+const Look LOOK_RETRYING = {-2.20f, 0.70f, 1.00f, 0.10f, 1.60f, 0, 0, 1.0f, 1.00f, 0.70f, 0.25f};
 const Look LOOK_SPEAKING = {1.10f, 0.78f, 0.75f, 0.22f, 2.40f, 0, 0, 1.2f, 0.55f, 0.95f, 1.00f};
 const Look LOOK_ERROR = {0.15f, 0.62f, 0.70f, 0.12f, 0.50f, 5, 0, 1.0f, 1.00f, 0.18f, 0.12f};
 
@@ -187,6 +190,12 @@ void setRotation(int degrees) {
 void setIconTuning(int ms, int dots) {
     iconMs = constrain(ms, 150, 3000);
     iconDots = constrain(dots, icons::DOTS_MIN, icons::DOTS);
+}
+
+void setDoing(const char *name) {
+    const Look *held = name && !strcmp(name, "compacting") ? &LOOK_COMPACTING : name && !strcmp(name, "retrying") ? &LOOK_RETRYING : nullptr;
+    setIcon(held ? nullptr : name);
+    if (mode == Mode::Thinking) target = held ? *held : LOOK_THINKING;
 }
 
 void setIconStyle(const char *name) {

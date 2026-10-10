@@ -14,7 +14,7 @@ class Fakes {
   /** Bytes of audio produced per sentence. */
   audioBytes = 1000;
   agentDelayMs = 0;
-  /** Tools the agent says it picks up before it answers. */
+  /** Tools the agent says it picks up before it answers; "+compacting", "+retrying" and "-" are its run held up and under way again. */
   tools: string[] = [];
   failAgent = false;
   /** Delay before each chunk of synthesized audio, to make synthesis slow. */
@@ -56,12 +56,16 @@ class Fakes {
   };
 
   agent: Agent = {
-    reply: (message, signal, onTool) => {
+    reply: (message, signal, onTool, onState) => {
       const self = this;
       return (async function* () {
         self.asked.push(message);
         if (self.failAgent) throw new Error("agent answered HTTP 502");
-        for (const tool of self.tools) onTool?.(tool);
+        for (const tool of self.tools) {
+          if (tool === "-") onState?.(undefined);
+          else if (tool.startsWith("+")) onState?.(tool.slice(1) as "compacting" | "retrying");
+          else onTool?.(tool);
+        }
         for (const piece of self.reply) {
           if (self.agentDelayMs) await new Promise((r) => setTimeout(r, self.agentDelayMs));
           if (signal?.aborted) return;
@@ -131,6 +135,18 @@ describe("a voice turn", () => {
     const thinking = client.received.filter((m) => m.t === "turn" && m.state === "thinking").map((m) => m.doing);
     // The plain "thinking" first; then each kind as it changes, the second search not told again.
     expect(thinking).toEqual([undefined, "search", "home", "tool"]);
+  });
+
+  it("says when the agent's run is held up, and goes back to what it showed", async () => {
+    fakes.tools = ["+compacting", "-", "web_search", "+retrying", "exec", "-"];
+    const { client } = await ready(["screen", "speaker"]);
+    client.send({ t: "text", turnId: "t1", text: "hello" });
+    await client.next("speak.end");
+    fakes.tools = [];
+    const thinking = client.received.filter((m) => m.t === "turn" && m.state === "thinking").map((m) => m.doing);
+    // Held up before any tool, there is nothing to go back to but plain thinking. A tool picked up
+    // while held up waits behind it, and shows when the run is under way again.
+    expect(thinking).toEqual([undefined, "compacting", "none", "search", "retrying", "code"]);
   });
 
   it("starts speaking before the agent has finished", async () => {

@@ -261,3 +261,14 @@ Two settings, both shared like `toolIcons`:
 - `toolIconMs` (150 to 3000, 700 when unset): how long an icon takes to form and to go. The `6` in `iconShown += (want - iconShown) * (1 - exp(-dt * 6))` is `4.2 * 1000 / toolIconMs`: easing covers all but the last sixtieth in 4.2 time constants, which is when `eye` snaps to 1.
 - `toolIconDots` (12 to 78, 78 when unset): how many dots draw a dot shape. Dot `n = i * 3 + a` is in the shape when `n < toolIconDots`, which takes the inner dots of each arm first, and goes to point `floor(n * 78 / toolIconDots)` of the 78, so the shape is still covered end to end. The light's wave uses that point's number in place of `n`. A dot that is not in the shape stays on its arm, pushed out as the line style's hole pushes: `radius = 80 * eye + max(0, reach - 80 * eye) * t^0.85`. With all 78 in the shape nothing is left on the arms.
 
+## 9. A run that is held up
+
+While the face is `thinking`, `doing` may also name why the agent's run is not getting on with the answer. That is shown as a look, with no icon: the face goes to it the way it goes to any state look (rate 5.0), and back to `thinking` when `doing` says something else.
+
+| doing | spin | radius | twist | pulse | pulseHz | wander | sparkle | dot | r | g | b | Reads as |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| compacting | 0.90 | 0.42 | 2.40 | 0.14 | 0.50 | 0 | 0 | 1.0 | 0.35 | 0.55 | 1.00 | wound in tight, slow, deep blue: tidying its memory |
+| retrying | -2.20 | 0.70 | 1.00 | 0.10 | 1.60 | 0 | 0 | 1.0 | 1.00 | 0.70 | 0.25 | amber, turning backwards: its provider failed and it is trying again |
+
+`doing: "none"`, or any name the face has neither a look nor an icon for, is plain thinking.
+

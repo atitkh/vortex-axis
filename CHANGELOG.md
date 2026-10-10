@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.21.0 (2026-10-10)
+
+- **The face shows when the agent's run is held up.** Two new looks while thinking: `compacting`, when the agent stops to tidy its memory (wound in tight, slow, deep blue), and `retrying`, when its provider failed and it is trying again (amber, turning backwards). A long silence for either reason no longer looks like a hang. When the run is under way again the face goes back to plain thinking, or to the icon of the tool in hand.
+- With an OpenClaw gateway this comes from the run's own events (the `compaction` and `run_status` streams); nothing else reports it. It rides on `doing` of the `turn` message, which also gains `none` for "neither any more" (additive to protocol 1).
+- The Face page shows both among the state looks. Board firmware 0.12.4 draws them.
+
 ## 0.20.1 (2026-10-10)
 
 - Two more shared settings for tool icons, with sliders on the Face page: `toolIconMs`, how long the face takes to turn into an icon and back (150 to 3000 ms, 700 as before), and `toolIconDots`, how many of the 78 dots draw a dot shape (12 to 78). The dots left over stand off in a ring round the shape and go on turning. "Play it again" on the Face page takes the icons down and puts them up, to watch the change.

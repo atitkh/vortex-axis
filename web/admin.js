@@ -5,7 +5,7 @@
 // device's page shows only where that one device differs. The three layers underneath
 // (all devices, type, device) are the server's; this page only presents them.
 
-import { IDLE, LOOKS, LOOK_FIELDS, Vortex } from "/web/vortex.js";
+import { HELD, IDLE, LOOKS, LOOK_FIELDS, Vortex } from "/web/vortex.js";
 import { ICONS } from "/web/icons.js";
 import { clock, hideTip, columnChart, duration, lineChart, ms, partsBar, percent, stateLegend, strip, stripAxis } from "/web/charts.js";
 
@@ -506,6 +506,8 @@ const FACE_READS = {
   thinking: "fast, violet, a little sparkle",
   speaking: "open, pulsing, white-blue; follows the voice being played",
   error: "slow, red, the centre trembles",
+  compacting: "while thinking, when the agent stops to tidy its memory: wound in tight, slow, deep blue",
+  retrying: "while thinking, when the agent's provider failed and it is trying again: amber, turning backwards",
 };
 const FACE_UNITS = {
   spin: "radians a second", radius: "of the space", twist: "turns", pulse: "of the radius", pulseHz: "a second",
@@ -521,6 +523,8 @@ function allLooks() {
   return [
     ...IDLE.map(([name, look]) => ({ name, look, mode: "idle", group: "idle" })),
     ...Object.entries(LOOKS).map(([name, look]) => ({ name, look, mode: name, group: "state" })),
+    // Thinking, with the agent's run held up: drawn as thinking is, from numbers of their own.
+    ...Object.entries(HELD).map(([name, look]) => ({ name, look, mode: "thinking", group: "state" })),
   ];
 }
 

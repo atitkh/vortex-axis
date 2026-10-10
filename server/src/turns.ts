@@ -791,13 +791,29 @@ export class TurnManager {
         if ("text" in input) live?.words(id, turnId, { heard: text });
         turn.thinking = true;
         // The tools the agent picks up on the way show as an icon on the face, by kind.
-        let doing: string | undefined;
-        source = agent.reply(`${this.header(session)}\n${text}`, signal, (tool) => {
-          const kind = doingFor(tool);
-          if (!kind || kind === doing || !turn.thinking || signal.aborted || !hasScreen) return;
-          doing = kind;
-          this.port.send(session, { t: "turn", turnId, state: "thinking", doing: kind });
-        });
+        // A run that is held up (tidying its memory, trying its provider again) shows as a look of its own
+        // and comes before any tool; when it is under way again the face goes back to what it showed.
+        let doing: string | undefined, held: string | undefined, shown: string | undefined;
+        const show = () => {
+          const next = held ?? doing ?? "none";
+          if (next === (shown ?? "none") || !turn.thinking || signal.aborted || !hasScreen) return;
+          shown = next;
+          this.port.send(session, { t: "turn", turnId, state: "thinking", doing: next });
+        };
+        source = agent.reply(
+          `${this.header(session)}\n${text}`,
+          signal,
+          (tool) => {
+            const kind = doingFor(tool);
+            if (!kind) return;
+            doing = kind;
+            show();
+          },
+          (state) => {
+            held = state;
+            show();
+          },
+        );
       }
 
       const speaker =

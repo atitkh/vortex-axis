@@ -1,11 +1,16 @@
 import { drain } from "./drain.js";
 
+/** Why an agent's run is not getting on with the answer, when it says. */
+export type RunState = "compacting" | "retrying";
+
 export interface Agent {
   /**
    * Sends one message to the agent and yields its reply as text pieces. An agent that says which
-   * tools it picks up on the way calls `onTool` with each one's name; most do not.
+   * tools it picks up on the way calls `onTool` with each one's name; most do not. One that says when
+   * its run is held up calls `onState` with why (`compacting` its memory, `retrying` a provider that
+   * failed), and with nothing when it is under way again.
    */
-  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void): AsyncIterable<string>;
+  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string>;
   healthy(): Promise<boolean>;
   /** For an agent with a prompt of its own: a note added to it for turns from Axis. */
   setNote?(note: string): void;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Agent } from "../agent.js";
+import type { Agent, RunState } from "../agent.js";
 import type { Store } from "../store.js";
 import { GatewayLink, type Credentials, type LinkOptions, type LinkState } from "./link.js";
 import { DeviceIdentity, GatewayError, PLATFORM, decodeSetupCode, toSocketUrl, type Role } from "./wire.js";
@@ -392,7 +392,7 @@ export class GatewayClient implements Agent, Credentials {
     return this.defaultAgentId;
   }
 
-  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void): AsyncIterable<string> {
+  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = await this.resolveAgentId();
     const channel = new Channel<string>();
@@ -404,6 +404,19 @@ export class GatewayClient implements Agent, Credentials {
       // An acknowledgement without a run id leaves nothing to match on.
       if (runId && payload?.runId !== runId) return;
       const data = payload?.data ?? {};
+      // A run that is held up says so on streams of their own; anything else it says means it is under way again.
+      if (payload.stream === "compaction") {
+        this.options.log(`agent run is ${data.phase === "start" ? "compacting its memory" : "done compacting"}`);
+        return onState?.(data.phase === "start" ? "compacting" : undefined);
+      }
+      if (payload.stream === "run_status") {
+        if (data.phase === "retrying") {
+          this.options.log("agent run is retrying its provider");
+          onState?.("retrying");
+        }
+        return;
+      }
+      if (payload.stream === "assistant" || payload.stream === "tool") onState?.(undefined);
       if (payload.stream === "assistant" && typeof data.text === "string") {
         // The text is the whole reply so far. Pass on only what is new.
         if (data.text.startsWith(sent)) {
