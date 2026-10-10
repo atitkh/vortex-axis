@@ -57,6 +57,8 @@ export interface LinkOptions {
   onEvent?: (event: string, payload: any) => void;
   /** Called after each successful handshake. */
   onConnected?: () => void;
+  /** Called when the gateway refuses the handshake, with its code, before the link decides when to try again. */
+  onRefused?: (code: string) => void;
   /** Delays, overridable so tests do not wait. */
   timing?: Partial<LinkTiming>;
 }
@@ -113,6 +115,11 @@ export class GatewayLink {
 
   get connected(): boolean {
     return this.state === "connected";
+  }
+
+  /** The scopes asked for from the next handshake on. */
+  setScopes(scopes: string[]): void {
+    this.options.scopes = scopes;
   }
 
   start(): void {
@@ -357,6 +364,7 @@ export class GatewayLink {
     const { credentials, role, log } = this.options;
     log(`gateway ${role} link refused: ${code} (${message})`);
     this.dropSocket(new GatewayError(code, message));
+    this.options.onRefused?.(code);
 
     if (code === "PAIRING_REQUIRED") {
       // Present the same code again on the next try: approval is what we wait for.

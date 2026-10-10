@@ -2506,13 +2506,12 @@ function renderTools() {
   $("mirror-cards").checked = d.mirrorCards;
   $("mirror-questions").checked = d.mirrorQuestions;
   $("mirror-approvals").checked = d.mirrorApprovals;
-  // Each of the two needs the gateway's leave, given there by a person, once.
-  const WATCH = {
-    connected: "The gateway lets Axis listen for these.",
-    pairing_required: "Waiting for you to approve this on the gateway: Axis has asked for more than it had. Run `openclaw devices list` there and approve the request from VorteX Axis.",
-    connecting: "Connecting to the gateway.",
-  };
-  $("watch-state").textContent = d.watch ? (WATCH[d.watch.state] ?? `Not listening: ${d.watch.error ?? d.watch.state}.`) + ` Asked for: ${d.watch.scopes.join(", ")}.` : "";
+  // Each of the two needs a scope the gateway grants only when a pairing is approved.
+  $("watch-state").textContent = !d.watch
+    ? ""
+    : !d.watch.missing.length
+      ? `The gateway lets Axis listen for these (${d.watch.scopes.join(", ")}).`
+      : `Not working yet: the gateway has not granted Axis ${d.watch.missing.join(" and ")}. It grants scopes when a pairing is approved, so pair again: make a setup code on the gateway (openclaw qr --setup-code-only --limited), paste it on the OpenClaw page, and approve the request there. Turns stop for the moment that takes.`;
   $("mcp-public").checked = d.public;
   $("mcp-public").disabled = !d.publicHosts.length;
   $("mcp-public-help").textContent = d.publicHosts.length

@@ -40,7 +40,11 @@ const META = {
   bootstrap: "gateway_bootstrap",
   token: (role: Role) => `gateway_token_${role}`,
   agent: "gateway_agent_id",
+  /** The operator scopes the gateway has granted, when they are more than the two Axis starts with. */
+  scopes: "gateway_operator_scopes",
 };
+
+const BASE_SCOPES = ["operator.read", "operator.write"] as const;
 
 /** Plugin id the node's tools are published under. */
 const PLUGIN_ID = "vortex-axis";
@@ -90,9 +94,9 @@ export class GatewayClient implements Agent, Credentials {
   private readonly node: GatewayLink;
   private readonly agentListeners = new Set<(payload: any) => void>();
   private readonly eventListeners = new Set<(event: string, payload: any) => void>();
-  /** A second operator link, for what needs scopes the first was never given: see `watch`. */
-  private watcher: GatewayLink | undefined;
-  private watching: string[] = [];
+  /** Scopes wanted beyond the two Axis starts with, and the set a setup code now being redeemed asks for: see `watch`. */
+  private wanted: string[] = [];
+  private asking: string[] | undefined;
   private readonly linkCommon: Pick<LinkOptions, "displayName" | "version" | "log" | "onState" | "timing">;
   private invokeHandler: InvokeHandler | undefined;
   private defaultAgentId: string | undefined;
@@ -116,19 +120,35 @@ export class GatewayClient implements Agent, Credentials {
     this.operator = new GatewayLink({
       ...common,
       role: "operator",
-      scopes: ["operator.read", "operator.write"],
+      scopes: this.granted(),
       caps: [],
+      // A wider set the gateway will not honour after all must not cost the turns their link.
+      onRefused: (code) => {
+        if (code !== "AUTH_SCOPE_MISMATCH" || this.granted().length === BASE_SCOPES.length) return;
+        options.log("gateway refused the wider scopes; going back to the ones Axis had");
+        this.asking = undefined;
+        this.store.setMeta(META.scopes, undefined);
+        this.operator.setScopes([...BASE_SCOPES]);
+      },
       onEvent: (event, payload) => {
         if (event === "agent") for (const listener of this.agentListeners) listener(payload);
         else for (const listener of this.eventListeners) listener(event, payload);
       },
       onConnected: () => {
+        // A pairing that asked for more has been approved with it.
+        if (this.asking) {
+          this.store.setMeta(META.scopes, JSON.stringify(this.asking));
+          options.log(`gateway granted ${this.asking.join(", ")}`);
+          this.asking = undefined;
+        }
         this.defaultAgentId = undefined;
         this.retireBootstrap();
         // The setup code is free now. A node token that came with this
         // handshake is used as it is. Without one, the node presents the code
         // itself and asks for its own role.
         if (!this.node.connected) this.node.retryNow(Boolean(this.deviceToken("node")));
+        // Whatever was asked while Axis was not listening is still waiting there.
+        for (const listener of this.eventListeners) listener("watch.connected", {});
       },
     });
     this.node = new GatewayLink({
@@ -158,59 +178,40 @@ export class GatewayClient implements Agent, Credentials {
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     this.operator.stop();
     this.node.stop();
-    this.watcher?.stop();
+  }
+
+  /** The scopes the gateway has granted this device's operator role, as far as Axis knows. */
+  private granted(): string[] {
+    try {
+      const saved = JSON.parse(this.store.getMeta(META.scopes) ?? "null");
+      if (Array.isArray(saved) && saved.every((scope) => typeof scope === "string") && saved.length) return saved;
+    } catch {
+      // Unreadable is the same as never saved.
+    }
+    return [...BASE_SCOPES];
   }
 
   /**
-   * Listens for what the first operator link has no scope for: questions agents put to the person
-   * (`operator.questions`) and approvals they wait on (`operator.approvals`). A scope the gateway has
-   * not granted this device yet has to be approved there by a person, and until then the connection
-   * that asks for it is refused. So the asking is done on a link of its own: turns and tool calls go on
-   * over the first two whatever becomes of this one. It shares the operator's token and may store a
-   * newer one the gateway hands it, but can never drop the token or spend a setup code.
+   * Says which scopes Axis needs beyond its own turns: `operator.questions` to hear the questions
+   * agents put to the person, `operator.approvals` for the approvals they wait on.
+   *
+   * The gateway grants a device its scopes when a person approves its pairing, and a token for a
+   * narrower set is refused outright when more is asked with it (`AUTH_SCOPE_MISMATCH`, seen on the
+   * real gateway; so is a connection with no credential at all). The one way to more is the way in:
+   * a setup code. So nothing changes on the links here. The wider set is asked for the next time a
+   * setup code is applied, and granted when that pairing is approved; until then the status says
+   * which scopes are missing. Should the gateway refuse the wider set after all, the operator link
+   * goes back to what it had.
    */
   watch(scopes: string[]): void {
-    const wanted = [...new Set(scopes)].sort();
-    if (wanted.join() === this.watching.join()) return;
-    this.watching = wanted;
-    this.watcher?.stop();
-    this.watcher = undefined;
-    if (!wanted.length) return void this.options.onStateChange?.();
-    const outer = this;
-    const credentials: Credentials = {
-      url: () => outer.url(),
-      identity: () => outer.device,
-      deviceToken: () => outer.deviceToken("operator"),
-      bootstrapToken: () => undefined,
-      mayRedeem: () => false,
-      bootstrapRejected: () => undefined,
-      storeTokens: (_from, tokens) => {
-        if (tokens.operator) outer.storeTokens("operator", { operator: tokens.operator });
-      },
-      dropDeviceToken: () => undefined,
-    };
-    this.watcher = new GatewayLink({
-      ...this.linkCommon,
-      credentials,
-      role: "operator",
-      scopes: ["operator.read", ...wanted],
-      caps: [],
-      // Only what this link is for: the first link already hears the rest.
-      onEvent: (event, payload) => {
-        if (!/^(question|exec\.approval|plugin\.approval)\./.test(event)) return;
-        for (const listener of this.eventListeners) listener(event, payload);
-      },
-      onConnected: () => {
-        for (const listener of this.eventListeners) listener("watch.connected", {});
-      },
-    });
-    this.watcher.start();
+    const before = this.wanted.join();
+    this.wanted = [...new Set(scopes)].sort();
+    if (before !== this.wanted.join()) this.options.onStateChange?.();
   }
 
-  /** Asks the gateway something over the watching link. */
+  /** Asks the gateway something that needs one of the scopes `watch` asked for. */
   callWatch(method: string, params: unknown): Promise<any> {
-    if (!this.watcher?.connected) return Promise.reject(new Error("the gateway has not let Axis listen for this yet"));
-    return this.watcher.request(method, params);
+    return this.operator.request(method, params);
   }
 
   /** Sets what runs when an agent calls one of the node's commands. */
@@ -290,6 +291,11 @@ export class GatewayClient implements Agent, Credentials {
     const socketUrl = toSocketUrl(chosen);
     this.store.setMeta(META.url, chosen);
     this.store.setMeta(META.bootstrap, decoded.bootstrapToken);
+    // Pairing again is the moment to ask for the scopes that are wanted and not yet held.
+    const wider = [...new Set([...BASE_SCOPES, ...this.wanted])].sort();
+    this.asking = wider.length > BASE_SCOPES.length ? wider : undefined;
+    if (!this.asking) this.store.setMeta(META.scopes, undefined);
+    this.operator.setScopes(wider);
     this.operator.retryNow();
     this.node.retryNow();
     return { url: socketUrl };
@@ -338,8 +344,14 @@ export class GatewayClient implements Agent, Credentials {
       commands: this.options.commands,
       operator: link(this.operator),
       node: link(this.node),
-      /** The link that listens for questions and approvals, when either is switched on. */
-      watch: this.watcher ? { ...link(this.watcher), scopes: this.watching } : null,
+      /** Scopes beyond its own turns: the ones Axis wants, and how the request for those it lacks stands. */
+      watch: this.wanted.length
+        ? {
+            scopes: this.wanted,
+            missing: this.wanted.filter((scope) => !this.granted().includes(scope)),
+            state: this.operator.state,
+          }
+        : null,
     };
   }
 

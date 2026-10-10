@@ -187,6 +187,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     source: gateway,
     questions: () => config.mirrorQuestions,
     approvals: () => config.mirrorApprovals,
+    listening: () => gateway.status().watch?.missing.includes("operator.questions") === false,
     onChange: (sessionKey) => cards.refresh(sessionKey),
     log,
     note: (text) => activity.note("agent", "", text, "info"),

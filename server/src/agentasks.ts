@@ -36,6 +36,8 @@ export interface AgentAsksOptions {
   route: AskRoute;
   questions: () => boolean;
   approvals: () => boolean;
+  /** False while the gateway has not let Axis hear questions yet, so it is not asked what it would refuse. */
+  listening?: () => boolean;
   /** Told when what a session waits on changes, so its task on the screens can say so. */
   onChange?: (sessionKey: string) => void;
   /** What Axis signs an answer with. */
@@ -93,7 +95,7 @@ export class AgentAsks {
 
   /** Questions asked while Axis was not listening are still waiting on the gateway. */
   private async catchUp(): Promise<void> {
-    if (!this.options.questions()) return;
+    if (!this.options.questions() || this.options.listening?.() === false) return;
     try {
       const reply = await this.options.source.callWatch("question.list", {});
       for (const record of Array.isArray(reply?.questions) ? reply.questions : []) {

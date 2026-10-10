@@ -4,12 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.18.1 (2026-10-10)
+
+- The scopes for questions and approvals are asked for when Axis is paired again with a setup code, and granted when that pairing is approved. 0.18.0 asked for them on a third link beside the two it has; the real gateway refuses that (a token for fewer scopes is refused when more are asked with it, and so is a connection with no credential), so the third link is gone. With either switch on and the scope missing, the Agent tools page says to pair again. If the gateway refuses the wider set after all, the operator link goes back to the scopes it had.
+
 ## 0.18.0 (2026-10-10)
 
 - **An OpenClaw agent's questions reach you on a device.** When an agent on the linked gateway asks the person something (`question.requested`), Axis puts it to them the way its own ask tool does: spoken and shown on the device last used, with the choices to tap or say, and the answer goes back to the gateway (`question.resolve`). While Home Assistant's Away switch is on it goes to a phone as a notification. It can still be answered wherever else the gateway shows it; the first answer counts and Axis takes its own question back. Secrets and picks of several are never asked for on a device. A switch on the Agent tools page, on by default (`AXIS_MIRROR_QUESTIONS=0` to start with it off).
 - **Approvals on a device.** When an agent waits for leave to run a command or use a tool (`exec.approval.requested`, `plugin.approval.requested`), a device with a screen shows what it is, silently, with Allow once and Deny. Only a tap allows; something heard can only refuse; a standing permission is never given from a device. A switch on the Agent tools page, off by default (`AXIS_MIRROR_APPROVALS=1` to start with it on).
 - **The task line says what is being waited on.** A mirrored task whose session has a question or an approval open reads "needs you" with the question, or "approve: <command>", while the agent's turn is still running.
-- Both need a scope the gateway has not given Axis before (`operator.questions`, `operator.approvals`), approved there by a person once. Axis asks for them on a third link of its own, so turns and tool calls carry on while the request waits. The Agent tools page says how that link stands.
+- Both need a scope the gateway has not given Axis before (`operator.questions`, `operator.approvals`). See 0.18.1 for how they are granted.
 - `ask` inside Axis can be shown without being spoken and can be taken back.
 
 ## 0.17.0 (2026-10-10)
