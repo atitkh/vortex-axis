@@ -123,9 +123,10 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     provider: process.env.AXIS_TALK_PROVIDER || undefined,
     log,
   });
+  // Set once: nothing that reloads the other services touches it.
+  services.talk = talk;
   const reloadServices = () => {
     applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
-    services.talk = talk;
     Object.assign(services, options.services);
     void checkHealth();
   };
