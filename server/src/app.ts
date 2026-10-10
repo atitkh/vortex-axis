@@ -19,6 +19,7 @@ import { Live } from "./live.js";
 import { createHttpHandler } from "./http.js";
 import { AgentAsks } from "./agentasks.js";
 import { CardMirror } from "./cards.js";
+import { RealtimeTalk } from "./talk.js";
 import { Progress } from "./progress.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
@@ -115,8 +116,16 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // One object for the life of the process: the turn logic reads it on every
   // turn, so a settings change takes effect without a restart.
   const services: Services = {};
+  // PROTOTYPE: the gateway's realtime voice, for devices set to it. It talks in the same conversation as typed and spoken turns.
+  const talk = new RealtimeTalk({
+    source: gateway,
+    sessionKey: () => (gateway.agentId() ? `agent:${gateway.agentId()}:${config.gateway.sessionKey}` : undefined),
+    provider: process.env.AXIS_TALK_PROVIDER || undefined,
+    log,
+  });
   const reloadServices = () => {
     applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
+    services.talk = talk;
     Object.assign(services, options.services);
     void checkHealth();
   };
@@ -321,6 +330,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       backup.stop();
       progress.stop();
       cards.stop();
+      talk.stop();
       asks.stop();
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);

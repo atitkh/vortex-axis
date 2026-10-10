@@ -70,6 +70,15 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     help: "A device with a screen is held at or below this brightness in quiet hours.",
   },
   {
+    key: "voiceMode",
+    label: "Who hears and speaks (prototype)",
+    kind: "choice",
+    group: "Axis",
+    options: ["local", "realtime"],
+    default: "local",
+    help: "\"local\" is Axis's own chain: its speech recognition, the agent, its voice. \"realtime\" is a trial: what is said goes through the OpenClaw gateway to a realtime voice model in the cloud, which answers in its own voice and hands real work to the agent. Quicker for small things; the sound leaves the house and is paid for by the minute. Needs an OpenClaw gateway with a realtime Talk provider.",
+  },
+  {
     key: "idleLooksOff",
     label: "Idle looks switched off",
     kind: "text",

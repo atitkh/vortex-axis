@@ -1,3 +1,4 @@
+import type { RealtimeTalk } from "./talk.js";
 import { doingFor } from "./doing.js";
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
@@ -14,6 +15,8 @@ export interface Services {
   stt?: SpeechToText | undefined;
   tts?: TextToSpeech | undefined;
   agent?: Agent | undefined;
+  /** PROTOTYPE: a realtime voice model that hears and speaks itself, for devices set to `voiceMode: realtime`. */
+  talk?: RealtimeTalk | undefined;
 }
 
 /** What the turn logic needs from the hub. */
@@ -754,6 +757,56 @@ export class TurnManager {
       let text = "";
       if ("say" in input) {
         // Nothing to transcribe and nobody to ask: the words are already here.
+      } else if ("pcm" in input && this.services.talk && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id)) {
+        // PROTOTYPE: the whole turn is the realtime voice model's. It hears the utterance, answers in its own
+        // voice, and hands real work to the agent itself. An open question is still answered the local way.
+        const talk = this.services.talk;
+        state("thinking");
+        stage("thinking");
+        turn.thinking = true;
+        const speaker = caps.includes("speaker") ? new Speaker(this.port, session, turnId, talk.format, signal, () => Boolean(turn.silenced)) : undefined;
+        let shown = "";
+        const result = await talk.converse(id, input.pcm, input.format, {
+          signal,
+          onHeard: (heard) => {
+            if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: heard.slice(0, 4000) });
+            live?.words(id, turnId, { heard });
+          },
+          onText: (said) => {
+            // Only what is new is sent on, as the pieces of a spoken reply are.
+            if (!said.startsWith(shown) || said.length <= shown.length) return;
+            const piece = said.slice(shown.length);
+            shown = said;
+            if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece, final: false });
+          },
+          onConsult: () => {
+            if (turn.thinking && hasScreen) this.port.send(session, { t: "turn", turnId, state: "thinking", doing: "tool" });
+          },
+          onAudio: async (chunk) => {
+            if (turn.thinking) {
+              turn.thinking = false;
+              stage("speaking");
+              record.firstAudioMs ??= Date.now() - started;
+            }
+            await speaker?.write(chunk);
+          },
+        });
+        if (signal.aborted) return "interrupted";
+        if (!result.answered) {
+          record.outcome = "no_speech";
+          state("idle", "no speech heard");
+          return undefined;
+        }
+        live?.words(id, turnId, { said: result.said });
+        await speaker?.flush();
+        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: result.said.slice(0, 16000), final: true });
+        if (speaker?.started) {
+          this.port.send(session, { t: "speak.end", turnId });
+          if (!turn.silenced) await Promise.race([new Promise<void>((resolve) => (turn.playbackDone = resolve)), sleep(speaker.aheadMs() + this.playbackGraceMs, signal)]);
+          if (signal.aborted) return "interrupted";
+        }
+        state("idle");
+        return undefined;
       } else if ("pcm" in input) {
         if (!stt) throw new TurnFailure("upstream_down", "speech recognition is not set up");
         state("transcribing");
