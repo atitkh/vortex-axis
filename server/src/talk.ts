@@ -94,7 +94,7 @@ export class RealtimeTalk {
     options.source.onEvent((event, payload) => {
       if (event !== "talk.event") return;
       // PROTOTYPE: every event but the sound itself is logged, to learn what the relay says.
-      if (payload?.type !== "audio") options.log?.(`realtime voice event: ${JSON.stringify({ ...payload, talkEvent: payload?.talkEvent?.type }).slice(0, 400)}`);
+      if (payload?.type !== "audio" && payload?.type !== "mark") options.log?.(`realtime voice event: ${JSON.stringify({ ...payload, talkEvent: payload?.talkEvent?.type }).slice(0, 400)}`);
       if (typeof payload?.relaySessionId !== "string") return;
       for (const session of this.open.values()) if (session.id === payload.relaySessionId) session.listener?.(payload);
     });
