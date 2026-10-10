@@ -146,6 +146,21 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE turns ADD COLUMN started_by TEXT;
   `,
+  // Long work agents reported on, once it is over: what it was, how far it got and how long it took.
+  `
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    note TEXT NOT NULL,
+    done INTEGER,
+    total INTEGER,
+    ending TEXT NOT NULL,
+    started_at INTEGER NOT NULL
+  );
+  CREATE INDEX tasks_at ON tasks (at);
+  `,
 ];
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -228,6 +243,21 @@ export interface AgentTokenRecord {
   name: string;
   createdAt: number;
   lastUsedAt: number | null;
+}
+
+/** Long work an agent reported on, once it is over. */
+export interface TaskRecord {
+  /** When it ended. */
+  at: number;
+  taskId: string;
+  title: string;
+  /** The last few words said about it. */
+  note: string;
+  done?: number;
+  total?: number;
+  /** done: the agent said so; cleared: taken off by hand; abandoned: nobody reported on it any more. */
+  ending: "done" | "cleared" | "abandoned";
+  startedAt: number;
 }
 
 /** One wake word as a device reported it. */
@@ -527,13 +557,49 @@ export class Store {
     return rows.map((r) => ({ at: r.at, clientId: r.client_id, word: r.word, score: r.score, level: r.level, outcome: r.outcome }));
   }
 
+  addTask(t: TaskRecord): void {
+    this.db
+      .prepare("INSERT INTO tasks (at, task_id, title, note, done, total, ending, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(t.at, t.taskId, t.title, t.note, t.done ?? null, t.total ?? null, t.ending, t.startedAt);
+  }
+
+  /** Tasks that are over, the latest first. */
+  tasksEnded(limit = 50): TaskRecord[] {
+    const rows = this.db.prepare("SELECT * FROM tasks ORDER BY at DESC, id DESC LIMIT ?").all(limit) as unknown as {
+      at: number;
+      task_id: string;
+      title: string;
+      note: string;
+      done: number | null;
+      total: number | null;
+      ending: TaskRecord["ending"];
+      started_at: number;
+    }[];
+    return rows.map((r) => ({
+      at: r.at,
+      taskId: r.task_id,
+      title: r.title,
+      note: r.note,
+      ...(r.done !== null ? { done: r.done } : {}),
+      ...(r.total !== null ? { total: r.total } : {}),
+      ending: r.ending,
+      startedAt: r.started_at,
+    }));
+  }
+
+  /** Clients a notification can be sent to. */
+  pushClientIds(): string[] {
+    return (this.db.prepare("SELECT client_id FROM push_subscriptions").all() as { client_id: string }[]).map((r) => r.client_id);
+  }
+
   /** How many clients have a push subscription. */
   pushSubscriptionCount(): number {
     return Number((this.db.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get() as { n: number }).n);
   }
 
-  /** Removes turns, events and wake reports older than `before`. */
+  /** Removes turns, events, wake reports and ended tasks older than `before`. */
   pruneActivity(before: number): void {
+    this.db.prepare("DELETE FROM tasks WHERE at < ?").run(before);
     this.db.prepare("DELETE FROM wakes WHERE at < ?").run(before);
     this.db.prepare("DELETE FROM turns WHERE at < ?").run(before);
     this.db.prepare("DELETE FROM events WHERE at < ?").run(before);

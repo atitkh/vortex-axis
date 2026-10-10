@@ -234,7 +234,7 @@ String plain(const String &text) {
     return out;
 }
 
-void textLine(int y, uint8_t size, uint16_t color, const String &text) {
+void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPermille, uint16_t barColor) {
     const int w = width(), h = min(lineHeight(size), BAND_MAX_HEIGHT);
     const GFXfont *font = fontFor(size);
     String shown = plain(text);
@@ -250,6 +250,12 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text) {
     band->setTextWrap(false);
     band->setCursor((w - widthIn(font, shown)) / 2, baselineFor(size));
     band->print(shown);
+    if (barPermille >= 0) {
+        // Half the screen wide, under the middle of the text: a dim track and the part that is done.
+        const int bw = w / 2, bx = (w - bw) / 2, by = h - 3;
+        band->fillRect(bx, by, bw, 3, 0x2104);
+        band->fillRect(bx, by, bw * min(barPermille, 1000) / 1000, 3, barColor);
+    }
 
     pushBand(y, h);
 }

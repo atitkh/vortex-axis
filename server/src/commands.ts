@@ -154,8 +154,9 @@ export const NODE_TOOLS: NodeTool[] = [
     description:
       "Show the user, silently, how a long piece of work of yours is going: a line on their VorteX Axis screens such as " +
       "\"Backup, 3 of 5, deploying\". Use it for work that takes more than a minute or two: call it when you start, at each " +
-      "step, when you are waiting on the user (state blocked), and when you finish (state done). Nothing is spoken; to say " +
-      "something aloud use vortex_axis_say. A task nobody reports on for half an hour is taken off the screens.",
+      "step, when you are waiting on the user (state blocked), and when you finish (state done). Give the steps by name " +
+      "once, in `steps`, and the screens can list them with the one in hand marked. Nothing is spoken; to say something " +
+      "aloud use vortex_axis_say. A task nobody reports on for half an hour is taken off the screens.",
     parameters: {
       type: "object",
       properties: {
@@ -163,7 +164,20 @@ export const NODE_TOOLS: NodeTool[] = [
         title: { type: "string", description: "A word or two for the task, such as \"Backup\". Needed the first time; kept afterwards." },
         note: { type: "string", description: "What is happening now, in a few words." },
         done: { type: "integer", description: "Steps finished so far." },
-        total: { type: "integer", description: "Steps in all." },
+        total: { type: "integer", description: "Steps in all. Not needed when you give steps." },
+        steps: {
+          type: "array",
+          maxItems: 12,
+          description:
+            "The steps by name, 12 at most, a few words each. Plain names are enough: `done` then says how many are behind you. " +
+            "Or give each as {step, status} with status pending, in_progress or completed. Kept until you give them again.",
+          items: {
+            anyOf: [
+              { type: "string" },
+              { type: "object", properties: { step: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "completed"] } }, required: ["step"] },
+            ],
+          },
+        },
         state: { type: "string", enum: ["running", "blocked", "done"], description: "running (the default), blocked when you are waiting for the user, done when it is finished." },
         id: { type: "string", description: "Only when you have several tasks at once: a short name to tell them apart." },
       },
@@ -305,8 +319,8 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const state = text(params.state);
         if (state !== undefined && state !== "running" && state !== "blocked" && state !== "done") throw new Error("state must be running, blocked or done");
         const whole = (value: unknown) => (typeof value === "number" ? value : undefined);
-        const { task, screens } = board.update({ id, title: text(params.title), note: text(params.note), done: whole(params.done), total: whole(params.total), state });
-        return { task: { id: task.id, title: task.title, note: task.note, done: task.done ?? null, total: task.total ?? null, state: task.state }, screens };
+        const { task, screens } = board.update({ id, title: text(params.title), note: text(params.note), done: whole(params.done), total: whole(params.total), state, steps: params.steps });
+        return { task: { id: task.id, title: task.title, note: task.note, done: task.done ?? null, total: task.total ?? null, state: task.state, ...(task.steps ? { steps: task.steps.length } : {}) }, screens };
       }
 
       case "vortex.axis.diag":

@@ -1910,10 +1910,36 @@ function countdown(ms) {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
+const TASK_ENDINGS = { done: ["done", "good"], cleared: ["cleared", ""], abandoned: ["no word for half an hour", "warn"] };
+
+/** Long work agents reported on that is over, the latest first. */
+function renderTasksEnded(now) {
+  const ended = now?.tasksEnded ?? [];
+  $("live-away").textContent = now?.away ? "Home Assistant says you are away, so a finished task also goes to your phone." : "";
+  if (!ended.length) return $("live-tasks").replaceChildren(h("p", { class: "empty" }, "No agent task has finished yet."));
+  $("live-tasks").replaceChildren(
+    h("table", { class: "numbers" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Task"), h("th", {}, "How it ended"), h("th", {}, "Last word"), h("th", { class: "num" }, "Took"), h("th", { class: "num" }, "Ended"))),
+      h("tbody", {},
+        ...ended.map((t) =>
+          h("tr", {},
+            h("td", {}, t.title),
+            h("td", {}, stat(...(TASK_ENDINGS[t.ending] ?? [t.ending, ""])), t.total ? ` step ${t.done ?? 0} of ${t.total}` : ""),
+            h("td", {}, t.note),
+            h("td", { class: "num" }, countdown(t.at - t.startedAt)),
+            h("td", { class: "num" }, ago(t.at)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /** What is going on at this moment: timers running, questions waiting for an answer, devices mid-turn. */
 function renderNow() {
   const box = $("live-now");
   const now = lastNow;
+  renderTasksEnded(now);
   const kept = lastClients.filter((c) => c.waiting);
   const notified = lastClients.filter((c) => c.notified);
   const tasks = now?.tasks ?? [];
@@ -1928,7 +1954,11 @@ function renderNow() {
       h("tr", {},
         h("td", {}, "Agent task"),
         h("td", {}, t.title),
-        h("td", {}, t.total ? `Step ${t.done ?? 0} of ${t.total}${t.note ? `: ${t.note}` : ""}` : t.note, " ", stat(...(TASK_STATES[t.state] ?? [t.state, ""]))),
+        h("td", {},
+          t.total ? `Step ${t.done ?? 0} of ${t.total}${t.note ? `: ${t.note}` : ""}` : t.note, " ", stat(...(TASK_STATES[t.state] ?? [t.state, ""])),
+          t.total ? h("progress", { class: "task-progress", max: String(t.total), value: String(t.state === "done" ? t.total : (t.done ?? 0)) }) : "",
+          t.steps?.length ? h("ol", { class: "task-steps" }, ...t.steps.map((step) => h("li", { "data-state": step.state }, step.text))) : "",
+        ),
         h("td", { class: "num" }, `for ${countdown(now.at - t.startedAt)}`),
         h("td", { class: "num" },
           h("button", {

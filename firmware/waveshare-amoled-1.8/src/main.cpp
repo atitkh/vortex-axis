@@ -30,6 +30,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Boards of different revisions need different values. Use the \"Show screen edges\" action: all four sides of the frame should be visible, with the cross in the middle.", "16", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", "The microphone clips on the board's own voice above about 50.", "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
+    {"taskChime", "Task chime", "toggle", "Sound", "Two soft notes when an agent's long task finishes. Never in quiet hours.", "1", 0, 0, nullptr, nullptr},
     {"wakeListen", "Wake word", "toggle", "Listening", "Off leaves tap-to-talk as the only way in.", "1", 0, 0, nullptr, nullptr},
     {"wakeSense", "Wake word cutoff", "number", "Listening", "Lower wakes more easily but also by mistake. 0 uses the model's own (87).", "0", 0, 99, "%", nullptr},
     {"bargeIn", "Wake word interrupts speech", "toggle", "Listening", "Experimental, off by default. With echo cancelling the device takes about 20 dB of its own voice out at moderate volume and about 10 dB when loud, which is not enough to stop it waking on its own speech. Tap to interrupt.", "0", 0, 0, nullptr, nullptr},
@@ -155,6 +156,20 @@ static uint16_t wantHeadColor = 0;
 static String shownHead, shownBody[MAX_BODY_LINES];
 static uint16_t shownHeadColor = 0;
 static bool redrawAll = true;
+// A thin bar under the head, in thousandths; -1 for none.
+static int wantBar = -1, shownBar = -1;
+static uint16_t wantBarColor = 0, shownBarColor = 0;
+// Lines that take the place of the body text, each in its own colour: the steps of an agent's task.
+static String wantList[MAX_BODY_LINES];
+static uint16_t wantListColor[MAX_BODY_LINES];
+static int wantListCount = 0;
+// While this is in the future the steps of the agent's task are listed under its line.
+static uint32_t stepsOpenUntil = 0;
+static const uint32_t STEPS_OPEN_MS = 20000;
+static uint8_t seenChimes = 0;
+static const uint16_t COLOR_DIM = 0x528A;   // steps already behind
+static const uint16_t COLOR_BAR = 0x6EBD;   // the idle face's cyan
+static const uint16_t COLOR_DONE = 0x57EA;  // green
 // Where the top of the face is now. -1 until it has been placed once.
 static int faceY = -1;
 static bool hasSpeaker = false, hasMic = false;
@@ -166,6 +181,7 @@ static bool askDrawnListening = false;
 static const uint16_t COLOR_PILL = 0x1CCA;  // the listening face's mint, dimmed
 static String timerLine(uint32_t now);
 static String taskLine();
+static void listSteps();
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
@@ -257,6 +273,8 @@ static void show(const String &head, uint16_t headColor, const String &body) {
     wantHead = display::plain(head);
     wantHeadColor = headColor;
     wantBody = display::plain(body);
+    wantBar = -1;
+    wantListCount = 0;
 }
 
 /**
@@ -265,7 +283,7 @@ static void show(const String &head, uint16_t headColor, const String &body) {
  * appears once it is out of the way.
  */
 static void layout() {
-    const bool text = !wantHead.isEmpty() || !wantBody.isEmpty();
+    const bool text = !wantHead.isEmpty() || !wantBody.isEmpty() || wantListCount > 0;
     const int target = text ? faceTop() : faceMiddle();
     if (faceY < 0) faceY = target;
     if (faceY != target) {
@@ -281,18 +299,32 @@ static void layout() {
     if (text && faceY != faceTop()) return;
 
     const String head = text ? wantHead : String("");
-    if (redrawAll || head != shownHead || wantHeadColor != shownHeadColor) {
-        if (text || !shownHead.isEmpty() || redrawAll) display::textLine(headTop(), 3, wantHeadColor, head);
+    const int bar = text ? wantBar : -1;
+    if (redrawAll || head != shownHead || wantHeadColor != shownHeadColor || bar != shownBar || wantBarColor != shownBarColor) {
+        if (text || !shownHead.isEmpty() || redrawAll) display::textLine(headTop(), 3, wantHeadColor, head, bar, wantBarColor);
         shownHead = head;
         shownHeadColor = wantHeadColor;
+        shownBar = bar;
+        shownBarColor = wantBarColor;
     }
     String lines[MAX_BODY_LINES];
+    uint16_t colors[MAX_BODY_LINES];
     const int rows = bodyLines();
-    wrap(wantBody, lines, rows);
+    if (wantListCount > 0) {
+        for (int i = 0; i < rows; i++) {
+            lines[i] = i < wantListCount ? wantList[i] : String("");
+            colors[i] = i < wantListCount ? wantListColor[i] : COLOR_BODY;
+        }
+    } else {
+        wrap(wantBody, lines, rows);
+        for (int i = 0; i < rows; i++) colors[i] = COLOR_BODY;
+    }
     for (int i = 0; i < rows; i++) {
-        if (!redrawAll && lines[i] == shownBody[i]) continue;
-        display::textLine(bodyTop() + i * display::lineHeight(2), 2, COLOR_BODY, lines[i]);
-        shownBody[i] = lines[i];
+        // What is on a row is its words and its colour, so a step that changes colour is drawn again.
+        const String key = colors[i] == COLOR_BODY ? lines[i] : String(colors[i], HEX) + ":" + lines[i];
+        if (!redrawAll && key == shownBody[i]) continue;
+        display::textLine(bodyTop() + i * display::lineHeight(2), 2, colors[i], lines[i]);
+        shownBody[i] = key;
     }
     redrawAll = false;
 }
@@ -382,9 +414,49 @@ static void present() {
     // A running timer counts down above the words; a service that is down matters more.
     // An agent's task shares the line with a timer, turn and turn about, so neither hides the other.
     const String timer = timerLine(now), task = taskLine();
-    const bool showTask = !task.isEmpty() && (timer.isEmpty() || (now / 4000) % 2 == 1);
+    // A tap on the task's line lists its steps for a while; the line then stays put.
+    if (task.isEmpty() || state.taskSteps.isEmpty()) stepsOpenUntil = 0;
+    const bool open = !down && stepsOpenUntil && (int32_t)(stepsOpenUntil - now) > 0;
+    if (!open) stepsOpenUntil = 0;
+    const bool showTask = !task.isEmpty() && (open || timer.isEmpty() || (now / 4000) % 2 == 1);
     const String head = down ? String(down) : showTask ? task : timer;
-    show(head, down || (showTask && state.taskState == 1) ? COLOR_WARN : COLOR_HEAD, keep ? state.reply : String(""));
+    // With steps counted in the line, the words on what is happening now go under it.
+    const String doing = showTask && !down && state.taskState == 0 && state.taskTotal ? state.taskNote : String("");
+    show(head, down || (showTask && state.taskState == 1) ? COLOR_WARN : COLOR_HEAD, keep && !open ? state.reply : doing);
+    if (!showTask || down) return;
+    if (state.taskTotal || state.taskState == 2) {
+        wantBar = state.taskState == 2 ? 1000 : (int)(1000L * max((int)state.taskDone, 0) / max((int)state.taskTotal, 1));
+        wantBarColor = state.taskState == 2 ? COLOR_DONE : state.taskState == 1 ? COLOR_WARN : COLOR_BAR;
+    }
+    if (open) listSteps();
+}
+
+/** Fills the list with the task's steps, as many as fit, keeping the one in hand in view. */
+static void listSteps() {
+    const String &all = state.taskSteps;
+    int count = 0, current = -1, firstPending = -1;
+    for (int at = 0; at < (int)all.length(); count++) {
+        if (current < 0 && all[at] == '>') current = count;
+        if (firstPending < 0 && all[at] == '-') firstPending = count;
+        const int end = all.indexOf('\n', at);
+        at = end < 0 ? all.length() : end + 1;
+    }
+    if (current < 0) current = firstPending >= 0 ? firstPending : count - 1;
+    const int rows = bodyLines();
+    const int first = constrain(current - 1, 0, max(0, count - rows));
+    int index = 0;
+    wantListCount = 0;
+    for (int at = 0; at < (int)all.length() && wantListCount < rows; index++) {
+        int end = all.indexOf('\n', at);
+        if (end < 0) end = all.length();
+        if (index >= first && end > at) {
+            const char mark = all[at];
+            wantList[wantListCount] = display::plain((mark == '>' ? "> " : "") + all.substring(at + 1, end));
+            wantListColor[wantListCount] = mark == 'x' ? COLOR_DIM : mark == '>' ? COLOR_HEAD : COLOR_BODY;
+            wantListCount++;
+        }
+        at = end + 1;
+    }
 }
 
 /** "Backup 3/5", "Backup: waiting for you", "Backup done". Empty with no task. */
@@ -502,6 +574,22 @@ static void onAskTap(const AskLayout &l) {
  * the same as interrupting speech.
  */
 static void onTap() {
+    // A task with named steps: a tap on its line lists them, and a tap on the list puts it away.
+    const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
+    if (quiet && state.link == axis::Link::Online && state.taskCount && !state.taskSteps.isEmpty()) {
+        int px, py, x, y;
+        touch::tapPoint(px, py);
+        display::toLogical(px, py, x, y);
+        if (stepsOpenUntil && y >= headTop() - 12) {
+            stepsOpenUntil = 0;
+            return;
+        }
+        if (!stepsOpenUntil && y >= headTop() - 12 && y < bodyTop() + 14) {
+            stepsOpenUntil = millis() + STEPS_OPEN_MS;
+            if (!stepsOpenUntil) stepsOpenUntil = 1;
+            return;
+        }
+    }
     if (!hasMic) return;
     if (client.listening()) {
         client.stopListening();
@@ -629,6 +717,11 @@ void loop() {
     if (changed) {
         state = client.snapshot();
         seenRevision = state.revision;
+        // Axis marks a task that has just finished; the sound is this device's to make or not.
+        if (state.taskChimes != seenChimes) {
+            seenChimes = state.taskChimes;
+            if (hasSpeaker && client.settingInt("taskChime", 1) != 0 && !speaker::playing() && !client.listening()) speaker::chime();
+        }
         if (state.settingsRevision != seenSettings) {
             seenSettings = state.settingsRevision;
             applySettings();

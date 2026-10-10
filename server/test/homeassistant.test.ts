@@ -124,6 +124,25 @@ describe("home assistant", () => {
     expect(JSON.parse(m.kept.get("homeassistant/notify/vortex_axis_hub/say_everywhere/config")!).name).toBe("Say everywhere");
   });
 
+  it("offers a switch Home Assistant turns on when the person is away", async () => {
+    await ready(["screen"], { name: "Desk" });
+    const m = await linked();
+    await expect.poll(() => m.kept.get("vortex-axis/hub/away"), WAIT).toBe("OFF");
+    expect(JSON.parse(m.kept.get("homeassistant/switch/vortex_axis_hub/away/config")!)).toMatchObject({
+      name: "Away",
+      unique_id: "vortex_axis_hub_away",
+      state_topic: "vortex-axis/hub/away",
+      command_topic: "vortex-axis/hub/away/set",
+    });
+    expect((await admin("GET", "/admin/now")).body.away).toBe(false);
+
+    m.send("vortex-axis/hub/away/set", "ON");
+    await expect.poll(() => m.kept.get("vortex-axis/hub/away"), WAIT).toBe("ON");
+    expect((await admin("GET", "/admin/now")).body.away).toBe(true);
+    m.send("vortex-axis/hub/away/set", "OFF");
+    await expect.poll(() => m.kept.get("vortex-axis/hub/away"), WAIT).toBe("OFF");
+  });
+
   it("speaks what Home Assistant sends, follows the device's state, and takes a volume", async () => {
     const { identity, client } = await ready(["speaker", "screen"], { name: "Desk" });
     await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { volume: 70 } });

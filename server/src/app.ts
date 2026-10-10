@@ -150,7 +150,33 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     },
   });
   // One function carries out every tool call, whichever door it came in by: the OpenClaw node here, MCP in http.ts.
-  const progress = new Progress(hub);
+  // A phone is told about a task only while the person is away from the screens: Home Assistant says so.
+  const tellPhones = (title: string, body: string, tag: string) => {
+    if (store.getMeta("away") !== "1") return;
+    for (const id of store.pushClientIds()) {
+      if (hub.session(id)) continue;
+      push.notify(id, { title, body, tag }).catch(() => undefined);
+    }
+  };
+  const progress = new Progress(hub, {
+    onBlocked: (task) => tellPhones(`${task.title}: needs you`, task.note || "The agent is waiting for you.", `task-${task.id}`),
+    onEnd: (task, ending) => {
+      const at = Date.now();
+      activity.task({
+        at,
+        taskId: task.id,
+        title: task.title,
+        note: task.note,
+        ...(task.done !== undefined ? { done: task.done } : {}),
+        ...(task.total !== undefined ? { total: task.total } : {}),
+        ending,
+        startedAt: task.startedAt,
+      });
+      if (ending !== "done") return;
+      const minutes = Math.max(1, Math.round((at - task.startedAt) / 60_000));
+      tellPhones(`${task.title} done`, task.note || `Finished in ${minutes} min.`, `task-${task.id}`);
+    },
+  });
   progress.start();
   const tools = new ToolAccess(store, activity);
   const invoke = tools.guard(

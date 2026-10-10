@@ -404,6 +404,7 @@ function connect() {
     nextTimer = undefined;
     renderTimer();
     show("task", false);
+    openTask(false);
     stopCapture(false);
     player.stop();
     renderPills();
@@ -516,6 +517,25 @@ function onMessage(message) {
         $("task-title").textContent = String(p.title ?? "");
         $("task-steps").textContent = Number(p.total) > 0 ? `${Math.max(0, Number(p.done))}/${p.total}` : "";
         $("task-note").textContent = p.state === "done" ? "done" : p.state === "blocked" ? `waiting for you${p.note ? `: ${p.note}` : ""}` : String(p.note ?? "");
+        // A thin bar says how far along it is; a press on the line lists the steps by name.
+        const total = Number(p.total) || 0;
+        const part = p.state === "done" ? 1 : total > 0 ? Math.min(1, Math.max(0, Number(p.done)) / total) : 0;
+        show("task-bar", total > 0 || p.state === "done");
+        $("task-fill").style.width = `${Math.round(part * 100)}%`;
+        $("task-bar").setAttribute("aria-valuenow", String(Math.round(part * 100)));
+        const steps = typeof p.steps === "string" && p.steps ? p.steps.split("\n") : [];
+        $("task").classList.toggle("has-steps", steps.length > 0);
+        const STEP = { x: "done", ">": "running" };
+        $("task-list").replaceChildren(
+          ...steps.map((line) => {
+            const item = document.createElement("li");
+            item.dataset.state = STEP[line[0]] ?? "pending";
+            item.textContent = line.slice(1);
+            return item;
+          }),
+        );
+        if (!steps.length) openTask(false);
+        if (p.chime) player.chime();
         send({ t: "command.result", id: message.id, ok: true });
       } else {
         send({ t: "command.result", id: message.id, ok: false, error: "this client does not do that" });
@@ -584,6 +604,15 @@ function renderTimer() {
   // An older Axis does not say which timer it is; then there is nothing to cancel by.
   $("timer-cancel").hidden = typeof nextTimer.id !== "number";
 }
+/** Opens or shuts the list of an agent task's steps, under its line. */
+function openTask(open) {
+  show("task-list", open);
+  $("task-line").setAttribute("aria-expanded", String(open));
+}
+$("task-line").addEventListener("click", () => {
+  if ($("task").classList.contains("has-steps")) openTask($("task-list").classList.contains("hidden"));
+});
+
 $("timer-cancel").addEventListener("click", async () => {
   if (!nextTimer || !identity) return;
   $("timer-cancel").disabled = true;
@@ -611,6 +640,24 @@ const player = {
   turnId: undefined,
   ended: false,
   volume: 1,
+
+  /** Two soft notes for an agent's task that has just finished. Silent when muted or when the page cannot make sound. */
+  chime() {
+    if (muted || this.volume === 0 || this.context?.state !== "running") return;
+    const context = this.context, at = context.currentTime;
+    [659.25, 880].forEach((hz, i) => {
+      const tone = context.createOscillator(), level = context.createGain();
+      tone.type = "sine";
+      tone.frequency.value = hz;
+      const start = at + i * 0.16;
+      level.gain.setValueAtTime(0, start);
+      level.gain.linearRampToValueAtTime(0.12, start + 0.02);
+      level.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+      tone.connect(level).connect(this.gain);
+      tone.start(start);
+      tone.stop(start + 0.55);
+    });
+  },
 
   /**
    * Makes sure there is something to play sound with, and wakes it. `pressed` says this is being called

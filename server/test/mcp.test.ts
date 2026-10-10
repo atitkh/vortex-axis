@@ -189,6 +189,59 @@ describe("progress on the screens", () => {
     expect(await call({ title: "Odd", done: 5, total: 3 })).toMatchObject({ isError: true });
   });
 
+  it("lists the steps by name, marks the finish with a sound once, and keeps what is over", async () => {
+    const token = await newToken();
+    const { client } = await ready(["screen"], { name: "Desk" });
+    const call = async (args: Record<string, unknown>) => (await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: args })).body.result;
+    const shown = async (from: number) => {
+      const command = await client.next("command", from, (m) => m.name === "progress.show");
+      client.send({ t: "command.result", id: command.id, ok: true });
+      return command.params;
+    };
+
+    // Plain names: `done` says how many are behind, and the next one is in hand.
+    let from = client.received.length;
+    expect((await call({ title: "Release", steps: ["Build", "Test", "Deploy"], done: 1, note: "running tests" })).structuredContent).toMatchObject({
+      task: { title: "Release", done: 1, total: 3, steps: 3 },
+    });
+    expect(await shown(from)).toEqual({ title: "Release", note: "running tests", done: 1, total: 3, state: "running", count: 1, steps: "xBuild\n>Test\n-Deploy" });
+
+    // The names are remembered, so a later report only moves along them.
+    from = client.received.length;
+    await call({ done: 2 });
+    expect(await shown(from)).toMatchObject({ done: 2, steps: "xBuild\nxTest\n>Deploy" });
+    expect((await admin("GET", "/admin/now")).body.tasks[0].steps).toEqual([
+      { text: "Build", state: "done" },
+      { text: "Test", state: "done" },
+      { text: "Deploy", state: "running" },
+    ]);
+
+    // Steps given with how each stands, the way an agent's own plan has them, are taken at their word.
+    from = client.received.length;
+    await call({ steps: [{ step: "Build", status: "completed" }, { step: "Test", status: "in_progress" }, { step: "Deploy", status: "pending" }] });
+    expect(await shown(from)).toMatchObject({ done: 1, total: 3, steps: "xBuild\n>Test\n-Deploy" });
+
+    // Finishing marks every step done and asks for a sound, once.
+    from = client.received.length;
+    await call({ state: "done" });
+    expect(await shown(from)).toMatchObject({ state: "done", done: 3, steps: "xBuild\nxTest\nxDeploy", chime: true });
+    from = client.received.length;
+    await call({ title: "Second", note: "starting" });
+    expect(await shown(from)).not.toHaveProperty("chime");
+    expect((await call({ action: "clear" })).structuredContent).toEqual({ cleared: 1 });
+
+    // Both are kept once over: the one that finished, and the one taken off before it did.
+    const ended = (await admin("GET", "/admin/now")).body.tasksEnded;
+    expect(ended).toMatchObject([
+      { title: "Second", ending: "cleared", note: "starting" },
+      { title: "Release", ending: "done", done: 3, total: 3 },
+    ]);
+
+    expect(await call({ title: "Odd", steps: "one, two" })).toMatchObject({ isError: true });
+    expect(await call({ title: "Odd", steps: [{ step: "One", status: "soon" }] })).toMatchObject({ isError: true });
+    expect(await call({ title: "Odd", steps: Array.from({ length: 13 }, (_, i) => `Step ${i}`) })).toMatchObject({ isError: true });
+  });
+
   it("tells a screen that connects later what is going on", async () => {
     const token = await newToken();
     await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: { title: "Build", note: "tests", done: 2, total: 4 } });

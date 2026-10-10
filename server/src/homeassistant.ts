@@ -48,6 +48,7 @@ export class HomeAssistant {
   private readonly mqtt: MqttClient;
   private readonly shown = new Map<string, Shown>();
   private hubShown = "";
+  private awayShown = "";
   private timer: NodeJS.Timeout | undefined;
 
   constructor(private readonly options: HomeAssistantOptions) {
@@ -62,6 +63,7 @@ export class HomeAssistant {
       // Everything is said again: the broker may be new, or have lost what it kept.
       this.shown.clear();
       this.hubShown = "";
+      this.awayShown = "";
       this.mqtt.publish(STATUS, "online", true);
       this.sync();
     });
@@ -70,10 +72,16 @@ export class HomeAssistant {
       if (payload === "online") {
         for (const entry of this.shown.values()) delete entry.state, delete entry.online, delete entry.volume;
         this.hubShown = "";
+        this.awayShown = "";
       }
     });
     this.mqtt.subscribe(`${BASE}/+/say`, (topic, payload) => this.say(topic.split("/")[1]!, payload));
     this.mqtt.subscribe(`${BASE}/+/volume/set`, (topic, payload) => this.setVolume(topic.split("/")[1]!, payload));
+    this.mqtt.subscribe(`${BASE}/hub/away/set`, (_topic, payload) => {
+      options.store.setMeta("away", payload.trim().toUpperCase() === "ON" ? "1" : "0");
+      this.awayShown = "";
+      this.sync();
+    });
   }
 
   /** How the link to the broker stands, for the admin page. The password in the address is never part of it. */
@@ -146,6 +154,21 @@ export class HomeAssistant {
 
     const online = String(clients.filter((c) => hub.session(c.id)).length);
     if (!this.hubShown) {
+      // Home Assistant knows whether the person is near their screens; Axis does not. An automation there
+      // turns this on when they leave, and an agent's finished task then reaches their phone as well.
+      this.mqtt.publish(
+        this.config("switch", "hub", "away"),
+        JSON.stringify({
+          name: "Away",
+          unique_id: "vortex_axis_hub_away",
+          state_topic: `${BASE}/hub/away`,
+          command_topic: `${BASE}/hub/away/set`,
+          icon: "mdi:account-arrow-right",
+          availability_topic: STATUS,
+          device: { ...HUB, sw_version: this.options.version },
+        }),
+        true,
+      );
       this.mqtt.publish(
         this.config("notify", "hub", "say_everywhere"),
         JSON.stringify({ ...this.sayEntity("hub", "Say everywhere"), device: { ...HUB, sw_version: this.options.version } }),
@@ -165,6 +188,8 @@ export class HomeAssistant {
       );
     }
     if (this.hubShown !== online) this.mqtt.publish(`${BASE}/hub/online`, (this.hubShown = online), true);
+    const away = store.getMeta("away") === "1" ? "ON" : "OFF";
+    if (this.awayShown !== away) this.mqtt.publish(`${BASE}/hub/away`, (this.awayShown = away), true);
   }
 
   private sayEntity(id: string, name: string) {

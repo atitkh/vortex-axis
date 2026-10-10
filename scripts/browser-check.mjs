@@ -302,8 +302,10 @@ try {
     app.hub.pushSettings();
 
     // Long work an agent reports on shows as one quiet line, and on the admin page's Live view.
-    app.progress.update({ title: "Backup", note: "copying", done: 2, total: 5 });
+    app.progress.update({ title: "Backup", note: "copying", done: 2, steps: ["Stop", "Snapshot", "Copy", "Check", "Start"] });
     step("agent task on the client", await client.until(`!${byId("task")}.classList.contains('hidden') && ${byId("task")}.textContent.replace(/\\s+/g, ' ').trim() + ' / ' + Math.round(${byId("task")}.getBoundingClientRect().height) + ' px'`, "the task line"));
+    // The bar is as far along as the steps, and a press on the line lists them with the one in hand marked.
+    step("agent task bar and steps", await client.until(`(() => { const fill = ${byId("task-fill")}.style.width; if (fill !== '40%') return ''; ${byId("task-line")}.click(); const items = [...${byId("task-list")}.children]; return !${byId("task-list")}.classList.contains('hidden') && items.length === 5 && items[2].dataset.state === 'running' && 'bar ' + fill + ', ' + items.map(i => i.dataset.state[0] + ':' + i.textContent).join(' ') })()`, "the task's bar and steps"));
     await admin.front();
     const adminWas = await admin.run(`location.hash`);
     await admin.run(`location.replace('#live')`);
@@ -312,6 +314,11 @@ try {
     await client.front();
     app.progress.clear();
     await client.until(`${byId("task")}.classList.contains('hidden')`, "the task line to go");
+    await admin.front();
+    await admin.run(`location.replace('#live')`);
+    step("agent task once over", await admin.until(`(t => /Backup/.test(t) && /cleared/.test(t) && /step 2 of 5/.test(t) && 'kept under finished tasks')(${byId("live-tasks")}.textContent)`, "the ended task on the Live page"));
+    await admin.run(`location.replace(${JSON.stringify(adminWas)} || '#overview')`);
+    await client.front();
 
     // A timer is one small chip under the words.
     const timer = app.timers.set(session, 600, "tea");

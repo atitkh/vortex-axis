@@ -1,4 +1,4 @@
-import type { EventRecord, Store, TurnRecord } from "./store.js";
+import type { EventRecord, Store, TaskRecord, TurnRecord } from "./store.js";
 
 /**
  * Records what happens around Axis (turns, connections, service health, admin changes) and
@@ -97,6 +97,11 @@ export class Activity {
     } catch {
       // The log is a convenience; the hub carries on without it.
     }
+  }
+
+  /** Records long work of an agent's that is over. */
+  task(record: TaskRecord): void {
+    this.write(() => this.store.addTask(record));
   }
 
   /** Records a finished turn. A failure also goes in the event list, where problems are read. */

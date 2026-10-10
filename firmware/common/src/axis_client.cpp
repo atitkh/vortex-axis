@@ -654,7 +654,7 @@ struct Client::Impl {
             cancelRecording();
             // A question cannot be answered now, and Axis sends the timers again on the next connect.
             endAsk();
-            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; });
+            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; s.taskSteps = ""; });
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -1228,7 +1228,11 @@ struct Client::Impl {
             const String stateName = doc["params"]["state"] | "running";
             const int done = doc["params"]["done"] | -1;
             const int total = doc["params"]["total"] | 0;
+            const String steps = doc["params"]["steps"] | "";
+            const bool chime = doc["params"]["chime"] | false;
             update([&](Snapshot &s) {
+                s.taskSteps = steps;
+                if (chime) s.taskChimes++;
                 s.taskCount = count;
                 s.taskTitle = title;
                 s.taskNote = noteText;

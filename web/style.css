@@ -307,16 +307,32 @@ body:not(.busy) .stop { display: none; }
 .drawer-actions { align-items: center; gap: 4px; }
 .icon[aria-expanded="true"] { color: var(--text); }
 
-/* Long work an agent is doing: one quiet line, the timer chip's sibling. */
+/* Long work an agent is doing: one quiet line with a thin bar under it, the timer chip's sibling. A press opens the steps. */
 .task {
-  display: inline-flex; align-items: baseline; gap: 8px; max-width: min(36rem, 100%);
-  margin: 8px 0 0; padding: 3px 14px; border: 1px solid var(--line); border-radius: 999px;
+  display: inline-flex; flex-direction: column; max-width: min(36rem, 100%);
+  margin: 8px 0 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
   font-size: 13.5px; color: var(--dim);
 }
+.task-line {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 14px;
+  background: none; border: none; font: inherit; color: inherit; text-align: left; cursor: default;
+}
+.task.has-steps .task-line { cursor: pointer; }
 .task-title { color: var(--text); white-space: nowrap; }
 .task-steps { color: var(--accent); font-variant-numeric: tabular-nums; }
 .task-steps:empty, .task-note:empty { display: none; }
 .task-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.task-bar { height: 3px; background: var(--line); }
+.task-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.4s ease; }
+.task-list { list-style: none; margin: 0; padding: 6px 14px 8px; display: grid; gap: 2px; border-top: 1px solid var(--line); }
+.task-list li { display: flex; gap: 8px; }
+.task-list li::before { content: "\25CB"; color: var(--faint); }
+.task-list li[data-state="done"] { color: var(--faint); }
+.task-list li[data-state="done"]::before { content: "\2713"; color: var(--listen); }
+.task-list li[data-state="running"] { color: var(--text); }
+.task-list li[data-state="running"]::before { content: "\25B8"; color: var(--accent); }
 .task[data-state="blocked"] { border-color: var(--warn); }
 .task[data-state="blocked"] .task-note { color: var(--warn); }
+.task[data-state="blocked"] .task-bar i { background: var(--warn); }
 .task[data-state="done"] .task-steps, .task[data-state="done"] .task-note { color: var(--listen); }
+.task[data-state="done"] .task-bar i { background: var(--listen); }

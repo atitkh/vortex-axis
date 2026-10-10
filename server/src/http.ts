@@ -1004,6 +1004,10 @@ export function createHttpHandler(deps: HttpDeps) {
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.
           tasks: deps.progress?.list() ?? [],
+          // The same work once it is over, kept as long as the rest of the activity.
+          tasksEnded: store.tasksEnded(30),
+          // Whether Home Assistant says the person is away, which sends finished tasks to their phone.
+          away: store.getMeta("away") === "1",
           // The words on each client's screen just now, for the sketch on its page. Never stored.
           screens: hub.showing(),
         });

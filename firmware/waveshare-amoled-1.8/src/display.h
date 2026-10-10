@@ -39,8 +39,11 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels);
 /** Blacks out a full-width band of `rows` rows starting at logical `y`. */
 void clearBand(int y, int rows);
 
-/** Draws one centred line of text in a full-width band at logical `y`, clearing the band. */
-void textLine(int y, uint8_t size, uint16_t color, const String &text);
+/**
+ * Draws one centred line of text in a full-width band at logical `y`, clearing the band.
+ * With `barPermille` 0 to 1000 a thin bar runs along the bottom of the band, filled that far.
+ */
+void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPermille = -1, uint16_t barColor = 0);
 
 /**
  * Draws one row of rounded buttons in a full-width band `h` tall (56 at most)
