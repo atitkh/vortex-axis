@@ -29,6 +29,8 @@ export class FakeGateway {
   readonly deviceTokens = new Map<string, string>();
   readonly connects: any[] = [];
   readonly agentRequests: any[] = [];
+  /** The conversations `sessions.list` answers with. */
+  sessions: any[] = [];
   readonly nodeRequests: { method: string; params: any }[] = [];
   readonly conns: Conn[] = [];
   agents = [
@@ -222,6 +224,7 @@ export class FakeGateway {
       return this.ok(conn, id, {});
     }
 
+    if (method === "sessions.list") return this.ok(conn, id, { sessions: this.sessions });
     if (method === "agents.list") {
       return this.ok(conn, id, { defaultId: "main", agents: this.agents.map((a) => ({ id: a.id })) });
     }

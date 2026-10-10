@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.24.0 (2026-10-10)
+
+- **Attach the devices to another conversation.** A tenth tool, `vortex_axis_session`: "attach to internship hunt" points every device at that conversation of the agent's, so what is said next, on whichever device hears it, goes there; "detach" goes back to the usual voice conversation. It is one pointer for the whole hub, not one per device, because the devices are one way into one agent and any of them may pick up the wake word. It lets go by itself after half an hour with nothing said. The Live page shows it under Now, with a Detach button. The realtime voice follows it. An OpenClaw gateway must allow the new command `vortex.axis.session` beside the others.
+- **A check of what Axis relies on in OpenClaw.** Each time the gateway link comes up, and on request, Axis asks the gateway what it offers (its methods and events), looks at the scopes it holds, and tries what can be tried without changing anything, for each of: turns, progress cards, questions, approvals, tool icons, realtime voice. The OpenClaw page lists how each stands; one that has stopped working is in the Overview's list of what needs attention and in the events, once when it breaks and once when it is back. Only what is switched on can be a problem.
+
 ## 0.23.1 (2026-10-10)
 
 - A realtime voice is played at 70 % of how it arrives: it comes in louder than the local voice, and a board's small speaker buzzed with it. The setting `realtimeVolume` (10 to 100 %) changes that, for all devices or one.

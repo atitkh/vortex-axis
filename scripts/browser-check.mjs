@@ -350,7 +350,7 @@ try {
   // Agent tools: a token made on the page lets an MCP client in; a tool switched off there is gone for it.
   {
     await admin.run(`location.hash = '#tools'`);
-    await admin.until(`document.querySelectorAll('#tools-list tbody tr').length === 9 && ${byId("mcp-url")}.value.endsWith('/mcp')`, "the tools page");
+    await admin.until(`document.querySelectorAll('#tools-list tbody tr').length === 10 && ${byId("mcp-url")}.value.endsWith('/mcp')`, "the tools page");
     await admin.run(`${byId("mcp-token-name")}.value = 'Browser check'; ${byId("mcp-token-new")}.click()`);
     const agentToken = await admin.until(`!${byId("mcp-token-made")}.classList.contains('hidden') && ${byId("mcp-token-value")}.value`, "the new token");
     await admin.until(`/Browser check/.test(${byId("mcp-tokens")}.textContent)`, "the token in the list");

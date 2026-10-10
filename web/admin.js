@@ -160,7 +160,7 @@ async function signIn() {
   $("signin-form").classList.add("hidden");
   $("app").classList.remove("hidden");
   route();
-  await Promise.all([loadConfig().catch(() => {}), loadTalk().catch(() => {}), refresh()]);
+  await Promise.all([loadConfig().catch(() => {}), loadTalk().catch(() => {}), loadCheck().catch(() => {}), refresh()]);
   clearInterval(timer);
   timer = setInterval(() => document.hidden || refresh(), 3000);
 }
@@ -316,6 +316,27 @@ function fillConfig(config) {
   for (const id of ["stt-key", "tts-key", "agent-token"]) $(id).value = "";
   showBackend();
 }
+
+// --- what Axis relies on in OpenClaw, on the OpenClaw page ---------------------------------
+
+let lastCheck;
+const CHECK_STATES = { ok: ["working", "good"], off: ["off", ""], problem: ["not working", "bad"], unknown: ["cannot tell", "warn"] };
+
+/** How each thing Axis leans on in the gateway stands. `again` has Axis ask the gateway afresh. */
+async function loadCheck(again = false) {
+  lastCheck = await api(again ? "POST" : "GET", "/admin/selfcheck").catch(() => lastCheck);
+  const d = lastCheck;
+  if (!d) return;
+  $("check-when").textContent = d.asked ? `Last asked ${ago(d.at)}.` : "";
+  $("check-list").replaceChildren(
+    d.asked
+      ? h("table", { class: "numbers" },
+          h("tbody", {}, ...d.checks.map((c) => h("tr", {}, h("td", {}, c.label), h("td", {}, stat(...(CHECK_STATES[c.state] ?? [c.state, ""]))), h("td", {}, c.detail)))),
+        )
+      : h("p", { class: "empty" }, "Nothing to ask: Axis is not connected to an OpenClaw gateway as its agent."),
+  );
+}
+$("check-again").addEventListener("click", (event) => act(event.target, "gw-note", () => loadCheck(true)));
 
 // --- realtime voice, on the Speech page -----------------------------------------------
 
@@ -517,6 +538,7 @@ function renderView() {
   if (view.name === "integrations" || Date.now() - integrationsAt > 60_000) loadIntegrations();
   if (view.name === "tools") loadTools();
   if (view.name === "speech") loadTalk();
+  if (view.name === "openclaw") loadCheck();
   renderAnnounceTargets();
 }
 
@@ -2058,6 +2080,10 @@ function attentionItems(data) {
   const up = lastStatus?.upstream ?? {};
   const usesGateway = lastConfig?.agent.backend !== "openai";
   if (up.openclaw === "down") add("bad", usesGateway ? "The agent cannot be reached: OpenClaw is not connected." : "The agent endpoint is not answering.", usesGateway ? "#openclaw" : "#agent");
+  // Something Axis leans on in the gateway has gone: the feature is silent until it is looked at.
+  for (const check of lastCheck?.checks ?? []) {
+    if (check.state === "problem") add("bad", `${check.label} is not working. ${check.detail}`, "#openclaw");
+  }
   if (up.stt === "down") add("bad", "Speech recognition is down or not set up. Spoken turns fail.", "#speech");
   if (up.tts === "down") add("bad", "Speech synthesis is down or not set up. Replies are shown but not spoken.", "#speech");
   if (lastGateway) {
@@ -2126,12 +2152,33 @@ function renderNow() {
   const kept = lastClients.filter((c) => c.waiting);
   const notified = lastClients.filter((c) => c.notified);
   const tasks = now?.tasks ?? [];
-  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length && !tasks.length)) {
+  const attached = now?.attached;
+  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length && !tasks.length && !attached)) {
     return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no agent tasks, no timers, no questions, no conversations, no messages or notifications waiting."));
   }
   const device = (id, name) => h("a", { href: `#clients/${encodeURIComponent(id)}` }, name);
   const TASK_STATES = { running: ["under way", "good"], blocked: ["waiting for you", "warn"], done: ["done", ""] };
   const rows = [
+    // The devices have been pointed at another conversation: said first, since everything said goes there.
+    ...(attached
+      ? [
+          h("tr", {},
+            h("td", {}, "Attached"),
+            h("td", {}, "every device"),
+            h("td", {}, `What is said goes to the conversation "${attached.title}", not the usual voice one. It lets go after half an hour with nothing said.`),
+            h("td", { class: "num" }, `for ${countdown(now.at - attached.since)}`),
+            h("td", { class: "num" },
+              h("button", {
+                type: "button", class: "small",
+                onclick: async () => {
+                  await api("DELETE", "/admin/attached").catch(() => undefined);
+                  refresh();
+                },
+              }, "Detach"),
+            ),
+          ),
+        ]
+      : []),
     // Long work an agent has reported on: the same line the screens show.
     ...tasks.map((t) =>
       h("tr", {},
@@ -2644,6 +2691,7 @@ const TOOL_READS = {
   vortex_axis_config: "Read and change device settings such as volume.",
   vortex_axis_sense: "Read what a device reports about itself.",
   vortex_axis_progress: "Show, silently, how a long piece of the agent's work is going.",
+  vortex_axis_session: "Point every device at another of the agent's conversations, and back.",
   vortex_axis_diag: "Check that Axis and its services are working.",
 };
 

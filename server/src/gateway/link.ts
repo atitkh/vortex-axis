@@ -93,6 +93,8 @@ export class GatewayLink {
   state: LinkState = "unconfigured";
   /** Last failure, for the status page. */
   lastError: string | undefined;
+  /** What the gateway said it offers when this link last connected: its methods and its events. Empty until then, or if it does not say. */
+  features: { methods: string[]; events: string[] } = { methods: [], events: [] };
 
   private socket: WebSocket | undefined;
   private retryTimer: NodeJS.Timeout | undefined;
@@ -353,6 +355,8 @@ export class GatewayLink {
         tokens[entry.role as Role] ??= token;
       }
     }
+    const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+    this.features = { methods: strings(payload?.features?.methods), events: strings(payload?.features?.events) };
     this.authBackoffMs = 0;
     this.setState("connected");
     credentials.storeTokens(role, tokens);

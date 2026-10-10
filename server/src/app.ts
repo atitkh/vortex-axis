@@ -20,6 +20,8 @@ import { createHttpHandler } from "./http.js";
 import { AgentAsks } from "./agentasks.js";
 import { CardMirror } from "./cards.js";
 import { RealtimeTalk } from "./talk.js";
+import { Attachment } from "./attach.js";
+import { SelfCheck } from "./selfcheck.js";
 import { Progress } from "./progress.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
@@ -116,12 +118,23 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // One object for the life of the process: the turn logic reads it on every
   // turn, so a settings change takes effect without a restart.
   const services: Services = {};
+  // Which of the agent's conversations the devices are heard in: Axis's own, unless a person pointed them at another.
+  const homeSession = () => (gateway.agentId() ? `agent:${gateway.agentId()}:${config.gateway.sessionKey}` : undefined);
+  const attachment: Attachment = new Attachment({
+    source: gateway,
+    store,
+    // By its whole key when the agent is known, and by its name otherwise: whichever agent it belongs to, it is Axis's own.
+    isHome: (key) => key === homeSession() || key === config.gateway.sessionKey || key.endsWith(`:${config.gateway.sessionKey}`),
+    // A realtime voice session belongs to one conversation: the next thing said opens one in the new place.
+    onChange: () => talk.stop(),
+  });
+  gateway.setElsewhere(() => attachment.sessionKey());
   // The gateway's realtime voice, for devices set to it. It talks in the same conversation as typed and spoken turns,
   // and only while the agent is an OpenClaw gateway that Axis is connected to.
   const talk = new RealtimeTalk({
     source: gateway,
     available: () => services.agent === gateway && gateway.status().operator.state === "connected",
-    sessionKey: () => (gateway.agentId() ? `agent:${gateway.agentId()}:${config.gateway.sessionKey}` : undefined),
+    sessionKey: () => attachment.current()?.sessionKey ?? homeSession(),
     provider: process.env.AXIS_TALK_PROVIDER || undefined,
     log,
   });
@@ -225,12 +238,36 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   const cards: CardMirror = new CardMirror({ source: gateway, progress, enabled: () => config.mirrorCards, waitingOn: (sessionKey) => asks.waitingOn(sessionKey), log });
   cards.start();
+  // Whether the gateway still offers what all of the above lean on: asked whenever the link comes up.
+  const selfCheck = new SelfCheck({
+    source: gateway,
+    connected: () => services.agent === gateway && gateway.status().operator.state === "connected",
+    features: {
+      cards: () => config.mirrorCards,
+      questions: () => config.mirrorQuestions,
+      approvals: () => config.mirrorApprovals,
+      realtime: () => store.getLayer("global", "").voiceMode === "realtime" || store.listClients().some((client) => store.getLayer("device", client.id).voiceMode === "realtime"),
+      toolIcons: () => store.getLayer("global", "").toolIcons !== "off",
+    },
+    sessionKey: () => (gateway.agentId() ? `agent:${gateway.agentId()}:${config.gateway.sessionKey}` : undefined),
+    log,
+    onChange: (check, was) =>
+      activity.note("service", "openclaw", check.state === "problem" ? `${check.label} stopped working: ${check.detail}` : `${check.label} is working again`, check.state === "problem" ? "bad" : "info"),
+  });
+  let checkTimer: NodeJS.Timeout | undefined;
+  gateway.onEvent((event) => {
+    // The operator link has just come up: a moment for it to settle, then look.
+    if (event !== "watch.connected") return;
+    clearTimeout(checkTimer);
+    checkTimer = setTimeout(() => void selfCheck.run().catch(() => undefined), 1500);
+    checkTimer.unref();
+  });
   /** The scopes Axis asks the gateway for beyond its own turns, by what is switched on. */
   const watchGateway = () =>
     gateway.watch([...(config.mirrorQuestions ? ["operator.questions"] : []), ...(config.mirrorApprovals ? ["operator.approvals"] : [])]);
   const tools = new ToolAccess(store, activity);
   const invoke = tools.guard(
-    createInvokeHandler({ hub, store, timers, delivery, progress, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+    createInvokeHandler({ hub, store, timers, delivery, progress, attachment, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
   );
   gateway.onInvokeCommand(invoke);
 
@@ -289,7 +326,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -333,6 +370,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       backup.stop();
       progress.stop();
       cards.stop();
+      clearTimeout(checkTimer);
       talk.stop();
       asks.stop();
       if (healthTimer) clearInterval(healthTimer);

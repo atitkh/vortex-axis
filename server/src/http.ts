@@ -10,6 +10,8 @@ import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
 import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
+import type { Attachment } from "./attach.js";
+import type { SelfCheck } from "./selfcheck.js";
 import type { RealtimeTalk } from "./talk.js";
 import type { Progress } from "./progress.js";
 import type { PushService } from "./push.js";
@@ -163,6 +165,8 @@ export interface HttpDeps {
   /** Long work agents are doing, shown on the screens and on the admin page. */
   progress?: Progress;
   talk?: RealtimeTalk;
+  selfCheck?: SelfCheck;
+  attachment?: Attachment;
   /** Copies of the data folder, when a backup folder is set up. */
   backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
@@ -1010,6 +1014,8 @@ export function createHttpHandler(deps: HttpDeps) {
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.
           tasks: deps.progress?.list() ?? [],
+          // The conversation the devices are heard in, when a person pointed them away from the usual one.
+          attached: deps.attachment?.current() ?? null,
           // The same work once it is over, kept as long as the rest of the activity.
           tasksEnded: store.tasksEnded(30),
           // Whether Home Assistant says the person is away, which sends finished tasks to their phone.
@@ -1017,6 +1023,9 @@ export function createHttpHandler(deps: HttpDeps) {
           // The words on each client's screen just now, for the sketch on its page. Never stored.
           screens: hub.showing(),
         });
+      }
+      if (method === "DELETE" && parts.length === 2 && parts[1] === "attached") {
+        return sendJson(res, 200, { detached: deps.attachment?.detach() ?? false });
       }
       if (method === "DELETE" && parts.length === 3 && parts[1] === "tasks") {
         if (!deps.progress?.clear(parts[2]!)) throw new HttpError(404, "no such task");
@@ -1039,6 +1048,11 @@ export function createHttpHandler(deps: HttpDeps) {
           startedAt,
           uptimeMs: Date.now() - startedAt,
         });
+      }
+      // Whether the gateway still offers what Axis leans on. GET reads the last look; POST looks again.
+      if (parts[1] === "selfcheck" && parts.length === 2 && deps.selfCheck) {
+        if (method === "GET") return sendJson(res, 200, deps.selfCheck.report() ?? (await deps.selfCheck.run()));
+        if (method === "POST") return sendJson(res, 200, await deps.selfCheck.run());
       }
       // Realtime voice: whether it can be used, which of the gateway's voices there are, and a try of one.
       if (parts[1] === "talk" && deps.talk) {

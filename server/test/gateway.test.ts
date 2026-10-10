@@ -240,6 +240,33 @@ describe("agent turns over the gateway", () => {
     expect(gateway.agentRequests[0].agentId).toBe("main");
   });
 
+  it("sends turns to the conversation the devices were pointed at, and home again when told", async () => {
+    await pairWithGateway();
+    gateway.sessions = [
+      { key: "agent:main:vortex-axis", label: "Voice" },
+      { key: "agent:helper:discord:channel:1", origin: { label: "#Internship Hunt channel id:1" }, classification: "channel" },
+    ];
+    const { client } = await ready();
+    const turn = async (turnId: string) => {
+      client.send({ t: "text", turnId, text: "hi" });
+      await client.next("speak.end", 0, (m) => m.turnId === turnId);
+      client.send({ t: "playback", turnId, state: "finished" });
+      await client.turn(turnId, "idle");
+    };
+
+    expect((await gateway.invoke("vortex.axis.session", { action: "list" })).payload).toMatchObject({ conversations: ["Internship Hunt"], attached: null });
+    expect((await gateway.invoke("vortex.axis.session", { action: "attach", session: "internship hunt" })).payload).toMatchObject({ attached: "Internship Hunt" });
+    expect((await admin("GET", "/admin/now")).body.attached).toMatchObject({ title: "Internship Hunt" });
+    await turn("t1");
+    // The conversation's own key, whole, and the agent it names: not Axis's voice conversation.
+    expect(gateway.agentRequests[0]).toMatchObject({ agentId: "helper", sessionKey: "agent:helper:discord:channel:1" });
+
+    expect((await gateway.invoke("vortex.axis.session", { action: "detach" })).payload).toMatchObject({ detached: true });
+    await turn("t2");
+    expect(gateway.agentRequests[1]).toMatchObject({ agentId: "main", sessionKey: "vortex-axis" });
+    expect((await admin("GET", "/admin/now")).body.attached).toBeNull();
+  });
+
   it("lists agents and takes the agent from the environment", async () => {
     await pairWithGateway();
     await restart({ gateway: { url: undefined, agentId: "helper", sessionKey: "desk-test", displayName: "VorteX Axis" } });

@@ -5,6 +5,7 @@ import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import { withBuiltIns } from "./schema.js";
 import type { Store, TimerRecord } from "./store.js";
+import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
 import { MAX_TIMER_SECONDS, type Timers } from "./timers.js";
 
@@ -24,6 +25,7 @@ export const NODE_COMMANDS = [
   "vortex.axis.timer",
   "vortex.axis.admin",
   "vortex.axis.progress",
+  "vortex.axis.session",
 ] as const;
 
 /** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
@@ -184,6 +186,24 @@ export const NODE_TOOLS: NodeTool[] = [
     },
   },
   {
+    name: "vortex_axis_session",
+    command: "vortex.axis.session",
+    description:
+      "Point the user's VorteX Axis devices at another of their conversations with you, so that what they say next, on any " +
+      "device, is heard there: \"attach to internship hunt\". action attach with `session`, the conversation's name as the " +
+      "user says it; detach to go back to the usual voice conversation (\"detach\", \"go back\"); current to say where the " +
+      "devices are pointed; list to name the conversations there are. After attaching, tell the user in a few words that it " +
+      "is done: their next words go to that conversation, not to this one. If several conversations fit the name, ask which. " +
+      "It lets go by itself after half an hour with nothing said.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["attach", "detach", "current", "list"], description: "attach, detach, current (the default) or list." },
+        session: { type: "string", description: "For attach: the conversation's name as the user says it, such as \"internship hunt\"." },
+      },
+    },
+  },
+  {
     name: "vortex_axis_diag",
     command: "vortex.axis.diag",
     description: "Check the health of the VorteX Axis hub: devices online, and whether speech services are up.",
@@ -216,6 +236,8 @@ export interface CommandDeps {
   delivery: Delivery;
   /** Long work agents are doing, shown on the screens. */
   progress?: Progress | undefined;
+  /** Which of the agent's conversations the devices are heard in. */
+  attachment?: Attachment | undefined;
   activity?: Activity | undefined;
   /** How long a pairing code made for an agent stays good. */
   pairingCodeTtlMs: number;
@@ -321,6 +343,21 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const whole = (value: unknown) => (typeof value === "number" ? value : undefined);
         const { task, screens } = board.update({ id, title: text(params.title), note: text(params.note), done: whole(params.done), total: whole(params.total), state, steps: params.steps });
         return { task: { id: task.id, title: task.title, note: task.note, done: task.done ?? null, total: task.total ?? null, state: task.state, ...(task.steps ? { steps: task.steps.length } : {}) }, screens };
+      }
+
+      case "vortex.axis.session": {
+        const attachment = deps.attachment;
+        if (!attachment) throw new Error("this Axis has one conversation only: its agent is not an OpenClaw gateway");
+        const action = text(params.action) ?? "current";
+        const where = (a: { title: string; since: number } | undefined) => (a ? { attached: a.title, forMinutes: Math.round((now() - a.since) / 60_000) } : { attached: null, note: "The devices are heard in the usual voice conversation." });
+        if (action === "current") return where(attachment.current());
+        if (action === "list") return { conversations: (await attachment.list()).map((c) => c.title), ...where(attachment.current()) };
+        if (action === "detach") return { detached: attachment.detach(), note: "The devices are heard in the usual voice conversation again." };
+        if (action !== "attach") throw new Error("action must be attach, detach, current or list");
+        const result = await attachment.attach(text(params.session) ?? "");
+        if (result.candidates) return { attached: null, candidates: result.candidates, note: "Several conversations fit. Ask the user which one, then attach with its full name." };
+        deps.activity?.note("agent", "", `The devices were pointed at the conversation "${result.attached!.title}"`, "info");
+        return { attached: result.attached!.title, note: "What the user says next on any device goes to that conversation, until they say to detach or half an hour passes with nothing said." };
       }
 
       case "vortex.axis.diag":

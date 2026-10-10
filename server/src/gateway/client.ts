@@ -94,6 +94,8 @@ export class GatewayClient implements Agent, Credentials {
   private readonly node: GatewayLink;
   private readonly agentListeners = new Set<(payload: any) => void>();
   private readonly eventListeners = new Set<(event: string, payload: any) => void>();
+  /** Says which conversation turns go to when it is not Axis's own: a full session key, or nothing. */
+  private elsewhere: (() => string | undefined) | undefined;
   /** Scopes wanted beyond the two Axis starts with, and the set a setup code now being redeemed asks for: see `watch`. */
   private wanted: string[] = [];
   private asking: string[] | undefined;
@@ -358,6 +360,21 @@ export class GatewayClient implements Agent, Credentials {
 
   // --- agent turns (operator link) -----------------------------------------
 
+  /** Has turns go to another conversation while `where` names one (see attach.ts). */
+  setElsewhere(where: () => string | undefined): void {
+    this.elsewhere = where;
+  }
+
+  /** What the gateway said it offers when the operator link last connected. */
+  features(): { methods: string[]; events: string[] } {
+    return this.operator.features;
+  }
+
+  /** The operator scopes the gateway has granted Axis, as far as it knows. */
+  scopes(): string[] {
+    return this.granted();
+  }
+
   /** Hears what the gateway tells an operator besides the replies to Axis's own turns. */
   onEvent(listener: (event: string, payload: any) => void): void {
     this.eventListeners.add(listener);
@@ -395,6 +412,9 @@ export class GatewayClient implements Agent, Credentials {
   async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = await this.resolveAgentId();
+    // Pointed at another conversation, the turn goes there by its full key, which names its agent too.
+    const other = this.elsewhere?.();
+    const target = other ? { sessionKey: other, ...(/^agent:([^:]+):/.exec(other)?.[1] ? { agentId: /^agent:([^:]+):/.exec(other)![1] } : {}) } : agentId ? { agentId, sessionKey: this.options.sessionKey } : {};
     yield* this.follow(async () => {
       // A stable session key needs an explicit agent: with several agents the
       // gateway refuses a key that no agent owns.
@@ -404,7 +424,7 @@ export class GatewayClient implements Agent, Credentials {
           {
             message,
             idempotencyKey: `axis-${randomUUID()}`,
-            ...(agentId ? { agentId, sessionKey: this.options.sessionKey } : {}),
+            ...target,
             ...(withNote ? { extraSystemPrompt: this.note } : {}),
           },
           20_000,

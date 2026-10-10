@@ -95,7 +95,7 @@ Axis is one container with one data folder on the host (`./data` by default, or 
 
 ### Agents and tools
 
-An agent uses Axis through nine tools (say, ask, timer, clients, config, sense, progress, diag, admin). The OpenClaw gateway gets them through the node link. Any other harness gets them by MCP: on the admin page under **Agent tools**, make a token, then add Axis to the harness as a remote MCP server:
+An agent uses Axis through ten tools (say, ask, timer, clients, config, sense, progress, session, diag, admin). The OpenClaw gateway gets them through the node link. Any other harness gets them by MCP: on the admin page under **Agent tools**, make a token, then add Axis to the harness as a remote MCP server:
 
 ```json
 { "mcpServers": { "vortex-axis": { "type": "http", "url": "http://<axis host>:8440/mcp", "headers": { "Authorization": "Bearer <token>" } } } }
@@ -143,7 +143,7 @@ Axis joins the gateway the way a device does: one identity, an operator link for
      -d '{"code": "<setup code>"}'
    ```
 3. Approve the device on the gateway (`openclaw devices list`, then `openclaw devices approve <id>`, or Settings, Devices in the Control UI). Axis retries every 10 seconds until then. Expect two requests one after the other: first the device itself, then its request to also act as a node.
-4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `vortex.axis.say`, `vortex.axis.ask`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.progress`, `vortex.axis.diag`, `vortex.axis.timer`, `vortex.axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
+4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `vortex.axis.say`, `vortex.axis.ask`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.progress`, `vortex.axis.session`, `vortex.axis.diag`, `vortex.axis.timer`, `vortex.axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
 5. Check: `GET /admin/gateway` should show both links `connected`.
 
 Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime on the admin page (`PATCH /admin/gateway` with `{"agentId": "name"}`). With neither, the gateway's default agent answers.
