@@ -574,7 +574,8 @@ static void onAskTap(const AskLayout &l) {
  * the same as interrupting speech.
  */
 static void onTap() {
-    // A task with named steps: a tap on its line lists them, and a tap on the list puts it away.
+    // A task with named steps: a tap anywhere under the face lists them, and another puts the list away.
+    // The line alone was too small to hit. A tap on the face still starts listening.
     const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
     if (quiet && state.link == axis::Link::Online && state.taskCount && !state.taskSteps.isEmpty()) {
         int px, py, x, y;
@@ -584,7 +585,7 @@ static void onTap() {
             stepsOpenUntil = 0;
             return;
         }
-        if (!stepsOpenUntil && y >= headTop() - 12 && y < bodyTop() + 14) {
+        if (!stepsOpenUntil && y >= headTop() - 12) {
             stepsOpenUntil = millis() + STEPS_OPEN_MS;
             if (!stepsOpenUntil) stepsOpenUntil = 1;
             return;
