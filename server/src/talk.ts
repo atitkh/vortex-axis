@@ -32,8 +32,11 @@ export interface TalkHandlers {
   onText?: (text: string) => void;
   /** The answer's voice, as it arrives. */
   onAudio?: (pcm: Buffer) => Promise<void> | void;
-  /** The model has handed work to the agent and is waiting for it. */
-  onConsult?: () => void;
+  /**
+   * The model wants the agent to do real work: it has told the person it is checking, and waits for
+   * what this resolves with to say the actual answer. Without it the model is told the agent cannot be asked.
+   */
+  consult?: (question: string, signal: AbortSignal) => Promise<string>;
   /** The realtime provider to ask for when a session has to be opened (the `voiceProvider` setting). */
   provider?: string | undefined;
 }
@@ -170,14 +173,16 @@ export class RealtimeTalk {
       clearTimeout(timer);
       timer = setTimeout(then, ms);
     };
-    // Answers under way, and work handed to the agent that no answer has come back from yet.
-    let answering = 0, consulting = 0, finished = false;
+    // Answers under way; work the agent is doing for the model; and whether an answer is still owed for work handed back.
+    let answering = 0, consulting = 0, owed = false, finished = false;
     let audio: Promise<void> = Promise.resolve();
     const said: string[] = [];
     let partial = "";
     const settle = () => {
       if (answering > 0) return;
       if (consulting > 0) return wait(this.options.consultMs ?? 120_000, () => reject(new Error("the agent did not come back with an answer in time")));
+      // The agent's answer has gone back to the model, which has yet to say it.
+      if (owed) return wait(20_000, resolve);
       // Another answer may follow at once, as when the model says it will look and then does.
       if (finished) wait(settleMs, resolve);
     };
@@ -186,7 +191,7 @@ export class RealtimeTalk {
       switch (event.type) {
         case "responseStarted":
           answering++;
-          if (consulting > 0) consulting--;
+          if (!consulting) owed = false;
           clearTimeout(timer);
           break;
         case "audio":
@@ -219,10 +224,31 @@ export class RealtimeTalk {
             handlers.onText?.(outcome.said);
           }
           break;
-        case "toolCall":
+        case "toolCall": {
+          // The gateway has already told the model to say it is checking. The work itself is Axis's to get done.
+          const callId = String(event.callId ?? "");
+          const submit = (result: unknown) => source.call("talk.session.submitToolResult", { sessionId: session.id, callId, result }).catch(() => undefined);
+          if (event.name !== "openclaw_agent_consult" || !handlers.consult) {
+            void submit({ error: event.name === "openclaw_agent_consult" ? "The agent cannot be asked from here." : `Tool "${event.name}" is not available on this device.` });
+            break;
+          }
+          const args = typeof event.args === "object" && event.args !== null ? (event.args as Record<string, unknown>) : {};
+          const question = [args.question, typeof args.context === "string" && args.context ? `Context:\n${args.context}` : undefined]
+            .filter((part): part is string => typeof part === "string" && part.trim() !== "")
+            .join("\n\n");
           consulting++;
-          handlers.onConsult?.();
+          clearTimeout(timer);
+          void handlers
+            .consult(question, handlers.signal)
+            .then((answer) => submit(handlers.signal.aborted ? { status: "cancelled" } : { result: answer.trim() || "Done, with nothing to report." }))
+            .catch((error: Error) => submit({ error: error.message }))
+            .finally(() => {
+              consulting--;
+              owed = true;
+              settle();
+            });
           break;
+        }
         case "audioDone":
           answering = Math.max(0, answering - 1);
           finished = true;

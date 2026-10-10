@@ -81,29 +81,48 @@ describe("realtime voice through the gateway's Talk relay", () => {
     expect(r.calls.at(-1)).toMatchObject({ method: "talk.session.close", params: { sessionId: "relay-1" } });
   });
 
-  it("waits for the agent when the model hands it work, and gives up on nothing heard", async () => {
+  it("gets the agent to do the work the model hands it, and gives up on nothing heard", async () => {
     const r = relay();
     const talk = new RealtimeTalk({ source: r.source, settleMs: 20, firstAnswerMs: 40 });
-    let consults = 0;
-    const turn = talk.converse("c1", speech(200), UPSTREAM_AUDIO_FORMAT, { signal: new AbortController().signal, onConsult: () => consults++ });
+    const asked: string[] = [];
+    let answer!: (text: string) => void;
+    const turn = talk.converse("c1", speech(200), UPSTREAM_AUDIO_FORMAT, {
+      signal: new AbortController().signal,
+      consult: (question) => {
+        asked.push(question);
+        return new Promise<string>((resolve) => (answer = resolve));
+      },
+    });
     await tick(30);
+    // The model says it is checking, and asks.
     r.say("relay-1", { type: "responseStarted" });
-    r.say("relay-1", { type: "toolCall", callId: "t1" });
+    r.say("relay-1", { type: "toolCall", callId: "t1", name: "openclaw_agent_consult", args: { question: "Are the lights on?", context: "Asked at the desk." } });
     r.say("relay-1", { type: "audio", audioBase64: Buffer.alloc(2).toString("base64") });
     r.say("relay-1", { type: "audioDone" });
-    // The first answer is over, but the agent's is still to come: the turn is not.
+    // Its first answer is over, but the agent's is still to come: the turn is not.
     let over = false;
     void turn.then(() => (over = true));
     await tick(60);
     expect(over).toBe(false);
-    r.say("relay-1", { type: "responseStarted" });
-    r.say("relay-1", { type: "transcript", role: "assistant", text: "The lights are on.", final: true });
-    r.say("relay-1", { type: "audioDone" });
-    expect((await turn).said).toBe("The lights are on.");
-    expect(consults).toBe(1);
+    expect(asked).toEqual(["Are the lights on?\n\nContext:\nAsked at the desk."]);
 
-    // Sound the model makes nothing of gets no answer, and the turn ends by itself.
-    expect(await talk.converse("c1", speech(100), UPSTREAM_AUDIO_FORMAT, { signal: new AbortController().signal })).toMatchObject({ answered: false });
+    answer("The lights are on.");
+    await tick();
+    expect(r.calls.find((c) => c.method === "talk.session.submitToolResult")?.params).toEqual({ sessionId: "relay-1", callId: "t1", result: { result: "The lights are on." } });
+    // The model then says it, and that ends the turn.
+    r.say("relay-1", { type: "responseStarted" });
+    r.say("relay-1", { type: "transcript", role: "assistant", text: "Your lights are on.", final: true });
+    r.say("relay-1", { type: "audioDone" });
+    expect((await turn).said).toBe("Your lights are on.");
+
+    // A tool nobody here can run is refused at once, so the model is not left waiting.
+    const other = talk.converse("c1", speech(100), UPSTREAM_AUDIO_FORMAT, { signal: new AbortController().signal });
+    await tick(30);
+    r.say("relay-1", { type: "toolCall", callId: "t2", name: "describe_view" });
+    await tick();
+    expect(r.calls.at(-1)?.params).toMatchObject({ callId: "t2", result: { error: expect.stringMatching(/not available/) } });
+    // And sound the model makes nothing of gets no answer: the turn ends by itself.
+    expect(await other).toMatchObject({ answered: false });
     talk.stop();
   });
 

@@ -781,8 +781,18 @@ export class TurnManager {
             shown = said;
             if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece, final: false });
           },
-          onConsult: () => {
-            if (turn.thinking && hasScreen) this.port.send(session, { t: "turn", turnId, state: "thinking", doing: "tool" });
+          // Real work goes to the agent Axis always asks, in the same conversation, and its tools show on the face as ever.
+          consult: async (question, consultSignal) => {
+            if (!agent) throw new Error("the agent is not set up");
+            let doing: string | undefined;
+            let answer = "";
+            for await (const piece of agent.reply(`${this.header(session)}\n${question}`, consultSignal, (tool) => {
+              const kind = doingFor(tool);
+              if (!kind || kind === doing || !hasScreen) return;
+              doing = kind;
+              this.port.send(session, { t: "turn", turnId, state: "thinking", doing: kind });
+            })) answer += piece;
+            return answer;
           },
           onAudio: async (chunk) => {
             if (turn.thinking) {
