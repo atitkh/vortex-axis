@@ -168,6 +168,7 @@ static uint32_t stepsOpenUntil = 0;
 static const uint32_t STEPS_OPEN_MS = 20000;
 static uint8_t seenChimes = 0;
 static const uint16_t COLOR_DIM = 0x528A;   // steps already behind
+static const uint16_t COLOR_OTHER = 0x7BEF; // the other tasks in the list
 static const uint16_t COLOR_BAR = 0x6EBD;   // the idle face's cyan
 static const uint16_t COLOR_DONE = 0x57EA;  // green
 // Where the top of the face is now. -1 until it has been placed once.
@@ -415,7 +416,7 @@ static void present() {
     // An agent's task shares the line with a timer, turn and turn about, so neither hides the other.
     const String timer = timerLine(now), task = taskLine();
     // A tap on the task's line lists its steps for a while; the line then stays put.
-    if (task.isEmpty() || state.taskSteps.isEmpty()) stepsOpenUntil = 0;
+    if (task.isEmpty() || (state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) stepsOpenUntil = 0;
     const bool open = !down && stepsOpenUntil && (int32_t)(stepsOpenUntil - now) > 0;
     if (!open) stepsOpenUntil = 0;
     const bool showTask = !task.isEmpty() && (open || timer.isEmpty() || (now / 4000) % 2 == 1);
@@ -431,8 +432,27 @@ static void present() {
     if (open) listSteps();
 }
 
-/** Fills the list with the task's steps, as many as fit, keeping the one in hand in view. */
+/**
+ * Fills the list: the other tasks first, a line each, then this task's steps, as many as fit,
+ * keeping the step in hand in view.
+ */
 static void listSteps() {
+    const int room = bodyLines();
+    wantListCount = 0;
+    const String &others = state.taskOthers;
+    // The other tasks may take half the room when there are steps to show as well.
+    const int otherRoom = state.taskSteps.isEmpty() ? room : max(1, room / 2);
+    for (int at = 0; at < (int)others.length() && wantListCount < otherRoom;) {
+        int end = others.indexOf('\n', at);
+        if (end < 0) end = others.length();
+        if (end > at) {
+            wantList[wantListCount] = display::plain(others.substring(at + 1, end));
+            wantListColor[wantListCount] = others[at] == '!' ? COLOR_WARN : COLOR_OTHER;
+            wantListCount++;
+        }
+        at = end + 1;
+    }
+    const int taken = wantListCount;
     const String &all = state.taskSteps;
     int count = 0, current = -1, firstPending = -1;
     for (int at = 0; at < (int)all.length(); count++) {
@@ -442,11 +462,10 @@ static void listSteps() {
         at = end < 0 ? all.length() : end + 1;
     }
     if (current < 0) current = firstPending >= 0 ? firstPending : count - 1;
-    const int rows = bodyLines();
+    const int rows = room - taken;
     const int first = constrain(current - 1, 0, max(0, count - rows));
     int index = 0;
-    wantListCount = 0;
-    for (int at = 0; at < (int)all.length() && wantListCount < rows; index++) {
+    for (int at = 0; at < (int)all.length() && wantListCount < room; index++) {
         int end = all.indexOf('\n', at);
         if (end < 0) end = all.length();
         if (index >= first && end > at) {
@@ -467,6 +486,8 @@ static String taskLine() {
     String line = state.taskTitle;
     if (state.taskTotal) line += " " + String(max((int)state.taskDone, 0)) + "/" + String(state.taskTotal);
     else if (!state.taskNote.isEmpty()) line += ": " + state.taskNote;
+    // More tasks than the one on the line.
+    if (state.taskCount > 1) line += " +" + String(state.taskCount - 1);
     return line;
 }
 
@@ -577,7 +598,7 @@ static void onTap() {
     // A task with named steps: a tap anywhere under the face lists them, and another puts the list away.
     // The line alone was too small to hit. A tap on the face still starts listening.
     const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
-    if (quiet && state.link == axis::Link::Online && state.taskCount && !state.taskSteps.isEmpty()) {
+    if (quiet && state.link == axis::Link::Online && state.taskCount && !(state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) {
         int px, py, x, y;
         touch::tapPoint(px, py);
         display::toLogical(px, py, x, y);

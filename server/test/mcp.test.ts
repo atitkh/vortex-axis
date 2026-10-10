@@ -245,6 +245,36 @@ describe("progress on the screens", () => {
     expect(await call({ title: "Odd", steps: Array.from({ length: 13 }, (_, i) => `Step ${i}`) })).toMatchObject({ isError: true });
   });
 
+  it("puts a task that waits for the person first, counts the rest, and chimes once for finishes close together", async () => {
+    const token = await newToken();
+    const { client } = await ready(["screen"], { name: "Desk" });
+    const call = async (args: Record<string, unknown>) => (await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: args })).body.result;
+    const shown = async (from: number) => {
+      const command = await client.next("command", from, (m) => m.name === "progress.show");
+      client.send({ t: "command.result", id: command.id, ok: true });
+      return command.params;
+    };
+
+    await call({ id: "a", title: "Backup", done: 1, total: 3 });
+    await call({ id: "b", title: "Report", note: "which month?", state: "blocked" });
+    let from = client.received.length;
+    await call({ id: "c", title: "Build", note: "compiling" });
+    // The newest is not on the line: the one that needs the person is, and the others are named for the list.
+    expect(await shown(from)).toMatchObject({ title: "Report", state: "blocked", count: 3, others: " Build: compiling\n Backup 1/3" });
+
+    from = client.received.length;
+    await call({ id: "b", title: "Report", note: "writing" });
+    expect(await shown(from)).toMatchObject({ title: "Report", state: "running", others: " Build: compiling\n Backup 1/3" });
+
+    from = client.received.length;
+    await call({ id: "a", state: "done" });
+    expect(await shown(from)).toMatchObject({ title: "Backup", state: "done", chime: true });
+    from = client.received.length;
+    await call({ id: "c", state: "done" });
+    expect(await shown(from)).not.toHaveProperty("chime");
+    await call({ action: "clear" });
+  });
+
   it("tells a screen that connects later what is going on", async () => {
     const token = await newToken();
     await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: { title: "Build", note: "tests", done: 2, total: 4 } });

@@ -524,17 +524,21 @@ function onMessage(message) {
         $("task-fill").style.width = `${Math.round(part * 100)}%`;
         $("task-bar").setAttribute("aria-valuenow", String(Math.round(part * 100)));
         const steps = typeof p.steps === "string" && p.steps ? p.steps.split("\n") : [];
-        $("task").classList.toggle("has-steps", steps.length > 0);
+        // With several tasks going, the line shows one and counts the rest; the list names them above the steps.
+        const others = typeof p.others === "string" && p.others ? p.others.split("\n") : [];
+        $("task-more").textContent = others.length ? `+${others.length}` : "";
+        $("task").classList.toggle("has-steps", steps.length + others.length > 0);
         const STEP = { x: "done", ">": "running" };
-        $("task-list").replaceChildren(
-          ...steps.map((line) => {
-            const item = document.createElement("li");
-            item.dataset.state = STEP[line[0]] ?? "pending";
-            item.textContent = line.slice(1);
-            return item;
-          }),
-        );
-        if (!steps.length) openTask(false);
+        const row = (state, text) => {
+          const item = document.createElement("li");
+          item.dataset.state = state;
+          item.textContent = text;
+          return item;
+        };
+        const rows = [...others.map((line) => row(line[0] === "!" ? "needs" : "task", line.slice(1))), ...steps.map((line) => row(STEP[line[0]] ?? "pending", line.slice(1)))];
+        if (others.length && steps.length) rows[others.length - 1].classList.add("task-gap");
+        $("task-list").replaceChildren(...rows);
+        if (!rows.length) openTask(false);
         if (p.chime) player.chime();
         send({ t: "command.result", id: message.id, ok: true });
       } else {

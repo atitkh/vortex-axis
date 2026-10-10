@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.17.0 (2026-10-10)
+
+- **OpenClaw progress cards show by themselves.** An agent on the linked OpenClaw gateway keeps a list of steps for long work (its progress card). Axis now hears the gateway say a card changed (`progressCard.changed`), reads it (`progressCard.get`) and shows it as a task, with no tool call from the agent. The task is named after where the person talks to the agent (the channel or the session's label). It is done when every step is; with steps left and the agent's turn over it reads "needs you"; it goes back to running when the agent is at work again. Scheduled jobs are left out. A switch on the Agent tools page turns it off (`AXIS_MIRROR_CARDS=0` to start with it off). The progress tool is unchanged and is still how anything else reports: another harness, a script, a scheduled job.
+- **Several tasks at once.** One that waits for the person always has the line; otherwise the one reported on last. The line counts the rest ("+2"), and the list a press or a tap opens names them above the steps. `progress.show` gains `others` (a line per other task, led by `!` when it waits for the person; additive to protocol 1).
+- Tasks that finish within 30 seconds of each other chime once between them.
+- A task whose reporter is known to be at work is not taken for abandoned after half an hour without a new word.
+- Board firmware 0.11.9 shows the count and the other tasks.
+
 ## 0.16.1 (2026-10-10)
 
 - Board firmware 0.11.8: a tap anywhere under the face lists a task's steps, not only a tap on its line, which was too small to hit. A tap on the face still starts listening.

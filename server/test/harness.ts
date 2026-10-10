@@ -52,6 +52,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     outputHoldMs: 600_000,
     messageHoldMs: 600_000,
     mcpPublic: false,
+    mirrorCards: true,
     backupDir: undefined,
     backupEveryHours: 1,
     backupKeepDays: 7,

@@ -42,6 +42,8 @@ export interface Task {
   state: "running" | "blocked" | "done";
   startedAt: number;
   updatedAt: number;
+  /** When whoever reports on it was last known to be at work, if that is later than its last word. */
+  aliveAt?: number;
 }
 
 /** A task nobody has reported on for this long is taken to be abandoned. */
@@ -50,6 +52,8 @@ const STALE_MS = 30 * 60_000;
 const DONE_SHOWN_MS = 90_000;
 const MAX_TASKS = 8;
 const MAX_STEPS = 12;
+/** Tasks that finish close together are marked with one sound, not one each. */
+const CHIME_GAP_MS = 30_000;
 const STEP_CHARS = 48;
 
 const STEP_STATES: Record<string, Step["state"]> = {
@@ -89,6 +93,13 @@ function readSteps(value: unknown): { steps: Step[]; given: boolean } | undefine
   return { steps, given };
 }
 
+/** A task in a few words, for a list of several: " Backup 3/5", "!Backup: needs you", " Backup done". */
+export function taskLine(task: Task): string {
+  if (task.state === "blocked") return `!${task.title}: needs you`;
+  if (task.state === "done") return ` ${task.title} done`;
+  return ` ${task.title}${task.total ? ` ${task.done ?? 0}/${task.total}` : task.note ? `: ${task.note}` : ""}`;
+}
+
 /** The steps as one line of text each, led by how it stands: `x` done, `>` running, `-` still to come. */
 export function stepLines(steps: Step[]): string {
   return steps.map((s) => `${s.state === "done" ? "x" : s.state === "running" ? ">" : "-"}${s.text}`).join("\n");
@@ -97,6 +108,7 @@ export function stepLines(steps: Step[]): string {
 export class Progress {
   private readonly tasks = new Map<string, Task>();
   private timer: NodeJS.Timeout | undefined;
+  private chimedAt = 0;
 
   private readonly now: () => number;
 
@@ -120,10 +132,17 @@ export class Progress {
     clearInterval(this.timer);
   }
 
-  /** Tasks on show, the one reported on last first. */
+  /** Tasks on show. One that waits for the person comes first, whatever else is going on; then the one reported on last. */
   list(): Task[] {
     this.prune();
-    return [...this.tasks.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    const waiting = (task: Task) => (task.state === "blocked" ? 1 : 0);
+    return [...this.tasks.values()].sort((a, b) => waiting(b) - waiting(a) || b.updatedAt - a.updatedAt);
+  }
+
+  /** Says a task is still being worked on though there is nothing new to show, so it is not taken for abandoned. */
+  touch(id: string): void {
+    const task = this.tasks.get(id);
+    if (task) task.aliveAt = this.now();
   }
 
   /** Reports on a task, making it if it is new. Returns it and how many screens were told. */
@@ -191,7 +210,7 @@ export class Progress {
   private prune(): boolean {
     let changed = false;
     for (const [id, task] of this.tasks) {
-      const age = this.now() - task.updatedAt;
+      const age = this.now() - Math.max(task.updatedAt, task.aliveAt ?? 0);
       if (age > STALE_MS || (task.state === "done" && age > DONE_SHOWN_MS)) {
         this.tasks.delete(id);
         if (task.state !== "done") this.options.onEnd?.(task, "abandoned");
@@ -209,6 +228,11 @@ export class Progress {
       ? { title: top.title, note: top.note, done: top.done ?? -1, total: top.total ?? 0, state: top.state, count: all.length }
       : { title: "", note: "", done: -1, total: 0, state: "none", count: 0 };
     if (top?.steps?.length) params.steps = stepLines(top.steps);
+    // The other tasks, a line each, for a screen to list on request: `!` leads one that waits for the person.
+    if (all.length > 1) params.others = all.slice(1).map(taskLine).join("\n");
+    // Several tasks finishing together make one sound between them.
+    if (finished && this.now() - this.chimedAt < CHIME_GAP_MS) finished = false;
+    if (finished) this.chimedAt = this.now();
     let screens = 0;
     for (const session of only ? [only] : this.hub.sessions()) {
       if (!session.client.capabilities.includes("screen")) continue;

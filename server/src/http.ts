@@ -903,6 +903,7 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, {
             path: "/mcp",
             public: config.mcpPublic,
+            mirrorCards: config.mirrorCards,
             publicHosts: config.publicHosts,
             tokens: access.tokens(),
             tools: access.list().map(({ name, description, enabled }) => ({ name, description, enabled })),

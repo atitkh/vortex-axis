@@ -17,6 +17,7 @@ import { HomeAssistant } from "./homeassistant.js";
 import { applySavedHubSettings } from "./hubconfig.js";
 import { Live } from "./live.js";
 import { createHttpHandler } from "./http.js";
+import { CardMirror } from "./cards.js";
 import { Progress } from "./progress.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
@@ -178,6 +179,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     },
   });
   progress.start();
+  // An OpenClaw agent's own step list reaches the screens with no tool call.
+  const cards = new CardMirror({ source: gateway, progress, enabled: () => config.mirrorCards, log });
+  cards.start();
   const tools = new ToolAccess(store, activity);
   const invoke = tools.guard(
     createInvokeHandler({ hub, store, timers, delivery, progress, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
@@ -280,6 +284,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     async close() {
       backup.stop();
       progress.stop();
+      cards.stop();
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
       clearInterval(forgetTimer);

@@ -21,6 +21,8 @@ export interface HubSettings {
   backupKeepDays: number;
   /** Whether the MCP door answers under a public name too. */
   mcpPublic: boolean;
+  /** Whether the OpenClaw gateway's progress cards are shown as tasks. */
+  mirrorCards: boolean;
 }
 
 const META_KEY = "hub_config";
@@ -49,6 +51,7 @@ function fromConfig(config: Config): HubSettings {
     backupEveryHours: config.backupEveryHours,
     backupKeepDays: config.backupKeepDays,
     mcpPublic: config.mcpPublic,
+    mirrorCards: config.mirrorCards,
   };
 }
 
@@ -85,6 +88,7 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.backupEveryHours = settings.backupEveryHours;
   config.backupKeepDays = settings.backupKeepDays;
   config.mcpPublic = settings.mcpPublic;
+  config.mirrorCards = settings.mirrorCards;
 }
 
 const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
@@ -165,6 +169,10 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
   if (body.mcpPublic !== undefined) {
     if (typeof body.mcpPublic !== "boolean") throw new Error("mcpPublic must be true or false");
     patch.mcpPublic = body.mcpPublic;
+  }
+  if (body.mirrorCards !== undefined) {
+    if (typeof body.mirrorCards !== "boolean") throw new Error("mirrorCards must be true or false");
+    patch.mirrorCards = body.mirrorCards;
   }
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 

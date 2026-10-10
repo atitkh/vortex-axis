@@ -2503,6 +2503,7 @@ function renderTools() {
   const url = `${location.origin}${d.path}`;
   $("mcp-url").value = url;
   $("mcp-snippet").value = JSON.stringify({ mcpServers: { "vortex-axis": { type: "http", url, headers: { Authorization: "Bearer YOUR_TOKEN" } } } }, null, 2);
+  $("mirror-cards").checked = d.mirrorCards;
   $("mcp-public").checked = d.public;
   $("mcp-public").disabled = !d.publicHosts.length;
   $("mcp-public-help").textContent = d.publicHosts.length
@@ -2541,6 +2542,12 @@ function renderTools() {
   );
 }
 
+$("mirror-cards").addEventListener("change", (event) =>
+  act(event.target, "mirror-note", async () => {
+    await api("PATCH", "/admin/integrations", { mirrorCards: event.target.checked });
+    await loadTools(true);
+  }),
+);
 $("mcp-public").addEventListener("change", (event) =>
   act(event.target, "mcp-note", async () => {
     await api("PATCH", "/admin/integrations", { mcpPublic: event.target.checked });

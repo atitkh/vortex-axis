@@ -306,6 +306,11 @@ try {
     step("agent task on the client", await client.until(`!${byId("task")}.classList.contains('hidden') && ${byId("task")}.textContent.replace(/\\s+/g, ' ').trim() + ' / ' + Math.round(${byId("task")}.getBoundingClientRect().height) + ' px'`, "the task line"));
     // The bar is as far along as the steps, and a press on the line lists them with the one in hand marked.
     step("agent task bar and steps", await client.until(`(() => { const fill = ${byId("task-fill")}.style.width; if (fill !== '40%') return ''; ${byId("task-line")}.click(); const items = [...${byId("task-list")}.children]; return !${byId("task-list")}.classList.contains('hidden') && items.length === 5 && items[2].dataset.state === 'running' && 'bar ' + fill + ', ' + items.map(i => i.dataset.state[0] + ':' + i.textContent).join(' ') })()`, "the task's bar and steps"));
+    // A second task that waits for the person takes the line; the first is counted and named in the list.
+    app.progress.update({ id: "report", title: "Report", note: "which month?", state: "blocked" });
+    step("two agent tasks", await client.until(`(() => { const items = [...${byId("task-list")}.children]; return ${byId("task-title")}.textContent === 'Report' && ${byId("task-more")}.textContent === '+1' && items.length === 1 && items[0].dataset.state === 'task' && ${byId("task-title")}.textContent + ' ' + ${byId("task-more")}.textContent + '; list starts "' + items[0].textContent + '"' })()`, "the second task on the line"));
+    app.progress.clear("report");
+    await client.until(`${byId("task-more")}.textContent === '' && ${byId("task-title")}.textContent === 'Backup'`, "the first task back on the line");
     await admin.front();
     const adminWas = await admin.run(`location.hash`);
     await admin.run(`location.replace('#live')`);

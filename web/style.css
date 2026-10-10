@@ -320,7 +320,13 @@ body:not(.busy) .stop { display: none; }
 .task.has-steps .task-line { cursor: pointer; }
 .task-title { color: var(--text); white-space: nowrap; }
 .task-steps { color: var(--accent); font-variant-numeric: tabular-nums; }
-.task-steps:empty, .task-note:empty { display: none; }
+.task-steps:empty, .task-note:empty, .task-more:empty { display: none; }
+.task-more { color: var(--faint); white-space: nowrap; }
+.task-list li[data-state="task"] { color: var(--dim); }
+.task-list li[data-state="task"]::before { content: "\2022"; color: var(--faint); }
+.task-list li[data-state="needs"] { color: var(--warn); }
+.task-list li[data-state="needs"]::before { content: "!"; color: var(--warn); }
+.task-list li.task-gap { border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 2px; }
 .task-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .task-bar { height: 3px; background: var(--line); }
 .task-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.4s ease; }

@@ -89,6 +89,7 @@ export class GatewayClient implements Agent, Credentials {
   private readonly operator: GatewayLink;
   private readonly node: GatewayLink;
   private readonly agentListeners = new Set<(payload: any) => void>();
+  private readonly eventListeners = new Set<(event: string, payload: any) => void>();
   private invokeHandler: InvokeHandler | undefined;
   private defaultAgentId: string | undefined;
   private presenceTimer: NodeJS.Timeout | undefined;
@@ -114,6 +115,7 @@ export class GatewayClient implements Agent, Credentials {
       caps: [],
       onEvent: (event, payload) => {
         if (event === "agent") for (const listener of this.agentListeners) listener(payload);
+        else for (const listener of this.eventListeners) listener(event, payload);
       },
       onConnected: () => {
         this.defaultAgentId = undefined;
@@ -282,6 +284,16 @@ export class GatewayClient implements Agent, Credentials {
   }
 
   // --- agent turns (operator link) -----------------------------------------
+
+  /** Hears what the gateway tells an operator besides the replies to Axis's own turns. */
+  onEvent(listener: (event: string, payload: any) => void): void {
+    this.eventListeners.add(listener);
+  }
+
+  /** Asks the gateway something over the operator link. */
+  call(method: string, params: unknown): Promise<any> {
+    return this.operator.request(method, params);
+  }
 
   async healthy(): Promise<boolean> {
     return this.operator.connected;
