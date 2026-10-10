@@ -34,6 +34,8 @@ export interface TalkHandlers {
   onAudio?: (pcm: Buffer) => Promise<void> | void;
   /** The model has handed work to the agent and is waiting for it. */
   onConsult?: () => void;
+  /** The realtime provider to ask for when a session has to be opened (the `voiceProvider` setting). */
+  provider?: string | undefined;
 }
 
 export interface TalkOutcome {
@@ -111,13 +113,14 @@ export class RealtimeTalk {
     this.options.source.call("talk.session.close", { sessionId: session.id }).catch(() => undefined);
   }
 
-  private async session(clientId: string): Promise<Open> {
+  private async session(clientId: string, wanted?: string): Promise<Open> {
     const existing = this.open.get(clientId);
     if (existing) return existing;
+    const provider = wanted || this.options.provider;
     const sessionKey = this.options.sessionKey?.();
     const created = await this.options.source.call("talk.session.create", {
       ...(sessionKey ? { sessionKey } : {}),
-      ...(this.options.provider ? { provider: this.options.provider } : {}),
+      ...(provider ? { provider } : {}),
       mode: "realtime",
       transport: "gateway-relay",
       brain: "agent-consult",
@@ -129,10 +132,17 @@ export class RealtimeTalk {
     if (created?.audio && (created.audio.inputEncoding !== "pcm16" || rate !== TALK_FORMAT.sampleRate)) {
       throw new Error(`the realtime voice session wants sound Axis does not send (${created.audio.inputEncoding} at ${rate} Hz)`);
     }
-    let isReady!: () => void;
-    const session: Open = { id, ready: new Promise<void>((resolve) => (isReady = resolve)) };
-    // The provider says when it is listening; a relay that never says so is tried anyway after a moment.
-    session.listener = (event) => event.type === "ready" && isReady();
+    let isReady!: () => void, isNot!: (error: Error) => void;
+    const session: Open = { id, ready: new Promise<void>((resolve, reject) => ((isReady = resolve), (isNot = reject))) };
+    // The provider says when it is listening, or that it cannot be reached; a relay that says neither is tried anyway after a moment.
+    session.listener = (event) => {
+      if (event.type === "ready") isReady();
+      else if (event.type === "error" || event.type === "close") {
+        if (this.open.get(clientId) === session) this.open.delete(clientId);
+        isNot(new Error(`the realtime voice of ${created?.provider ?? "the gateway"} could not be reached${event.code ? ` (${event.code})` : ""}`));
+      }
+    };
+    session.ready.catch(() => undefined);
     setTimeout(isReady, 4000).unref();
     this.open.set(clientId, session);
     this.options.log?.(`realtime voice: session ${id.slice(0, 8)} opened for ${clientId} (${created?.provider ?? "provider unknown"}${created?.model ? `, ${created.model}` : ""})`);
@@ -145,7 +155,7 @@ export class RealtimeTalk {
    */
   async converse(clientId: string, pcm: Buffer, format: AudioFormat, handlers: TalkHandlers): Promise<TalkOutcome> {
     const { source } = this.options;
-    const session = await this.session(clientId);
+    const session = await this.session(clientId, handlers.provider);
     clearTimeout(session.closeTimer);
     await session.ready;
     const outcome: TalkOutcome = { heard: "", said: "", answered: false };

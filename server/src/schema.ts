@@ -79,6 +79,13 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     help: "\"local\" is Axis's own chain: its speech recognition, the agent, its voice. \"realtime\" is a trial: what is said goes through the OpenClaw gateway to a realtime voice model in the cloud, which answers in its own voice and hands real work to the agent. Quicker for small things; the sound leaves the house and is paid for by the minute. Needs an OpenClaw gateway with a realtime Talk provider.",
   },
   {
+    key: "voiceProvider",
+    label: "Realtime voice provider (prototype)",
+    kind: "text",
+    group: "Axis",
+    help: "With \"realtime\": which of the gateway's realtime Talk providers to use, such as openai or xai. Empty leaves the choice to the gateway.",
+  },
+  {
     key: "idleLooksOff",
     label: "Idle looks switched off",
     kind: "text",

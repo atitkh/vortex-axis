@@ -766,8 +766,10 @@ export class TurnManager {
         turn.thinking = true;
         const speaker = caps.includes("speaker") ? new Speaker(this.port, session, turnId, talk.format, signal, () => Boolean(turn.silenced)) : undefined;
         let shown = "";
+        const provider = this.port.settings(session).voiceProvider;
         const result = await talk.converse(id, input.pcm, input.format, {
           signal,
+          provider: typeof provider === "string" && provider ? provider : undefined,
           onHeard: (heard) => {
             if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: heard.slice(0, 4000) });
             live?.words(id, turnId, { heard });

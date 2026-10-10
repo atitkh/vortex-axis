@@ -10,7 +10,7 @@ const pcm = Buffer.from(out.buffer);
 const { code } = await admin("POST", "/admin/pairing-codes");
 const capabilities = ["mic", "screen"];
 const paired = await fetch(`${base}/v1/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, type: "probe", version: "0.1.0", capabilities, name: "Talk probe" }) }).then((r) => r.json());
-console.log("setting:", JSON.stringify((await admin("PATCH", `/admin/settings/device/${paired.clientId}`, { values: { voiceMode: "realtime" } })).values ?? "?").slice(0, 120));
+console.log("setting:", JSON.stringify((await admin("PATCH", `/admin/settings/device/${paired.clientId}`, { values: { voiceMode: "realtime", ...(process.env.PROVIDER ? { voiceProvider: process.env.PROVIDER } : {}) } })).values ?? "?").slice(0, 120));
 const socket = new WebSocket(`${base.replace(/^http/, "ws")}/v1/client`);
 await new Promise((resolve, reject) => socket.once("open", resolve).once("error", reject));
 const t0 = Date.now(); const seen = []; let done; const finished = new Promise((r) => (done = r));
