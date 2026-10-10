@@ -811,7 +811,7 @@ export function createHttpHandler(deps: HttpDeps) {
         try {
           target = new URL(/^https?:\/\//i.test(given) ? given : `http://${given}`);
         } catch {
-          throw new HttpError(400, "give an address such as https://axis.example.org or 10.0.0.6:8440");
+          throw new HttpError(400, "give an address such as https://axis.example.org or 192.168.1.20:8440");
         }
         if (!given || !["http:", "https:"].includes(target.protocol) || target.username || target.search || target.hash || !["", "/"].includes(target.pathname)) {
           throw new HttpError(400, "give only the address: http or https, a host, and a port if it is not the usual one");

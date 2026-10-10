@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
  * ship together in one container, so they share it. The commit says exactly
  * which build, when the build was told (`AXIS_COMMIT`, set by `npm run deploy`).
  *
- * This is not the device protocol's version (`PROTOCOL_VERSION`, a single
+ * This is not the protocol's version (`PROTOCOL_VERSION`, a single
  * whole number that only changes when devices and Axis must change how they
  * talk), and not a firmware version, which each device type counts for itself.
  */

@@ -208,14 +208,14 @@ describe("pairing with the gateway", () => {
 describe("agent turns over the gateway", () => {
   it("sends the turn to the chosen agent in one shared session", async () => {
     await pairWithGateway();
-    expect((await admin("PATCH", "/admin/gateway", { agentId: "vertex" })).body.agentId).toBe("vertex");
+    expect((await admin("PATCH", "/admin/gateway", { agentId: "helper" })).body.agentId).toBe("helper");
 
     const { client } = await ready(["mic", "speaker", "screen"], { name: "Desk" });
     client.send({ t: "text", turnId: "t1", text: "hi there" });
 
     expect((await client.next("reply.text", 0, (m) => m.final)).text).toBe("Hello from the agent.");
     const request = gateway.agentRequests[0];
-    expect(request).toMatchObject({ agentId: "vertex", sessionKey: "vortex-axis" });
+    expect(request).toMatchObject({ agentId: "helper", sessionKey: "vortex-axis" });
     expect(request.message).toBe("[from: Desk, type: web, location: unknown, can: mic+speaker+screen]\nhi there");
     expect(request.idempotencyKey).toMatch(/^axis-/);
     // The note rides beside the message as an addition to the agent's own prompt, not inside the words.
@@ -242,15 +242,15 @@ describe("agent turns over the gateway", () => {
 
   it("lists agents and takes the agent from the environment", async () => {
     await pairWithGateway();
-    await restart({ gateway: { url: undefined, agentId: "vertex", sessionKey: "desk-test", displayName: "VorteX Axis" } });
+    await restart({ gateway: { url: undefined, agentId: "helper", sessionKey: "desk-test", displayName: "VorteX Axis" } });
     await until(bothConnected, "both links to reconnect");
     const agents = (await admin("GET", "/admin/gateway/agents")).body;
-    expect(agents).toEqual({ agents: [{ id: "main", default: true }, { id: "vertex", default: false }], selected: "vertex" });
+    expect(agents).toEqual({ agents: [{ id: "main", default: true }, { id: "helper", default: false }], selected: "helper" });
 
     const { client } = await ready();
     client.send({ t: "text", turnId: "t1", text: "hi" });
     await client.next("speak.end");
-    expect(gateway.agentRequests[0]).toMatchObject({ agentId: "vertex", sessionKey: "desk-test" });
+    expect(gateway.agentRequests[0]).toMatchObject({ agentId: "helper", sessionKey: "desk-test" });
   });
 
   it("reports an agent the gateway does not have", async () => {

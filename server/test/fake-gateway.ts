@@ -33,7 +33,7 @@ export class FakeGateway {
   readonly conns: Conn[] = [];
   agents = [
     { id: "main", default: true },
-    { id: "vertex", default: false },
+    { id: "helper", default: false },
   ];
   /** Pieces of the reply an agent turn streams back. */
   reply: string[] = ["Hello ", "from the agent."];

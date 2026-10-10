@@ -231,7 +231,7 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 
 ## 12. Open items
 
-- A target for time to first sound. Measured on 2026-10-07 through the live gateway with `scripts/latency-probe.mjs` (typed turns, the `vertex` agent, speech services on the Orange Pi, median of three): first reply text after 2.1 seconds, first audio after 3.2 seconds. A spoken turn adds speech recognition (about 0.15 seconds for a 2 second clip) and the client's wait for silence. The agent is the largest share, then synthesis at about 1.1 to 1.4 seconds to first audio. No target is set yet.
+- A target for time to first sound. Measured on 2026-10-07 through the live gateway with `scripts/latency-probe.mjs` (typed turns, an agent on a local model, speech services on a small board on the same network, median of three): first reply text after 2.1 seconds, first audio after 3.2 seconds. A spoken turn adds speech recognition (about 0.15 seconds for a 2 second clip) and the client's wait for silence. The agent is the largest share, then synthesis at about 1.1 to 1.4 seconds to first audio. No target is set yet.
 - ~~Whether to send the agent a stable session prompt.~~ Done 2026-10-08: see "Note to an OpenClaw agent".
 - Approvals raised during a turn are not shown to clients yet.
 - Final command names (section 6).
@@ -365,7 +365,7 @@ Added 2026-10-09. Until now an agent could only use Axis's tools as an OpenClaw 
 Added 2026-10-09. There are three kinds of version and they answer three different questions.
 
 - **Axis's version** (`0.14.0`): which release of the server and its web pages this is. One number for both, since they ship in one container and cannot be mismatched; written once in the top-level `package.json`. The web client reports it as its own version, as a board reports its firmware's. Shown with the build's commit at the foot of the admin sidebar. History in `CHANGELOG.md`.
-- **The device protocol's version** (`1`): whether a device and Axis can talk at all. A single whole number, never dotted, so it cannot be mistaken for a release; it changes only when the messages change in a way old devices could not follow, and Axis keeps answering the one before. Always written out as "device protocol".
+- **The protocol's version** (`1`): whether a device and Axis can talk at all. A single whole number, never dotted, so it cannot be mistaken for a release; it changes only when the messages change in a way old devices could not follow, and Axis keeps answering the one before. Always written with the word, "protocol 1".
 - **A firmware's version** (`0.11.4`): which build a device of one type runs, counted per device type, compared by Axis when it offers an update.
 
 Until this date the server and web client both said 0.1.0 from their first commit: nothing forced a number on them the way updates over Wi-Fi forced one on firmware.

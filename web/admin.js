@@ -207,12 +207,12 @@ async function refresh() {
   }
 }
 
-/** Which Axis this is, at the foot of the sidebar: the release, the build, and (a different thing) the device protocol. */
+/** Which Axis this is, at the foot of the sidebar: the release, the build, and (a different thing) the protocol. */
 function renderAbout(status) {
   $("about").replaceChildren(
     h("span", { title: "The release of Axis and its web pages" }, `Axis ${status.version || "?"}`),
     status.commit ? h("span", { class: "mono", title: "The commit this build was made from" }, status.commit) : null,
-    h("span", { title: "How devices and Axis talk to each other. It changes only when that does, and has nothing to do with the release number." }, `device protocol ${status.protocol}`),
+    h("span", { title: "How devices and Axis talk to each other. It changes only when that does, and has nothing to do with the release number." }, `protocol ${status.protocol}`),
   );
 }
 
@@ -1032,7 +1032,7 @@ function renderDevice() {
             disabled: !client.online,
             onclick: (event) => {
               const address = prompt(
-                `Address ${client.name} should reach Axis at, for example https://axis.example.org or 10.0.0.6:8440.\n\nIt keeps its pairing and settings. It tries the new address and goes back to this one by itself if it cannot connect within a minute and a half.`,
+                `Address ${client.name} should reach Axis at, for example https://axis.example.org or 192.168.1.20:8440.\n\nIt keeps its pairing and settings. It tries the new address and goes back to this one by itself if it cannot connect within a minute and a half.`,
                 client.readings.axis,
               );
               if (!address || address.trim() === client.readings.axis) return;
@@ -2608,7 +2608,7 @@ function renderIntegrations() {
   body.replaceChildren(
     integration("Home Assistant", ha ? (ha.connected ? ["connected", "good"] : ["not connected", "bad"]) : ["off", ""],
       [
-        ["MQTT broker", field("host", set.mqtt.host, { class: "mono", placeholder: "10.0.0.5" }), "The host name or address of the broker Home Assistant uses. Empty switches the link off."],
+        ["MQTT broker", field("host", set.mqtt.host, { class: "mono", placeholder: "192.168.1.10" }), "The host name or address of the broker Home Assistant uses. Empty switches the link off."],
         ["Port", field("port", set.mqtt.port, { type: "number", min: 1, max: 65535, class: "short" })],
         ["Signs in as", field("user", set.mqtt.user, { placeholder: "no name" })],
         ["Password", field("password", "", { type: "password", placeholder: set.mqtt.passwordSet ? "set; leave empty to keep" : "none" }), "Never shown again once saved."],

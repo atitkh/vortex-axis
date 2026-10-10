@@ -1,8 +1,14 @@
 # Changelog
 
-What changed in VorteX Axis, newest first. One number covers the server and its web pages (the admin page and the web client), which ship together; it is written once, in the top-level `package.json`. Firmware counts its own versions per device type, and the device protocol has its own single number that changes only when devices and Axis must change how they talk.
+What changed in VorteX Axis, newest first. One number covers the server and its web pages (the admin page and the web client), which ship together; it is written once, in the top-level `package.json`. Firmware counts its own versions per device type, and the protocol between devices and Axis has its own single number that changes only when devices and Axis must change how they talk.
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
+
+## 0.14.1 (2026-10-09)
+
+- The admin page says "protocol 1", not "device protocol 1".
+- The README says what Axis is for: OpenClaw first, and any other agent harness through MCP and a chat address.
+- Nothing in the repository names one installation any more: real host names, addresses, the public name and device names moved to `CLAUDE.local.md`, which is not committed, and the examples use made-up addresses.
 
 ## 0.14.0 (2026-10-09)
 

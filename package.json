@@ -1,8 +1,8 @@
 {
   "name": "vortex-axis",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
-  "description": "Hub between thin client devices and an OpenClaw agent",
+  "description": "Hub between thin client devices and an AI agent: made for OpenClaw, usable with any harness through MCP",
   "workspaces": [
     "protocol",
     "server"

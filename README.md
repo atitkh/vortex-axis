@@ -1,8 +1,10 @@
 # VorteX Axis
 
-A hub that sits between small "thin client" devices and an [OpenClaw](https://docs.openclaw.ai) agent.
+A hub that sits between small "thin client" devices and an AI agent.
 
-Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects to OpenClaw as a single node and to the speech services (STT and TTS). A client only needs a microphone, a speaker or a screen, and one connection to Axis. Everything else lives in the hub.
+It is made for [OpenClaw](https://docs.openclaw.ai) first: Axis joins an OpenClaw gateway as a single node, and that is the setup it is developed and used with every day. It does not depend on it, though. Any agent harness can take its place: Axis sends what was said to an OpenAI-style chat address, and offers its tools (speak, ask, timers, devices) to any harness that speaks MCP. See [Agents and tools](#agents-and-tools).
+
+Clients (ESP32 boards, a web page, later a watch) connect to Axis. Axis connects to the agent and to the speech services (STT and TTS). A client only needs a microphone, a speaker or a screen, and one connection to Axis. Everything else lives in the hub.
 
 Axis is a bridge, not an agent runtime. It does not think; it routes.
 
@@ -14,7 +16,7 @@ Without a hub, every device has to do the same heavy work itself: hold two OpenC
 
 With Axis:
 
-- One connection point to OpenClaw, however many clients exist.
+- One connection point to the agent, however many clients exist.
 - Thin firmware: capture audio, play audio, show state.
 - Settings (voice, persona, wake word, volume, location) are stored once and synced to every client.
 - The agent can address a location or a client, and Axis picks the right device.

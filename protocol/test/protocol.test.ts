@@ -47,7 +47,7 @@ const clientSamples: ClientMessage[] = [
     ],
     actions: [{ name: "reboot", label: "Reboot", confirm: true }],
     links: [{ label: "Device log", path: "/logs" }],
-    address: "10.0.0.49",
+    address: "192.168.1.42",
   },
 ];
 

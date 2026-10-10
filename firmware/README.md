@@ -47,7 +47,7 @@ That uploads the build to Axis and tells every online device of the type that is
 
 1. A device with no Wi-Fi starts its own network, `VorteX-Axis-XXXX`, and shows the name on screen. Join it and open `http://192.168.4.1` (phones usually open it by themselves).
 2. Pick your Wi-Fi and enter its password.
-3. On the Axis admin page press **New pairing code** and copy the **setup string**. It looks like `axis://10.0.0.6:8440/483-221`: the address the device should reach Axis at, and a one-time pairing code. Paste it into the same form.
+3. On the Axis admin page press **New pairing code** and copy the **setup string**. It looks like `axis://192.168.1.20:8440/483-221`: the address the device should reach Axis at, and a one-time pairing code. Paste it into the same form.
 4. The device joins Wi-Fi, pairs, stores its token and fetches its settings.
 
 The same page stays available at the device's own address afterwards, to change Wi-Fi or pair with a different Axis. If the device cannot join the saved network at boot (three failed tries or 45 seconds), the setup network comes back; with nobody on it for five minutes, the device tries the saved network again.
@@ -151,7 +151,7 @@ Known and unexplained: after a reset triggered over the serial cable, the log ca
 
 ## Tests for a person
 
-All done by Atit on 2026-10-08, with the exceptions noted.
+All done by the owner on 2026-10-08, with the exceptions noted.
 
 1. [x] Say "Hey Vortex" from a metre away. The face should turn green within about half a second. Then ask something. Repeat from across the room and with the TV on. Note misses and false wakes.
 2. [x] Tap the screen while idle: green face, speak, stop talking. It should send after about a second of quiet.
@@ -169,7 +169,7 @@ Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 11. [x] Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
 12. [x] Listen for the rising tone on wake and on tap (not on follow-up, removed at his request). Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
 13. [x] While listening, talk at different volumes: the green face should swell and shrink with your voice.
-14. [x] Open `http://10.0.0.49/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
+14. [x] Open `http://<the board's address>/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
 15. [x] Say "Hey Vortex" over a long answer again (any volume): the speech should dip as you start the phrase and the device should stop and listen. If not, `/logs` shows whether the score rose (`ducking the speaker`). **Tried 2026-10-08: does not work** (the wake word does not stop speech mid-answer even with ducking). Accepted for now; tap the screen to interrupt. An echo canceller is the real fix.
 16. [x] Is the buzz gone or lighter (0.5.1 resampler)? No report back after the 0.5.1 resampler fix.
 
@@ -191,7 +191,7 @@ Added in 0.9.0, not yet seen by a person:
 
 Text: `display::textLine` takes 2 (body) or 3 (heading); widths are measured (`display::textWidth`), lines are wrapped by width in `main.cpp`, and `display::plain` turns UTF-8 into what the fonts hold. The fonts are in `src/fonts/`, from the Adafruit GFX Library. Motion: `src/imu.cpp` reads the QMI8658 accelerometer from the main loop; an edge must carry 0.55 g and hold for 0.9 s before the picture turns.
 
-Added in 0.7.0 (questions and timers). Tried by Atit on 2026-10-08: tapping a choice and all the timer tests work. The 0.7.1 button layout and timers showing on every screen are not yet seen by a person:
+Added in 0.7.0 (questions and timers). Tried by the owner on 2026-10-08: tapping a choice and all the timer tests work. The 0.7.1 button layout and timers showing on every screen are not yet seen by a person:
 
 17. [ ] Have the agent ask a question with choices ("ask me on the board whether I want tea or coffee"). It should speak the question, play the cue, and show the question with one choice per row filling the screen. Tap a choice: the agent should get exactly that one. Check the row you tapped is the one it took (the log line `[ask] tap at ...` shows where the tap landed); try it at another `rotation` too.
 18. [ ] The same question, answered by voice ("coffee", "the second one"). The question text turns green while it listens. The agent should get the choice, and the words must not be answered as a normal turn.

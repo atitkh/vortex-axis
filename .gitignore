@@ -25,3 +25,5 @@ firmware/**/.vscode/
 *.log
 .DS_Store
 backup/
+# What is particular to one installation: host names, addresses, device names.
+CLAUDE.local.md

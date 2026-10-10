@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository.
 
 ## Project
 
-VorteX Axis is a hub between thin client devices and an OpenClaw agent. Clients hold one WebSocket to Axis. Axis holds the connections to the OpenClaw gateway (as one node), STT and TTS, and owns the client registry, settings and routing.
+VorteX Axis is a hub between thin client devices and an AI agent: made for OpenClaw first, and usable with any other agent harness through MCP and an OpenAI-style chat address. Clients hold one WebSocket to Axis. Axis holds the connections to the OpenClaw gateway (as one node), STT and TTS, and owns the client registry, settings and routing.
 
 Read [docs/design.md](docs/design.md) before changing behavior. It records what was agreed and marks what is still proposed or open.
 
@@ -12,7 +12,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 Last updated: 2026-10-09 21:30, at the commit that gave Axis a version number (0.14.0). Update this line whenever you change this section.
 
-**Running now:** Axis in Docker on voltex-ubuntu, port 8440, data in `/home/voltex/vortex-axis` (local disk; Axis itself copies it every hour to `/media/voltex/VS1/Docker/vortex-axis`, mounted as `/backup` through `AXIS_BACKUP_PATH`; there is no cron job and no backup script any more). Public name `https://vortex.atitkharel.com.np` through a Cloudflare Tunnel; `/admin` is LAN and tailnet only. Two Waveshare boards (`VorteX-Axis-C484`, `VorteX-Axis-0BF8`) on firmware 0.11.4 over the public address, plus web clients "Brave Windows" and "iPhone", both with notifications on. Agent backend: the OpenClaw gateway, agent `main` (the `vertex` agent fails on voice: its conversation is larger than its local model's context). Axis's default device is `VorteX-Axis-C484`. `.env` also sets `AXIS_TIMEZONE=America/Chicago` and `AXIS_MQTT_URL` (Home Assistant).
+**Running now:** see `CLAUDE.local.md`. That file is NOT in the repository (it is in `.gitignore`): it holds what is particular to one installation, such as host names, addresses, the public name, device names and which agent answers. If you are working on the installation this checkout belongs to, read it and keep it current; never write such details in this file or anywhere else that is committed. In general terms: Axis runs in Docker on port 8440 with its data folder on a local disk, backs itself up hourly to a mounted folder, is reached from outside under a public name through a tunnel with `/admin` kept to the local network, and serves two Waveshare boards and a few browser clients through an OpenClaw gateway.
 
 **Added 2026-10-08 and 09, all deployed** (details in docs/design.md from "Location, not room" to the end):
 - Devices: admin reset; echo canceller (only with `bargeIn`, which is off by default); encrypted connections take memory from PSRAM (free internal memory 32 KB to 83 KB); `idleLooksOff`; seven more idle looks with `wave` and `tilt`; readings `screenW`/`screenH` (`Client::setReading`).
@@ -35,7 +35,7 @@ Last updated: 2026-10-09 21:30, at the commit that gave Axis a version number (0
 
 **Not verified by anyone:** the wake-while-another-speaks rule on real boards; a person interrupting with echo cancelling on; the admin page at phone width. **Verified by the owner:** notifications on iPhone and Brave, a question answered from an iPhone notification, two boards arbitrating a wake word, fresh setup and Wi-Fi reset of a board.
 
-**Known and open:** `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained); `meshtastic-bridge` container stopped since 2026-10-08 (it grabbed the board's serial port; point it at its radio's `/dev/serial/by-id/` name before starting); agents reach Axis through the general `nodes` tool (the eight `vortex_axis_*` tools are published but not in the agents' tool policy).
+**Known and open:** `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained); agents reach Axis through the general `nodes` tool (the eight `vortex_axis_*` tools are published but not in the agents' tool policy).
 
 Built and running:
 
@@ -58,7 +58,7 @@ Built 2026-10-08 after milestone 5: protections for a public address (design 9.0
 
 Not built yet: staged rollout of updates, signed firmware, a wake word in the web client, firmware built in CI on a tag. Wake words from Axis ARE built (design 7.3, `server/src/wakewords.ts`, the Wake words page, the `wake.model` command). The owner asked about these on 2026-10-08; they were discussed, not started.
 
-Deployed: Axis runs with `AXIS_PUBLIC_HOSTS=vortex.atitkharel.com.np` and `AXIS_TRUSTED_PROXIES=10.84.40.1`; the public name is live through the owner's Cloudflare tunnel (`cloudflared`, host network, service `http://localhost:8440`). Checked through the real name: `/admin` and the admin API are 404, the client side and the socket work. The board is on firmware 0.10.2 and reaches Axis at `https://vortex.atitkharel.com.np` (moved with the `address` command, pairing kept); it is set to the stored copy of "Hey Vortex"; `screenOffset` is 0 for its type. KNOWN PROBLEM, cause not found: on the encrypted link the board once restarted by itself about a minute after the move, and one update over the encrypted link left it unreachable for two and a half minutes before it came back on the old firmware; the same update worked on a second try from a fresh start. An encrypted connection leaves about 47 KB of free memory (low mark 34 KB), so memory is the suspect. `diag` and the `lastStart` reading now say why a device last started ("panic", "watchdog", "software", ...): check it first.
+Deployed: Axis runs with `AXIS_PUBLIC_HOSTS` set to its public name and `AXIS_TRUSTED_PROXIES` to the tunnel's address as the container sees it; the public name is live through a tunnel (the exact values are in `CLAUDE.local.md`). Checked through the real name: `/admin` and the admin API are 404, the client side and the socket work. The board is on firmware 0.10.2 and reaches Axis at the public name (moved with the `address` command, pairing kept); it is set to the stored copy of "Hey Vortex"; `screenOffset` is 0 for its type. KNOWN PROBLEM, cause not found: on the encrypted link the board once restarted by itself about a minute after the move, and one update over the encrypted link left it unreachable for two and a half minutes before it came back on the old firmware; the same update worked on a second try from a fresh start. An encrypted connection leaves about 47 KB of free memory (low mark 34 KB), so memory is the suspect. `diag` and the `lastStart` reading now say why a device last started ("panic", "watchdog", "software", ...): check it first.
 
 Loose ends, not yet done:
 
@@ -202,9 +202,9 @@ Build in a board folder with `~/.platformio/penv/bin/pio run`. Ship it over Wi-F
 ## Conventions
 
 - Keep docs current: a decision that changes behavior goes into `docs/design.md` in the same change.
-- No secrets, tokens or internal addresses in the repository.
+- No secrets, tokens or internal addresses in the repository, and nothing that names one installation: no real host names, domains, LAN addresses, device names, people's names or agent names, in code, tests, comments or docs. Use `axis.example.org`, `192.168.1.20` and the like. One installation's details go in `CLAUDE.local.md`, which is not committed.
 - **Versions.** Axis (server, admin page and web client together) has ONE version, written once in the top-level `package.json`; `server/src/version.ts` reads it and the web files are handed it when served. `server/package.json` and `protocol/package.json` carry the same number (a test fails if they differ). Bump all three and the lockfile with one command, `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version`, in the commit that changes what Axis does: the middle number for a batch of new things, the last for fixes, and add a line to `CHANGELOG.md` in the same commit. Tag a release `vX.Y.Z`.
-- It is NOT the device protocol's version (`PROTOCOL_VERSION`, one whole number, changed only when devices and Axis must talk differently, shown as "device protocol 1") and NOT a firmware version (counted per device type, in the firmware's own files). Never write one where another is meant.
+- It is NOT the protocol's version (`PROTOCOL_VERSION`, one whole number, changed only when devices and Axis must talk differently; always written with the word, "protocol 1", never as a bare "version 1") and NOT a firmware version (counted per device type, in the firmware's own files). Never write one where another is meant.
 - Deploy with `npm run deploy`, not bare `docker compose up -d --build`: it passes the commit into the build, which the admin page shows beside the version.
 - Releases are git tags.
 - `.gitea/workflows/test.yml` runs the type check, the tests and a schema freshness check on every push to `main`.
