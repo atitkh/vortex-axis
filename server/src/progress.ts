@@ -63,6 +63,14 @@ const STEP_STATES: Record<string, Step["state"]> = {
 /** Reads the steps an agent gave: plain names, or names each with how it stands. */
 function readSteps(value: unknown): { steps: Step[]; given: boolean } | undefined {
   if (value === undefined || value === null) return undefined;
+  // A harness that does not yet know the tool takes a list may hand it over as the text of one.
+  if (typeof value === "string" && value.trim().startsWith("[")) {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      // Not a list after all; said below.
+    }
+  }
   if (!Array.isArray(value)) throw new Error("steps must be a list of short step names");
   if (value.length > MAX_STEPS) throw new Error(`steps can list ${MAX_STEPS} at most: name the larger stages`);
   let given = false;

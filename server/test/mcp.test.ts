@@ -237,6 +237,9 @@ describe("progress on the screens", () => {
       { title: "Release", ending: "done", done: 3, total: 3 },
     ]);
 
+    // A list that arrives as its own text is read as the list.
+    expect((await call({ title: "Texted", steps: '["One", "Two"]' })).structuredContent).toMatchObject({ task: { total: 2, steps: 2 } });
+    await call({ action: "clear" });
     expect(await call({ title: "Odd", steps: "one, two" })).toMatchObject({ isError: true });
     expect(await call({ title: "Odd", steps: [{ step: "One", status: "soon" }] })).toMatchObject({ isError: true });
     expect(await call({ title: "Odd", steps: Array.from({ length: 13 }, (_, i) => `Step ${i}`) })).toMatchObject({ isError: true });
