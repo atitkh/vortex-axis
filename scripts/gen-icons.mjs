@@ -3,7 +3,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ICONS, ICON_DOTS, ICON_HOLE, ICON_PEN, ICON_SIZE, ICON_TINTS, SHAPE_DOT, SHAPE_SIZE, iconDots } from "../web/icons.js";
+import { ICONS, ICON_DOTS, ICON_HOLE, ICON_PEN, ICON_SIZE, ICON_MS, ICON_TINTS, SHAPE_DOT, SHAPE_DOTS_MIN, SHAPE_HALO, SHAPE_SIZE, iconDots } from "../web/icons.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tenths = (value) => Math.max(0, Math.min(240, Math.round(value * 10)));
@@ -59,6 +59,10 @@ const int COUNT = sizeof(ICONS) / sizeof(ICONS[0]);
 const int DOTS = ${ICON_DOTS};
 const float SHAPE_SIZE = ${SHAPE_SIZE};
 const float SHAPE_DOT = ${SHAPE_DOT};
+/** With fewer dots than all in the shape, the rest turn in a ring this far out. The usual time to form, and the fewest dots a shape may have. */
+const float HALO = ${SHAPE_HALO};
+const float MS = ${ICON_MS};
+const int DOTS_MIN = ${SHAPE_DOTS_MIN};
 
 static const uint8_t SHAPES[][DOTS * 2] = {
 ${dots.join("\n")}

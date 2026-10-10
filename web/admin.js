@@ -563,8 +563,48 @@ function chooseIcon(kind) {
   bigFace.setIcon(kind);
 }
 
+/** The tuning as the sliders have it: milliseconds to form, and dots in a dot shape. */
+const iconTuning = () => [Number($("face-icon-ms").value), Number($("face-icon-dots").value)];
+
+/** Says what the sliders say, and has every face on the page follow them. */
+function showIconTuning() {
+  const [ms, dots] = iconTuning();
+  $("face-icon-ms-note").textContent = `${(ms / 1000).toFixed(2).replace(/0$/, "")} s`;
+  $("face-icon-dots-note").textContent = dots >= 78 ? "all 78" : `${dots} of 78; the other ${78 - dots} turn in a ring round it`;
+  for (const face of iconFaces) face.setIconTuning(ms, dots);
+  bigFace?.setIconTuning(ms, dots);
+}
+
+/** Takes every icon down and puts it up again, so the way it forms can be watched. */
+function replayIcons() {
+  const kinds = Object.keys(ICONS);
+  const large = faceChosen.startsWith("icon:") ? faceChosen.slice(5) : undefined;
+  iconFaces.forEach((face) => face.setIcon(undefined));
+  if (large) bigFace?.setIcon(undefined);
+  const ms = iconTuning()[0];
+  setTimeout(() => {
+    iconFaces.forEach((face, index) => face.setIcon(kinds[index]));
+    if (large && faceChosen === `icon:${large}`) bigFace?.setIcon(large);
+  }, ms + 250);
+}
+$("face-icon-replay").addEventListener("click", replayIcons);
+
+for (const [id, key] of [["face-icon-ms", "toolIconMs"], ["face-icon-dots", "toolIconDots"]]) {
+  // Dragging shows it at once; letting go saves it for every device and plays the change.
+  $(id).addEventListener("input", showIconTuning);
+  $(id).addEventListener("change", (event) =>
+    act(event.target, "face-icons-note", async () => {
+      await api("PATCH", "/admin/settings/global", { values: { [key]: Number(event.target.value) } });
+      note("face-icons-note", key === "toolIconMs" ? "The time to form is saved for every device." : "The number of dots is saved for every device.", "good");
+      replayIcons();
+    }),
+  );
+}
+
 /** Marks the style in force and draws every icon that way. */
 function showIconStyle() {
+  $("face-icon-ms-row").classList.toggle("hidden", iconStyle === "off");
+  $("face-icon-dots-row").classList.toggle("hidden", iconStyle !== "dots");
   for (const button of $("face-icon-style").querySelectorAll("button")) button.classList.toggle("on", button.dataset.style === iconStyle);
   $("face-icon-style-help").textContent = ICON_STYLE_HELP[iconStyle];
   $("face-icons").classList.toggle("off", iconStyle === "off");
@@ -677,6 +717,7 @@ function openFaces() {
   showIconStyle();
   bigFace = new Vortex($("face-big"));
   bigFace.calm = false;
+  showIconTuning();
   faces.push(bigFace);
   chooseFace(faceChosen);
   if (token) {
@@ -685,7 +726,10 @@ function openFaces() {
         idleOff = new Set(String(layer.values.idleLooksOff ?? "").split(",").map((n) => n.trim()).filter(Boolean));
         showIdleOff();
         iconStyle = ["dots", "line", "off"].includes(layer.values.toolIcons) ? layer.values.toolIcons : "dots";
+        if (typeof layer.values.toolIconMs === "number") $("face-icon-ms").value = String(layer.values.toolIconMs);
+        if (typeof layer.values.toolIconDots === "number") $("face-icon-dots").value = String(layer.values.toolIconDots);
         showIconStyle();
+        showIconTuning();
       })
       .catch(() => undefined);
   }
@@ -743,6 +787,7 @@ function renderDeviceSketch(client) {
     }
     deviceFace.setIdleOff(client.settings.idleLooksOff);
     deviceFace.setIconStyle(client.settings.toolIcons);
+    deviceFace.setIconTuning(client.settings.toolIconMs, client.settings.toolIconDots);
     deviceFace.setMode(mode);
   } else closeDeviceFace();
 

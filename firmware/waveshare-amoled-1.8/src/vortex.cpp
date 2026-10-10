@@ -122,6 +122,8 @@ float iconShown = 0;
 // The style asked for, and the one being drawn, which stays while an icon fades out.
 IconStyle iconStyle = IconStyle::Dots, iconDrawnStyle = IconStyle::Dots;
 float flowPhase = 0;
+float iconMs = icons::MS;
+int iconDots = icons::DOTS;
 // The frame goes to the panel unturned, so what has a top is turned here: a step right and a step down
 // on the upright icon are (rightX, rightY) and (downX, downY) in the frame.
 float rightX = 1, rightY = 0, downX = 0, downY = 1;
@@ -182,6 +184,11 @@ void setRotation(int degrees) {
     }
 }
 
+void setIconTuning(int ms, int dots) {
+    iconMs = constrain(ms, 150, 3000);
+    iconDots = constrain(dots, icons::DOTS_MIN, icons::DOTS);
+}
+
 void setIconStyle(const char *name) {
     iconStyle = name && !strcmp(name, "off") ? IconStyle::Off : name && !strcmp(name, "line") ? IconStyle::Line : IconStyle::Dots;
 }
@@ -235,7 +242,8 @@ const uint16_t *render(float dt) {
 
     // The icon is only ever there while thinking, and comes and goes quickly.
     const float wantIcon = mode == Mode::Thinking && icon >= 0 && iconStyle != IconStyle::Off ? 1.0f : 0.0f;
-    iconShown += (wantIcon - iconShown) * (1.0f - expf(-dt * 6.0f));
+    // Easing covers all but the last sixtieth in 4.2 time constants: that is when it counts as there.
+    iconShown += (wantIcon - iconShown) * (1.0f - expf(-dt * 4200.0f / iconMs));
     // Easing never quite arrives; close enough is there, or a speck of the core would stay for good.
     const float eye = iconShown < 0.01f ? 0.0f : iconShown > 0.985f ? 1.0f : iconShown;
     if (wantIcon > 0) iconDrawnStyle = iconStyle;
@@ -278,8 +286,13 @@ const uint16_t *render(float dt) {
             spark *= 0.86f;
 
             const float swell = voiced ? voiceSwell * level : now.pulse * sinf(pulsePhase - t * 3.0f);
+            // The arms take turns along an icon's strokes, the inner dots first. With fewer dots in the
+            // shape than there are, the outer ones stand off in a ring round it and go on turning.
+            const int n = i * ARMS + arm;
+            const bool inShape = asDots && n < iconDots;
+            const float room = asDots ? (inShape ? 0.0f : icons::HALO * eye) : hole;
             const float reach = MAX_RADIUS * now.radius * (1.0f + swell);
-            const float radius = hole + max(0.0f, reach - hole) * powf(t, 0.85f);
+            const float radius = room + max(0.0f, reach - room) * powf(t, 0.85f);
             // The sway runs out along the arm like a wave, and is widest at the tip.
             const float angle = phase + arm * (2.0f * PI / ARMS) - now.twist * 2.0f * PI * t + now.wave * t * sinf(wavePhase - t * 7.0f);
             const float glow = min(1.0f, (1.0f - 0.72f * t) + spark);
@@ -288,17 +301,17 @@ const uint16_t *render(float dt) {
             float px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
             float size = now.dot * (1.4f + 4.2f * t);
             float red = now.r * glow + spark * 0.5f, green = now.g * glow + spark * 0.5f, blue = now.b * glow + spark * 0.5f;
-            if (asDots && eye > 0) {
-                // Each dot has a place on the icon: the arms take turns along its strokes. It goes there
+            if (inShape && eye > 0) {
+                // Each dot of the shape has a place on the icon, spread evenly over its strokes. It goes there
                 // by the straight way, and a wave of light runs along the strokes once it has arrived.
-                const int n = i * ARMS + arm;
-                const float ux = (shape[n * 2] - 120) * shapeUnit, uy = (shape[n * 2 + 1] - 120) * shapeUnit;
+                const int at = n * icons::DOTS / iconDots;
+                const float ux = (shape[at * 2] - 120) * shapeUnit, uy = (shape[at * 2 + 1] - 120) * shapeUnit;
                 const float ix = ux * swayCos - uy * swaySin, iy = ux * swaySin + uy * swayCos;
                 // The frame goes to the panel unturned; the icon has a top.
                 px += (SIZE / 2 + ix * rightX + iy * downX - px) * eye;
                 py += (SIZE / 2 + ix * rightY + iy * downY - py) * eye;
                 size += (icons::SHAPE_DOT - size) * eye;
-                const float lit = 0.62f + 0.38f * sinf(flowPhase - n * 0.33f) + spark * 0.5f;
+                const float lit = 0.62f + 0.38f * sinf(flowPhase - at * 0.33f) + spark * 0.5f;
                 red += (shapeR * lit - red) * eye;
                 green += (shapeG * lit - green) * eye;
                 blue += (shapeB * lit - blue) * eye;

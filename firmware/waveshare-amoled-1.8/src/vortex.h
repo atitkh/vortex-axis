@@ -35,6 +35,12 @@ enum class IconStyle : uint8_t { Off, Line, Dots };
 void setIconStyle(const char *name);
 
 /**
+ * How long an icon takes to form and to go, in milliseconds (the `toolIconMs` setting), and how many of
+ * the dots draw a dot shape (`toolIconDots`): the rest turn in a ring round it. Out of range is brought in.
+ */
+void setIconTuning(int ms, int dots);
+
+/**
  * Which way up the screen is: 0, 90, 180 or 270, as the display is turned. The vortex is round and
  * is sent to the panel as it is, whatever the rotation; an icon has a top, so it is turned to match.
  */

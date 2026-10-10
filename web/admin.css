@@ -756,3 +756,5 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 /* Face page: the tool icons, and how they are shown. With them off the tiles show the plain thinking face, dimmed. */
 #face-icon-style { margin: 4px 0 2px; }
 #face-icons.off .face-tile { opacity: 0.45; }
+#face-icon-ms-row, #face-icon-dots-row { margin: 6px 0 0; }
+#face-icon-ms-row label, #face-icon-dots-row label { min-width: 9.5em; }

@@ -253,3 +253,11 @@ colour += (shade * lit - colour) * eye
 ```
 
 The core is drawn at `core * (1 - eye)` as in the line style, and nothing is drawn over it. A device that turns its screen turns `(ix, iy)` the same way it turns the line icon.
+
+### Tuning
+
+Two settings, both shared like `toolIcons`:
+
+- `toolIconMs` (150 to 3000, 700 when unset): how long an icon takes to form and to go. The `6` in `iconShown += (want - iconShown) * (1 - exp(-dt * 6))` is `4.2 * 1000 / toolIconMs`: easing covers all but the last sixtieth in 4.2 time constants, which is when `eye` snaps to 1.
+- `toolIconDots` (12 to 78, 78 when unset): how many dots draw a dot shape. Dot `n = i * 3 + a` is in the shape when `n < toolIconDots`, which takes the inner dots of each arm first, and goes to point `floor(n * 78 / toolIconDots)` of the 78, so the shape is still covered end to end. The light's wave uses that point's number in place of `n`. A dot that is not in the shape stays on its arm, pushed out as the line style's hole pushes: `radius = 80 * eye + max(0, reach - 80 * eye) * t^0.85`. With all 78 in the shape nothing is left on the arms.
+

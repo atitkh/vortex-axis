@@ -85,6 +85,27 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     default: "dots",
     help: "How the vortex face shows what kind of tool the agent has picked up: \"dots\" forms the icon out of the face's own dots, \"line\" draws it at the core, \"off\" shows nothing. The Face page shows each.",
   },
+  {
+    key: "toolIconMs",
+    label: "Tool icon: time to form",
+    kind: "number",
+    group: "Screen",
+    min: 150,
+    max: 3000,
+    unit: "ms",
+    default: 700,
+    help: "How long the face takes to turn into a tool icon and back. A tool the agent holds for less time than this never quite forms.",
+  },
+  {
+    key: "toolIconDots",
+    label: "Tool icon: dots in the shape",
+    kind: "number",
+    group: "Screen",
+    min: 12,
+    max: 78,
+    default: 78,
+    help: "With tool icons shown as dots: how many of the face's 78 dots draw the shape. The rest keep turning in a ring round it.",
+  },
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };

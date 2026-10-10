@@ -58,6 +58,11 @@ export const ICON_DOTS = 78;
 /** Side of the square a dot shape fills, in the face's 240 grid, and the radius of each dot in it. */
 export const SHAPE_SIZE = 150;
 export const SHAPE_DOT = 2.9;
+/** With fewer dots than all in the shape, the rest turn in a ring this far out, clear of it. */
+export const SHAPE_HALO = 80;
+/** How long an icon takes to form unless a setting says otherwise, in milliseconds, and the fewest dots a shape may have. */
+export const ICON_MS = 700;
+export const SHAPE_DOTS_MIN = 12;
 
 /**
  * A colour each kind leans towards when it is drawn in dots, so something changes even at a

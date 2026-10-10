@@ -518,6 +518,11 @@ try {
   // The faces only move while their page is the one in front.
   await admin.front();
   step("tool icon drawn", await admin.until(`(() => { const c = ${byId("face-big")}, g = c.getContext('2d'), w = c.width; const lit = (x0, y0, x1, y1) => { const d = g.getImageData(Math.round(w * x0), Math.round(w * y0), Math.round(w * (x1 - x0)), Math.round(w * (y1 - y0))).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) n++; return n; }; const roof = lit(0.4, 0.25, 0.6, 0.37), core = lit(0.45, 0.45, 0.55, 0.55); return roof > 30 && core === 0 && 'roof lit (' + roof + ' px), centre dark'; })()`, "the dots to form the house", 8000));
+  // Fewer dots in the shape: saved for every device, and the rest stand off in a ring, so the centre stays dark.
+  await admin.run(`(() => { const s = ${byId("face-icon-dots")}; s.value = '36'; s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  step("tool icon dots", await admin.until(`/36 of 78/.test(${byId("face-icon-dots-note")}.textContent) && /saved/.test(${byId("face-icons-note")}.textContent) && ${byId("face-icon-dots-note")}.textContent`, "the number of dots to be saved"));
+  const tuned = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  if (tuned.values.toolIconDots !== 36) throw new Error(`toolIconDots was saved as ${JSON.stringify(tuned.values.toolIconDots)}`);
   await admin.run(`document.querySelector('#face-icon-style button[data-style="line"]').click()`);
   step("tool icon style", await admin.until(`document.querySelector('#face-icon-style button.on')?.dataset.style === 'line' && ${byId("face-icons-note")}.textContent`, "the style to be saved"));
   const styled = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());

@@ -4,7 +4,7 @@
 // copied from the firmware so a browser and a board look like the same thing. The specification
 // is docs/face.md; change it, this file and vortex.cpp together.
 
-import { ICONS, ICON_HOLE, ICON_PEN, ICON_SIZE, ICON_TINTS, SHAPE_DOT, SHAPE_SIZE, iconDots } from "/web/icons.js";
+import { ICONS, ICON_DOTS, ICON_HOLE, ICON_MS, ICON_PEN, ICON_SIZE, ICON_TINTS, SHAPE_DOT, SHAPE_DOTS_MIN, SHAPE_HALO, SHAPE_SIZE, iconDots } from "/web/icons.js";
 
 /** How an icon is shown while thinking: not at all, drawn with a pen at the core, or made of the face's own dots. */
 export const ICON_STYLES = ["off", "line", "dots"];
@@ -68,6 +68,8 @@ export class Vortex {
     this.icon = undefined;
     this.iconShown = 0;
     this.iconStyle = "dots";
+    this.iconMs = ICON_MS;
+    this.iconDots = ICON_DOTS;
     this.flowPhase = 0;
     this.flash = new Float32Array(ARMS * DOTS_PER_ARM);
     this.last = 0;
@@ -118,6 +120,15 @@ export class Vortex {
   /** How icons are shown: "off", "line" or "dots" (the `toolIcons` setting). Anything else is "dots". */
   setIconStyle(style) {
     this.iconStyle = ICON_STYLES.includes(style) ? style : "dots";
+  }
+
+  /**
+   * How long an icon takes to form and to go, in milliseconds (the `toolIconMs` setting), and how many
+   * of the dots draw a dot shape (`toolIconDots`). Anything that is not a number leaves the usual.
+   */
+  setIconTuning(ms, dots) {
+    this.iconMs = Number.isFinite(Number(ms)) && ms !== null && ms !== "" ? Math.min(3000, Math.max(150, Number(ms))) : ICON_MS;
+    this.iconDots = Number.isFinite(Number(dots)) && dots !== null && dots !== "" ? Math.min(ICON_DOTS, Math.max(SHAPE_DOTS_MIN, Math.round(Number(dots)))) : ICON_DOTS;
   }
 
   /** Loudness of the voice, 0 to 1. Negative: not known, the face pulses on its own. */
@@ -182,7 +193,8 @@ export class Vortex {
     const now = this.now;
     // The icon is only ever there while thinking, and comes and goes quickly.
     const wantIcon = this.mode === "thinking" && this.icon && this.iconStyle !== "off" ? 1 : 0;
-    this.iconShown += (wantIcon - this.iconShown) * (1 - Math.exp(-dt * 6));
+    // Easing covers all but the last sixtieth in 4.2 time constants: that is when it counts as there.
+    this.iconShown += (wantIcon - this.iconShown) * (1 - Math.exp((-dt * 4.2 * 1000) / this.iconMs));
     // Easing never quite arrives; close enough is there, or a speck of the core would stay for good.
     const eye = this.iconShown < 0.01 ? 0 : this.iconShown > 0.985 ? 1 : this.iconShown;
     // The style on show stays the one drawn while it fades, like the icon itself.
@@ -231,8 +243,13 @@ export class Vortex {
         const spark = this.flash[at];
 
         const swell = voiced ? voiceSwell * this.level : now.pulse * Math.sin(this.pulsePhase - t * 3);
+        // The arms take turns along an icon's strokes, the inner dots first. With fewer dots in the
+        // shape than there are, the outer ones stand off in a ring round it and go on turning.
+        const n = i * ARMS + arm;
+        const inShape = asDots && n < this.iconDots;
+        const room = asDots ? (inShape ? 0 : SHAPE_HALO * eye) : hole;
         const reach = MAX_RADIUS * now.radius * (1 + swell);
-        const radius = hole + Math.max(0, reach - hole) * Math.pow(t, 0.85);
+        const radius = room + Math.max(0, reach - room) * Math.pow(t, 0.85);
         // The sway runs out along the arm like a wave, and is widest at the tip.
         const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t + now.wave * t * Math.sin(this.wavePhase - t * 7);
         const glow = Math.min(1, 1 - 0.72 * t + spark);
@@ -241,15 +258,15 @@ export class Vortex {
         let px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
         let size = now.dot * (1.4 + 4.2 * t);
         let red = now.r * glow + spark * 0.5, green = now.g * glow + spark * 0.5, blue = now.b * glow + spark * 0.5;
-        if (asDots && eye > 0) {
-          // Each dot has a place on the icon: the arms take turns along its strokes. It goes there
+        if (inShape && eye > 0) {
+          // Each dot of the shape has a place on the icon, spread evenly over its strokes. It goes there
           // by the straight way, and a wave of light runs along the strokes once it has arrived.
-          const n = i * ARMS + arm;
-          const ix = (this.iconPoints[n * 2] - 12) * shapeUnit, iy = (this.iconPoints[n * 2 + 1] - 12) * shapeUnit;
+          const at = Math.floor((n * ICON_DOTS) / this.iconDots);
+          const ix = (this.iconPoints[at * 2] - 12) * shapeUnit, iy = (this.iconPoints[at * 2 + 1] - 12) * shapeUnit;
           px += (SIZE / 2 + ix * swayCos - iy * swaySin - px) * eye;
           py += (SIZE / 2 + ix * swaySin + iy * swayCos - py) * eye;
           size += (SHAPE_DOT - size) * eye;
-          const lit = 0.62 + 0.38 * Math.sin(this.flowPhase - n * 0.33) + spark * 0.5;
+          const lit = 0.62 + 0.38 * Math.sin(this.flowPhase - at * 0.33) + spark * 0.5;
           red += (shapeColor[0] * lit - red) * eye;
           green += (shapeColor[1] * lit - green) * eye;
           blue += (shapeColor[2] * lit - blue) * eye;

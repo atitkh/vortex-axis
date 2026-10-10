@@ -29,6 +29,7 @@ let turnState = "idle";
 const face = new Vortex($("face"));
 face.setIdleOff(settings.values.idleLooksOff);
 face.setIconStyle(settings.values.toolIcons);
+face.setIconTuning(settings.values.toolIconMs, settings.values.toolIconDots);
 // A failed turn shows the problem look for a while, then the face settles again.
 let errorUntil = 0;
 
@@ -434,6 +435,7 @@ function onMessage(message) {
       renderSound();
       face.setIdleOff(settings.values.idleLooksOff);
       face.setIconStyle(settings.values.toolIcons);
+      face.setIconTuning(settings.values.toolIconMs, settings.values.toolIconDots);
 face.setIconStyle(settings.values.toolIcons);
       break;
     case "status":
