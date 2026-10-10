@@ -403,6 +403,7 @@ function connect() {
     clearAsk();
     nextTimer = undefined;
     renderTimer();
+    show("task", false);
     stopCapture(false);
     player.stop();
     renderPills();
@@ -506,6 +507,15 @@ function onMessage(message) {
         const ms = Number(message.params?.ms) || 0;
         nextTimer = ms > 0 ? { label: String(message.params.label ?? ""), endsAt: Date.now() + ms, count: Number(message.params.count) || 1, id: message.params.id } : undefined;
         renderTimer();
+        send({ t: "command.result", id: message.id, ok: true });
+      } else if (message.name === "progress.show") {
+        // Long work an agent is doing, as one quiet line: what, how far, and what now.
+        const p = message.params ?? {};
+        show("task", Number(p.count) > 0);
+        $("task").dataset.state = String(p.state ?? "");
+        $("task-title").textContent = String(p.title ?? "");
+        $("task-steps").textContent = Number(p.total) > 0 ? `${Math.max(0, Number(p.done))}/${p.total}` : "";
+        $("task-note").textContent = p.state === "done" ? "done" : p.state === "blocked" ? `waiting for you${p.note ? `: ${p.note}` : ""}` : String(p.note ?? "");
         send({ t: "command.result", id: message.id, ok: true });
       } else {
         send({ t: "command.result", id: message.id, ok: false, error: "this client does not do that" });

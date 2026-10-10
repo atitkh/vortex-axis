@@ -5,6 +5,7 @@ import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import { withBuiltIns } from "./schema.js";
 import type { Store, TimerRecord } from "./store.js";
+import type { Progress } from "./progress.js";
 import { MAX_TIMER_SECONDS, type Timers } from "./timers.js";
 
 /**
@@ -22,10 +23,11 @@ export const NODE_COMMANDS = [
   "vortex.axis.diag",
   "vortex.axis.timer",
   "vortex.axis.admin",
+  "vortex.axis.progress",
 ] as const;
 
 /** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
-export const ADMIN_ONLY_COMMANDS = ["address", "reset", "update", "wake.model", "timer.next"];
+export const ADMIN_ONLY_COMMANDS = ["address", "reset", "update", "wake.model", "timer.next", "progress.show"];
 
 const TARGET_PROPERTIES = {
   client: { type: "string", description: "Name or id of one client. Use vortex_axis_clients to see them." },
@@ -147,6 +149,27 @@ export const NODE_TOOLS: NodeTool[] = [
     parameters: { type: "object", properties: { client: TARGET_PROPERTIES.client } },
   },
   {
+    name: "vortex_axis_progress",
+    command: "vortex.axis.progress",
+    description:
+      "Show the user, silently, how a long piece of work of yours is going: a line on their VorteX Axis screens such as " +
+      "\"Backup, 3 of 5, deploying\". Use it for work that takes more than a minute or two: call it when you start, at each " +
+      "step, when you are waiting on the user (state blocked), and when you finish (state done). Nothing is spoken; to say " +
+      "something aloud use vortex_axis_say. A task nobody reports on for half an hour is taken off the screens.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["update", "clear", "list"], description: "update (the default) reports on a task; clear takes it off the screens; list shows what is on them." },
+        title: { type: "string", description: "A word or two for the task, such as \"Backup\". Needed the first time; kept afterwards." },
+        note: { type: "string", description: "What is happening now, in a few words." },
+        done: { type: "integer", description: "Steps finished so far." },
+        total: { type: "integer", description: "Steps in all." },
+        state: { type: "string", enum: ["running", "blocked", "done"], description: "running (the default), blocked when you are waiting for the user, done when it is finished." },
+        id: { type: "string", description: "Only when you have several tasks at once: a short name to tell them apart." },
+      },
+    },
+  },
+  {
     name: "vortex_axis_diag",
     command: "vortex.axis.diag",
     description: "Check the health of the VorteX Axis hub: devices online, and whether speech services are up.",
@@ -177,6 +200,8 @@ export interface CommandDeps {
   store: Store;
   timers: Timers;
   delivery: Delivery;
+  /** Long work agents are doing, shown on the screens. */
+  progress?: Progress | undefined;
   activity?: Activity | undefined;
   /** How long a pairing code made for an agent stays good. */
   pairingCodeTtlMs: number;
@@ -267,6 +292,21 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             .filter((s): s is Session => Boolean(s))
             .map((s) => ({ client: s.client.name, readings: s.readings })),
         };
+      }
+
+      case "vortex.axis.progress": {
+        const board = deps.progress;
+        if (!board) throw new Error("this Axis does not show progress");
+        const action = text(params.action) ?? "update";
+        const id = text(params.id);
+        if (action === "list") return { tasks: board.list() };
+        if (action === "clear") return { cleared: board.clear(id) };
+        if (action !== "update") throw new Error("action must be update, clear or list");
+        const state = text(params.state);
+        if (state !== undefined && state !== "running" && state !== "blocked" && state !== "done") throw new Error("state must be running, blocked or done");
+        const whole = (value: unknown) => (typeof value === "number" ? value : undefined);
+        const { task, screens } = board.update({ id, title: text(params.title), note: text(params.note), done: whole(params.done), total: whole(params.total), state });
+        return { task: { id: task.id, title: task.title, note: task.note, done: task.done ?? null, total: task.total ?? null, state: task.state }, screens };
       }
 
       case "vortex.axis.diag":

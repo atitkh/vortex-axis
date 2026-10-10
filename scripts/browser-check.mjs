@@ -301,6 +301,18 @@ try {
     await app.store.patchLayer("device", session.client.id, { volume: null });
     app.hub.pushSettings();
 
+    // Long work an agent reports on shows as one quiet line, and on the admin page's Live view.
+    app.progress.update({ title: "Backup", note: "copying", done: 2, total: 5 });
+    step("agent task on the client", await client.until(`!${byId("task")}.classList.contains('hidden') && ${byId("task")}.textContent.replace(/\\s+/g, ' ').trim() + ' / ' + Math.round(${byId("task")}.getBoundingClientRect().height) + ' px'`, "the task line"));
+    await admin.front();
+    const adminWas = await admin.run(`location.hash`);
+    await admin.run(`location.replace('#live')`);
+    step("agent task on the Live page", await admin.until(`(t => /Agent task/.test(t) && /Step 2 of 5: copying/.test(t) && 'listed')(${byId("live-now")}.textContent)`, "the task in Now"));
+    await admin.run(`location.replace(${JSON.stringify(adminWas)} || '#overview')`);
+    await client.front();
+    app.progress.clear();
+    await client.until(`${byId("task")}.classList.contains('hidden')`, "the task line to go");
+
     // A timer is one small chip under the words.
     const timer = app.timers.set(session, 600, "tea");
     step("timer chip", await client.until(`(t => !t.classList.contains('hidden') && /^9:5\\d$/.test(${byId("timer-text")}.textContent) && ${byId("timer-label")}.textContent + ' ' + ${byId("timer-text")}.textContent + ', ' + Math.round(t.getBoundingClientRect().height) + ' px tall, ' + getComputedStyle(t).fontSize)(${byId("timer")})`, "the timer chip"));
@@ -324,7 +336,7 @@ try {
   // Agent tools: a token made on the page lets an MCP client in; a tool switched off there is gone for it.
   {
     await admin.run(`location.hash = '#tools'`);
-    await admin.until(`document.querySelectorAll('#tools-list tbody tr').length === 8 && ${byId("mcp-url")}.value.endsWith('/mcp')`, "the tools page");
+    await admin.until(`document.querySelectorAll('#tools-list tbody tr').length === 9 && ${byId("mcp-url")}.value.endsWith('/mcp')`, "the tools page");
     await admin.run(`${byId("mcp-token-name")}.value = 'Browser check'; ${byId("mcp-token-new")}.click()`);
     const agentToken = await admin.until(`!${byId("mcp-token-made")}.classList.contains('hidden') && ${byId("mcp-token-value")}.value`, "the new token");
     await admin.until(`/Browser check/.test(${byId("mcp-tokens")}.textContent)`, "the token in the list");

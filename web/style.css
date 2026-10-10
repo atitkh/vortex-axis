@@ -306,3 +306,17 @@ body:not(.busy) .stop { display: none; }
 .corner-right { gap: 2px; }
 .drawer-actions { align-items: center; gap: 4px; }
 .icon[aria-expanded="true"] { color: var(--text); }
+
+/* Long work an agent is doing: one quiet line, the timer chip's sibling. */
+.task {
+  display: inline-flex; align-items: baseline; gap: 8px; max-width: min(36rem, 100%);
+  margin: 8px 0 0; padding: 3px 14px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 13.5px; color: var(--dim);
+}
+.task-title { color: var(--text); white-space: nowrap; }
+.task-steps { color: var(--accent); font-variant-numeric: tabular-nums; }
+.task-steps:empty, .task-note:empty { display: none; }
+.task-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.task[data-state="blocked"] { border-color: var(--warn); }
+.task[data-state="blocked"] .task-note { color: var(--warn); }
+.task[data-state="done"] .task-steps, .task[data-state="done"] .task-note { color: var(--listen); }

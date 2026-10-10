@@ -654,7 +654,7 @@ struct Client::Impl {
             cancelRecording();
             // A question cannot be answered now, and Axis sends the timers again on the next connect.
             endAsk();
-            update([](Snapshot &s) { s.timerCount = 0; });
+            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; });
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -1217,6 +1217,24 @@ struct Client::Impl {
                 s.timerLabel = label;
                 s.timerEndsAt = millis() + ms;
                 s.timerCount = count;
+            });
+            handled = true;
+        }
+        else if (!strcmp(name, "progress.show")) {
+            // Axis keeps the tasks agents report on. This is only for a line on a screen.
+            const uint8_t count = (uint8_t)constrain((int)(doc["params"]["count"] | 0), 0, 255);
+            const String title = doc["params"]["title"] | "";
+            const String noteText = doc["params"]["note"] | "";
+            const String stateName = doc["params"]["state"] | "running";
+            const int done = doc["params"]["done"] | -1;
+            const int total = doc["params"]["total"] | 0;
+            update([&](Snapshot &s) {
+                s.taskCount = count;
+                s.taskTitle = title;
+                s.taskNote = noteText;
+                s.taskDone = (int16_t)constrain(done, -1, 999);
+                s.taskTotal = (uint16_t)constrain(total, 0, 999);
+                s.taskState = stateName == "blocked" ? 1 : stateName == "done" ? 2 : 0;
             });
             handled = true;
         }

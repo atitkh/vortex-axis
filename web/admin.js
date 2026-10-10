@@ -1916,11 +1916,31 @@ function renderNow() {
   const now = lastNow;
   const kept = lastClients.filter((c) => c.waiting);
   const notified = lastClients.filter((c) => c.notified);
-  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length)) {
-    return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no timers, no questions, no conversations, no messages or notifications waiting."));
+  const tasks = now?.tasks ?? [];
+  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length && !tasks.length)) {
+    return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no agent tasks, no timers, no questions, no conversations, no messages or notifications waiting."));
   }
   const device = (id, name) => h("a", { href: `#clients/${encodeURIComponent(id)}` }, name);
+  const TASK_STATES = { running: ["under way", "good"], blocked: ["waiting for you", "warn"], done: ["done", ""] };
   const rows = [
+    // Long work an agent has reported on: the same line the screens show.
+    ...tasks.map((t) =>
+      h("tr", {},
+        h("td", {}, "Agent task"),
+        h("td", {}, t.title),
+        h("td", {}, t.total ? `Step ${t.done ?? 0} of ${t.total}${t.note ? `: ${t.note}` : ""}` : t.note, " ", stat(...(TASK_STATES[t.state] ?? [t.state, ""]))),
+        h("td", { class: "num" }, `for ${countdown(now.at - t.startedAt)}`),
+        h("td", { class: "num" },
+          h("button", {
+            type: "button", class: "small",
+            onclick: async () => {
+              await api("DELETE", `/admin/tasks/${encodeURIComponent(t.id)}`).catch(() => undefined);
+              refresh();
+            },
+          }, "Clear"),
+        ),
+      ),
+    ),
     ...notified.map((c) =>
       h("tr", {},
         h("td", {}, "Notification"),
@@ -2410,6 +2430,7 @@ const TOOL_READS = {
   vortex_axis_clients: "List the devices: names, locations, what each can do.",
   vortex_axis_config: "Read and change device settings such as volume.",
   vortex_axis_sense: "Read what a device reports about itself.",
+  vortex_axis_progress: "Show, silently, how a long piece of the agent's work is going.",
   vortex_axis_diag: "Check that Axis and its services are working.",
 };
 

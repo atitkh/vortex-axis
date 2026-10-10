@@ -71,6 +71,7 @@ For a `screen` client:
 - Put what was heard and the reply under or beside the face, and keep the END of a long reply visible.
 - For `ask` with choices: keep the face when there is room, show the question, and draw each choice as a button big enough to tap. Send `answer` with the choice exactly as it was given. Take the buttons away on `ask.end` or after `timeoutMs`.
 - For the `timer.next` command: show the label and the time left.
+- For the `progress.show` command: show the task's title and how far along it is in one quiet line. Never speak it, and never let it cover a question or a countdown.
 - Turn incoming text into what the device's font can draw. Replies are UTF-8 and will contain curly quotes and dashes.
 
 ## 7. Settings
@@ -109,6 +110,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `update` | Every device that can replace its own firmware. | Section 9. |
 | `address` | Devices that store the address of Axis. | Moves to another address for the same Axis, keeping the pairing. Check the new address answers before changing anything, and go back to the old one if the connection through it is not welcomed. |
 | `timer.next` | Clients with a screen. | Shows a countdown; `ms` 0 clears it. `id` names the timer: a client with a cancel control sends it to `POST /v1/timers/cancel` with its own token. |
+| `progress.show` | Clients with a screen. | Shows long work an agent is doing: `title`, `note`, `done` of `total` (`done` -1 and `total` 0 when the work has no steps), `state` (`running`, `blocked` when it waits for the person, `done`) and `count`. `count` 0 clears it. Forget it when the connection drops; Axis sends it again on connect. |
 | `reset` | Devices that keep a pairing. | Answers, then forgets its pairing, settings and stored wake word (and its Wi-Fi when `wifi` is 1) and restarts. Sent only from the admin page. |
 | `wake.model` | Clients with a wake word of their own. | Switches to the wake word Axis names, fetching and keeping the model; an empty `id` means the built-in one. The built-in model must always remain as the fallback, and a model that will not run must not be retried at every start. |
 | Its own actions | Optional. | Anything listed under `actions` in `describe`, such as a test tone. Flag the ones a person should confirm. |

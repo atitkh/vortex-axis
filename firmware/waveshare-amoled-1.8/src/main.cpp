@@ -165,6 +165,7 @@ static String askDrawn;
 static bool askDrawnListening = false;
 static const uint16_t COLOR_PILL = 0x1CCA;  // the listening face's mint, dimmed
 static String timerLine(uint32_t now);
+static String taskLine();
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
@@ -379,7 +380,22 @@ static void present() {
     const char *down = !state.openclawUp ? "The agent is down" : !state.sttUp ? "Hearing is down" : !state.ttsUp ? "Voice is down" : nullptr;
     const bool keep = now - idleSince < KEEP_TEXT_MS && !state.reply.isEmpty();
     // A running timer counts down above the words; a service that is down matters more.
-    show(down ? String(down) : timerLine(now), down ? COLOR_WARN : COLOR_HEAD, keep ? state.reply : String(""));
+    // An agent's task shares the line with a timer, turn and turn about, so neither hides the other.
+    const String timer = timerLine(now), task = taskLine();
+    const bool showTask = !task.isEmpty() && (timer.isEmpty() || (now / 4000) % 2 == 1);
+    const String head = down ? String(down) : showTask ? task : timer;
+    show(head, down || (showTask && state.taskState == 1) ? COLOR_WARN : COLOR_HEAD, keep ? state.reply : String(""));
+}
+
+/** "Backup 3/5", "Backup: waiting for you", "Backup done". Empty with no task. */
+static String taskLine() {
+    if (!state.taskCount || state.taskTitle.isEmpty()) return "";
+    if (state.taskState == 2) return state.taskTitle + " done";
+    if (state.taskState == 1) return state.taskTitle + ": needs you";
+    String line = state.taskTitle;
+    if (state.taskTotal) line += " " + String(max((int)state.taskDone, 0)) + "/" + String(state.taskTotal);
+    else if (!state.taskNote.isEmpty()) line += ": " + state.taskNote;
+    return line;
 }
 
 /** "pasta 4:32", or "pasta 1:04:32 (+1)" with more timers behind it. Empty with no timer. */

@@ -151,3 +151,49 @@ describe("tools switched on and off", () => {
     expect((await admin("PATCH", "/admin/mcp/tools", { vortex_axis_fly: true })).status).toBe(400);
   });
 });
+
+describe("progress on the screens", () => {
+  it("shows a task an agent reports on, step by step, and takes it away when asked", async () => {
+    const token = await newToken();
+    const { client } = await ready(["screen"], { name: "Desk" });
+    await ready(["speaker"], { name: "No screen" });
+    const call = async (args: Record<string, unknown>) => (await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: args })).body.result;
+    const shown = async (from: number) => {
+      const command = await client.next("command", from, (m) => m.name === "progress.show");
+      client.send({ t: "command.result", id: command.id, ok: true });
+      return command.params;
+    };
+
+    let from = client.received.length;
+    expect((await call({ title: "Backup", note: "copying", done: 1, total: 3 })).structuredContent).toEqual({
+      task: { id: "task", title: "Backup", note: "copying", done: 1, total: 3, state: "running" },
+      screens: 1,
+    });
+    expect(await shown(from)).toEqual({ title: "Backup", note: "copying", done: 1, total: 3, state: "running", count: 1 });
+
+    // The title and the number of steps are remembered; only what changed need be said.
+    from = client.received.length;
+    await call({ note: "checking", done: 2 });
+    expect(await shown(from)).toMatchObject({ title: "Backup", note: "checking", done: 2, total: 3 });
+    expect((await admin("GET", "/admin/now")).body.tasks).toMatchObject([{ id: "task", title: "Backup", done: 2, total: 3, state: "running" }]);
+
+    from = client.received.length;
+    await call({ state: "done", done: 3 });
+    expect(await shown(from)).toMatchObject({ state: "done", done: 3 });
+    from = client.received.length;
+    expect((await call({ action: "clear" })).structuredContent).toEqual({ cleared: 1 });
+    expect(await shown(from)).toMatchObject({ count: 0, state: "none" });
+
+    // What cannot be shown is refused with a reason an agent can act on.
+    expect(await call({ note: "no title yet" })).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/title/) }] });
+    expect(await call({ title: "Odd", done: 5, total: 3 })).toMatchObject({ isError: true });
+  });
+
+  it("tells a screen that connects later what is going on", async () => {
+    const token = await newToken();
+    await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: { title: "Build", note: "tests", done: 2, total: 4 } });
+    const { client } = await ready(["screen"], { name: "Late" });
+    expect((await client.next("command", 0, (m) => m.name === "progress.show")).params).toMatchObject({ title: "Build", done: 2, total: 4, count: 1 });
+  });
+});
+

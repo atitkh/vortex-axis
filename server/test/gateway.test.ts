@@ -2,7 +2,7 @@ import { AXIS_VERSION } from "../src/version.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceIdentity, authPayload, decodeSetupCode, toSocketUrl } from "../src/gateway/wire.js";
 import { DEFAULT_GATEWAY_NOTE } from "../src/agent.js";
-import { NODE_COMMANDS } from "../src/commands.js";
+import { NODE_COMMANDS, NODE_TOOLS } from "../src/commands.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { admin, ctx, ready, restart, useServer } from "./harness.js";
@@ -149,7 +149,7 @@ describe("pairing with the gateway", () => {
     expect(methods.slice(0, 2)).toEqual(["node.pluginTools.update", "node.event"]);
     expect(methods).not.toContain("node.pluginSurface.refresh");
     const tools = gateway.nodeRequests[0]!.params.tools;
-    expect(tools.map((t: any) => t.name)).toEqual(["vortex_axis_say", "vortex_axis_ask", "vortex_axis_timer", "vortex_axis_admin", "vortex_axis_clients", "vortex_axis_config", "vortex_axis_sense", "vortex_axis_diag"]);
+    expect(tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.map((t) => t.name));
     expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
     expect(gateway.nodeRequests[1]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "vortex-axis" } });
   });

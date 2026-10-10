@@ -112,15 +112,18 @@ OpenClaw filters node commands through an allowlist, and widening a node's decla
 | `vortex.axis.clients` | List clients, their state and capabilities. |
 | `vortex.axis.config` | Read or change a client's settings. |
 | `vortex.axis.sense` | Read sensor data a client reports. |
+| `vortex.axis.progress` | Show, silently, how long work of the agent's is going. |
 | `vortex.axis.diag` | Read diagnostics for Axis or a client. |
 | `vortex.axis.timer` | Set and manage timers on a client. |
 | `vortex.axis.admin` | Reboot, re-pair and similar actions. |
 
-Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect. Only commands that work get a tool. All eight are built (the last three on 2026-10-08), plus `system.notify` (spoken as a message).
+Agents only see a command after Axis publishes it as a tool, so Axis publishes its tool descriptors on every connect. Only commands that work get a tool. All nine are built (three on 2026-10-08, progress on 2026-10-10), plus `system.notify` (spoken as a message).
 
 **`vortex.axis.ask`** (`question`, optional `choices` up to six, `timeoutSeconds` 5 to 300, default 30, and a target). Axis speaks the question as agent-initiated speech, then sends `ask`. The client offers the choices and opens its microphone. Three things answer it: a choice picked on a screen (`answer`), something said, or something typed. Axis, not the client, matches spoken or typed words to a choice (`server/src/ask.ts`): a choice named in full, then "the second one", then plain yes and no when those are the choices. Those words never go to the agent as a turn. The result is `{client, answer, said?, how?, timedOut?}`: `answer` is the choice exactly as offered, or null; `said` is the person's own words. Null with `said` set means nothing matched, and the agent decides. With no choices the question is open and `said` is the answer. A client with no screen has the choices read out after the question. The target must have a microphone, or a screen when there are choices. Somebody still talking at the timeout is given up to 30 seconds more. An agent may ask (or say something) in the middle of its own turn on the same client: a turn that is still waiting for the agent's first words does not make the client busy, the question borrows the client, and the turn carries on with the agent's answer afterwards. Once a turn has started speaking, a question waits for it, up to 20 seconds.
 
 **`vortex.axis.timer`** (`action` set, list or cancel). Axis keeps the timers, not the client (`server/src/timers.ts`, table `timers`), so one survives a restart of Axis or of the device. When one is due Axis runs the device's `chime` action if it has one and waits 0.9 seconds for it, and says "Your pasta timer is done." on the timer's own client, or wherever agent speech goes when that client is off. One that cannot be announced is tried again every 15 seconds for 10 minutes, then dropped with a note in the activity log. Every client with a screen is told the next timer with the `command` `timer.next` (on connect and on every change) so it can count down: a timer shows everywhere, but chimes and is announced only where it was set. At most 50 timers, each at most seven days.
+
+**`vortex.axis.progress`** (`action` update, clear or list). For work that takes an agent minutes: it reports a title, a few words on what is happening, steps done of steps in all, and a state (running, blocked when it waits for the person, done). Axis keeps the latest word on each task in memory only (`server/src/progress.ts`): nothing is stored, nothing is spoken, and a restart of Axis forgets them. Every client with a screen is sent the task reported on last with the `command` `progress.show`, on connect and on every change; the admin page lists the tasks under Now on the Live page, where one can be taken off. A finished task stays on show for 90 seconds; one nobody reports on for 30 minutes is taken to be abandoned and removed. At most eight tasks. On the board the line shares the place above the words with a timer, four seconds each. It depends on the agent calling the tool, so it is a courtesy and not a guarantee.
 
 **`vortex.axis.admin`** (`action` actions, run, rename or pairing_code). `actions` lists what each device described; `run` carries one of those out and returns what the device reported (never an action the device did not describe); `rename` renames a client; `pairing_code` makes a one-time code for a new device. Removing a client is deliberately not offered to agents: it cannot be undone and stays on the admin page.
 
@@ -161,7 +164,7 @@ Built 2026-10-08. `POST /admin/clients/:id/address {address}` sends a device the
 
 `POST /admin/clients/:id/reset {wifi?}` (firmware 0.10.3) sends the `reset` command, also admin only. The device answers, then clears its pairing, its address for Axis, its synced settings and any stored wake word, and restarts; with `wifi` it forgets the Wi-Fi as well and comes back as its setup network. Its firmware is not touched. Axis removes the client once the device has agreed; a device that refuses (older firmware) is left as it was.
 
-This command, `update`, `wake.model` and `timer.next` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
+This command, `update`, `wake.model`, `timer.next` and `progress.show` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
 
 ### 7.3 Wake words from Axis
 

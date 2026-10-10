@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.11.5"
+#define AXIS_FIRMWARE_VERSION "0.11.6"
 
 namespace axis {
 
@@ -111,6 +111,15 @@ struct Snapshot {
     String timerLabel;
     uint32_t timerEndsAt = 0;
     uint8_t timerCount = 0;
+    /**
+     * Long work an agent is doing, as Axis last told it: a title, how far along (`taskDone` of `taskTotal`,
+     * no steps when `taskTotal` is 0), a few words on what is happening, and whether it is running (0),
+     * waiting for the person (1) or done (2). `taskCount` 0 means there is none.
+     */
+    String taskTitle, taskNote;
+    int16_t taskDone = 0;
+    uint16_t taskTotal = 0;
+    uint8_t taskState = 0, taskCount = 0;
 };
 
 /**

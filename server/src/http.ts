@@ -10,6 +10,7 @@ import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
 import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
+import type { Progress } from "./progress.js";
 import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
 import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
@@ -158,6 +159,8 @@ export interface HttpDeps {
   /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
   tools?: ToolAccess;
   invoke?: InvokeHandler;
+  /** Long work agents are doing, shown on the screens and on the admin page. */
+  progress?: Progress;
   /** Copies of the data folder, when a backup folder is set up. */
   backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
@@ -999,9 +1002,15 @@ export function createHttpHandler(deps: HttpDeps) {
             dueAt: t.dueAt,
           })),
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
+          // Long work agents have reported on, as the screens show it.
+          tasks: deps.progress?.list() ?? [],
           // The words on each client's screen just now, for the sketch on its page. Never stored.
           screens: hub.showing(),
         });
+      }
+      if (method === "DELETE" && parts.length === 3 && parts[1] === "tasks") {
+        if (!deps.progress?.clear(parts[2]!)) throw new HttpError(404, "no such task");
+        return sendJson(res, 200, { cleared: parts[2] });
       }
       if (method === "DELETE" && parts.length === 3 && parts[1] === "timers") {
         const gone = deps.timers?.cancel({ id: Number(parts[2]) }) ?? [];

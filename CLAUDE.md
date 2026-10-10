@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-10 00:20, at Axis 0.14.2 and board firmware 0.11.5 (a spoken turn records what made the device listen). Update this line whenever you change this section.
+Last updated: 2026-10-10 01:00, at Axis 0.15.0 and board firmware 0.11.6 (the progress tool: long work of an agent's as a silent line on the screens). Update this line whenever you change this section.
 
 **Running now:** see `CLAUDE.local.md`. That file is NOT in the repository (it is in `.gitignore`): it holds what is particular to one installation, such as host names, addresses, the public name, device names and which agent answers. If you are working on the installation this checkout belongs to, read it and keep it current; never write such details in this file or anywhere else that is committed. In general terms: Axis runs in Docker on port 8440 with its data folder on a local disk, backs itself up hourly to a mounted folder, is reached from outside under a public name through a tunnel with `/admin` kept to the local network, and serves two Waveshare boards and a few browser clients through an OpenClaw gateway.
 
@@ -35,7 +35,7 @@ Last updated: 2026-10-10 00:20, at Axis 0.14.2 and board firmware 0.11.5 (a spok
 
 **Not verified by anyone:** the wake-while-another-speaks rule on real boards; a person interrupting with echo cancelling on; the admin page at phone width. **Verified by the owner:** notifications on iPhone and Brave, a question answered from an iPhone notification, two boards arbitrating a wake word, fresh setup and Wi-Fi reset of a board.
 
-**Known and open:** `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained); agents reach Axis through the general `nodes` tool (the eight `vortex_axis_*` tools are published but not in the agents' tool policy).
+**Known and open:** `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained); agents reach Axis through the general `nodes` tool (the nine `vortex_axis_*` tools are published but not in the agents' tool policy).
 
 Built and running:
 
