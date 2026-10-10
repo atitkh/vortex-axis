@@ -6,6 +6,8 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 ## 0.19.1 (2026-10-10)
 
+- Board firmware 0.12.1: the icon stands upright whichever way the screen is turned. The face is sent to the panel unturned, being round, and the icon went with it: on a board standing at 90 degrees it lay on its side.
+
 - An agent's own housekeeping (looking up its tools, keeping its plan, loading a skill) no longer shows as an icon. On the first real turn the harness's tool lookup showed as a search.
 
 ## 0.19.0 (2026-10-10)

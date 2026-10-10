@@ -224,4 +224,4 @@ radius = hole + max(0, reach - hole) * t^0.85
 
 With `hole` 0 this is the line step 4 already has. With an icon up, the innermost dots sit on a ring of radius 36 round it and the outer ones barely move.
 
-**The icon**, in step 5: the core is drawn at `core * (1 - eye)` (not at all when `eye` is 1). Then the icon, centred on `(cx, cy)`, in the core's colour at brightness `eye`, in a square of side `52 * (1 + 0.04 * sin(pulsePhase))`, with a pen 3.4 wide. A point `(x, y)` of the grid lands at `cx + (x - 12) * side / 24`, the same for `y`.
+**The icon**, in step 5: the core is drawn at `core * (1 - eye)` (not at all when `eye` is 1). Then the icon, centred on `(cx, cy)`, in the core's colour at brightness `eye`, in a square of side `52 * (1 + 0.04 * sin(pulsePhase))`, with a pen 3.4 wide. A point `(x, y)` of the grid lands at `cx + (x - 12) * side / 24`, the same for `y`. The vortex has no top and a device may send it to its panel unturned; the icon has one, so a device that turns its screen turns the icon with it (`vortex::setRotation` on the board).

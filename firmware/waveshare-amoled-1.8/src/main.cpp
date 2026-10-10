@@ -206,6 +206,7 @@ static void applySettings() {
     display::setColumnOffset((int)client.settingInt("screenOffset", 16));
     edgesDrawn = false;
     display::setRotation(wantedRotation());
+    vortex::setRotation(wantedRotation());
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     speaker::setVolume((int)client.settingInt("volume", 60));
     vortex::setIdleOff(client.setting("idleLooksOff").c_str());

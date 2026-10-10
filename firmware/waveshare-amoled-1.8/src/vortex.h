@@ -28,6 +28,12 @@ void setMode(Mode mode);
  */
 void setIcon(const char *name);
 
+/**
+ * Which way up the screen is: 0, 90, 180 or 270, as the display is turned. The vortex is round and
+ * is sent to the panel as it is, whatever the rotation; an icon has a top, so it is turned to match.
+ */
+void setRotation(int degrees);
+
 /** Loudness of the voice being played, 0 to 1. Negative means "not known": the face pulses on its own. */
 void setLevel(float level);
 

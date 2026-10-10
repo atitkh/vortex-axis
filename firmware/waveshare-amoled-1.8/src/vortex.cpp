@@ -119,6 +119,9 @@ void pickIdle() {
 // What the agent is doing while it thinks: the icon wanted (-1 for none), the one being drawn, and how far it has faded in.
 int icon = -1, iconDrawn = -1;
 float iconShown = 0;
+// The frame goes to the panel unturned, so what has a top is turned here: a step right and a step down
+// on the upright icon are (rightX, rightY) and (downX, downY) in the frame.
+float rightX = 1, rightY = 0, downX = 0, downY = 1;
 
 /** Draws the icon over the core's place with a round pen, `eye` bright. */
 void drawIcon(float cx, float cy, float eye, float r, float g, float b) {
@@ -129,8 +132,10 @@ void drawIcon(float cx, float cy, float eye, float r, float g, float b) {
     for (int stroke = 0; stroke < icons::ICONS[iconDrawn].strokes; stroke++) {
         const int count = *at++;
         for (int i = 0; i + 1 < count; i++) {
-            const float x0 = cx + (at[i * 2] - 120) * unit, y0 = cy + (at[i * 2 + 1] - 120) * unit;
-            const float x1 = cx + (at[i * 2 + 2] - 120) * unit, y1 = cy + (at[i * 2 + 3] - 120) * unit;
+            const float ax = (at[i * 2] - 120) * unit, ay = (at[i * 2 + 1] - 120) * unit;
+            const float bx = (at[i * 2 + 2] - 120) * unit, by = (at[i * 2 + 3] - 120) * unit;
+            const float x0 = cx + ax * rightX + ay * downX, y0 = cy + ax * rightY + ay * downY;
+            const float x1 = cx + bx * rightX + by * downX, y1 = cy + bx * rightY + by * downY;
             // A round pen is a dot set down every pixel or so along the line.
             const int steps = max(1, (int)(hypotf(x1 - x0, y1 - y0) / 1.2f));
             for (int k = 0; k <= steps; k++) {
@@ -163,6 +168,16 @@ void setMode(Mode next) {
 }
 
 void setLevel(float value) { level = value; }
+
+void setRotation(int degrees) {
+    // How display.cpp turns a logical point onto the panel, for each rotation.
+    switch (((degrees % 360) + 360) % 360) {
+        case 90: rightX = 0, rightY = -1, downX = 1, downY = 0; break;
+        case 180: rightX = -1, rightY = 0, downX = 0, downY = -1; break;
+        case 270: rightX = 0, rightY = 1, downX = -1, downY = 0; break;
+        default: rightX = 1, rightY = 0, downX = 0, downY = 1; break;
+    }
+}
 
 void setIcon(const char *name) {
     int found = -1;
