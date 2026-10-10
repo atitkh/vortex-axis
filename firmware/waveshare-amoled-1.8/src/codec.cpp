@@ -54,7 +54,7 @@ bool begin() {
     write(0x13, 0x10);
     write(0x1C, 0x6A);  // ADC equalizer bypass, cancel DC offset
     write(0x37, 0x08);
-    write(0x14, 0x1A);  // analog microphone, PGA gain as in Mylo
+    write(0x14, 0x1A);  // analog microphone, PGA gain
     write(0x17, 0xC8);  // ADC volume
     write(0x32, 0xD7);  // DAC level; the volume setting is applied in software
     // The right channel of what the codec sends back carries what it is playing (ADC left, DAC right).

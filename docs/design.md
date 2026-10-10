@@ -8,7 +8,7 @@ Axis fronts a set of thin clients and presents them to OpenClaw as one node. It 
 
 Axis is not an agent harness. It holds no conversation history and makes no decisions beyond routing.
 
-Mylo, the existing ESP32 voice device, is a separate product and stays as it is. It is the reference for how a thin client behaves today, not a client to migrate.
+An earlier ESP32 voice device by the same author, which talks to the gateway by itself, was the reference for how a thin client behaves. It is a separate project and is not a client to migrate.
 
 ## 2. Architecture
 
@@ -238,7 +238,7 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 - ~~Whether a plain `system.notify` should be routed to the current output client.~~ It is: the device last spoken to, else the `defaultClient` setting.
 - How the Bangle.js 2 reaches Axis (it has Bluetooth only, so it needs a phone or a relay).
 
-## 13. Lessons carried over from the Mylo firmware
+## 13. Lessons about the OpenClaw gateway, carried over from an earlier device
 
 These come from that project's notes on talking to the OpenClaw gateway (2026.9.4, protocol 4). Each one cost a debugging cycle there.
 

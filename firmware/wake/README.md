@@ -6,4 +6,4 @@ The wake word detector, with no board in it: 16 kHz mono samples in, "heard it" 
 - `src/detector.*` loads the streaming model, runs it every third slice, averages the last few answers and compares them with the cutoff. After a hit it stays quiet until the score has clearly dropped.
 - The model is not in this folder. It comes from `../models` through a header generated at build time (see `../models/README.md`).
 
-Both source files started as Mylo's `features.cpp` and `wakeword.cpp`; the upload-a-model-to-flash code and the Mylo config dependency were removed.
+Both source files started in an earlier firmware by the same author; its upload-a-model-to-flash code and its configuration dependency were removed.

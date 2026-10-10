@@ -8,7 +8,7 @@ Clients for VorteX Axis that run on microcontrollers.
 | `waveshare-amoled-1.8/` | Waveshare ESP32-S3-Touch-AMOLED-1.8: pins, audio codec, display, touch, and the face. |
 | `wake/` | The wake word detector (`axis-wake`): the TFLite Micro audio frontend and a streaming model. Board-independent. |
 | `models/` | Wake word models. See its README. |
-| `lib/` | Vendored libraries: TensorFlow Lite Micro with the ESP-NN kernels, and its audio frontend. Both come from the Mylo firmware; each has a `MYLO-PATCH.md` saying what was changed. |
+| `lib/` | Vendored libraries: TensorFlow Lite Micro with the ESP-NN kernels, and its audio frontend. Each has a `PATCHES.md` saying where it comes from and what was changed. |
 | `tools/` | Build helpers: `gen_model_header.py` turns a model into a C header, `model_header.py` runs it during the build. |
 
 Each board folder is a PlatformIO project. A new board should mostly describe its hardware and reuse `common/`.
@@ -187,7 +187,7 @@ Added in 0.9.0, not yet seen by a person:
 23. [ ] The text. Everything is now drawn in FreeSans (headings bold, body regular, buttons a size up) and not the blocky built-in font. Check a long reply, a question with buttons, the timer line and the setup screens. Curly quotes, dashes and accented letters should come out as plain ones, and emoji as nothing.
 24. [ ] Turn with the device (`autoRotate`, on by default). Stand the board on each of its four edges for a second: the picture should turn upright each time. Lying flat it should stay as it was. 0.9.0 had this a quarter turn out (standing upright showed the picture sideways); 0.9.1 corrects it. The two landscape ways are set from a reading on the real board, the two portrait ways are worked out from the sensor's axes and not yet seen. If one way comes out wrong, run the "Which way up" action on the admin page in that position and report the numbers.
 
-25. [ ] Picture offset (0.9.2). On this board everything sat to one side in portrait, and in flipped landscape the top of the picture came back in at the bottom and stayed as stains: the panel driver's column offset (16, copied from Mylo's board) was too large for this unit. It is now the `screenOffset` setting, set to 0 for this device. Run "Show screen edges": all four sides of the frame should be visible and the cross in the middle. If one side is missing or doubled, change `screenOffset` while the frame shows.
+25. [ ] Picture offset (0.9.2). On this board everything sat to one side in portrait, and in flipped landscape the top of the picture came back in at the bottom and stayed as stains: the panel driver's column offset (16, the value that suited another unit of this board) was too large for this unit. It is now the `screenOffset` setting, set to 0 for this device. Run "Show screen edges": all four sides of the frame should be visible and the cross in the middle. If one side is missing or doubled, change `screenOffset` while the frame shows.
 
 Text: `display::textLine` takes 2 (body) or 3 (heading); widths are measured (`display::textWidth`), lines are wrapped by width in `main.cpp`, and `display::plain` turns UTF-8 into what the fonts hold. The fonts are in `src/fonts/`, from the Adafruit GFX Library. Motion: `src/imu.cpp` reads the QMI8658 accelerometer from the main loop; an edge must carry 0.55 g and hold for 0.9 s before the picture turns.
 
