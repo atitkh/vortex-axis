@@ -10,6 +10,7 @@ import type { Delivery } from "./delivery.js";
 import type { HomeAssistant } from "./homeassistant.js";
 import { publicHubSettings, saveHubSettings } from "./hubconfig.js";
 import type { Live } from "./live.js";
+import { DEFAULT_GUEST_NOTE, type Voiceprints } from "./voiceprint.js";
 import type { Attachment } from "./attach.js";
 import type { SelfCheck } from "./selfcheck.js";
 import type { RealtimeTalk } from "./talk.js";
@@ -167,6 +168,8 @@ export interface HttpDeps {
   talk?: RealtimeTalk;
   selfCheck?: SelfCheck;
   attachment?: Attachment;
+  /** Telling voices apart: the voices taught, the settings, and turns heard lately. */
+  voices?: Voiceprints;
   /** Copies of the data folder, when a backup folder is set up. */
   backup?: Backup;
   /** Carries saved hub settings to the parts of Axis that use them. */
@@ -1086,6 +1089,82 @@ export function createHttpHandler(deps: HttpDeps) {
           if (!talk.available()) throw new HttpError(409, "realtime voice needs an OpenClaw gateway as the agent, connected");
           const body = (await readJson(req)) as { provider?: unknown };
           return sendJson(res, 200, await talk.probe(typeof body?.provider === "string" && body.provider ? body.provider : undefined));
+        }
+      }
+      if (parts[1] === "voices" && deps.voices) {
+        const voices = deps.voices;
+        const bad = (error: unknown): never => {
+          throw error instanceof HttpError ? error : new HttpError(400, (error as Error).message);
+        };
+        // A recording from the admin page arrives as raw 16-bit mono PCM, its rate in the address.
+        const recording = async () => {
+          const rate = Number(url.searchParams.get("rate") ?? 16000);
+          if (!Number.isInteger(rate) || rate < 8000 || rate > 48000) throw new HttpError(400, "rate must be a sample rate from 8000 to 48000");
+          const pcm = await readBytes(req, rate * 2 * 60);
+          if (pcm.length < rate) throw new HttpError(400, "a recording needs at least a second of sound");
+          return { pcm: pcm.subarray(0, pcm.length - (pcm.length % 2)), format: { encoding: "pcm_s16le" as const, sampleRate: rate, channels: 1 as const } };
+        };
+        if (method === "GET" && parts.length === 2) {
+          const service = services.voiceprint;
+          return sendJson(res, 200, {
+            settings: voices.settings(),
+            defaultGuestNote: DEFAULT_GUEST_NOTE,
+            service: { url: loadRuntimeConfig(store, config).voiceprint.url, up: service ? await service.healthy() : false },
+            voices: voices.voices().map((voice) => ({ ...voice, list: voices.samples(voice.id) })),
+            recent: voices.recent().map((h) => ({ ...h, client: store.getClient(h.clientId)?.name ?? h.clientId })),
+          });
+        }
+        if (method === "PATCH" && parts.length === 2) {
+          let saved;
+          try {
+            saved = voices.saveSettings(await readJson(req));
+          } catch (error) {
+            bad(error);
+          }
+          activity?.note("admin", "", "Voice recognition settings saved");
+          return sendJson(res, 200, saved);
+        }
+        if (method === "POST" && parts.length === 2) {
+          const body = (await readJson(req)) as { name?: unknown };
+          if (typeof body.name !== "string") throw new HttpError(400, "body must be { name }");
+          try {
+            return sendJson(res, 201, voices.addVoice(body.name));
+          } catch (error) {
+            bad(error);
+          }
+        }
+        if (method === "POST" && parts.length === 3 && parts[2] === "check") {
+          const { pcm, format } = await recording();
+          try {
+            return sendJson(res, 200, await voices.check(pcm, format));
+          } catch (error) {
+            bad(error);
+          }
+        }
+        if (method === "DELETE" && parts.length === 4 && parts[2] === "samples") {
+          if (!voices.removeSample(Number(parts[3]))) throw new HttpError(404, "no such recording");
+          return sendJson(res, 200, { ok: true });
+        }
+        const voiceId = Number(parts[2]);
+        if (parts.length >= 3 && Number.isInteger(voiceId)) {
+          if (method === "DELETE" && parts.length === 3) {
+            if (!voices.removeVoice(voiceId)) throw new HttpError(404, "no such voice");
+            activity?.note("admin", "", "A voice was forgotten");
+            return sendJson(res, 200, { ok: true });
+          }
+          if (method === "POST" && parts.length === 4 && parts[3] === "samples") {
+            try {
+              if ((req.headers["content-type"] ?? "").startsWith("application/json")) {
+                const body = (await readJson(req)) as { turnId?: unknown };
+                if (typeof body.turnId !== "string") throw new HttpError(400, "body must be { turnId }");
+                return sendJson(res, 201, voices.teachFromTurn(voiceId, body.turnId));
+              }
+              const { pcm, format } = await recording();
+              return sendJson(res, 201, await voices.teach(voiceId, pcm, format));
+            } catch (error) {
+              bad(error);
+            }
+          }
         }
       }
       if (parts[1] === "config") {

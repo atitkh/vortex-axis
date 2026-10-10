@@ -523,9 +523,9 @@
     <!-- Speech -->
     <section class="view" id="speech">
       <div class="head"><h2>Speech</h2></div>
-      <p class="help">OpenAI-style endpoints. Changes apply to the next turn.</p>
+      <p class="help">Custom STT/TTS: OpenAI-style endpoints, such as the local ones that run beside Axis (<code>http://vortex-axis-stt:8000/v1/audio/transcriptions</code> and <code>http://vortex-axis-tts:8000/v1/audio/speech</code>). Changes apply to the next turn.</p>
 
-      <h3>Recognition</h3>
+      <h3>Custom STT (speech to text)</h3>
       <div class="form">
         <label for="stt-url">Address</label>
         <input id="stt-url" class="mono" placeholder="http://host:8090/v1/audio/transcriptions" spellcheck="false">
@@ -535,7 +535,7 @@
         <input id="stt-key" type="password" autocomplete="off" placeholder="leave empty to keep">
       </div>
 
-      <h3>Synthesis</h3>
+      <h3>Custom TTS (text to speech)</h3>
       <div class="form">
         <label for="tts-url">Address</label>
         <input id="tts-url" class="mono" placeholder="http://host:8092/v1/audio/speech" spellcheck="false">
@@ -556,13 +556,13 @@
       <p class="msg" id="speech-note"></p>
 
       <h3>Realtime voice <span id="talk-state"></span></h3>
-      <p class="help">A second way to answer what is said, in place of the recognition and the voice above. What a device hears goes through the OpenClaw gateway to a realtime voice model, which answers in its own voice and hands real work to the agent. It is quicker for small things and sounds more like talk. The sound leaves this network for the provider, who may charge for it, and a person cannot talk over the answer.</p>
+      <p class="help">A second way to answer what is said, in place of the custom STT/TTS above. What a device hears goes through the OpenClaw gateway to a realtime voice model, which answers in its own voice and hands real work to the agent. It is quicker for small things and sounds more like talk. The sound leaves this network for the provider, who may charge for it, and a person cannot talk over the answer.</p>
       <div id="talk-body">
         <div class="form">
           <label>Devices use</label>
           <div>
             <div class="seg" id="talk-mode" role="group" aria-label="Who hears and speaks">
-              <button type="button" data-mode="local">Recognition and voice above</button>
+              <button type="button" data-mode="local">Custom STT/TTS</button>
               <button type="button" data-mode="realtime">Realtime voice</button>
             </div>
             <p class="help" id="talk-mode-help"></p>
@@ -578,6 +578,72 @@
         </div>
       </div>
       <p class="msg" id="talk-note"></p>
+
+      <h3>Voice recognition <span id="vp-state"></span></h3>
+      <p class="help">Tells the voices it was taught from everybody else's, roughly, from a voiceprint of what a device heard. The agent is told whose voice it was on the line that describes the device, and a guest's turn can go somewhere else. It is not a lock: a recording of a taught voice passes, and short commands from across a room often come out unsure. Only voiceprints are kept, never the recordings.</p>
+      <div class="form">
+        <label>Tell voices apart</label>
+        <div>
+          <div class="seg" id="vp-enabled" role="group" aria-label="Tell voices apart">
+            <button type="button" data-on="false">Off</button>
+            <button type="button" data-on="true">On</button>
+          </div>
+        </div>
+        <label for="vp-url">Voiceprint service</label>
+        <div>
+          <input id="vp-url" class="mono" placeholder="http://vortex-axis-voiceprint:8000/v1/speaker/embed" spellcheck="false">
+          <p class="help" id="vp-url-help"></p>
+        </div>
+        <label for="vp-known">Known from</label>
+        <div>
+          <input id="vp-known" type="number" min="0" max="1" step="0.05" class="short">
+          <p class="help">A score from this up is the voice it matched. Scores run from 0 (nothing alike) to 1 (the same recording).</p>
+        </div>
+        <label for="vp-guest">Guest below</label>
+        <div>
+          <input id="vp-guest" type="number" min="0" max="1" step="0.05" class="short">
+          <p class="help">A score under this is a guest. Between the two it is unsure.</p>
+        </div>
+        <label>When unsure</label>
+        <div class="seg" id="vp-unsure" role="group" aria-label="When unsure">
+          <button type="button" data-v="known">Take it for a known voice</button>
+          <button type="button" data-v="guest">Take it for a guest</button>
+        </div>
+        <label for="vp-guests">A guest's turn</label>
+        <div>
+          <select id="vp-guests">
+            <option value="label">goes as usual, only labelled</option>
+            <option value="guest">goes to the same agent, in a guest conversation</option>
+            <option value="agent">goes to another agent, in a guest conversation</option>
+            <option value="decline">is turned away</option>
+          </select>
+          <p class="help">Start with "only labelled" and watch Heard lately for a few days before letting it change anything. A guest is always answered with the custom STT/TTS, never the realtime voice.</p>
+        </div>
+        <label for="vp-agent" class="vp-agent">Guest agent</label>
+        <select id="vp-agent" class="vp-agent"></select>
+        <label for="vp-note" class="vp-note">What a guest's agent is told</label>
+        <textarea id="vp-note" class="vp-note" rows="4"></textarea>
+        <label for="vp-decline" class="vp-decline">Said to a guest</label>
+        <input id="vp-decline" class="vp-decline" maxlength="300">
+      </div>
+      <div class="inline actions">
+        <button class="primary" id="vp-save">Save</button>
+      </div>
+      <p class="msg" id="vp-note-msg"></p>
+
+      <h4>Voices</h4>
+      <p class="help">Teach a voice with a few recordings: five or more, said the way it is used, ideally some from a device across the room (pick them under Heard lately). Recording here needs the page on https or localhost.</p>
+      <div id="vp-voices"></div>
+      <div class="inline add">
+        <input id="vp-name" placeholder="Name, such as the person's" maxlength="40" spellcheck="false">
+        <button type="button" id="vp-add">Add a voice</button>
+        <button type="button" id="vp-check">Check my voice (4 s)</button>
+      </div>
+      <p class="msg" id="vp-voices-msg"></p>
+
+      <h4>Heard lately</h4>
+      <p class="help">Spoken turns from the last ten minutes, with whose voice each was taken for. A turn can teach a voice from here; after ten minutes it is gone.</p>
+      <div id="vp-recent"></div>
     </section>
   </main>
 </div>

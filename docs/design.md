@@ -380,6 +380,16 @@ Added 2026-10-09. Until now an agent could only use Axis's tools as an OpenClaw 
 
 **Tools on and off.** One list on the admin page, kept in `meta` as `tools_off`, for every agent alike. MCP stops listing a tool that is off and refuses a call to it. The node still declares all its commands to the gateway (changing the declared list can cost a re-approval) and Axis refuses the call; `system.notify` follows `vortex_axis_say`.
 
+## Local speech and telling voices apart
+
+Added 2026-10-10 (0.25.0), asked for by the owner: the speech services that ran on a separate small computer move into Axis's own stack as containers, and Axis learns to tell voices apart.
+
+- **One image, three services** (`speech/`): speech recognition (Parakeet TDT-CTC 110M int8), synthesis (Supertonic 3 int8) and voiceprints (WeSpeaker ResNet34), each a stdlib Python HTTP server around one sherpa-onnx model. Recognition and synthesis answer in OpenAI's shape and accept its model names, because none of the models has an API and Axis (and anything else) already speaks OpenAI's. Synthesis keeps what the earlier server learnt: lead and tail silence trimmed to a fixed pause, so one clip per sentence played back to back has even gaps; 24 kHz; optional chunked streaming in 4096-byte chunks. Models are fetched on first start into a host folder (`AXIS_MODELS_PATH`), not baked into the image and not put there by hand. The services are reached by name inside the stack and published nowhere.
+- **Voice recognition is rough on purpose.** A voiceprint is compared with the average of each taught voice's recordings (cosine). Known from `knownAt` (0.6), guest below `guestBelow` (0.4), unsure between; unsure is taken for known or guest by a setting (known by default). A service that fails, or a recording too short, gives unsure. With no voice taught nothing is anybody's guest: turns go on as before, and are still checked so they can teach.
+- **What it changes:** the bracketed line the agent sees gains `voice: …`. A guest's turn (`guests`): `label` (default: nothing but the label, so it can be watched before it decides anything), `guest` (same agent, conversation `<session>-guest`, with a note), `agent` (another agent, same conversation name and note), `decline` (no agent; the device says `declineText`). A guest never gets the realtime voice: its turn is answered with the custom STT/TTS, so it can go where it is sent. A guest's turn ignores an attached conversation. Typed turns and answers to questions are not checked.
+- **Kept:** voiceprints only (`voice_samples`), never recordings; a turn's voiceprint is held in memory for ten minutes so it can teach a voice from the admin page, then dropped. The activity log gains whose voice each turn was (`turns.speaker`).
+- **Not a lock.** It decides what context a voice gets, never who may approve something.
+
 ## Versions
 
 Added 2026-10-09. There are three kinds of version and they answer three different questions.

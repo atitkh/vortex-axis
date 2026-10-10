@@ -7,6 +7,7 @@ import type { Session } from "./hub.js";
 import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
 import type { Live } from "./live.js";
+import { Voiceprints, type Identity, type VoiceprintService } from "./voiceprint.js";
 import type { TurnRecord, WakeRecord } from "./store.js";
 import { WakeArbiter } from "./wake.js";
 
@@ -17,6 +18,8 @@ export interface Services {
   agent?: Agent | undefined;
   /** A realtime voice model that hears and speaks itself, for devices set to `voiceMode: realtime`. */
   talk?: RealtimeTalk | undefined;
+  /** Turns a recording into a voiceprint, for telling voices apart. */
+  voiceprint?: VoiceprintService | undefined;
 }
 
 /** What the turn logic needs from the hub. */
@@ -46,6 +49,8 @@ export interface TurnOptions {
   wakeSeen?: (wake: Pick<WakeRecord, "clientId" | "score" | "level" | "outcome">) => void;
   /** Shown each turn as it goes, for somebody watching on the admin page. */
   live?: Live | undefined;
+  /** Tells voices apart, when switched on: whose voice a spoken turn is in, and where a guest's goes. */
+  voices?: Voiceprints | undefined;
 }
 
 type TurnMessage = Extract<
@@ -715,11 +720,12 @@ export class TurnManager {
     this.port.send(session, { t: "turn", turnId: turn.turnId, state: "idle" });
   }
 
-  private header(session: Session): string {
+  private header(session: Session, identity?: Identity): string {
     const settings = this.port.settings(session);
     const location = typeof settings.location === "string" && settings.location ? settings.location : "unknown";
     const { name, type, capabilities } = session.client;
-    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}]`;
+    const voice = Voiceprints.label(identity);
+    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}${voice ? `, ${voice}` : ""}]`;
   }
 
   /** Runs one turn. Resolves with a failure message, or undefined when it went through. */
@@ -761,14 +767,33 @@ export class TurnManager {
     const live = this.options.live;
     const stage = (name: "transcribing" | "thinking" | "speaking") => live?.stage(session.client, turnId, record.kind, name);
 
+    // Whose voice it is, when voices are told apart: worked out beside speech recognition, and
+    // before the realtime voice, which a guest who is sent elsewhere does not get.
+    const voices = this.options.voices;
+    const checking =
+      "pcm" in input && voices?.active() && !this.asks.has(id) ? voices.identify(input.pcm, input.format, { turnId, clientId: id }) : undefined;
+    let identity: Identity | undefined;
+    const knowVoice = async () => {
+      if (!checking || identity) return;
+      identity = await checking;
+      record.speaker = identity.verdict === "known" ? identity.name : identity.verdict;
+      live?.words(id, turnId, { voice: identity });
+    };
+
     try {
       let text = "";
+      let realtime = "pcm" in input && this.services.talk?.available() && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id);
+      if (realtime && checking) {
+        await knowVoice();
+        const elsewhere = voices!.routeFor(identity);
+        if (elsewhere.route || elsewhere.decline) realtime = false;
+      }
       if ("say" in input) {
         // Nothing to transcribe and nobody to ask: the words are already here.
-      } else if ("pcm" in input && this.services.talk?.available() && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id)) {
+      } else if ("pcm" in input && realtime) {
         // The whole turn is the realtime voice model's. It hears the utterance, answers in its own
         // voice, and hands real work to the agent itself. An open question is still answered the local way.
-        const talk = this.services.talk;
+        const talk = this.services.talk!;
         state("thinking");
         stage("thinking");
         turn.thinking = true;
@@ -807,7 +832,7 @@ export class TurnManager {
             const source =
               agent.consult && work.sessionKey
                 ? agent.consult({ sessionKey: work.sessionKey, relaySessionId: work.relaySessionId, callId: work.callId, args: work.args }, consultSignal, onTool)
-                : agent.reply(`${this.header(session)}\n${work.question}`, consultSignal, onTool);
+                : agent.reply(`${this.header(session, identity)}\n${work.question}`, consultSignal, onTool);
             let answer = "";
             for await (const piece of source) answer += piece;
             return answer;
@@ -853,6 +878,7 @@ export class TurnManager {
         }
         if (hasScreen) this.port.send(session, { t: "transcript", turnId, text: text.slice(0, 4000) });
         live?.words(id, turnId, { heard: text });
+        await knowVoice();
         if (this.asks.has(id)) {
           // Said while a question is open: that is the answer, not something for the agent.
           this.endAsk(session, this.answerFrom(id, text, "voice"));
@@ -864,10 +890,13 @@ export class TurnManager {
       }
 
       let source: AsyncIterable<string>;
-      if ("say" in input) {
+      const elsewhere = voices?.routeFor(identity) ?? {};
+      const said = "say" in input ? input.say : elsewhere.decline;
+      if (said !== undefined) {
+        // Words already known: something to say for an agent, or the line a guest is turned away with.
         source = (async function* (words: string) {
           yield words;
-        })(input.say);
+        })(said);
       } else {
         if (!agent) throw new TurnFailure("upstream_down", "the agent is not set up");
         state("thinking");
@@ -885,7 +914,7 @@ export class TurnManager {
           this.port.send(session, { t: "turn", turnId, state: "thinking", doing: next });
         };
         source = agent.reply(
-          `${this.header(session)}\n${text}`,
+          `${this.header(session, identity)}\n${text}`,
           signal,
           (tool) => {
             const kind = doingFor(tool);
@@ -897,6 +926,7 @@ export class TurnManager {
             held = state;
             show();
           },
+          elsewhere.route,
         );
       }
 
@@ -933,7 +963,7 @@ export class TurnManager {
 
       // An agent reply that turns out to be "NO_REPLY" must not be spoken, so nothing goes out
       // while the text so far could still become one. Said words are never held back.
-      const fromAgent = !("say" in input);
+      const fromAgent = said === undefined;
       const held: Piece[] = [];
       const asked = Date.now();
       for await (const delta of source) {

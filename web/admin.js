@@ -349,7 +349,7 @@ async function loadTalk() {
   $("talk-body").classList.toggle("hidden", !d?.available);
   $("talk-state").replaceChildren(!d ? "" : d.available ? stat(d.mode === "realtime" ? "in use" : "ready", d.mode === "realtime" ? "good" : "") : stat("needs OpenClaw", ""));
   if (!d?.available) {
-    return note("talk-note", d ? "This needs an OpenClaw gateway as the agent, connected. With another agent, or none, devices use the recognition and the voice above." : "");
+    return note("talk-note", d ? "This needs an OpenClaw gateway as the agent, connected. With another agent, or none, devices use the custom STT/TTS above." : "");
   }
   for (const button of $("talk-mode").querySelectorAll("button")) button.classList.toggle("on", button.dataset.mode === d.mode);
   const own = d.overrides.map((o) => `${o.name} (${o.mode})`).join(", ");
@@ -385,6 +385,203 @@ $("talk-test").addEventListener("click", (event) =>
     note("talk-note", "Opening a session with the voice…");
     const r = await api("POST", "/admin/talk/test", { provider: $("talk-provider").value });
     note("talk-note", r.ok ? `It works: the voice answered in ${r.ms} ms.` : `It does not work: ${r.message}.`, r.ok ? "good" : "bad");
+  }),
+);
+
+// --- voice recognition, on the Speech page ----------------------------------------------
+
+let lastVoices;
+// While the microphone records, the lists are not redrawn under the button counting down.
+let recordingNow = false;
+const VERDICTS = { known: "good", guest: "bad", unsure: "warn" };
+
+/** Records `seconds` of the microphone as 16-bit PCM. Resolves with the bytes and their sample rate. */
+async function recordMic(seconds) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("This page cannot use the microphone here: open it on https or localhost.");
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
+  const context = new AudioContext({ sampleRate: 16000 });
+  try {
+    await context.audioWorklet.addModule("/web/pcm-worklet.js");
+    const source = context.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(context, "pcm-capture");
+    const parts = [];
+    node.port.onmessage = (event) => parts.push(event.data);
+    source.connect(node);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    source.disconnect();
+    const length = parts.reduce((n, p) => n + p.length, 0);
+    const pcm = new Int16Array(length);
+    let at = 0;
+    for (const part of parts) for (const x of part) pcm[at++] = Math.max(-32768, Math.min(32767, Math.round(x * 32767)));
+    return { pcm, rate: context.sampleRate };
+  } finally {
+    for (const track of stream.getTracks()) track.stop();
+    context.close();
+  }
+}
+
+/** Sends a recording to an admin address that takes raw PCM. */
+async function sendRecording(path, { pcm, rate }) {
+  const res = await fetch(`${path}?rate=${rate}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" },
+    body: pcm.buffer,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `request failed (${res.status})`);
+  return data;
+}
+
+/** Records with a countdown on the button, then sends. */
+async function recordInto(button, seconds, path) {
+  const label = button.textContent;
+  let left = seconds;
+  const tick = setInterval(() => (button.textContent = `Speak… ${--left > 0 ? left : ""}`), 1000);
+  button.textContent = `Speak… ${left}`;
+  recordingNow = true;
+  try {
+    return await sendRecording(path, await recordMic(seconds));
+  } finally {
+    clearInterval(tick);
+    recordingNow = false;
+    button.textContent = label;
+  }
+}
+
+const verdictText = (who) =>
+  !who ? "" : who.untaught ? "nothing taught yet" : `${who.verdict === "known" ? who.name : who.verdict}${who.score !== undefined ? ` ${who.score.toFixed(2)}` : ""}${who.verdict === "unsure" && who.as === "guest" ? " (taken for a guest)" : ""}`;
+
+function showGuestFields() {
+  const guests = $("vp-guests").value;
+  for (const el of document.querySelectorAll(".vp-agent")) el.classList.toggle("hidden", guests !== "agent");
+  for (const el of document.querySelectorAll(".vp-note")) el.classList.toggle("hidden", guests !== "guest" && guests !== "agent");
+  for (const el of document.querySelectorAll(".vp-decline")) el.classList.toggle("hidden", guests !== "decline");
+}
+$("vp-guests").addEventListener("change", showGuestFields);
+
+async function loadVoices() {
+  if (recordingNow) return;
+  const d = (lastVoices = await api("GET", "/admin/voices").catch(() => lastVoices));
+  if (!d) return;
+  const s = d.settings;
+  $("vp-state").replaceChildren(!s.enabled ? stat("off") : d.service.up ? stat(d.voices.some((v) => v.samples) ? "on" : "on, nothing taught", "good") : stat("service down", "bad"));
+  for (const button of $("vp-enabled").querySelectorAll("button")) button.classList.toggle("on", button.dataset.on === String(s.enabled));
+  for (const button of $("vp-unsure").querySelectorAll("button")) button.classList.toggle("on", button.dataset.v === s.unsure);
+  $("vp-url-help").textContent = d.service.url ? (d.service.up ? "Answering." : "Not answering.") : "Not set: nothing is told apart.";
+  const form = $("vp-save").closest("section");
+  if (!busy(form)) {
+    $("vp-url").value = d.service.url;
+    $("vp-known").value = s.knownAt;
+    $("vp-guest").value = s.guestBelow;
+    $("vp-guests").value = s.guests;
+    $("vp-note").value = s.guestNote || d.defaultGuestNote;
+    $("vp-decline").value = s.declineText;
+    api("GET", "/admin/gateway/agents")
+      .then((list) => {
+        $("vp-agent").replaceChildren(...list.agents.map((a) => h("option", { value: a.id }, a.id)));
+        $("vp-agent").value = s.guestAgent;
+      })
+      .catch(() => $("vp-agent").replaceChildren(h("option", { value: s.guestAgent }, s.guestAgent || "no agents listed")));
+    showGuestFields();
+  }
+
+  $("vp-voices").replaceChildren(
+    d.voices.length
+      ? h("table", { class: "numbers" },
+          h("tbody", {}, ...d.voices.map((v) =>
+            h("tr", {},
+              h("td", {}, h("strong", {}, v.name)),
+              h("td", {}, `${plural(v.samples, "recording")}, ${v.seconds} s`,
+                v.list.length ? h("span", { class: "help" }, " · ", ...v.list.map((x, i) => h("span", {}, i ? " " : "", h("a", {
+                  href: "#speech", title: `${x.source === "turn" ? "From a device" : "Recorded here"}, ${x.seconds} s, ${ago(x.at)}. Click to forget it.`,
+                  onclick: (event) => { event.preventDefault(); act(event.target, "vp-voices-msg", async () => { await api("DELETE", `/admin/voices/samples/${x.id}`); await loadVoices(); }); },
+                }, x.source === "turn" ? "◆" : "●")))) : ""),
+              h("td", {},
+                h("button", { type: "button", onclick: (event) => act(event.target, "vp-voices-msg", async () => {
+                  const r = await recordInto(event.target, 5, `/admin/voices/${v.id}/samples`);
+                  note("vp-voices-msg", `Learnt ${r.seconds} s of ${v.name}'s voice.`, "good");
+                  await loadVoices();
+                }) }, "Record 5 s"),
+                " ",
+                h("button", { type: "button", onclick: (event) => act(event.target, "vp-voices-msg", async () => {
+                  if (!confirm(`Forget ${v.name}'s voice?`)) return;
+                  await api("DELETE", `/admin/voices/${v.id}`);
+                  await loadVoices();
+                }) }, "Forget"),
+              ),
+            ),
+          )),
+        )
+      : h("p", { class: "empty" }, "No voice taught yet. Add one, then record it or pick its turns under Heard lately."),
+  );
+
+  $("vp-recent").replaceChildren(
+    d.recent.length
+      ? h("table", { class: "numbers" },
+          h("tbody", {}, ...d.recent.map((r) =>
+            h("tr", {},
+              h("td", {}, clock(r.at)),
+              h("td", {}, r.client),
+              h("td", {}, `${r.seconds} s`),
+              h("td", {}, stat(verdictText(r.identity), r.identity.untaught ? "" : VERDICTS[r.identity.verdict])),
+              h("td", {}, ...d.voices.map((v) =>
+                h("button", { type: "button", onclick: (event) => act(event.target, "vp-voices-msg", async () => {
+                  await api("POST", `/admin/voices/${v.id}/samples`, { turnId: r.turnId });
+                  note("vp-voices-msg", `That turn now helps tell ${v.name}'s voice.`, "good");
+                  await loadVoices();
+                }) }, `That was ${v.name}`))),
+            ),
+          )),
+        )
+      : h("p", { class: "empty" }, s.enabled ? "Nothing said in the last ten minutes." : "Switch it on to see whose voice each turn is in."),
+  );
+}
+
+for (const button of $("vp-enabled").querySelectorAll("button")) {
+  button.addEventListener("click", () =>
+    act(button, "vp-note-msg", async () => {
+      await api("PATCH", "/admin/voices", { enabled: button.dataset.on === "true" });
+      await loadVoices();
+    }),
+  );
+}
+for (const button of $("vp-unsure").querySelectorAll("button")) {
+  button.addEventListener("click", () =>
+    act(button, "vp-note-msg", async () => {
+      await api("PATCH", "/admin/voices", { unsure: button.dataset.v });
+      await loadVoices();
+    }),
+  );
+}
+$("vp-save").addEventListener("click", (event) =>
+  act(event.target, "vp-note-msg", async () => {
+    const typedNote = $("vp-note").value.trim();
+    await api("PATCH", "/admin/config", { voiceprint: { url: $("vp-url").value.trim() } });
+    await api("PATCH", "/admin/voices", {
+      knownAt: Number($("vp-known").value),
+      guestBelow: Number($("vp-guest").value),
+      guests: $("vp-guests").value,
+      guestAgent: $("vp-agent").value || "",
+      guestNote: typedNote === (lastVoices?.defaultGuestNote ?? "").trim() ? "" : typedNote,
+      declineText: $("vp-decline").value,
+    });
+    document.activeElement?.blur?.();
+    await loadVoices();
+    note("vp-note-msg", "Saved. It applies to the next turn.", "good");
+  }),
+);
+$("vp-add").addEventListener("click", (event) =>
+  act(event.target, "vp-voices-msg", async () => {
+    await api("POST", "/admin/voices", { name: $("vp-name").value });
+    $("vp-name").value = "";
+    await loadVoices();
+  }),
+);
+$("vp-check").addEventListener("click", (event) =>
+  act(event.target, "vp-voices-msg", async () => {
+    const r = await recordInto(event.target, 4, "/admin/voices/check");
+    const scores = r.scores.map((x) => `${x.name} ${x.score.toFixed(2)}`).join(", ");
+    note("vp-voices-msg", `Taken for: ${verdictText(r.identity)}.${scores ? ` Scores: ${scores}.` : ""}`, VERDICTS[r.identity.verdict] ?? "");
   }),
 );
 
@@ -537,7 +734,10 @@ function renderView() {
   // Looked at often while its page is open, and now and then otherwise, for the overview's list of what needs attention.
   if (view.name === "integrations" || Date.now() - integrationsAt > 60_000) loadIntegrations();
   if (view.name === "tools") loadTools();
-  if (view.name === "speech") loadTalk();
+  if (view.name === "speech") {
+    loadTalk();
+    loadVoices();
+  }
   if (view.name === "openclaw") loadCheck();
   renderAnnounceTargets();
 }
@@ -2361,7 +2561,7 @@ function renderOverview(withHistory = true) {
                 {},
                 h("td", { class: "tight sub", title: new Date(r.at).toLocaleString() }, clock(r.at, activityRange > 24)),
                 h("td", {}, h("a", { href: `#clients/${encodeURIComponent(r.clientId)}` }, r.clientName)),
-                h("td", { class: "sub" }, kindOf(r)),
+                h("td", { class: "sub" }, kindOf(r), r.speaker ? ` · ${r.speaker}` : ""),
                 h("td", { title: r.error ?? "" }, h("span", { class: `stat ${kind}`.trim() }, label), r.outcome === "answered" && !r.heard && r.kind !== "text" ? h("span", { class: "sub" }, " · not confirmed heard") : null),
                 ...[r.speechMs, r.sttMs, r.agentMs, r.firstAudioMs, r.totalMs].map((v) => h("td", { class: "num" }, ms(v))),
               );
@@ -2538,6 +2738,7 @@ function liveTurnCard(turn) {
     turn.firstAudioMs !== undefined && `first sound ${ms(turn.firstAudioMs)}`,
     turn.totalMs !== undefined && `whole turn ${ms(turn.totalMs)}`,
     turn.outcome === "answered" && turn.kind !== "text" && (turn.played ? "played to the end" : "not confirmed as played"),
+    turn.voice && !turn.voice.untaught && `voice: ${verdictText(turn.voice)} (${ms(turn.voice.ms)})`,
   ].filter(Boolean);
   return h("div", { class: `turn-card${running ? " running" : ""}` },
     h("div", { class: "turn-head" },

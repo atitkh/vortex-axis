@@ -3,14 +3,27 @@ import { drain } from "./drain.js";
 /** Why an agent's run is not getting on with the answer, when it says. */
 export type RunState = "compacting" | "retrying";
 
+/**
+ * Where one turn goes when it is not the usual place: a guest's turn goes to a
+ * conversation of its own, maybe another agent's, with a note of its own.
+ */
+export interface AgentRoute {
+  /** For an OpenClaw gateway: the agent. Absent: the usual one. */
+  agentId?: string | undefined;
+  /** The conversation. Absent: the usual one. */
+  sessionKey?: string | undefined;
+  /** Added after the usual note or system prompt. */
+  note?: string | undefined;
+}
+
 export interface Agent {
   /**
    * Sends one message to the agent and yields its reply as text pieces. An agent that says which
    * tools it picks up on the way calls `onTool` with each one's name; most do not. One that says when
    * its run is held up calls `onState` with why (`compacting` its memory, `retrying` a provider that
-   * failed), and with nothing when it is under way again.
+   * failed), and with nothing when it is under way again. `route` sends this one turn somewhere else.
    */
-  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string>;
+  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, route?: AgentRoute): AsyncIterable<string>;
   healthy(): Promise<boolean>;
   /**
    * For an agent behind an OpenClaw gateway: does the work a realtime voice session has handed over, the
@@ -83,25 +96,24 @@ export const DEFAULT_GATEWAY_NOTE = [
 export class ChatCompletionsAgent implements Agent {
   constructor(private readonly options: ChatAgentOptions) {}
 
-  private headers(): Record<string, string> {
+  private headers(sessionKey = this.options.sessionKey): Record<string, string> {
     return {
       ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}),
-      ...(this.options.sessionKey ? { "x-openclaw-session-key": this.options.sessionKey } : {}),
+      ...(sessionKey ? { "x-openclaw-session-key": sessionKey } : {}),
     };
   }
 
-  async *reply(message: string, signal?: AbortSignal): AsyncIterable<string> {
+  async *reply(message: string, signal?: AbortSignal, _onTool?: unknown, _onState?: unknown, route?: AgentRoute): AsyncIterable<string> {
+    const sessionKey = route?.sessionKey ?? this.options.sessionKey;
+    const system = [this.options.systemPrompt, route?.note].filter(Boolean).join("\n\n");
     const res = await fetch(this.options.url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream", ...this.headers() },
+      headers: { "content-type": "application/json", accept: "text/event-stream", ...this.headers(sessionKey) },
       body: JSON.stringify({
         model: this.options.model,
         stream: true,
-        messages: [
-          ...(this.options.systemPrompt ? [{ role: "system", content: this.options.systemPrompt }] : []),
-          { role: "user", content: message },
-        ],
-        ...(this.options.sessionKey ? { user: this.options.sessionKey } : {}),
+        messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: message }],
+        ...(sessionKey ? { user: sessionKey } : {}),
       }),
       signal: signal ?? null,
     });

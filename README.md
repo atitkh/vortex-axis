@@ -126,7 +126,11 @@ Axis reaches speech recognition and synthesis through OpenAI-style HTTP endpoint
 | Speech recognition | `AXIS_STT_URL` | `/v1/audio/transcriptions` |
 | Speech synthesis | `AXIS_TTS_URL` | `/v1/audio/speech`, asked for raw PCM |
 
-A service left unset is reported to clients as down. In the code both sit behind small interfaces (`server/src/speech.ts`), so an engine running inside Axis could replace either later.
+A service left unset is reported to clients as down. In the code both sit behind small interfaces (`server/src/speech.ts`).
+
+`compose.yaml` runs local ones beside Axis, on the CPU, from one small image (`speech/`): `vortex-axis-stt` (NVIDIA Parakeet TDT-CTC 110M), `vortex-axis-tts` (Supertonic 3, ten voices, `"voice": "0"` to `"9"`) and `vortex-axis-voiceprint` (WeSpeaker ResNet34, for telling voices apart). None of the three models has an API of its own; each service puts OpenAI's audio API in front of one through sherpa-onnx, so a client asking for `whisper-1` or `tts-1` gets them. Each fetches its model from the sherpa-onnx releases into `AXIS_MODELS_PATH` on first start (about 250 MB together) and answers on port 8000 inside the stack only; Axis reaches them by name, as `.env.example` shows. `AXIS_SPEECH_THREADS` (2) sets the CPU threads for recognition and synthesis. Pointing the addresses anywhere else that speaks OpenAI's API works as before.
+
+**Telling voices apart** is off until it is switched on in the Speech page's "Voice recognition" section, and does nothing until a voice is taught (recorded on that page, or picked from turns a device heard in the last ten minutes). Each spoken turn then gets a voiceprint beside speech recognition, compared with the taught voices: known, guest or unsure. The agent sees `voice: <name>`, `voice: guest` or `voice: unsure` on the bracketed device line, and a guest's turn can go on as usual, go to the same agent in a guest conversation (`<session>-guest`), go to another agent there, or be turned away. Only voiceprints are stored, never recordings. It is not a lock: a recording of a taught voice passes.
 
 The addresses in `.env` are starting points. Anything saved on the admin page is stored in the data folder and wins from then on, and it applies to the next turn without a restart. The admin page's "Test both" button synthesizes a sentence and has recognition transcribe it back, with timings.
 
@@ -167,6 +171,10 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `GET /admin/activity` | `?hours=24` (up to the retention period) and optionally `&client=<id>`. Turn counts, outcomes and timings (typical and slowest 5 %), per-bucket figures for charts, uptime timelines for Axis, each service and each client, the recent turns (timings only, never words) and recent events. |
 | `GET` or `PATCH /admin/config` | Speech and agent settings. Secrets are accepted but never returned. |
 | `POST /admin/config/test` | Synthesizes a sentence and transcribes it back, with timings. |
+| `GET` or `PATCH /admin/voices` | Telling voices apart: the settings (`enabled`, `knownAt`, `guestBelow`, `unsure`, `guests`, `guestAgent`, `guestNote`, `declineText`), the voiceprint service and whether it answers, the voices taught with their recordings, and spoken turns of the last ten minutes with whose voice each was taken for. |
+| `POST /admin/voices` | Body `{ name }`. Adds a voice to teach. `DELETE /admin/voices/:id` forgets it. |
+| `POST /admin/voices/:id/samples` | Teaches a voice: raw 16-bit mono PCM with `?rate=16000`, or `{ turnId }` for a turn heard in the last ten minutes. `DELETE /admin/voices/samples/:id` forgets one. |
+| `POST /admin/voices/check` | Raw PCM with `?rate=`. Whose voice it is and the score against each voice taught; nothing is kept. |
 | `GET /admin/gateway` | State of both gateway links, the device id and the chosen agent. |
 | `POST /admin/gateway/setup-code` | Starts pairing with `{"code": "...", "url": "optional address"}`. |
 | `PATCH /admin/gateway` | Chooses the agent (`{"agentId": "name"}`, `null` for the gateway default) or sets the gateway address (`{"url": "..."}`). |

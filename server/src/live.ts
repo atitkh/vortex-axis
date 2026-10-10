@@ -26,6 +26,8 @@ export interface LiveTurn {
   heard?: string;
   /** What was said back, so far. */
   said?: string;
+  /** Whose voice it was, when voices are told apart. `turnId` is what teaching a voice from this turn names. */
+  voice?: { turnId: string; verdict: "known" | "guest" | "unsure"; as: "known" | "guest"; name?: string | undefined; score?: number | undefined; error?: string | undefined; ms: number };
   endedAt?: number;
   /** Set when the turn is over. "cancelled" is a recording that never became a turn. */
   outcome?: TurnRecord["outcome"] | "cancelled";
@@ -122,10 +124,11 @@ export class Live {
   }
 
   /** The words of a turn as they become known. `said` is added to what was said so far. */
-  words(clientId: string, turnId: string, words: { heard?: string; said?: string; startedBy?: TurnRecord["startedBy"] }): void {
+  words(clientId: string, turnId: string, words: { heard?: string; said?: string; startedBy?: TurnRecord["startedBy"]; voice?: Omit<NonNullable<LiveTurn["voice"]>, "turnId"> }): void {
     const turn = this.open.get(`${clientId}/${turnId}`);
     if (!turn) return;
     if (words.startedBy) turn.startedBy = words.startedBy;
+    if (words.voice) turn.voice = { turnId, ...words.voice };
     if (words.heard !== undefined) turn.heard = words.heard.slice(0, MAX_WORDS);
     // Pieces come a sentence at a time, without the space that was between them.
     if (words.said) turn.said = `${turn.said && !/\s$/.test(turn.said) ? `${turn.said} ` : turn.said ?? ""}${words.said}`.slice(0, MAX_WORDS);

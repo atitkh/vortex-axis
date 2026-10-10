@@ -161,7 +161,44 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX tasks_at ON tasks (at);
   `,
+  // Voices Axis knows by their voiceprints (voiceprint.ts), and whose voice a turn was in.
+  `
+  CREATE TABLE voices (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE voice_samples (
+    id INTEGER PRIMARY KEY,
+    voice_id INTEGER NOT NULL REFERENCES voices (id) ON DELETE CASCADE,
+    embedding BLOB NOT NULL,
+    seconds REAL NOT NULL,
+    source TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );
+  ALTER TABLE turns ADD COLUMN speaker TEXT;
+  `,
 ];
+
+/** A voice Axis knows, with how many recordings of it it holds. */
+export interface VoiceRecord {
+  id: number;
+  name: string;
+  createdAt: number;
+  samples: number;
+  seconds: number;
+}
+
+/** One recording's voiceprint. The recording itself is never kept. */
+export interface VoiceSample {
+  id: number;
+  voiceId: number;
+  embedding: Float32Array;
+  seconds: number;
+  /** recorded: on the admin page; turn: a turn a device heard. */
+  source: string;
+  at: number;
+}
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
 export interface TimerRecord {
@@ -188,6 +225,7 @@ interface TurnRow {
   total_ms: number;
   heard: number;
   started_by: string | null;
+  speaker: string | null;
 }
 
 interface EventRow {
@@ -235,6 +273,8 @@ export interface TurnRecord {
   totalMs: number;
   /** The client confirmed it played the reply to the end. */
   heard: boolean;
+  /** Whose voice it was, when voices are told apart: a known voice's name, "guest" or "unsure". */
+  speaker?: string | undefined;
 }
 
 /** A token an agent holds for the MCP door. The token itself is never kept. */
@@ -486,11 +526,11 @@ export class Store {
   addTurn(t: TurnRecord): void {
     this.db
       .prepare(
-        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard, started_by) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard, started_by, speaker) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(t.at, t.clientId, t.kind, t.outcome, t.error ?? null, t.speechMs ?? null, t.sttMs ?? null, t.agentMs ?? null,
-        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0, t.startedBy ?? null);
+        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0, t.startedBy ?? null, t.speaker ?? null);
   }
 
   /** Turns that started in [from, to), oldest first. */
@@ -513,6 +553,7 @@ export class Store {
       totalMs: r.total_ms,
       heard: r.heard === 1,
       ...(r.started_by ? { startedBy: r.started_by as NonNullable<TurnRecord["startedBy"]> } : {}),
+      ...(r.speaker ? { speaker: r.speaker } : {}),
     }));
   }
 
@@ -555,6 +596,57 @@ export class Store {
       outcome: WakeRecord["outcome"];
     }[];
     return rows.map((r) => ({ at: r.at, clientId: r.client_id, word: r.word, score: r.score, level: r.level, outcome: r.outcome }));
+  }
+
+  // --- voices ---------------------------------------------------------------
+
+  listVoices(): VoiceRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT v.id, v.name, v.created_at, COUNT(s.id) AS samples, COALESCE(SUM(s.seconds), 0) AS seconds " +
+          "FROM voices v LEFT JOIN voice_samples s ON s.voice_id = v.id GROUP BY v.id ORDER BY v.id",
+      )
+      .all() as { id: number; name: string; created_at: number; samples: number; seconds: number }[];
+    return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, samples: r.samples, seconds: Math.round(r.seconds * 10) / 10 }));
+  }
+
+  /** Adds a voice by name. Undefined when the name is taken. */
+  addVoice(name: string): VoiceRecord | undefined {
+    if (this.db.prepare("SELECT 1 FROM voices WHERE name = ? COLLATE NOCASE").get(name)) return undefined;
+    const at = this.now();
+    const id = Number(this.db.prepare("INSERT INTO voices (name, created_at) VALUES (?, ?)").run(name, at).lastInsertRowid);
+    return { id, name, createdAt: at, samples: 0, seconds: 0 };
+  }
+
+  removeVoice(id: number): boolean {
+    return this.db.prepare("DELETE FROM voices WHERE id = ?").run(id).changes > 0;
+  }
+
+  addVoiceSample(voiceId: number, embedding: Float32Array, seconds: number, source: string): number | undefined {
+    if (!this.db.prepare("SELECT 1 FROM voices WHERE id = ?").get(voiceId)) return undefined;
+    const blob = new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    return Number(
+      this.db
+        .prepare("INSERT INTO voice_samples (voice_id, embedding, seconds, source, at) VALUES (?, ?, ?, ?, ?)")
+        .run(voiceId, blob, seconds, source, this.now()).lastInsertRowid,
+    );
+  }
+
+  removeVoiceSample(id: number): boolean {
+    return this.db.prepare("DELETE FROM voice_samples WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** Every recording's voiceprint, oldest first, for one voice or all. */
+  voiceSamples(voiceId?: number): VoiceSample[] {
+    const rows = (
+      voiceId === undefined
+        ? this.db.prepare("SELECT * FROM voice_samples ORDER BY id").all()
+        : this.db.prepare("SELECT * FROM voice_samples WHERE voice_id = ? ORDER BY id").all(voiceId)
+    ) as { id: number; voice_id: number; embedding: Uint8Array; seconds: number; source: string; at: number }[];
+    return rows.map((r) => {
+      const bytes = Uint8Array.from(r.embedding);
+      return { id: r.id, voiceId: r.voice_id, embedding: new Float32Array(bytes.buffer), seconds: r.seconds, source: r.source, at: r.at };
+    });
   }
 
   addTask(t: TaskRecord): void {

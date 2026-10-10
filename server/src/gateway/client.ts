@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Agent, RunState } from "../agent.js";
+import type { Agent, AgentRoute, RunState } from "../agent.js";
 import type { Store } from "../store.js";
 import { GatewayLink, type Credentials, type LinkOptions, type LinkState } from "./link.js";
 import { DeviceIdentity, GatewayError, PLATFORM, decodeSetupCode, toSocketUrl, type Role } from "./wire.js";
@@ -409,12 +409,15 @@ export class GatewayClient implements Agent, Credentials {
     return this.defaultAgentId;
   }
 
-  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
+  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, route?: AgentRoute): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
-    const agentId = await this.resolveAgentId();
+    const agentId = route?.agentId ?? (await this.resolveAgentId());
     // Pointed at another conversation, the turn goes there by its full key, which names its agent too.
-    const other = this.elsewhere?.();
-    const target = other ? { sessionKey: other, ...(/^agent:([^:]+):/.exec(other)?.[1] ? { agentId: /^agent:([^:]+):/.exec(other)![1] } : {}) } : agentId ? { agentId, sessionKey: this.options.sessionKey } : {};
+    // A turn with a route of its own (a guest's) never follows that pointer.
+    const other = route ? undefined : this.elsewhere?.();
+    const sessionKey = route?.sessionKey ?? this.options.sessionKey;
+    const target = other ? { sessionKey: other, ...(/^agent:([^:]+):/.exec(other)?.[1] ? { agentId: /^agent:([^:]+):/.exec(other)![1] } : {}) } : agentId ? { agentId, sessionKey } : {};
+    const note = [this.note, route?.note].filter(Boolean).join("\n\n");
     yield* this.follow(async () => {
       // A stable session key needs an explicit agent: with several agents the
       // gateway refuses a key that no agent owns.
@@ -425,16 +428,16 @@ export class GatewayClient implements Agent, Credentials {
             message,
             idempotencyKey: `axis-${randomUUID()}`,
             ...target,
-            ...(withNote ? { extraSystemPrompt: this.note } : {}),
+            ...(withNote ? { extraSystemPrompt: note } : {}),
           },
           20_000,
         );
       let ack;
       try {
-        ack = await send(Boolean(this.note) && !this.noteRefused);
+        ack = await send(Boolean(note) && !this.noteRefused);
       } catch (error) {
         // A gateway too old to know the note refuses the whole request. Leave the note out from then on.
-        if (!this.note || this.noteRefused || !/extraSystemPrompt|unexpected|additional propert/i.test((error as Error).message)) throw error;
+        if (!note || this.noteRefused || !/extraSystemPrompt|unexpected|additional propert/i.test((error as Error).message)) throw error;
         this.noteRefused = true;
         this.options.log("the gateway refused the note to the agent; turns go without it");
         ack = await send(false);

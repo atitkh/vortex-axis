@@ -3,6 +3,7 @@ import { ChatCompletionsAgent, DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT, type
 import type { Config } from "./config.js";
 import { OpenAiSpeechToText, OpenAiTextToSpeech } from "./speech.js";
 import type { Store } from "./store.js";
+import { HttpVoiceprintService } from "./voiceprint.js";
 import type { Services } from "./turns.js";
 
 /**
@@ -13,6 +14,8 @@ import type { Services } from "./turns.js";
 export interface RuntimeConfig {
   stt: { url: string; model: string; apiKey: string };
   tts: { url: string; model: string; voice: string; sampleRate: number; apiKey: string };
+  /** The voiceprint service: an address answering POST with a recording, as speech/voiceprint.py does. */
+  voiceprint: { url: string };
   agent: {
     /** Who answers turns: an OpenClaw gateway, or any OpenAI-style chat endpoint. */
     backend: "gateway" | "openai";
@@ -54,6 +57,7 @@ function fromEnvironment(config: Config): RuntimeConfig {
       sampleRate: config.tts?.sampleRate ?? 24000,
       apiKey: config.tts?.apiKey ?? "",
     },
+    voiceprint: { url: config.voiceprintUrl ?? "" },
     agent: {
       backend: config.agent ? "openai" : "gateway",
       url: config.agent?.url ?? "",
@@ -73,6 +77,7 @@ export function loadRuntimeConfig(store: Store, config: Config): RuntimeConfig {
   return {
     stt: { ...base.stt, ...patch.stt },
     tts: { ...base.tts, ...patch.tts },
+    voiceprint: { ...base.voiceprint, ...patch.voiceprint },
     agent: { ...base.agent, ...patch.agent },
   };
 }
@@ -102,12 +107,13 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   if (typeof patch !== "object" || patch === null || Array.isArray(patch)) throw new Error("body must be an object");
   const p = patch as Patch;
   for (const section of Object.keys(p)) {
-    if (!["stt", "tts", "agent"].includes(section)) throw new Error(`unknown section "${section}"`);
+    if (!["stt", "tts", "voiceprint", "agent"].includes(section)) throw new Error(`unknown section "${section}"`);
     const value = (p as Record<string, unknown>)[section];
     if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${section} must be an object`);
   }
   checkUrl("stt.url", p.stt?.url);
   checkUrl("tts.url", p.tts?.url);
+  checkUrl("voiceprint.url", p.voiceprint?.url);
   checkUrl("agent.url", p.agent?.url);
   for (const [name, value] of [
     ["stt.model", p.stt?.model],
@@ -146,6 +152,7 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   const next: Patch = {
     stt: { ...saved.stt, ...pick<RuntimeConfig["stt"]>(["url", "model", "apiKey"], p.stt) },
     tts: { ...saved.tts, ...pick<RuntimeConfig["tts"]>(["url", "model", "voice", "sampleRate", "apiKey"], p.tts) },
+    voiceprint: { ...saved.voiceprint, ...pick<RuntimeConfig["voiceprint"]>(["url"], p.voiceprint) },
     agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt", "gatewayNote"], p.agent) },
   };
   store.setMeta(META_KEY, JSON.stringify(next));
@@ -160,6 +167,7 @@ export function publicRuntimeConfig(rc: RuntimeConfig) {
   return {
     stt: { ...stt, apiKeySet: Boolean(sttKey) },
     tts: { ...tts, apiKeySet: Boolean(ttsKey) },
+    voiceprint: rc.voiceprint,
     agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
   };
 }
@@ -175,6 +183,7 @@ export function applyRuntimeConfig(
   services.tts = rc.tts.url
     ? new OpenAiTextToSpeech({ ...rc.tts, voice: rc.tts.voice || undefined, apiKey: rc.tts.apiKey || undefined })
     : undefined;
+  services.voiceprint = rc.voiceprint.url ? new HttpVoiceprintService(rc.voiceprint.url) : undefined;
   gatewayAgent.setNote?.(gatewayNoteFor(rc.agent));
   if (rc.agent.backend === "gateway") services.agent = gatewayAgent;
   else {

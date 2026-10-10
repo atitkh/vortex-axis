@@ -36,6 +36,8 @@ export interface Config {
   /** How often upstream services are checked. 0 turns the checks off. */
   healthIntervalMs: number;
   stt: { url: string; model: string; apiKey: string | undefined } | undefined;
+  /** The voiceprint service, for telling voices apart. */
+  voiceprintUrl: string | undefined;
   tts:
     | { url: string; model: string; voice: string | undefined; sampleRate: number; apiKey: string | undefined }
     | undefined;
@@ -125,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
+    voiceprintUrl: env.AXIS_VOICEPRINT_URL || undefined,
     stt: env.AXIS_STT_URL
       ? { url: env.AXIS_STT_URL, model: env.AXIS_STT_MODEL || "whisper-1", apiKey: env.AXIS_STT_API_KEY || undefined }
       : undefined,

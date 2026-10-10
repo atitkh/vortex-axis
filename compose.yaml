@@ -12,6 +12,9 @@ services:
       AXIS_PORT: "8440"
       # Backups are on only when a folder for them is named. Axis then sees it as /backup.
       AXIS_BACKUP_DIR: ${AXIS_BACKUP_PATH:+/backup}
+      # The voiceprint service below. Speech recognition and synthesis are chosen in .env or
+      # on the admin page, so they can point at the services below or anywhere else.
+      AXIS_VOICEPRINT_URL: ${AXIS_VOICEPRINT_URL:-http://vortex-axis-voiceprint:8000/v1/speaker/embed}
     # Lets the container reach services on the Docker host, such as the gateway.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -25,6 +28,42 @@ services:
       # Where Axis copies its data on a schedule: put it on another disk than the data folder.
       # With AXIS_BACKUP_PATH unset this is an empty folder that nothing is written to.
       - ${AXIS_BACKUP_PATH:-./backup}:/backup
+
+  # Local speech: three small CPU services from one image (speech/), each answering in the
+  # shape of OpenAI's audio API. Each fetches its model into the models folder on first start.
+  # Only Axis reaches them, by these names; nothing is published on the host.
+  vortex-axis-stt:
+    build: ./speech
+    image: vortex-axis-speech:local
+    container_name: vortex-axis-stt
+    restart: unless-stopped
+    command: ["python", "stt.py"]
+    environment:
+      NUM_THREADS: ${AXIS_SPEECH_THREADS:-2}
+    volumes:
+      - ${AXIS_MODELS_PATH:-./models}:/models
+
+  vortex-axis-tts:
+    image: vortex-axis-speech:local
+    container_name: vortex-axis-tts
+    restart: unless-stopped
+    command: ["python", "tts.py"]
+    depends_on: [vortex-axis-stt]
+    environment:
+      NUM_THREADS: ${AXIS_SPEECH_THREADS:-2}
+    volumes:
+      - ${AXIS_MODELS_PATH:-./models}:/models
+
+  vortex-axis-voiceprint:
+    image: vortex-axis-speech:local
+    container_name: vortex-axis-voiceprint
+    restart: unless-stopped
+    command: ["python", "voiceprint.py"]
+    depends_on: [vortex-axis-stt]
+    environment:
+      NUM_THREADS: 1
+    volumes:
+      - ${AXIS_MODELS_PATH:-./models}:/models
 
 # A fixed subnet, so a host firewall can be told exactly which addresses Axis
 # calls from. Change AXIS_SUBNET if this range is already in use.

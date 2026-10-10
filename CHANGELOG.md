@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.25.0 (2026-10-10)
+
+- **Local speech in the stack.** `compose.yaml` now runs speech recognition (Parakeet), synthesis (Supertonic 3) and voiceprints (WeSpeaker) as three CPU containers from one new image, `speech/`, each behind OpenAI's audio API although none of the models has one. Each fetches its model on first start into `AXIS_MODELS_PATH`. Point `AXIS_STT_URL` and `AXIS_TTS_URL` (or the Speech page) at `vortex-axis-stt` and `vortex-axis-tts`, or anywhere else as before.
+- **Voice recognition.** Off until switched on in the Speech page's new section. Taught voices are told from guests by voiceprint (known, guest or unsure, with two cut-offs); the agent sees whose voice it was on the device line; a guest's turn can be only labelled, sent to a guest conversation of the same agent or another agent, or turned away. Voices are taught by recording on the admin page or from turns heard in the last ten minutes. Only voiceprints are kept. The Live page and the recent turns show whose voice each turn was.
+- **Wording:** the Speech page calls the recognition and voice "Custom STT/TTS".
+
 ## 0.24.0 (2026-10-10)
 
 - **Attach the devices to another conversation.** A tenth tool, `vortex_axis_session`: "attach to internship hunt" points every device at that conversation of the agent's, so what is said next, on whichever device hears it, goes there; "detach" goes back to the usual voice conversation. It is one pointer for the whole hub, not one per device, because the devices are one way into one agent and any of them may pick up the wake word. It lets go by itself after half an hour with nothing said. The Live page shows it under Now, with a Detach button. The realtime voice follows it. An OpenClaw gateway must allow the new command `vortex.axis.session` beside the others.

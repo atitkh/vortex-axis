@@ -16,6 +16,7 @@ import { Delivery } from "./delivery.js";
 import { HomeAssistant } from "./homeassistant.js";
 import { applySavedHubSettings } from "./hubconfig.js";
 import { Live } from "./live.js";
+import { Voiceprints } from "./voiceprint.js";
 import { createHttpHandler } from "./http.js";
 import { AgentAsks } from "./agentasks.js";
 import { CardMirror } from "./cards.js";
@@ -147,9 +148,11 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   };
 
   const live = new Live();
+  const voices = new Voiceprints({ store, service: () => services.voiceprint, sessionKey: config.gateway.sessionKey });
   const hub = new Hub({
     store,
     live,
+    voices,
     helloTimeoutMs: config.helloTimeoutMs,
     pingIntervalMs: config.pingIntervalMs,
     services,
@@ -326,7 +329,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

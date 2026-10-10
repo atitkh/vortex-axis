@@ -16,6 +16,7 @@ import {
   type Status,
 } from "@vortex-axis/protocol";
 import type { Live } from "./live.js";
+import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
@@ -62,6 +63,8 @@ export interface HubOptions {
   activity?: Activity;
   /** Where turns and wake words are shown as they happen, for the admin page's Live view. */
   live?: Live;
+  /** Tells voices apart, when switched on. */
+  voices?: Voiceprints;
   services?: Services;
   wakeWindowMs?: number;
   maxUtteranceMs?: number;
@@ -110,6 +113,7 @@ export class Hub implements TurnPort {
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
       live: options.live,
+      voices: options.voices,
       wakeSeen: (seen) => {
         const session = this.online.get(seen.clientId);
         const wake = { ...seen, at: this.now(), word: String((session && this.settings(session).wakeWord) || "built-in") };

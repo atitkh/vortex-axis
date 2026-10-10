@@ -63,6 +63,7 @@ describe("runtime settings", () => {
     expect(res.body).toEqual({
       stt: { url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true },
       tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false },
+      voiceprint: { url: "" },
       agent: { backend: "gateway", url: "", model: "", systemPrompt: "", gatewayNote: "", tokenSet: false, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
     });
     expect(JSON.stringify(res.body)).not.toContain("stt-secret");
