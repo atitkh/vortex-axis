@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.22.1 (2026-10-10)
+
+Still the realtime voice prototype of 0.22.0.
+
+- **One turn in the chat, not two.** Work the voice model hands to the agent is now run by the gateway itself (`talk.client.toolCall`), which keeps it out of the conversation's visible turns. Before, Axis asked the agent with a message of its own, so the session showed what was said twice: once as the voice's transcript and once with Axis's bracketed line.
+- **A head start of sound.** The model's voice arrives about as fast as it is spoken, and a board that started playing the first piece at once ran dry between pieces, heard as a buzz. Axis now has 0.6 s in hand before it sends a device any. Not yet confirmed on a board.
+
 ## 0.22.0 (2026-10-10)
 
 A PROTOTYPE, to try and to take out again if it is not liked: `git revert` the commits from "0.22.0 PROTOTYPE" on, or just leave every device on `local`.
