@@ -145,9 +145,6 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * Sends speech to one client: cuts it into frames the client can receive and
  * holds back so the client is never sent more audio than it can buffer.
  */
-/** How much of a realtime voice's answer is in hand before a device is sent any, so it does not run dry. */
-const REALTIME_HEAD_START_MS = 600;
-
 class Speaker {
   private carry: Buffer = Buffer.alloc(0);
   private startedAt = 0;
@@ -221,6 +218,11 @@ class Speaker {
 
   private async sendFrame(frame: Buffer): Promise<void> {
     if (this.silenced()) return;
+    // A device that has played everything it was sent has nothing in hand, however long ago that was.
+    // Without this, a gap in the sound counted as room in its buffer, and what came after the gap was
+    // sent all at once: more than the device could hold, so it dropped pieces and the speech raced.
+    const behind = Date.now() - this.startedAt - this.sentMs;
+    if (behind > 0) this.startedAt += behind;
     const over = this.aheadMs() - this.session.audioBufferMs;
     if (over > 0) await sleep(over, this.signal);
     if (this.signal.aborted) return;
@@ -769,8 +771,6 @@ export class TurnManager {
         turn.thinking = true;
         const speaker = caps.includes("speaker") ? new Speaker(this.port, session, turnId, talk.format, signal, () => Boolean(turn.silenced)) : undefined;
         let shown = "";
-        let waiting: Buffer[] | undefined = [];
-        const headStart = (talk.format.sampleRate * 2 * REALTIME_HEAD_START_MS) / 1000;
         const provider = this.port.settings(session).voiceProvider;
         const result = await talk.converse(id, input.pcm, input.format, {
           signal,
@@ -812,20 +812,10 @@ export class TurnManager {
               stage("speaking");
               record.firstAudioMs ??= Date.now() - started;
             }
-            if (!speaker) return;
-            // The model's voice arrives about as fast as it is spoken. A device that starts playing the first
-            // piece at once runs dry between pieces, which is heard as a buzz. So a little is held back first.
-            if (waiting) {
-              waiting.push(chunk);
-              if (waiting.reduce((sum, piece) => sum + piece.length, 0) < headStart) return;
-              chunk = Buffer.concat(waiting);
-              waiting = undefined;
-            }
-            await speaker.write(chunk);
+            // The model's voice is sent on as it comes.
+            await speaker?.write(chunk);
           },
         });
-        // An answer shorter than the head start is all still waiting.
-        if (waiting?.length && speaker && !signal.aborted) await speaker.write(Buffer.concat(waiting));
         if (signal.aborted) return "interrupted";
         if (!result.answered) {
           record.outcome = "no_speech";

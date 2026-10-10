@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.22.2 (2026-10-10)
+
+- **Speech no longer races after a pause in it.** Axis sends a device no more sound than its buffer holds, by reckoning how much it has played. A gap in the sound was reckoned as room in the buffer, so whatever came after the gap went out all at once: more than a board could hold, and it dropped pieces, which sounded like the speech being wound forward. Now a device that has played everything simply has nothing in hand. This is in the part every voice goes through, though only a voice that arrives in fits and starts, like the realtime one, showed it.
+- The 0.6 s head start of 0.22.1 is gone: the realtime voice is sent on as it comes.
+
 ## 0.22.1 (2026-10-10)
 
 Still the realtime voice prototype of 0.22.0.

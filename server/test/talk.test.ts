@@ -153,10 +153,18 @@ const stt: SpeechToText = { transcribe: async () => "local words", healthy: asyn
 const tts: TextToSpeech = { format: TALK_FORMAT, synthesize: () => (async function* () { yield Buffer.alloc(480, 1); })(), healthy: async () => true };
 const agent: Agent = { reply: () => (async function* () { yield "Local answer."; })(), healthy: async () => true };
 const asked: string[] = [];
+/** When set, the voice comes as a first piece, a silence of this long, and then a second of sound all at once. */
+let gapMs = 0;
 const talk = {
   format: TALK_FORMAT,
   converse: async (clientId: string, _pcm: Buffer, _format: unknown, handlers: any) => {
     asked.push(clientId);
+    if (gapMs) {
+      await handlers.onAudio?.(Buffer.alloc(4800, 1));
+      await new Promise((resolve) => setTimeout(resolve, gapMs));
+      await handlers.onAudio?.(Buffer.alloc(48000, 1));
+      return { heard: "", said: "", answered: true };
+    }
     handlers.onHeard?.("what time is it");
     handlers.onText?.("It is");
     await handlers.onAudio?.(Buffer.alloc(960, 1));
@@ -190,5 +198,21 @@ describe("a device set to realtime voice", () => {
     expect(client.received.filter((m) => m.t === "reply.text" && m.turnId === "t2" && !m.final).map((m) => m.text)).toEqual(["It is", " eight."]);
     expect(asked).toEqual([identity.clientId]);
     expect(client.received.filter((m) => m.t === "turn" && m.turnId === "t2").map((m) => m.state)).toEqual(["listening", "thinking", "speaking", "idle"]);
+  });
+
+  it("still paces the voice to the device's buffer after a gap in it", async () => {
+    gapMs = 1000;
+    const { client, identity } = await ready(["mic", "speaker"], { hello: { audioBufferMs: 200, maxFrameBytes: 4800 } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { voiceMode: "realtime" } });
+    client.send({ t: "audio.start", turnId: "t1", format: UPSTREAM_AUDIO_FORMAT });
+    client.sendAudio(Buffer.alloc(3200, 2));
+    client.send({ t: "audio.end", turnId: "t1", reason: "silence" });
+    await client.next("speak.end");
+    gapMs = 0;
+    const frames = client.timeline.filter((m) => m.t === "<audio>") as { at: number }[];
+    // A second of sound came after the gap. The gap is not room in the device's buffer: with 200 ms of
+    // allowance that second takes most of a second to send. Counted as room, it went out in an instant.
+    const afterGap = frames[frames.length - 1]!.at - frames[1]!.at;
+    expect(afterGap).toBeGreaterThan(500);
   });
 });
