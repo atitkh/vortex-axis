@@ -718,3 +718,21 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 .newtoken .msg { margin: 0 0 8px; }
 #tools textarea { max-width: 760px; }
 #tools .add { max-width: 760px; }
+
+/* --- switches ---------------------------------------------------------------------------- */
+/* Said last and more exactly than the general rules for fields and tick boxes above, which were
+   quietly resizing the switch (width: auto, and 20 px square on a phone) and leaving its knob adrift. */
+.switch input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 34px; height: 20px; min-height: 0; padding: 0; margin: 0; flex: none;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--sunk);
+  position: relative; cursor: pointer; vertical-align: middle; transition: background 0.12s, border-color 0.12s;
+}
+.switch input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--dim); transition: left 0.12s, background 0.12s;
+}
+.switch input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.switch input[type="checkbox"]:checked::after { left: 16px; background: var(--on-ink); }
+.switch input[type="checkbox"]:disabled { opacity: 0.4; cursor: default; }
+.switch input[type="checkbox"]:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }

@@ -330,6 +330,14 @@ try {
     await admin.until(`/Browser check/.test(${byId("mcp-tokens")}.textContent)`, "the token in the list");
     const mcp = (method, params) =>
       fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${agentToken}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => r.json());
+    // A switch is its drawn size, with its knob inside it, here and at a phone's width.
+    const switchShape = `(i => { const r = i.getBoundingClientRect(), k = getComputedStyle(i, '::after'); return Math.round(r.width) + 'x' + Math.round(r.height) + ' knob ' + k.width + ' at ' + k.left; })(document.querySelector('#tools-list .switch input:checked'))`;
+    const wide = await admin.run(switchShape);
+    await admin.phone(true);
+    const narrow = await admin.run(switchShape);
+    await admin.phone(false);
+    if (wide !== "34x20 knob 14px at 16px" || narrow !== wide) throw new Error(`a switch is drawn wrong: ${wide} on a desktop, ${narrow} on a phone`);
+    step("switches", `${wide}, the same on a phone`);
     const before = (await mcp("tools/list")).result.tools.length;
     await admin.run(`document.querySelector('#tools-list input[aria-label="vortex_axis_admin"]').click()`);
     await admin.until(`/vortex_axis_admin is off/.test(${byId("tools-note")}.textContent)`, "the tool to be switched off");
