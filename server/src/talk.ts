@@ -129,7 +129,7 @@ export class RealtimeTalk {
       mode: "realtime",
       transport: "gateway-relay",
       brain: "agent-consult",
-      silenceDurationMs: 500,
+      silenceDurationMs: 400,
     });
     const id = String(created?.relaySessionId ?? created?.sessionId ?? "");
     if (!id) throw new Error("the gateway did not start a realtime voice session");
@@ -198,6 +198,7 @@ export class RealtimeTalk {
           if (typeof event.audioBase64 === "string") {
             // Sound with no word of an answer starting is an answer all the same.
             if (!answering) answering = 1;
+            owed = false;
             clearTimeout(timer);
             outcome.answered = true;
             const chunk = Buffer.from(event.audioBase64, "base64");
@@ -271,7 +272,7 @@ export class RealtimeTalk {
 
     try {
       // The utterance, then quiet enough for the model's own ear to decide the person has finished.
-      const sound = Buffer.concat([resample(pcm, format.sampleRate, TALK_FORMAT.sampleRate), Buffer.alloc((TALK_FORMAT.sampleRate * 2 * 900) / 1000)]);
+      const sound = Buffer.concat([resample(pcm, format.sampleRate, TALK_FORMAT.sampleRate), Buffer.alloc((TALK_FORMAT.sampleRate * 2 * 700) / 1000)]);
       const step = (TALK_FORMAT.sampleRate * 2 * 200) / 1000;
       for (let at = 0; at < sound.length && !handlers.signal.aborted; at += step) {
         await source.call("talk.session.appendAudio", { sessionId: session.id, audioBase64: sound.subarray(at, at + step).toString("base64") });

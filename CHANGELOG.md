@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.22.0 (2026-10-10)
+
+A PROTOTYPE, to try and to take out again if it is not liked: `git revert` the commits from "0.22.0 PROTOTYPE" on, or just leave every device on `local`.
+
+- **Realtime voice as a second way to answer a spoken turn.** A device set to `voiceMode: realtime` has what it hears sent through the OpenClaw gateway's Talk relay to a realtime voice model, which answers in its own voice. Small things it answers itself; real work it hands to the agent, which Axis asks as it always does (same conversation, tool icons on the face) and whose answer the model then says. Off unless a device is set to it; `voiceProvider` picks the gateway's provider (`google`, or `openai/gpt-realtime-2.1-mini` for a model of one).
+- Server only: no firmware and no protocol change. It is half-duplex: the device still decides when the person has stopped, and an interrupt stops the playback. Talking over the answer is not part of it.
+- The sound leaves the house and the model is paid for by its provider's rates. Speech recognition and the voice of the `local` way stay where they are.
+- Tried on the real gateway 2026-10-10 with a recorded question through a test client: with Google's provider, "what is two plus two" had its first words 2.5 s after the question ended (5.1 s the local way), and "are the lights on in my room" went to the agent, used Home Assistant and was answered by voice in about 10 s. OpenAI and xAI refused for want of credentials on that gateway. Not yet heard on a real device by anybody.
+
 ## 0.21.0 (2026-10-10)
 
 - **The face shows when the agent's run is held up.** Two new looks while thinking: `compacting`, when the agent stops to tidy its memory (wound in tight, slow, deep blue), and `retrying`, when its provider failed and it is trying again (amber, turning backwards). A long silence for either reason no longer looks like a hang. When the run is under way again the face goes back to plain thinking, or to the icon of the tool in hand.

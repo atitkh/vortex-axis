@@ -53,8 +53,8 @@ describe("realtime voice through the gateway's Talk relay", () => {
     });
     await tick(30);
     expect(r.calls[0]).toMatchObject({ method: "talk.session.create", params: { sessionKey: "agent:main:vortex-axis", mode: "realtime", transport: "gateway-relay", brain: "agent-consult" } });
-    // One second at 16 kHz is 48000 bytes at 24 kHz, and 0.9 s of quiet after it is 43200 more.
-    expect(r.appended()).toBe(48000 + 43200);
+    // One second at 16 kHz is 48000 bytes at 24 kHz, and 0.7 s of quiet after it is 33600 more.
+    expect(r.appended()).toBe(48000 + 33600);
 
     r.say("relay-1", { type: "transcript", role: "user", text: "what is two plus two", final: true });
     r.say("relay-1", { type: "responseStarted" });
