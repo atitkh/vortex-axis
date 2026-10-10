@@ -24,5 +24,8 @@ describe("what kind of work a tool is", () => {
       something_unheard_of: "tool",
     };
     for (const [tool, kind] of Object.entries(kinds)) expect([tool, doingFor(tool)]).toEqual([tool, kind]);
+    // Seen on the real gateway: the search tool arrives under its server's name, and so does the agent's own housekeeping.
+    expect(doingFor("mcp__openclaw__web_search")).toBe("search");
+    for (const tool of ["ToolSearch", "mcp__openclaw__progress_card", "TodoWrite", "Skill"]) expect([tool, doingFor(tool)]).toEqual([tool, undefined]);
   });
 });

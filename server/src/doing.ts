@@ -25,9 +25,17 @@ const RULES: [RegExp, Doing][] = [
   [/read|write|edit|patch|file|fs|document|pdf|sheet|doc/, "files"],
 ];
 
-/** The kind of work a tool of that name is. */
-export function doingFor(tool: string): Doing {
+/**
+ * An agent's own housekeeping: looking up which tools it has, keeping its plan, loading a skill.
+ * It says nothing about what the agent is doing for the person, so it is not shown.
+ */
+const HOUSEKEEPING = /^(toolsearch|todowrite|progress_card|update_plan|skill|get_goal|update_goal|session_status)$/;
+
+/** The kind of work a tool of that name is. Undefined for one that is not worth showing. */
+export function doingFor(tool: string): Doing | undefined {
   const name = tool.toLowerCase();
+  // A tool reached through a server carries the server's name in front: mcp__server__tool.
+  if (HOUSEKEEPING.test(name.replace(/^mcp__[^_]+(?:_[^_]+)*?__/, ""))) return undefined;
   for (const [pattern, doing] of RULES) if (pattern.test(name)) return doing;
   return "tool";
 }

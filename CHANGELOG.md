@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.19.1 (2026-10-10)
+
+- An agent's own housekeeping (looking up its tools, keeping its plan, loading a skill) no longer shows as an icon. On the first real turn the harness's tool lookup showed as a search.
+
 ## 0.19.0 (2026-10-10)
 
 - **The face shows what the agent is doing.** While it thinks, an icon appears in the middle of the vortex for the kind of work the agent has just picked up: search, web, home, calendar, list, files, code, timer, message, memory, image, or a small cog for anything else. The arms stand back from the centre to make room and the icon takes the core's place and colour. Twelve icons, each a few strokes, defined once in `web/icons.js`; `scripts/gen-icons.mjs` writes the board's copy.

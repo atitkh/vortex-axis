@@ -794,7 +794,7 @@ export class TurnManager {
         let doing: string | undefined;
         source = agent.reply(`${this.header(session)}\n${text}`, signal, (tool) => {
           const kind = doingFor(tool);
-          if (kind === doing || !turn.thinking || signal.aborted || !hasScreen) return;
+          if (!kind || kind === doing || !turn.thinking || signal.aborted || !hasScreen) return;
           doing = kind;
           this.port.send(session, { t: "turn", turnId, state: "thinking", doing: kind });
         });
