@@ -186,17 +186,6 @@ describe("live activities", () => {
     expect(await result).toEqual({ sent: true, phones: ["Atit's iPhone", "Spare phone"] });
   });
 
-  it("says whether a task's latest update reached a phone", async () => {
-    const { w, live } = world();
-    expect(await live.reachedPhone("t1", 0)).toBe(false);
-    w.tasks = [task({ state: "blocked" })];
-    live.sync();
-    expect(await live.reachedPhone("t1", 0)).toBe(false);
-    const waiting = live.reachedPhone("t1", 2_000);
-    live.acknowledged(JSON.stringify({ tag: "axis-task-t1", phone: "Atit's iPhone" }));
-    expect(await waiting).toBe(true);
-  });
-
   it("tells when Home Assistant passed one on", () => {
     const { live } = world();
     live.acknowledged(JSON.stringify({ tag: "axis-test", phone: "Atit's iPhone" }));

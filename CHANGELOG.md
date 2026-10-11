@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.27.3 (2026-10-11)
+
+- **Back out 0.27.2.** The "needs you" notification is sent again while away even when a phone also shows the live activity: tapping the notification opens the installed web app, which tapping a live activity cannot (iOS opens it in the browser).
+
 ## 0.27.2 (2026-10-11)
 
 - **No double "needs you".** When a task's "needs you" went to a phone as a live activity and Home Assistant says it passed that one on within 10 s, Axis no longer also sends its own notification for it (that was the one case where both sounded). Without that word, the notification goes as before.
