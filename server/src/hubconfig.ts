@@ -19,6 +19,8 @@ export interface HubSettings {
   /** Hours between backups (0: only when asked) and days a daily copy is kept. Where they go is the host's to say. */
   backupEveryHours: number;
   backupKeepDays: number;
+  /** Whether tasks and timers go to phones as live activities, through Home Assistant. */
+  liveActivities: boolean;
   /** Whether the MCP door answers under a public name too. */
   mcpPublic: boolean;
   /** Whether the OpenClaw gateway's progress cards are shown as tasks. */
@@ -53,6 +55,7 @@ function fromConfig(config: Config): HubSettings {
     messageHoldMinutes: Math.round(config.messageHoldMs / 60_000),
     backupEveryHours: config.backupEveryHours,
     backupKeepDays: config.backupKeepDays,
+    liveActivities: config.liveActivities,
     mcpPublic: config.mcpPublic,
     mirrorCards: config.mirrorCards,
     mirrorQuestions: config.mirrorQuestions,
@@ -92,6 +95,7 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.messageHoldMs = settings.messageHoldMinutes * 60_000;
   config.backupEveryHours = settings.backupEveryHours;
   config.backupKeepDays = settings.backupKeepDays;
+  config.liveActivities = settings.liveActivities;
   config.mcpPublic = settings.mcpPublic;
   config.mirrorCards = settings.mirrorCards;
   config.mirrorQuestions = settings.mirrorQuestions;
@@ -181,7 +185,7 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
     if (typeof body.mirrorCards !== "boolean") throw new Error("mirrorCards must be true or false");
     patch.mirrorCards = body.mirrorCards;
   }
-  for (const key of ["mirrorQuestions", "mirrorApprovals"] as const) {
+  for (const key of ["mirrorQuestions", "mirrorApprovals", "liveActivities"] as const) {
     if (body[key] === undefined) continue;
     if (typeof body[key] !== "boolean") throw new Error(`${key} must be true or false`);
     patch[key] = body[key] as boolean;

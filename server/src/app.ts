@@ -25,6 +25,7 @@ import { Attachment } from "./attach.js";
 import { SelfCheck } from "./selfcheck.js";
 import { Progress } from "./progress.js";
 import { Background } from "./background.js";
+import { LiveActivities } from "./liveactivity.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
 import { Store } from "./store.js";
@@ -312,10 +313,29 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   Object.assign(services, options.services);
 
   let homeAssistant: HomeAssistant | undefined;
+  // Tasks and timers on phones, by way of Home Assistant; only with its link set up and the switch on.
+  const liveActivities = new LiveActivities({
+    store,
+    enabled: () => config.liveActivities && Boolean(config.homeAssistant),
+    publish: (message) => homeAssistant?.publishLive(message) ?? false,
+    tasks: () => progress.list(),
+    timers: () => timers.list(),
+    url: () => (config.publicHosts[0] ? `https://${config.publicHosts[0]}/` : undefined),
+    log,
+  });
+  const syncLive = () => {
+    try {
+      liveActivities.sync();
+    } catch (error) {
+      log(`live activities: ${(error as Error).message}`);
+    }
+  };
+  progress.onChange(syncLive);
+  timers.onChange(syncLive);
   const startHomeAssistant = () => {
     homeAssistant?.stop();
     homeAssistant = config.homeAssistant
-      ? new HomeAssistant({ ...config.homeAssistant, hub, store, delivery, version: AXIS_VERSION, log })
+      ? new HomeAssistant({ ...config.homeAssistant, hub, store, delivery, version: AXIS_VERSION, onLiveAck: (payload) => liveActivities.acknowledged(payload), log })
       : undefined;
     homeAssistant?.start();
   };
@@ -327,6 +347,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity.setRetention(config.activityDays * 86_400_000);
     delivery.setHoldMs(config.messageHoldMs);
     if (changed.mqtt) startHomeAssistant();
+    syncLive();
     watchGateway();
   };
 
@@ -354,7 +375,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -379,6 +400,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   gateway.start();
   watchGateway();
   timers.start();
+  liveActivities.start();
   recordLinks();
 
   return {
@@ -397,6 +419,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     async close() {
       backup.stop();
       progress.stop();
+      liveActivities.stop();
       cards.stop();
       clearTimeout(checkTimer);
       talk.stop();

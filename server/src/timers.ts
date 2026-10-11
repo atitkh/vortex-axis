@@ -52,6 +52,7 @@ export class Timers {
   private readonly retryAt = new Map<number, number>();
   private readonly firing = new Set<number>();
   private stopped = false;
+  private readonly changeListeners: (() => void)[] = [];
 
   constructor(options: TimersOptions) {
     this.store = options.store;
@@ -62,6 +63,11 @@ export class Timers {
     this.retryMs = options.retryMs ?? RETRY_MS;
     this.chimeMs = options.chimeMs ?? 900;
     this.hub.onConnect((session) => this.tell(session));
+  }
+
+  /** Called after every change to the timers: one set, cancelled or gone off. */
+  onChange(listener: () => void): void {
+    this.changeListeners.push(listener);
   }
 
   start(): void {
@@ -196,6 +202,7 @@ export class Timers {
    */
   private tell(only?: Session): void {
     const all = this.list();
+    if (!only) for (const listener of this.changeListeners) listener();
     const next = all[0];
     const params = next
       ? // An unnamed timer is shown as "Timer 0:42". Its length would read like a second timer starting.

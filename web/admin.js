@@ -3053,9 +3053,9 @@ function integration(title, [label, kind], rows, help, save, extra) {
         value instanceof HTMLInputElement ? h("div", {}, value, hint ? h("p", { class: "help" }, hint) : null) : h("p", { class: "value" }, value),
       ]),
     ),
-    save
+    save || extra
       ? h("div", { class: "inline actions" },
-          h("button", {
+          save && h("button", {
             type: "button", class: "primary",
             onclick: async (event) => {
               const typed = Object.fromEntries([...card.querySelectorAll("input[name]")].map((input) => [input.name, input.value.trim()]));
@@ -3096,6 +3096,57 @@ function backupTrouble(backup) {
 const field = (name, value, attrs = {}) => h("input", { name, value: value ?? "", spellcheck: "false", autocomplete: "off", ...attrs });
 $("integrations-body").addEventListener("input", () => ($("integrations-body").dataset.dirty = "1"));
 
+/** Tasks and timers as live activities on phones. Offered only while the Home Assistant link is up: it goes through there. */
+function liveCard(d) {
+  const ha = d.homeAssistant;
+  const live = d.liveActivities;
+  if (!live) return null;
+  const on = d.settings.liveActivities;
+  const usable = Boolean(ha?.connected);
+  const blueprint = new URL(live.blueprint, location.origin).href;
+  const refresh = async () => {
+    $("integrations-body").dataset.dirty = "";
+    integrationsAt = 0;
+    await loadIntegrations();
+  };
+  const box = h("input", {
+    type: "checkbox", checked: on, disabled: !usable && !on, "aria-label": "Live activities",
+    onchange: (event) => act(event.target, "", async () => {
+      await api("PATCH", "/admin/integrations", { liveActivities: event.target.checked });
+      toast(`Live activities ${event.target.checked ? "on" : "off"}.`);
+      await refresh();
+    }),
+  });
+  const heard = live.lastAck ? `${ago(live.lastAck.at)}${live.lastAck.phone ? `, by ${live.lastAck.phone}` : ""}` : null;
+  return integration("Live activities on phones",
+    !usable ? ["needs Home Assistant", ""]
+    : !on ? ["off", ""]
+    : heard ? ["on", "good"]
+    : live.sent ? ["no answer from Home Assistant", "warn"]
+    : ["on, nothing sent yet", ""],
+    [
+      ["Switch", h("label", { class: "switch" }, box, h("span", {}, on ? "on" : "off"))],
+      ["Blueprint", h("span", {},
+        h("a", { href: `https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=${encodeURIComponent(blueprint)}`, target: "_blank", rel: "noopener" }, "Import into Home Assistant"),
+        " or add it by address: ", h("span", { class: "mono" }, blueprint))],
+      on && usable && ["Showing now", live.showing === 1 ? "1 activity" : `${live.showing} activities`],
+      on && usable && ["Home Assistant passed one on", heard ?? (live.sent ? `not yet; Axis sent ${plural(live.sent, "update")}. Is an automation made from the blueprint?` : "nothing sent yet")],
+    ],
+    h("span", {}, "Tasks that run longer than 30 seconds, anything waiting for you and timers of a minute or more show on the lock screen and in the Dynamic Island of a phone with the Home Assistant app (iOS 17.2+, app 2026.9+, Home Assistant 2026.7+; Live Updates on Android). Axis sends them over MQTT; make an automation from the blueprint for each phone that should show them. Away from home the phone needs a way to reach Home Assistant."),
+    undefined,
+    on && usable
+      ? h("button", {
+          type: "button",
+          onclick: (event) => act(event.target, "", async () => {
+            await api("POST", "/admin/integrations/live-test");
+            toast("Sent a 30 second test activity.");
+            setTimeout(refresh, 4000);
+          }),
+        }, "Send a test")
+      : null,
+  );
+}
+
 function renderIntegrations() {
   const d = lastIntegrations;
   if (!d) return;
@@ -3128,6 +3179,7 @@ function renderIntegrations() {
       "Every client appears in Home Assistant as a device: its state, whether it is online, a say entity and its volume. The hub has Say everywhere and a count of devices online. Home Assistant needs its MQTT integration with discovery on. Saving reconnects at once.",
       (typed) => ({ mqtt: { host: typed.host, port: Number(typed.port), user: typed.user, password: typed.password, discoveryPrefix: typed.discoveryPrefix } }),
     ),
+    liveCard(d),
     integration("Public address", set.publicHosts.length ? ["set", "good"] : ["local network only", ""],
       [
         ["Names", field("publicHosts", set.publicHosts.join(", "), { class: "mono", placeholder: "axis.example.org" }), "Names Axis is reached by from outside, separated by commas, without https://. Under these only the client side answers: this admin page and its API do not exist there."],

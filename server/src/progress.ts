@@ -111,6 +111,7 @@ export class Progress {
   private chimedAt = 0;
 
   private readonly now: () => number;
+  private readonly changeListeners: (() => void)[] = [];
 
   constructor(
     private readonly hub: Hub,
@@ -118,6 +119,11 @@ export class Progress {
   ) {
     this.now = options.now ?? Date.now;
     hub.onConnect((session) => this.tell(session));
+  }
+
+  /** Called after every change to the tasks on show. */
+  onChange(listener: () => void): void {
+    this.changeListeners.push(listener);
   }
 
   start(): void {
@@ -223,6 +229,7 @@ export class Progress {
   /** Tells screens the task to show: the one reported on last, and how many there are. */
   private tell(only?: Session, finished = false): number {
     const all = this.list();
+    if (!only) for (const listener of this.changeListeners) listener();
     const top = all[0];
     const params: Record<string, string | number | boolean> = top
       ? { title: top.title, note: top.note, done: top.done ?? -1, total: top.total ?? 0, state: top.state, count: all.length }

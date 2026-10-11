@@ -1,5 +1,6 @@
 import type { Delivery } from "./delivery.js";
 import type { Hub } from "./hub.js";
+import { LIVE_ACK_TOPIC, LIVE_TOPIC, type LiveMessage } from "./liveactivity.js";
 import { MqttClient } from "./mqtt.js";
 import type { ClientRecord, Store } from "./store.js";
 
@@ -30,6 +31,8 @@ export interface HomeAssistantOptions {
   store: Store;
   delivery: Delivery;
   version: string;
+  /** Home Assistant's live activities blueprint said it passed one on to a phone. */
+  onLiveAck?: (payload: string) => void;
   log?: (line: string) => void;
 }
 
@@ -77,6 +80,7 @@ export class HomeAssistant {
     });
     this.mqtt.subscribe(`${BASE}/+/say`, (topic, payload) => this.say(topic.split("/")[1]!, payload));
     this.mqtt.subscribe(`${BASE}/+/volume/set`, (topic, payload) => this.setVolume(topic.split("/")[1]!, payload));
+    this.mqtt.subscribe(LIVE_ACK_TOPIC, (_topic, payload) => options.onLiveAck?.(payload));
     this.mqtt.subscribe(`${BASE}/hub/away/set`, (_topic, payload) => {
       options.store.setMeta("away", payload.trim().toUpperCase() === "ON" ? "1" : "0");
       this.awayShown = "";
@@ -96,6 +100,13 @@ export class HomeAssistant {
       error: this.mqtt.connected ? null : this.mqtt.lastError ?? null,
       devices: this.mqtt.connected ? this.shown.size : 0,
     };
+  }
+
+  /** Sends a live activity to Home Assistant's blueprint (liveactivity.ts). False when the broker is out of reach. */
+  publishLive(message: LiveMessage): boolean {
+    if (!this.mqtt.connected) return false;
+    this.mqtt.publish(LIVE_TOPIC, JSON.stringify(message));
+    return true;
   }
 
   start(): void {

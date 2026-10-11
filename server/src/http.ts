@@ -26,6 +26,7 @@ import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
+import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -160,6 +161,8 @@ export interface HttpDeps {
   live?: Live;
   /** The link to Home Assistant as it is now, when one is set up. It is rebuilt when its settings change. */
   homeAssistant?: () => HomeAssistant | undefined;
+  /** Tasks and timers as live activities on phones, through Home Assistant. */
+  liveActivities?: LiveActivities;
   /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
   tools?: ToolAccess;
   invoke?: InvokeHandler;
@@ -387,6 +390,14 @@ export function createHttpHandler(deps: HttpDeps) {
 
     if (method === "GET" && url.pathname === "/healthz") {
       return sendJson(res, 200, { ok: true });
+    }
+
+    // The Home Assistant blueprint for live activities, for Home Assistant to import by address. It holds nothing private,
+    // but like the admin page it is there on the local network only.
+    if (method === "GET" && url.pathname === "/ha/vortex_axis_live_activities.yaml" && !isPublic(req)) {
+      res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/yaml; charset=utf-8", "cache-control": "no-cache" });
+      res.end(BLUEPRINT);
+      return;
     }
 
     // The stamp of the web files being served, so an open page can tell it has been replaced.
@@ -981,11 +992,18 @@ export function createHttpHandler(deps: HttpDeps) {
         activity?.note("admin", "", `Hub settings saved: ${Object.keys(body as object).join(", ") || "nothing"}`);
         return sendJson(res, 200, { settings: publicHubSettings(config) });
       }
+      // A short activity on the phone, to check Home Assistant's blueprint passes them on.
+      if (method === "POST" && parts.length === 3 && parts[1] === "integrations" && parts[2] === "live-test") {
+        if (!deps.homeAssistant?.()?.status().connected) throw new HttpError(409, "Home Assistant's MQTT broker is not connected");
+        if (!config.liveActivities) throw new HttpError(409, "live activities are switched off");
+        return sendJson(res, 200, { sent: deps.liveActivities?.test() ?? false });
+      }
       if (method === "GET" && parts.length === 2 && parts[1] === "integrations") {
         const clients = store.listClients();
         const gw = gateway.status();
         return sendJson(res, 200, {
           homeAssistant: deps.homeAssistant?.()?.status() ?? null,
+          liveActivities: deps.liveActivities ? { ...deps.liveActivities.status(), blueprint: "/ha/vortex_axis_live_activities.yaml" } : null,
           settings: publicHubSettings(config),
           notifications: {
             ready: Boolean(deps.push),
