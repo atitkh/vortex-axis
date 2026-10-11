@@ -996,7 +996,7 @@ export function createHttpHandler(deps: HttpDeps) {
       if (method === "POST" && parts.length === 3 && parts[1] === "integrations" && parts[2] === "live-test") {
         if (!deps.homeAssistant?.()?.status().connected) throw new HttpError(409, "Home Assistant's MQTT broker is not connected");
         if (!config.liveActivities) throw new HttpError(409, "live activities are switched off");
-        return sendJson(res, 200, { sent: deps.liveActivities?.test() ?? false });
+        return sendJson(res, 200, (await deps.liveActivities?.test()) ?? { sent: false, phones: [] });
       }
       if (method === "GET" && parts.length === 2 && parts[1] === "integrations") {
         const clients = store.listClients();

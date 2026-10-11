@@ -133,6 +133,8 @@ export class LiveActivities {
   private sentCount = 0;
   private lastSentAt: number | undefined;
   private lastAck: { at: number; phone?: string | undefined } | undefined;
+  /** Tests waiting to hear Home Assistant passed theirs on. */
+  private readonly ackWaiters: ((tag: string, phone: string | undefined) => void)[] = [];
   /** Activities an earlier run of Axis left on show, still to be ended. */
   private leftover: string[] = [];
 
@@ -169,26 +171,45 @@ export class LiveActivities {
   /** Home Assistant's blueprint said it passed one on to a phone. */
   acknowledged(payload: string): void {
     let phone: string | undefined;
+    let tag: string | undefined;
     try {
-      const body = JSON.parse(payload) as { phone?: unknown };
+      const body = JSON.parse(payload) as { phone?: unknown; tag?: unknown };
       if (typeof body.phone === "string") phone = body.phone.slice(0, 80);
+      if (typeof body.tag === "string") tag = body.tag;
     } catch {
       // An acknowledgement that says nothing more is still one.
     }
     this.lastAck = { at: this.now(), phone };
+    if (tag) for (const waiter of this.ackWaiters.splice(0)) waiter(tag, phone);
   }
 
   /** Puts a short test activity on the phone, to check the blueprint is set up. Ends by itself. */
-  test(): boolean {
-    const tag = "axis-test";
+  async test(waitMs = 5_000): Promise<{ sent: boolean; phones: string[] }> {
+    // A tag of its own each time: iOS may not start an activity again on a tag that was just ended.
+    const tag = `axis-test-${Date.now().toString(36)}`;
+    const phones: string[] = [];
+    // Kept listening until the wait is over: every phone's automation answers on its own.
+    const heard = (from: string, phone: string | undefined) => {
+      if (from === tag) phones.push(phone ?? "a phone");
+      this.ackWaiters.push(heard);
+    };
+    this.ackWaiters.push(heard);
     const sent = this.send({
       tag,
       title: "VorteX Axis",
       message: "Live activities work",
       data: { tag, live_update: true, chronometer: true, when: 30, when_relative: true, notification_icon: "mdi:check-network", notification_icon_color: COLORS.running },
     });
-    if (sent) setTimeout(() => this.send({ tag, end: true }), 30_000).unref();
-    return sent;
+    if (!sent) {
+      this.ackWaiters.splice(this.ackWaiters.indexOf(heard), 1);
+      return { sent, phones };
+    }
+    setTimeout(() => this.send({ tag, end: true }), 30_000).unref();
+    // Each phone's automation answers on its own; wait a little for all of them.
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const left = this.ackWaiters.indexOf(heard);
+    if (left >= 0) this.ackWaiters.splice(left, 1);
+    return { sent, phones };
   }
 
   /** Looks at the tasks and timers and sends what changed. Called on every change and every few seconds. */

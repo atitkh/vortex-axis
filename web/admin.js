@@ -3138,9 +3138,16 @@ function liveCard(d) {
       ? h("button", {
           type: "button",
           onclick: (event) => act(event.target, "", async () => {
-            await api("POST", "/admin/integrations/live-test");
-            toast("Sent a 30 second test activity.");
-            setTimeout(refresh, 4000);
+            event.target.textContent = "Sending…";
+            try {
+              const { sent, phones } = await api("POST", "/admin/integrations/live-test");
+              if (!sent) toast("Not sent: the MQTT broker is out of reach.", "bad");
+              else if (!phones.length) toast("Sent, but Home Assistant did not pass it on. Is an automation made from the blueprint, and on?", "bad");
+              else toast(`Home Assistant passed a 30 second test to ${phones.join(", ")}.`);
+            } finally {
+              event.target.textContent = "Send a test";
+              await refresh();
+            }
           }),
         }, "Send a test")
       : null,

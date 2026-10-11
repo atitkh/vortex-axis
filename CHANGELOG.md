@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.27.1 (2026-10-11)
+
+- **Send a test (live activities)** uses a new tag each time (iOS may not start an activity again on a tag just ended, and a second press no longer ends the first one's test early), and waits up to 5 s to say which phones Home Assistant passed it to, or that it did not.
+
 ## 0.27.0 (2026-10-11)
 
 - **Live activities on phones.** Tasks and timers can show on the lock screen and in the Dynamic Island of a phone with the Home Assistant app (Live Updates on Android), through Home Assistant (`liveactivity.ts`). Axis only speaks MQTT to Home Assistant, so it publishes each activity on `vortex-axis/live` and a blueprint it serves (`/ha/vortex_axis_live_activities.yaml`, local network only, with an import link on the Integrations page) passes it to the chosen phone and acknowledges on `vortex-axis/live/ack`. Off by default; offered only while the Home Assistant link is connected, with a switch and a Send a test button on the Integrations page (`liveActivities`, or `AXIS_LIVE_ACTIVITIES`).

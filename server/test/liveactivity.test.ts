@@ -175,6 +175,17 @@ describe("live activities", () => {
     expect(w.sent).toEqual([{ tag: "axis-timer-7", end: true }]);
   });
 
+  it("sends a test on a tag of its own and says which phones Home Assistant passed it to", async () => {
+    const { w, live } = world();
+    const result = live.test(50);
+    const tag = w.sent[0]!.tag;
+    expect(tag).toMatch(/^axis-test-/);
+    live.acknowledged(JSON.stringify({ tag: "axis-task-x", phone: "Other" }));
+    live.acknowledged(JSON.stringify({ tag, phone: "Atit's iPhone" }));
+    live.acknowledged(JSON.stringify({ tag, phone: "Spare phone" }));
+    expect(await result).toEqual({ sent: true, phones: ["Atit's iPhone", "Spare phone"] });
+  });
+
   it("tells when Home Assistant passed one on", () => {
     const { live } = world();
     live.acknowledged(JSON.stringify({ tag: "axis-test", phone: "Atit's iPhone" }));
