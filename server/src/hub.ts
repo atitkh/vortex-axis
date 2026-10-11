@@ -1,4 +1,5 @@
 import type { AskResult } from "./ask.js";
+import type { Background } from "./background.js";
 import type { WebSocket } from "ws";
 import type { Activity } from "./activity.js";
 import {
@@ -134,6 +135,11 @@ export class Hub implements TurnPort {
         this.activity?.note("wake", winnerId, text);
       },
     });
+  }
+
+  /** Hands agent runs that go on too long to `background` (see turns.ts). */
+  useBackground(background: Background, busySessionKey: string, handoverMs?: number): void {
+    this.turns.useBackground(background, busySessionKey, handoverMs);
   }
 
   sessions(): Iterable<Session> {

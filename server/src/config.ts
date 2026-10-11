@@ -60,6 +60,8 @@ export interface Config {
   outputHoldMs: number;
   /** How long something said to a client that is offline is kept for it. */
   messageHoldMs: number;
+  /** How long an agent may go quiet before a device stops waiting and the run carries on in the background. 0: never. */
+  handoverMs: number;
   /** Whether agents may reach the MCP door under a public name. Off: it answers on the local network only, like the admin page. */
   mcpPublic: boolean;
   /** Whether progress cards of the OpenClaw gateway's sessions are shown as tasks with no tool call. */
@@ -156,6 +158,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
     messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
+    handoverMs: integer("AXIS_HANDOVER_MS", env.AXIS_HANDOVER_MS, 30 * 1000),
     mcpPublic: env.AXIS_MCP_PUBLIC === "1" || env.AXIS_MCP_PUBLIC === "true",
     mirrorCards: env.AXIS_MIRROR_CARDS !== "0" && env.AXIS_MIRROR_CARDS !== "false",
     mirrorQuestions: env.AXIS_MIRROR_QUESTIONS !== "0" && env.AXIS_MIRROR_QUESTIONS !== "false",

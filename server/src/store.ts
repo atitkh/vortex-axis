@@ -178,6 +178,9 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE turns ADD COLUMN speaker TEXT;
   `,
+  `
+  ALTER TABLE turns ADD COLUMN handed_over INTEGER;
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -226,6 +229,7 @@ interface TurnRow {
   heard: number;
   started_by: string | null;
   speaker: string | null;
+  handed_over: number | null;
 }
 
 interface EventRow {
@@ -275,6 +279,8 @@ export interface TurnRecord {
   heard: boolean;
   /** Whose voice it was, when voices are told apart: a known voice's name, "guest" or "unsure". */
   speaker?: string | undefined;
+  /** The agent went on too long, so the device stopped waiting and the run was followed in the background. */
+  handedOver?: boolean | undefined;
 }
 
 /** A token an agent holds for the MCP door. The token itself is never kept. */
@@ -526,11 +532,11 @@ export class Store {
   addTurn(t: TurnRecord): void {
     this.db
       .prepare(
-        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard, started_by, speaker) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO turns (at, client_id, kind, outcome, error, speech_ms, stt_ms, agent_ms, first_audio_ms, total_ms, heard, started_by, speaker, handed_over) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(t.at, t.clientId, t.kind, t.outcome, t.error ?? null, t.speechMs ?? null, t.sttMs ?? null, t.agentMs ?? null,
-        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0, t.startedBy ?? null, t.speaker ?? null);
+        t.firstAudioMs ?? null, t.totalMs, t.heard ? 1 : 0, t.startedBy ?? null, t.speaker ?? null, t.handedOver ? 1 : null);
   }
 
   /** Turns that started in [from, to), oldest first. */
@@ -554,6 +560,7 @@ export class Store {
       heard: r.heard === 1,
       ...(r.started_by ? { startedBy: r.started_by as NonNullable<TurnRecord["startedBy"]> } : {}),
       ...(r.speaker ? { speaker: r.speaker } : {}),
+      ...(r.handed_over ? { handedOver: true } : {}),
     }));
   }
 

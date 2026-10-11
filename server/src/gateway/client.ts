@@ -409,7 +409,14 @@ export class GatewayClient implements Agent, Credentials {
     return this.defaultAgentId;
   }
 
-  async *reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, route?: AgentRoute): AsyncIterable<string> {
+  async *reply(
+    message: string,
+    signal?: AbortSignal,
+    onTool?: (name: string) => void,
+    onState?: (state: RunState | undefined) => void,
+    route?: AgentRoute,
+    onRun?: (run: { runId: string; sessionKey: string }) => void,
+  ): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = route?.agentId ?? (await this.resolveAgentId());
     // Pointed at another conversation, the turn goes there by its full key, which names its agent too.
@@ -418,6 +425,9 @@ export class GatewayClient implements Agent, Credentials {
     const sessionKey = route?.sessionKey ?? this.options.sessionKey;
     const target = other ? { sessionKey: other, ...(/^agent:([^:]+):/.exec(other)?.[1] ? { agentId: /^agent:([^:]+):/.exec(other)![1] } : {}) } : agentId ? { agentId, sessionKey } : {};
     const note = [this.note, route?.note].filter(Boolean).join("\n\n");
+    // The conversation's whole key, as the gateway names it, so the run can be stopped or asked about later.
+    const aimed = target as { sessionKey?: string; agentId?: string };
+    const fullKey = aimed.sessionKey && aimed.agentId && !aimed.sessionKey.startsWith("agent:") ? `agent:${aimed.agentId}:${aimed.sessionKey}` : aimed.sessionKey;
     yield* this.follow(async () => {
       // A stable session key needs an explicit agent: with several agents the
       // gateway refuses a key that no agent owns.
@@ -443,7 +453,32 @@ export class GatewayClient implements Agent, Credentials {
         ack = await send(false);
       }
       return ack;
-    }, signal, onTool, onState);
+    }, signal, onTool, onState, (runId) => {
+      if (fullKey) onRun?.({ runId, sessionKey: fullKey });
+    });
+  }
+
+  /** Where a turn with no route of its own goes: the attached conversation, or Axis's own. */
+  async target(): Promise<{ sessionKey: string; agentId?: string | undefined } | undefined> {
+    const other = this.elsewhere?.();
+    if (other) return { sessionKey: other, agentId: /^agent:([^:]+):/.exec(other)?.[1] };
+    const agentId = await this.resolveAgentId();
+    return agentId ? { sessionKey: `agent:${agentId}:${this.options.sessionKey}`, agentId } : undefined;
+  }
+
+  /** Whether a conversation has a run going, which a new message would have to wait behind. */
+  async activeRun(sessionKey: string): Promise<{ active: boolean; title?: string | undefined }> {
+    const reply = await this.operator.request("sessions.list", { search: sessionKey.split(":").pop(), limit: 20 }, 2_000);
+    const list: any[] = Array.isArray(reply?.sessions) ? reply.sessions : [];
+    const session = list.find((s) => s?.key === sessionKey);
+    if (!session) return { active: false };
+    const title = typeof session.displayName === "string" && session.displayName ? session.displayName : typeof session.label === "string" ? session.label : undefined;
+    return { active: session.hasActiveRun === true, title };
+  }
+
+  /** Stops one run. */
+  async abortRun(run: { sessionKey: string; runId: string }): Promise<void> {
+    await this.operator.request("chat.abort", { sessionKey: run.sessionKey, runId: run.runId });
   }
 
   /**
@@ -456,7 +491,7 @@ export class GatewayClient implements Agent, Credentials {
   }
 
   /** Starts an agent run with `start`, which resolves with the gateway's acknowledgement, and yields what the run says. */
-  private async *follow(start: () => Promise<any>, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void): AsyncIterable<string> {
+  private async *follow(start: () => Promise<any>, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, onRun?: (runId: string) => void): AsyncIterable<string> {
     const channel = new Channel<string>();
     let runId: string | undefined;
     let sent = "";
@@ -504,7 +539,8 @@ export class GatewayClient implements Agent, Credentials {
 
     const timeout = setTimeout(
       () => channel.end(new Error("the agent accepted the turn but did not finish in time")),
-      this.options.replyTimeoutMs ?? 120_000,
+      // A long run is handed over by the turn (see background.ts) and followed here until it ends, within reason.
+      this.options.replyTimeoutMs ?? 30 * 60_000,
     );
     const onAbort = () => channel.end();
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -512,6 +548,7 @@ export class GatewayClient implements Agent, Credentials {
     try {
       const ack = await start();
       runId = typeof ack?.runId === "string" ? ack.runId : "";
+      if (runId) onRun?.(runId);
       for (const payload of early.splice(0)) handle(payload);
       yield* channel;
     } catch (error) {

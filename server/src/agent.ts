@@ -22,8 +22,22 @@ export interface Agent {
    * tools it picks up on the way calls `onTool` with each one's name; most do not. One that says when
    * its run is held up calls `onState` with why (`compacting` its memory, `retrying` a provider that
    * failed), and with nothing when it is under way again. `route` sends this one turn somewhere else.
+   * One whose runs can be told apart calls `onRun` with the run and its conversation once it has started.
    */
-  reply(message: string, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, route?: AgentRoute): AsyncIterable<string>;
+  reply(
+    message: string,
+    signal?: AbortSignal,
+    onTool?: (name: string) => void,
+    onState?: (state: RunState | undefined) => void,
+    route?: AgentRoute,
+    onRun?: (run: { runId: string; sessionKey: string }) => void,
+  ): AsyncIterable<string>;
+  /** For an agent with conversations: the one a turn with no route of its own goes to, and its agent. */
+  target?(): Promise<{ sessionKey: string; agentId?: string | undefined } | undefined>;
+  /** For an agent with conversations: whether one is in the middle of a run, so a new message would wait behind it. */
+  activeRun?(sessionKey: string): Promise<{ active: boolean; title?: string | undefined }>;
+  /** Stops a run. */
+  abortRun?(run: { sessionKey: string; runId: string }): Promise<void>;
   healthy(): Promise<boolean>;
   /**
    * For an agent behind an OpenClaw gateway: does the work a realtime voice session has handed over, the

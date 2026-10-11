@@ -24,10 +24,11 @@ import { RealtimeTalk } from "./talk.js";
 import { Attachment } from "./attach.js";
 import { SelfCheck } from "./selfcheck.js";
 import { Progress } from "./progress.js";
+import { Background } from "./background.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
 import { Store } from "./store.js";
-import type { Services } from "./turns.js";
+import { isSilent, type Services } from "./turns.js";
 import { applyRuntimeConfig, loadRuntimeConfig } from "./upstream.js";
 
 export interface App {
@@ -202,12 +203,36 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
         ending,
         startedAt: task.startedAt,
       });
+      background.ended(task, ending);
       if (ending !== "done") return;
       const minutes = Math.max(1, Math.round((at - task.startedAt) / 60_000));
       tellPhones(`${task.title} done`, task.note || `Finished in ${minutes} min.`, `task-${task.id}`);
     },
   });
   progress.start();
+  // A run the device stopped waiting for is followed here, shown as a task, and its answer said when it comes.
+  const background: Background = new Background({
+    progress,
+    deliver: async (clientId, text) => {
+      if (store.getMeta("away") === "1") {
+        const phone = store.pushClientIds().find((id) => !hub.session(id));
+        const client = phone ? store.getClient(phone) : undefined;
+        if (client) return delivery.sayTo(client, text);
+      }
+      try {
+        return await delivery.sayOn(hub.pickOutput({}), text);
+      } catch {
+        // Nobody to say it to now: kept for the device that asked, for when it is back.
+        const client = store.getClient(clientId);
+        if (client) return delivery.sayTo(client, text);
+      }
+    },
+    // The agent answering turns stops its own runs.
+    abort: async (run) => services.agent?.abortRun?.(run),
+    isSilent,
+    log,
+  });
+  if (config.handoverMs > 0) hub.useBackground(background, `${config.gateway.sessionKey}-busy`, config.handoverMs);
   // An OpenClaw agent's own step list reaches the screens with no tool call.
   // What such an agent waits on the person for, a question or an approval, is put to them on a device;
   // or, while Home Assistant says they are away, on a phone that takes notifications.

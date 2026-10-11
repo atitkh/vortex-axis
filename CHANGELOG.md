@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.26.0 (2026-10-10)
+
+- **Long agent work carries on without the device.** When the agent has said nothing new for 30 s (`AXIS_HANDOVER_MS`, 0 to switch off), the device says "On it, I'll tell you when it's done" and is free again. Axis keeps following the run (`background.ts`; the gateway follow limit is now 30 minutes instead of 120 s), shows it as a task on the screens (or the agent's own progress card, when it keeps one), and says the first few sentences of the answer where the person last was, or on a phone while away. A run that fails says so. Taking its task off the screens stops the run. Axis announces the answer even when the agent also spoke on its own during the run.
+- **Turns while a conversation is busy.** OpenClaw answers one message at a time per conversation (a second one waits behind a running one; tested 2026-10-10). While the conversation turns would go to (Axis's own, or an attached one) has a run going, whether Axis handed it over or it came from elsewhere (the gateway's `hasActiveRun`), new turns go to `<sessionKey>-busy` instead, told on the device line what holds the usual one and to read, not message, that conversation if asked how it is going.
+- The activity log marks turns that were handed over.
+
 ## 0.25.1 (2026-10-10)
 
 - **Said on several devices, made once.** Something said everywhere or in one location is synthesized once per voice and the same audio is played on each device (`SpeechShare` in `speech.ts`), so devices in one room start together instead of one after another, and the speech service is not asked for the same sentence again for each device. Stopping one device does not cut the others off.

@@ -7,6 +7,8 @@ import type { Session } from "./hub.js";
 import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechShare, SpeechToText, TextToSpeech } from "./speech.js";
 import type { Live } from "./live.js";
+import type { Background, Job } from "./background.js";
+import type { AgentRoute } from "./agent.js";
 import { Voiceprints, type Identity, type VoiceprintService } from "./voiceprint.js";
 import type { TurnRecord, WakeRecord } from "./store.js";
 import { WakeArbiter } from "./wake.js";
@@ -51,6 +53,14 @@ export interface TurnOptions {
   live?: Live | undefined;
   /** Tells voices apart, when switched on: whose voice a spoken turn is in, and where a guest's goes. */
   voices?: Voiceprints | undefined;
+  /**
+   * Takes over agent runs a device stops waiting for. Without it a turn waits for the agent to the end.
+   * `busySessionKey` names the conversation turns go to while the usual one is held by a run.
+   */
+  background?: Background | undefined;
+  busySessionKey?: string | undefined;
+  /** How long an agent may say nothing new before the device stops waiting and the run is handed over. */
+  handoverMs?: number;
 }
 
 type TurnMessage = Extract<
@@ -122,13 +132,24 @@ class TurnFailure extends Error {
 /** Replies that mean "the agent has nothing to say". They are neither shown nor spoken. */
 const SILENT_REPLIES = ["NO_REPLY", "HEARTBEAT_OK"];
 
+/** What a turn sent aside is told about the conversation a run holds. */
+export function busyNote(busy: { sessionKey: string; title: string; taskId?: string | undefined }): string {
+  return [
+    `The usual conversation for these devices (${busy.sessionKey}) is busy with a long piece of work, so this turn comes to a conversation of its own. Answer it on its own.`,
+    "If asked how that work is going, read that conversation's history with your session tools and say. Do not send messages to it: they would wait until the work is done.",
+    busy.taskId
+      ? `If asked to stop that work, call the vortex_axis_progress tool with action "clear" and id "${busy.taskId}".`
+      : "",
+  ].filter(Boolean).join(" ");
+}
+
 /** True while `text` could still turn out to be a silent reply, or is a complete one. Empty text counts. */
 function mayBeSilent(text: string): boolean {
   const word = text.trim().toUpperCase();
   return SILENT_REPLIES.some((silent) => silent.startsWith(word));
 }
 
-function isSilent(text: string): boolean {
+export function isSilent(text: string): boolean {
   const word = text.trim().toUpperCase();
   return word === "" || SILENT_REPLIES.includes(word);
 }
@@ -401,7 +422,15 @@ export class TurnManager {
   private readonly asks = new Map<string, PendingAsk>();
   private askCount = 0;
 
+  /** Hands long agent runs to `background` from now on, sending turns to `busySessionKey` while one holds the usual conversation. */
+  readonly useBackground: (background: Background, busySessionKey: string, handoverMs?: number) => void;
+
   constructor(private readonly port: TurnPort, private readonly options: TurnOptions) {
+    this.useBackground = (background, busySessionKey, handoverMs) => {
+      this.options.background = background;
+      this.options.busySessionKey = busySessionKey;
+      if (handoverMs !== undefined) this.options.handoverMs = handoverMs;
+    };
     this.services = options.services;
     this.playbackGraceMs = options.playbackGraceMs ?? 5000;
     this.wake = new WakeArbiter({
@@ -720,12 +749,23 @@ export class TurnManager {
     this.port.send(session, { t: "turn", turnId: turn.turnId, state: "idle" });
   }
 
-  private header(session: Session, identity?: Identity): string {
+  /** The conversation a turn would go to, when a run holds it: the run Axis followed there, or one the gateway reports. */
+  private async busyTarget(agent: Agent): Promise<{ sessionKey: string; title: string; taskId?: string | undefined } | undefined> {
+    const target = await agent.target!();
+    if (!target) return undefined;
+    const ours = this.options.background?.runningIn(target.sessionKey);
+    if (ours) return { sessionKey: target.sessionKey, title: ours.title, taskId: ours.taskId };
+    const run = await agent.activeRun!(target.sessionKey);
+    return run.active ? { sessionKey: target.sessionKey, title: run.title ?? "another request" } : undefined;
+  }
+
+  private header(session: Session, identity?: Identity, busy?: { sessionKey: string; title: string }): string {
     const settings = this.port.settings(session);
     const location = typeof settings.location === "string" && settings.location ? settings.location : "unknown";
     const { name, type, capabilities } = session.client;
     const voice = Voiceprints.label(identity);
-    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}${voice ? `, ${voice}` : ""}]`;
+    const held = busy ? `, busy: ${busy.sessionKey} is working on "${busy.title.replace(/"/g, "'")}"` : "";
+    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}${voice ? `, ${voice}` : ""}${held}]`;
   }
 
   /** Runs one turn. Resolves with a failure message, or undefined when it went through. */
@@ -892,6 +932,8 @@ export class TurnManager {
       }
 
       let source: AsyncIterable<string>;
+      // Set for a turn that asks the agent: what it takes to hand the run over if it goes on too long.
+      let handover: { question: string; release: () => void; run?: { runId: string; sessionKey: string }; job?: Job } | undefined;
       const elsewhere = voices?.routeFor(identity) ?? {};
       const said = "say" in input ? input.say : elsewhere.decline;
       if (said !== undefined) {
@@ -915,12 +957,30 @@ export class TurnManager {
           shown = next;
           this.port.send(session, { t: "turn", turnId, state: "thinking", doing: next });
         };
+        // A conversation in the middle of a run would only queue this behind it (OpenClaw answers one
+        // message at a time in a conversation), so meanwhile turns go to one of their own, told what holds the other.
+        let route: AgentRoute | undefined = elsewhere.route;
+        let busy: { sessionKey: string; title: string; taskId?: string | undefined } | undefined;
+        if (!route && this.options.background && this.options.busySessionKey && agent.target && agent.activeRun) {
+          busy = await this.busyTarget(agent).catch(() => undefined);
+          if (busy) route = { agentId: /^agent:([^:]+):/.exec(busy.sessionKey)?.[1], sessionKey: this.options.busySessionKey, note: busyNote(busy) };
+        }
+        if (signal.aborted) return "interrupted";
+        // The run is followed under its own signal, so it can go on after the device stops waiting for it.
+        const run = new AbortController();
+        const stopRun = () => run.abort();
+        signal.addEventListener("abort", stopRun, { once: true });
+        handover = {
+          question: text,
+          release: () => signal.removeEventListener("abort", stopRun),
+        };
         source = agent.reply(
-          `${this.header(session, identity)}\n${text}`,
-          signal,
+          `${this.header(session, identity, busy)}\n${text}`,
+          run.signal,
           (tool) => {
             const kind = doingFor(tool);
             if (!kind) return;
+            if (handover?.job) return handover.job.tool(kind);
             doing = kind;
             show();
           },
@@ -928,7 +988,10 @@ export class TurnManager {
             held = state;
             show();
           },
-          elsewhere.route,
+          route,
+          (started) => {
+            if (handover) handover.run = started;
+          },
         );
       }
 
@@ -968,8 +1031,44 @@ export class TurnManager {
       const fromAgent = said === undefined;
       const held: Piece[] = [];
       const asked = Date.now();
-      for await (const delta of source) {
+      const reader = source[Symbol.asyncIterator]();
+      // The agent may go quiet for a long time (searching, building). After `handoverMs` with nothing new the device
+      // says it will report back and is free again, and the rest of the run is followed in the background.
+      const handoverMs = fromAgent && handover && this.options.background ? (this.options.handoverMs ?? 30_000) : 0;
+      let next = reader.next();
+      for (;;) {
+        let quiet: NodeJS.Timeout | undefined;
+        const step = handoverMs
+          ? await Promise.race([next, new Promise<"quiet">((resolve) => (quiet = setTimeout(() => resolve("quiet"), handoverMs)))])
+          : await next;
+        clearTimeout(quiet);
         if (signal.aborted) return "interrupted";
+        if (step === "quiet") {
+          handover!.release();
+          const job = this.options.background!.start({
+            clientId: id,
+            question: handover!.question,
+            sessionKey: handover!.run?.sessionKey,
+            runId: handover!.run?.runId,
+            rest: reader,
+            pending: next,
+          });
+          handover!.job = job;
+          record.handedOver = true;
+          turn.thinking = false;
+          if (this.active.get(id) !== turn) {
+            this.active.set(id, turn);
+            state("thinking");
+          }
+          // What the agent said so far is said, then the line that it carries on without the device.
+          const line = full.trim() ? " I'm still on it, and I'll tell you when it's done." : "On it. I'll tell you when it's done.";
+          full += line;
+          for (const piece of splitter.pushPieces(line)) held.push(piece);
+          break;
+        }
+        if (step.done) break;
+        next = reader.next();
+        const delta = step.value;
         if (fromAgent && delta) record.agentMs ??= Date.now() - asked;
         if (delta.trim() && turn.thinking) {
           turn.thinking = false;
