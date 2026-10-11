@@ -16,6 +16,13 @@ export interface AgentRoute {
   note?: string | undefined;
 }
 
+/** A file an agent attached to a reply, and the conversation it came from (to fetch it on its behalf). */
+export interface AgentMedia {
+  source: string;
+  sessionKey?: string | undefined;
+  agentId?: string | undefined;
+}
+
 export interface Agent {
   /**
    * Sends one message to the agent and yields its reply as text pieces. An agent that says which
@@ -23,6 +30,7 @@ export interface Agent {
    * its run is held up calls `onState` with why (`compacting` its memory, `retrying` a provider that
    * failed), and with nothing when it is under way again. `route` sends this one turn somewhere else.
    * One whose runs can be told apart calls `onRun` with the run and its conversation once it has started.
+   * One whose replies can attach files leaves them out of the text and calls `onMedia` with them at the end.
    */
   reply(
     message: string,
@@ -31,7 +39,10 @@ export interface Agent {
     onState?: (state: RunState | undefined) => void,
     route?: AgentRoute,
     onRun?: (run: { runId: string; sessionKey: string }) => void,
+    onMedia?: (media: AgentMedia[]) => void,
   ): AsyncIterable<string>;
+  /** For an agent whose replies can carry files: fetches one it named. */
+  fetchMedia?(media: AgentMedia): Promise<{ bytes: Buffer; mime: string }>;
   /** For an agent with conversations: the one a turn with no route of its own goes to, and its agent. */
   target?(): Promise<{ sessionKey: string; agentId?: string | undefined } | undefined>;
   /** For an agent with conversations: whether one is in the middle of a run, so a new message would wait behind it. */

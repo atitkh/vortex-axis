@@ -16,7 +16,7 @@ const MAX_UTTERANCE_MS = 30000;
 
 // A browser only hands out the microphone on https or on localhost.
 const micAvailable = Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode);
-const capabilities = [...(micAvailable ? ["mic"] : []), "speaker", "screen", "buttons"];
+const capabilities = [...(micAvailable ? ["mic"] : []), "speaker", "screen", "buttons", "images"];
 
 let identity = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null");
 let settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{"version":0,"values":{}}');
@@ -489,6 +489,19 @@ face.setIconStyle(settings.values.toolIcons);
         put(replyText);
       }
       $("log").scrollTop = $("log").scrollHeight;
+      break;
+    }
+    case "reply.image": {
+      // A picture that came with a reply, under it in the conversation. Tapping it opens it full size.
+      const el = bubble("axis picture", "");
+      const img = document.createElement("img");
+      img.alt = message.alt || "A picture from the agent";
+      img.loading = "lazy";
+      img.src = message.url;
+      img.addEventListener("load", () => ($("log").scrollTop = $("log").scrollHeight));
+      img.addEventListener("error", () => (el.textContent = "The picture is no longer available."));
+      img.addEventListener("click", () => window.open(message.url, "_blank", "noopener"));
+      el.append(img);
       break;
     }
     case "speak.start":

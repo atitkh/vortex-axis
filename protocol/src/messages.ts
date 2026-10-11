@@ -251,6 +251,18 @@ export const ReplyText = message("reply.text", {
 });
 
 /** Opens the downstream audio stream. Binary frames that follow belong to it. */
+/**
+ * A picture that goes with a reply, sent only to clients with the `images` capability. `url` is a path on
+ * Axis that needs no other credentials (it is unguessable and expires); `turnId` is the reply's, or starts
+ * with "say-" for something said with nobody having asked. `alt` says what it shows, when known.
+ */
+export const ReplyImage = message("reply.image", {
+  turnId: Id,
+  url: Type.String({ minLength: 1, maxLength: 512 }),
+  mime: Type.Optional(Type.String({ maxLength: 64 })),
+  alt: Type.Optional(Type.String({ maxLength: 500 })),
+});
+
 export const SpeakStart = message("speak.start", {
   turnId: Id,
   format: AudioFormat,
@@ -337,6 +349,7 @@ export const SERVER_MESSAGE_SCHEMAS = [
   Turn,
   Transcript,
   ReplyText,
+  ReplyImage,
   SpeakStart,
   SpeakEnd,
   Ask,
@@ -371,6 +384,7 @@ export type Turn = Static<typeof Turn>;
 export type Transcript = Static<typeof Transcript>;
 export type ReplyText = Static<typeof ReplyText>;
 export type SpeakStart = Static<typeof SpeakStart>;
+export type ReplyImage = Static<typeof ReplyImage>;
 export type SpeakEnd = Static<typeof SpeakEnd>;
 export type Ask = Static<typeof Ask>;
 export type AskEnd = Static<typeof AskEnd>;

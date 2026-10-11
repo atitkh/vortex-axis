@@ -32,6 +32,7 @@ Declare a capability only when all of its "must" lines hold. A capability that h
 | `buttons` | It has something to press that is not the screen. | Use it for the three things a tap does (section 3). |
 | `vibration` | It can buzz. | Nothing yet. Reserved for wearables. |
 | `sensors` | It reports readings besides the basic ones. | Send them with `sense`. |
+| `images` | It can show pictures. | Show each `reply.image` with its reply (or as an announcement when `turnId` starts with `say-`): fetch `url` from the Axis address it already uses, with no credentials; the address is unguessable and stops working after a day. |
 
 A device with a touchscreen declares `screen` and uses taps as its button; it does not need `buttons`.
 

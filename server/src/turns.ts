@@ -8,6 +8,8 @@ import { SentenceSplitter, type Piece } from "./sentences.js";
 import type { SpeechShare, SpeechToText, TextToSpeech } from "./speech.js";
 import type { Live } from "./live.js";
 import type { Background, Job } from "./background.js";
+import type { Pictures } from "./media.js";
+import type { AgentMedia } from "./agent.js";
 import type { AgentRoute } from "./agent.js";
 import { Voiceprints, type Identity, type VoiceprintService } from "./voiceprint.js";
 import type { TurnRecord, WakeRecord } from "./store.js";
@@ -61,6 +63,8 @@ export interface TurnOptions {
   busySessionKey?: string | undefined;
   /** How long an agent may say nothing new before the device stops waiting and the run is handed over. */
   handoverMs?: number;
+  /** Gets the pictures a reply comes with to a screen. */
+  pictures?: Pictures | undefined;
 }
 
 type TurnMessage = Extract<
@@ -424,6 +428,11 @@ export class TurnManager {
 
   /** Hands long agent runs to `background` from now on, sending turns to `busySessionKey` while one holds the usual conversation. */
   readonly useBackground: (background: Background, busySessionKey: string, handoverMs?: number) => void;
+
+  /** Shows the pictures replies come with, from now on. */
+  usePictures(pictures: Pictures): void {
+    this.options.pictures = pictures;
+  }
 
   constructor(private readonly port: TurnPort, private readonly options: TurnOptions) {
     this.useBackground = (background, busySessionKey, handoverMs) => {
@@ -934,6 +943,8 @@ export class TurnManager {
       let source: AsyncIterable<string>;
       // Set for a turn that asks the agent: what it takes to hand the run over if it goes on too long.
       let handover: { question: string; release: () => void; run?: { runId: string; sessionKey: string }; job?: Job } | undefined;
+      // Pictures the reply comes with, shown once its text is.
+      const media: AgentMedia[] = [];
       const elsewhere = voices?.routeFor(identity) ?? {};
       const said = "say" in input ? input.say : elsewhere.decline;
       if (said !== undefined) {
@@ -991,6 +1002,11 @@ export class TurnManager {
           route,
           (started) => {
             if (handover) handover.run = started;
+          },
+          (found) => {
+            // A run the device stopped waiting for shows its pictures with its answer, from the background.
+            if (handover?.job) handover.job.media(found);
+            else media.push(...found);
           },
         );
       }
@@ -1096,6 +1112,7 @@ export class TurnManager {
         // A silent reply leaves the screen empty rather than showing "NO_REPLY".
         this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : full.trim().slice(0, 16000), final: true });
       }
+      if (media.length && this.options.pictures) void this.options.pictures.show(media, { clientId: id, turnId });
       if (speaker?.started) {
         this.port.send(session, { t: "speak.end", turnId });
         // The client is still playing what it buffered. Wait for it to say it is done, unless it is playing nothing.

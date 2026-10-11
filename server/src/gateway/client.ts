@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Agent, AgentRoute, RunState } from "../agent.js";
+import type { Agent, AgentMedia, AgentRoute, RunState } from "../agent.js";
+import { MediaLines, type MediaRef } from "../media.js";
 import type { Store } from "../store.js";
 import { GatewayLink, type Credentials, type LinkOptions, type LinkState } from "./link.js";
 import { DeviceIdentity, GatewayError, PLATFORM, decodeSetupCode, toSocketUrl, type Role } from "./wire.js";
@@ -416,6 +417,7 @@ export class GatewayClient implements Agent, Credentials {
     onState?: (state: RunState | undefined) => void,
     route?: AgentRoute,
     onRun?: (run: { runId: string; sessionKey: string }) => void,
+    onMedia?: (media: AgentMedia[]) => void,
   ): AsyncIterable<string> {
     if (!this.operator.connected) throw new Error("not connected to OpenClaw");
     const agentId = route?.agentId ?? (await this.resolveAgentId());
@@ -455,7 +457,41 @@ export class GatewayClient implements Agent, Credentials {
       return ack;
     }, signal, onTool, onState, (runId) => {
       if (fullKey) onRun?.({ runId, sessionKey: fullKey });
+    }, (found) => {
+      // Fetched later, by whoever shows it, from the gateway on the conversation's behalf.
+      const agentOf = fullKey ? /^agent:([^:]+):/.exec(fullKey)?.[1] : undefined;
+      onMedia?.(found.map((m) => ({ ...m, sessionKey: fullKey, agentId: agentOf ?? aimed.agentId })));
     });
+  }
+
+  /**
+   * Fetches a file an agent attached to a reply: an https address directly, anything else (a path on the
+   * gateway's machine) through the gateway's assistant-media route, which checks that the conversation may
+   * read it and hands out a short-lived ticket for the bytes.
+   */
+  async fetchMedia(media: AgentMedia, maxBytes = 10 * 1024 * 1024): Promise<{ bytes: Buffer; mime: string }> {
+    const read = async (res: Response) => {
+      if (!res.ok) throw new Error(`the file could not be fetched (HTTP ${res.status})`);
+      const length = Number(res.headers.get("content-length") ?? 0);
+      if (length > maxBytes) throw new Error("the file is too large");
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length > maxBytes) throw new Error("the file is too large");
+      return { bytes, mime: (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase() };
+    };
+    if (/^https:\/\//i.test(media.source)) return read(await fetch(media.source, { signal: AbortSignal.timeout(20_000) }));
+    const socket = this.url();
+    const token = this.deviceToken("operator");
+    if (!socket || !token) throw new Error("not paired with OpenClaw");
+    const base = socket.replace(/^ws/i, "http").replace(/\/+$/, "");
+    const scope = { source: media.source, ...(media.sessionKey ? { sessionKey: media.sessionKey } : {}), ...(media.agentId ? { agentId: media.agentId } : {}) };
+    const meta = await fetch(`${base}/__openclaw__/assistant-media?${new URLSearchParams({ meta: "1", ...scope })}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const info = (await meta.json().catch(() => ({}))) as { available?: boolean; mediaTicket?: string; mimeType?: string };
+    if (!meta.ok || !info.available || !info.mediaTicket) throw new Error(`OpenClaw would not hand over the file (HTTP ${meta.status})`);
+    const file = await read(await fetch(`${base}/__openclaw__/assistant-media?${new URLSearchParams({ ...scope, mediaTicket: info.mediaTicket })}`, { signal: AbortSignal.timeout(20_000) }));
+    return { bytes: file.bytes, mime: file.mime || info.mimeType || "" };
   }
 
   /** Where a turn with no route of its own goes: the attached conversation, or Axis's own. */
@@ -491,10 +527,22 @@ export class GatewayClient implements Agent, Credentials {
   }
 
   /** Starts an agent run with `start`, which resolves with the gateway's acknowledgement, and yields what the run says. */
-  private async *follow(start: () => Promise<any>, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, onRun?: (runId: string) => void): AsyncIterable<string> {
+  private async *follow(start: () => Promise<any>, signal?: AbortSignal, onTool?: (name: string) => void, onState?: (state: RunState | undefined) => void, onRun?: (runId: string) => void, onMedia?: (media: MediaRef[]) => void): AsyncIterable<string> {
     const channel = new Channel<string>();
     let runId: string | undefined;
     let sent = "";
+    // Lines that attach a file (MEDIA:...) are taken out here, so they are never spoken or shown as text.
+    const lines = new MediaLines();
+    const pass = (text: string) => {
+      const kept = lines.push(text);
+      if (kept) channel.push(kept);
+    };
+    const finish = () => {
+      const rest = lines.flush();
+      if (rest) channel.push(rest);
+      if (lines.found.length) onMedia?.(lines.found);
+      channel.end();
+    };
     const early: any[] = [];
 
     const handle = (payload: any) => {
@@ -519,7 +567,7 @@ export class GatewayClient implements Agent, Credentials {
         if (data.text.startsWith(sent)) {
           const delta = data.text.slice(sent.length);
           sent = data.text;
-          if (delta) channel.push(delta);
+          if (delta) pass(delta);
         }
       } else if (payload.stream === "tool" && data.phase === "start" && typeof data.name === "string" && !data.hideFromChannelProgress) {
         // The gateway sends these to a link that declared `tool-events`, for the runs that link started.
@@ -527,8 +575,8 @@ export class GatewayClient implements Agent, Credentials {
         onTool?.(data.name);
       } else if (payload.stream === "lifecycle" && data.phase === "end") {
         const final = typeof data.terminalReply?.text === "string" ? data.terminalReply.text : "";
-        if (final.startsWith(sent) && final.length > sent.length) channel.push(final.slice(sent.length));
-        channel.end();
+        if (final.startsWith(sent) && final.length > sent.length) pass(final.slice(sent.length));
+        finish();
       } else if (payload.stream === "lifecycle" && data.phase === "error") {
         channel.end(new Error(typeof data.error === "string" ? data.error : "the agent run failed"));
       }

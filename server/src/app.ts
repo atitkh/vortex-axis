@@ -26,6 +26,7 @@ import { SelfCheck } from "./selfcheck.js";
 import { Progress } from "./progress.js";
 import { Background } from "./background.js";
 import { LiveActivities } from "./liveactivity.js";
+import { MediaStore, Pictures, type PicturePort } from "./media.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
 import { Store } from "./store.js";
@@ -213,8 +214,18 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     },
   });
   progress.start();
+  // Pictures agent replies come with: fetched from the gateway, kept a day, sent to screens that show them.
+  const mediaStore = new MediaStore();
+  const pictures = new Pictures({
+    store: mediaStore,
+    port: hub as unknown as PicturePort,
+    fetch: () => (services.agent?.fetchMedia ? (media) => services.agent!.fetchMedia!(media) : undefined),
+    log,
+  });
+  hub.usePictures(pictures);
   // A run the device stopped waiting for is followed here, shown as a task, and its answer said when it comes.
   const background: Background = new Background({
+    pictures: (clientId, media) => pictures.show(media, { clientId, turnId: `say-${Date.now().toString(36)}`, orAnywhere: true }),
     progress,
     deliver: async (clientId, text) => {
       if (store.getMeta("away") === "1") {
@@ -378,7 +389,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

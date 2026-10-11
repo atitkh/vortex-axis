@@ -8,6 +8,7 @@ export const CAPABILITIES = [
   "buttons",
   "vibration",
   "sensors",
+  "images",
 ] as const;
 
 export const Capability = Type.Union(

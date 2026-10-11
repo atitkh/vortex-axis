@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.29.0 (2026-10-11)
+
+- **Pictures in replies.** A picture an agent attaches to a reply (`MEDIA:` line) is fetched from the gateway and shown under the answer on clients with the new `images` capability (the web client, so phones and the Quest panel too); tap to open it full size. New server message `reply.image`. The `MEDIA:` line itself is no longer spoken or shown. Pictures are kept a day, in memory. A handed-over run's pictures come with its answer. Boards do not show pictures yet.
+
 ## 0.28.1 (2026-10-11)
 
 - **A finished task leaves the screens again.** Since 0.27 the live activities look at the task list every few seconds; a look that found a finished task expired took it away without telling the screens, so boards and web clients kept showing it. Whoever finds a task gone now tells the screens.

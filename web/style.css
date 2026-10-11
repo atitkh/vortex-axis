@@ -216,6 +216,7 @@ body:not(.busy) .stop { display: none; }
 .bubble { max-width: 90%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
 .bubble.you { align-self: flex-end; color: var(--dim); text-align: right; }
 .bubble.axis { align-self: flex-start; }
+.bubble.picture img { display: block; max-width: min(100%, 420px); max-height: 50vh; border-radius: 10px; cursor: zoom-in; }
 .bubble.info { align-self: center; color: var(--faint); font-size: 13px; }
 .bubble.error { align-self: center; color: var(--bad); font-size: 13px; }
 

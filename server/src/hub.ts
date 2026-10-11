@@ -1,5 +1,6 @@
 import type { AskResult } from "./ask.js";
 import type { Background } from "./background.js";
+import type { Pictures } from "./media.js";
 import type { WebSocket } from "ws";
 import type { Activity } from "./activity.js";
 import {
@@ -136,6 +137,11 @@ export class Hub implements TurnPort {
         this.activity?.note("wake", winnerId, text);
       },
     });
+  }
+
+  /** Shows the pictures agent replies come with (see media.ts). */
+  usePictures(pictures: Pictures): void {
+    this.turns.usePictures(pictures);
   }
 
   /** Hands agent runs that go on too long to `background` (see turns.ts). */

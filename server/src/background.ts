@@ -1,6 +1,7 @@
 import { taskIdFor } from "./cards.js";
 import type { Ending, Progress, Task } from "./progress.js";
 import { SentenceSplitter } from "./sentences.js";
+import type { AgentMedia } from "./agent.js";
 
 /**
  * Agent work that outlives the device's turn.
@@ -38,12 +39,16 @@ export interface Handover {
 export interface Job {
   id: string;
   tool(kind: string): void;
+  /** Pictures the run's reply comes with. */
+  media(found: AgentMedia[]): void;
 }
 
 export interface BackgroundOptions {
   progress: Progress;
   /** Says something an agent started on the device the person last used, or on `clientId` when nowhere else will do. */
   deliver: (clientId: string, text: string) => Promise<unknown>;
+  /** Shows the pictures a handed-over run's answer came with. */
+  pictures?: ((clientId: string, media: AgentMedia[]) => Promise<unknown>) | undefined;
   /** Stops a run in OpenClaw. */
   abort?: ((run: { sessionKey: string; runId: string }) => Promise<unknown>) | undefined;
   /** Whether a reply means to say nothing (NO_REPLY). */
@@ -79,6 +84,7 @@ interface Running {
   /** Our own task on the screens, unless the agent keeps a progress card for this conversation, which shows instead. */
   ownTask: boolean;
   stopped: boolean;
+  media: AgentMedia[];
 }
 
 export class Background {
@@ -103,7 +109,7 @@ export class Background {
     const title = titleFrom(job.question);
     const cardId = job.sessionKey ? taskIdFor(job.sessionKey) : undefined;
     const ownTask = !this.options.progress.list().some((t) => t.id === cardId && t.state !== "done");
-    const r: Running = { job, title, taskId: ownTask ? id : (cardId ?? id), ownTask, stopped: false };
+    const r: Running = { job, title, taskId: ownTask ? id : (cardId ?? id), ownTask, stopped: false, media: [] };
     this.running.set(id, r);
     if (ownTask) this.show(r, "working on it");
     this.options.log?.(`handed over a long agent run as ${id}: ${title}`);
@@ -112,6 +118,9 @@ export class Background {
       id,
       tool: (kind) => {
         if (!r.stopped) this.show(r, DOING[kind] ?? "working on it");
+      },
+      media: (found) => {
+        r.media.push(...found);
       },
     };
   }
@@ -183,8 +192,9 @@ export class Background {
       return;
     }
     finish();
-    if (this.options.isSilent(text)) return;
-    await this.say(r, `About ${r.title}: ${spoken(text)}`);
+    if (r.media.length) void this.options.pictures?.(r.job.clientId, r.media);
+    if (this.options.isSilent(text) && !r.media.length) return;
+    await this.say(r, `About ${r.title}: ${this.options.isSilent(text) ? "here it is." : spoken(text)}`);
   }
 
   private async say(r: Running, text: string): Promise<void> {

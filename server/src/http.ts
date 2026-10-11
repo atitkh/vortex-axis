@@ -27,6 +27,7 @@ import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
 import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
+import type { MediaStore } from "./media.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -161,6 +162,8 @@ export interface HttpDeps {
   live?: Live;
   /** The link to Home Assistant as it is now, when one is set up. It is rebuilt when its settings change. */
   homeAssistant?: () => HomeAssistant | undefined;
+  /** Pictures from agent replies, served at their unguessable addresses. */
+  mediaStore?: MediaStore;
   /** Tasks and timers as live activities on phones, through Home Assistant. */
   liveActivities?: LiveActivities;
   /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
@@ -397,6 +400,21 @@ export function createHttpHandler(deps: HttpDeps) {
     if (method === "GET" && url.pathname === "/ha/vortex_axis_live_activities.yaml" && !isPublic(req)) {
       res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "text/yaml; charset=utf-8", "cache-control": "no-cache" });
       res.end(BLUEPRINT);
+      return;
+    }
+
+    // A picture from an agent's reply. The address is the key (long, random, gone after a day), so it is
+    // served under a public name too: a phone away from home fetches it there.
+    if (method === "GET" && parts.length === 3 && parts[0] === "v1" && parts[1] === "media") {
+      const item = deps.mediaStore?.get(parts[2]!);
+      if (!item) throw new HttpError(404, "not found");
+      res.writeHead(200, {
+        ...SECURITY_HEADERS,
+        "content-type": item.mime,
+        "content-length": item.bytes.length,
+        "cache-control": "private, max-age=86400, immutable",
+      });
+      res.end(item.bytes);
       return;
     }
 
