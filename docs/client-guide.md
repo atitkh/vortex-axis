@@ -120,6 +120,10 @@ Actions are how a person tests a device from the admin page and how an agent loo
 
 A client with a screen should also report its size in its regular `sense` readings, as `screenW` and `screenH` in pixels, the way up it stands now. The admin page draws the device at that shape.
 
+A client may also report the room it is in, and Axis shows it in Home Assistant when the MQTT link is set up:
+- `soundDb`: how loud the room has been over the last few seconds, in dB of the microphone's full scale (a whole number, not calibrated sound pressure), and `soundActive`: 1 while there has been sound well above the room's usual level lately, else 0. Levels only, never audio, with the device's own speech left out. Send them only when they change, and offer a setting to turn them off. They become a **Sound level** sensor and a **Sound** binary sensor.
+- Touch gestures it has no use for itself: send `gesture` with `hold`, `swipe_left`, `swipe_right`, `swipe_up` or `swipe_down`, directions as the screen shows them, and the reading `gestures: 1` so Axis knows to make the entity. They become events of a **Gesture** entity, for automations. A tap stays the client's own (talk, answer); do not send it. Drop gestures made while offline.
+
 ## 9. Updates
 
 A device that can update itself over the network implements `update`: answer `ok: true`, fetch `path` from the Axis address it is already using with its own token (`Authorization: Bearer <token>`, `X-Axis-Client: <id>`), check the file against `md5`, install it somewhere that leaves the running firmware intact, and restart. The new firmware must be kept only once it has connected to Axis, and the device must go back to the old one by itself when it cannot. A device that cannot do all of that does not implement `update` and is flashed by cable.

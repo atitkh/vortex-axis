@@ -165,6 +165,30 @@ describe("home assistant", () => {
     m.send("vortex-axis/nobody/say", "hello");
   });
 
+  it("shows a board's room sound and touch gestures, only once it reports them", async () => {
+    const { identity, client } = await ready(["mic", "speaker", "screen"], { name: "Desk" });
+    const m = await linked();
+    const id = identity.clientId;
+    const app = ctx.app as unknown as { hub: { onGesture(l: (s: { client: { id: string } }, g: string) => void): void } };
+    app.hub.onGesture((session, gesture) => link!.gesture(session.client.id, gesture));
+    await expect.poll(() => m.kept.get(`homeassistant/sensor/vortex_axis_${id}/sound_level/config`), WAIT).toBe("");
+    expect(m.kept.get(`homeassistant/event/vortex_axis_${id}/gesture/config`)).toBe("");
+
+    client.send({ t: "sense", readings: { soundDb: -52, soundActive: 1, gestures: 1 } });
+    await expect.poll(() => m.kept.get(`vortex-axis/${id}/sound_level`), WAIT).toBe("-52");
+    expect(m.kept.get(`vortex-axis/${id}/sound`)).toBe("ON");
+    const level = JSON.parse(m.kept.get(`homeassistant/sensor/vortex_axis_${id}/sound_level/config`)!);
+    expect(level).toMatchObject({ unit_of_measurement: "dBFS", state_topic: `vortex-axis/${id}/sound_level`, availability_mode: "all" });
+    expect(JSON.parse(m.kept.get(`homeassistant/binary_sensor/vortex_axis_${id}/sound/config`)!).device_class).toBe("sound");
+    const gesture = JSON.parse(m.kept.get(`homeassistant/event/vortex_axis_${id}/gesture/config`)!);
+    expect(gesture.event_types).toEqual(["hold", "swipe_left", "swipe_right", "swipe_up", "swipe_down"]);
+
+    client.send({ t: "gesture", gesture: "swipe_left" });
+    await expect.poll(() => m.kept.get(`vortex-axis/${id}/gesture`), WAIT).toBe(JSON.stringify({ event_type: "swipe_left" }));
+    client.send({ t: "sense", readings: { soundActive: 0 } });
+    await expect.poll(() => m.kept.get(`vortex-axis/${id}/sound`), WAIT).toBe("OFF");
+  });
+
   it("shows a client going away, and takes a removed client out of Home Assistant", async () => {
     const { identity, client } = await ready(["speaker"], { name: "Hall" });
     const m = await linked();

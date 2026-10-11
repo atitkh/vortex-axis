@@ -39,6 +39,8 @@ static const axis::SettingDef SETTINGS[] = {
     {"onsetMs", "Wait for the first word", "number", "Listening", "How long to wait for you to start talking after a wake or a tap.", "6000", 1000, 20000, "ms", nullptr},
     {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
+    {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
+    {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
 };
 static const axis::ActionDef ACTIONS[] = {
     {"cue", "Play listening cue", "The tone it plays when it starts listening.", false},
@@ -575,6 +577,23 @@ static void drawAsk(const AskLayout &l) {
     redrawAll = false;
 }
 
+/** A hold or a swipe, which the board has no use for itself, goes to Axis (and from there to Home Assistant). */
+static void onGesture(touch::Gesture g) {
+    const char *name = "hold";
+    if (g == touch::Gesture::Swipe) {
+        int x0, y0, x1, y1, a, b, c, d;
+        touch::swipeEnds(x0, y0, x1, y1);
+        // Directions as the screen shows them, whichever way up the device stands.
+        display::toLogical(x0, y0, a, b);
+        display::toLogical(x1, y1, c, d);
+        const int dx = c - a, dy = d - b;
+        name = abs(dx) >= abs(dy) ? (dx < 0 ? "swipe_left" : "swipe_right") : (dy < 0 ? "swipe_up" : "swipe_down");
+    }
+    const bool on = client.settingInt("gestures", 1) != 0;
+    logOut.printf("[touch] %s%s\n", name, on ? "" : " (not sent: gestures are off)");
+    if (on) client.gesture(name);
+}
+
 /** A tap on a button answers the question. A tap anywhere else does nothing. */
 static void onAskTap(const AskLayout &l) {
     int px = 0, py = 0, x = 0, y = 0;
@@ -733,6 +752,7 @@ void loop() {
     // The admin page draws this device at its real shape, the way up it is standing now.
     client.setReading("screenW", display::width());
     client.setReading("screenH", display::height());
+    client.setReading("gestures", 1);  // says it can send them, so Axis gives it a Gesture entity
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
@@ -794,7 +814,7 @@ void loop() {
     if (askShown) {
         const AskLayout l = askLayout();
         drawAsk(l);
-        if (touch::tapped()) onAskTap(l);
+        if (touch::poll() == touch::Gesture::Tap) onAskTap(l);
         drawFace = drawFace && l.face;
         faceY = faceTop();
         vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
@@ -805,7 +825,9 @@ void loop() {
             present();
         }
         layout();
-        if (touch::tapped()) onTap();
+        const touch::Gesture g = touch::poll();
+        if (g == touch::Gesture::Tap) onTap();
+        else if (g != touch::Gesture::None) onGesture(g);
     }
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 

@@ -140,6 +140,43 @@ void clean(const int16_t *raw, const int16_t *played) {
     }
 }
 
+// --- the room's sound, for Home Assistant -------------------------------------------------
+// Levels only, never audio: the mean power over a few seconds in dB of full scale, and whether
+// there has been sound well above the room's usual level lately. The device's own speech is left out.
+const uint32_t SOUND_WINDOW_MS = 5000;
+const uint32_t SOUND_HOLD_MS = 15000;   // "sound" stays on this long after the last of it
+const uint32_t PLAYED_GRACE_MS = 800;   // the room still rings, and the codec still plays, after speech
+double soundSum = 0;
+uint32_t soundBlocks = 0, loudBlocks = 0, windowStart = 0, lastLoud = 0, lastPlayed = 0;
+
+/** Adds one block to the room's level, and every few seconds tells Axis how it stands. */
+void measureRoom(const int16_t *block, float average, float roomLevel) {
+    const uint32_t now = millis();
+    if (speaker::playing()) lastPlayed = now ? now : 1;
+    if (!windowStart) windowStart = now ? now : 1;
+    if (!lastPlayed || now - lastPlayed > PLAYED_GRACE_MS) {
+        double sq = 0;
+        for (size_t i = 0; i < BLOCK; i++) sq += (double)block[i] * block[i];
+        soundSum += sq / BLOCK;
+        soundBlocks++;
+        // Well above what the room usually sounds like, and not just the faintest hiss.
+        if (average > max(roomLevel * 2.5f, 120.0f)) loudBlocks++;
+    }
+    if (now - windowStart < SOUND_WINDOW_MS) return;
+    windowStart = now ? now : 1;
+    // A tenth of a window loud is somebody talking, music, a door: sound in the room.
+    if (soundBlocks && loudBlocks * 10 >= soundBlocks) lastLoud = now ? now : 1;
+    const bool on = client->settingInt("roomSound", 1) != 0;
+    if (on && soundBlocks >= 50) {
+        const float db = 10.0f * log10f((float)(soundSum / soundBlocks) / (32767.0f * 32767.0f) + 1e-10f);
+        // In steps of 2 dB, so it is only sent when it really changes.
+        client->setReading("soundDb", lroundf(db / 2.0f) * 2);
+    }
+    client->setReading("soundActive", on && lastLoud && now - lastLoud < SOUND_HOLD_MS ? 1 : 0);
+    soundSum = 0;
+    soundBlocks = loudBlocks = 0;
+}
+
 // Loudness around the wake word, used to pick between devices that heard it at once.
 float recent = 0;
 // The room's own loudness, so the face moves with a voice and not with a fan.
@@ -163,6 +200,7 @@ void handle(const int16_t *block) {
     // Rise at once, fall over about a tenth of a second, so the face follows syllables.
     currentLevel = voice > currentLevel ? voice : currentLevel * 0.9f + voice * 0.1f;
     recent = recent * 0.95f + now * 0.05f;
+    measureRoom(block, average, room);
 
     client->feedAudio(block, BLOCK);
 

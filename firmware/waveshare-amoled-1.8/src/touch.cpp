@@ -7,9 +7,12 @@ namespace touch {
 
 namespace {
 
-// A tap is short and stays put. Anything longer or wider is a hold or a swipe, which nothing uses yet.
+// A tap is short and stays put. A hold stays put for longer; a swipe travels well across the glass, quickly.
 const uint32_t TAP_MAX_MS = 700;
 const int TAP_MAX_MOVE = 60;
+const uint32_t HOLD_MAX_MS = 4000;
+const int SWIPE_MIN_MOVE = 100;
+const uint32_t SWIPE_MAX_MS = 1000;
 // After this many failed reads the controller is assumed asleep and is only poked now and then.
 const uint8_t BACKOFF_AFTER = 5;
 const uint32_t RETRY_MS = 500;
@@ -20,7 +23,7 @@ uint32_t lastRetry = 0, lastTouch = 0;
 
 bool down = false;
 uint32_t downAt = 0;
-int startX = 0, startY = 0, farthest = 0;
+int startX = 0, startY = 0, lastX = 0, lastY = 0, farthest = 0;
 
 void write(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(ADDR_TOUCH_FT3168);
@@ -83,29 +86,47 @@ bool begin() {
     return present;
 }
 
-bool tapped() {
-    if (!present) return false;
+Gesture poll() {
+    if (!present) return Gesture::None;
     int x = 0, y = 0;
     bool ok = false;
     const bool touching = read(x, y, ok);
-    if (!ok) return false;  // a failed read says nothing about the finger
+    if (!ok) return Gesture::None;  // a failed read says nothing about the finger
     const uint32_t now = millis();
     if (touching) {
         lastTouch = now ? now : 1;
         if (!down) {
             down = true;
             downAt = now;
-            startX = x;
-            startY = y;
+            startX = lastX = x;
+            startY = lastY = y;
             farthest = 0;
         } else {
+            lastX = x;
+            lastY = y;
             farthest = max(farthest, max(abs(x - startX), abs(y - startY)));
         }
-        return false;
+        return Gesture::None;
     }
-    if (!down) return false;
+    if (!down) return Gesture::None;
     down = false;
-    return now - downAt <= TAP_MAX_MS && farthest <= TAP_MAX_MOVE;
+    const uint32_t held = now - downAt;
+    if (farthest <= TAP_MAX_MOVE) {
+        if (held <= TAP_MAX_MS) return Gesture::Tap;
+        // A finger left resting on the glass for ages is not a gesture.
+        return held <= HOLD_MAX_MS ? Gesture::Hold : Gesture::None;
+    }
+    const int travel = max(abs(lastX - startX), abs(lastY - startY));
+    return travel >= SWIPE_MIN_MOVE && held <= SWIPE_MAX_MS ? Gesture::Swipe : Gesture::None;
+}
+
+bool tapped() { return poll() == Gesture::Tap; }
+
+void swipeEnds(int &x0, int &y0, int &x1, int &y1) {
+    x0 = startX;
+    y0 = startY;
+    x1 = lastX;
+    y1 = lastY;
 }
 
 void tapPoint(int &x, int &y) {

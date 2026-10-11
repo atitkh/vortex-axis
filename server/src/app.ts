@@ -342,6 +342,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     homeAssistant?.start();
   };
   startHomeAssistant();
+  hub.onGesture((session, gesture) => homeAssistant?.gesture(session.client.id, gesture));
 
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {

@@ -2,6 +2,7 @@ import type { Delivery } from "./delivery.js";
 import type { Hub } from "./hub.js";
 import { LIVE_ACK_TOPIC, LIVE_TOPIC, type LiveMessage } from "./liveactivity.js";
 import { MqttClient } from "./mqtt.js";
+import { GESTURES } from "@vortex-axis/protocol";
 import type { ClientRecord, Store } from "./store.js";
 
 /**
@@ -42,6 +43,11 @@ const HUB = { identifiers: ["vortex_axis_hub"], name: "VorteX Axis", manufacture
 
 interface Shown {
   described: string;
+  /** What the client was last seen to report, kept while it is offline so its entities stay. */
+  sound?: boolean;
+  gestures?: boolean;
+  soundLevel?: string;
+  soundActive?: string;
   state?: string;
   online?: string;
   volume?: string;
@@ -139,15 +145,27 @@ export class HomeAssistant {
       const entry = this.shown.get(client.id) ?? { described: "" };
       this.shown.set(client.id, entry);
 
-      const described = JSON.stringify([client.name, client.type, client.version, hasVolume]);
+      // A client that reports the room's sound, or touch gestures, gets entities for them.
+      const readings = hub.session(client.id)?.readings ?? {};
+      if (typeof readings.soundDb === "number") entry.sound = true;
+      if (readings.gestures === 1) entry.gestures = true;
+      const described = JSON.stringify([client.name, client.type, client.version, hasVolume, entry.sound ?? false, entry.gestures ?? false]);
       if (entry.described !== described) {
         entry.described = described;
-        this.describe(client, hasVolume);
+        this.describe(client, hasVolume, entry);
       }
       const online = hub.session(client.id) ? "ON" : "OFF";
       const state = online === "OFF" ? "offline" : (doing.get(client.id) ?? "idle");
       if (entry.online !== online) this.mqtt.publish(`${BASE}/${client.id}/online`, (entry.online = online), true);
       if (entry.state !== state) this.mqtt.publish(`${BASE}/${client.id}/state`, (entry.state = state), true);
+      if (typeof readings.soundDb === "number") {
+        const level = String(readings.soundDb);
+        if (entry.soundLevel !== level) this.mqtt.publish(`${BASE}/${client.id}/sound_level`, (entry.soundLevel = level), true);
+      }
+      if (typeof readings.soundActive === "number") {
+        const active = readings.soundActive ? "ON" : "OFF";
+        if (entry.soundActive !== active) this.mqtt.publish(`${BASE}/${client.id}/sound`, (entry.soundActive = active), true);
+      }
       if (hasVolume) {
         const volume = String(settings.volume);
         if (entry.volume !== volume) this.mqtt.publish(`${BASE}/${client.id}/volume`, (entry.volume = volume), true);
@@ -157,7 +175,7 @@ export class HomeAssistant {
     // A client removed from Axis is removed from Home Assistant: an empty description deletes the entity.
     for (const id of [...this.shown.keys()]) {
       if (clients.some((c) => c.id === id)) continue;
-      for (const [kind, entity] of [["sensor", "state"], ["binary_sensor", "online"], ["notify", "say"], ["number", "volume"]] as const) {
+      for (const [kind, entity] of [["sensor", "state"], ["binary_sensor", "online"], ["notify", "say"], ["number", "volume"], ["sensor", "sound_level"], ["binary_sensor", "sound"], ["event", "gesture"]] as const) {
         this.mqtt.publish(this.config(kind, id, entity), "", true);
       }
       this.shown.delete(id);
@@ -215,7 +233,13 @@ export class HomeAssistant {
     };
   }
 
-  private describe(client: ClientRecord, hasVolume: boolean): void {
+  /** A gesture made on a client, as an event of its Gesture entity, for automations to act on. */
+  gesture(clientId: string, gesture: string): void {
+    if (!this.mqtt.connected || !this.shown.get(clientId)?.gestures) return;
+    this.mqtt.publish(`${BASE}/${clientId}/gesture`, JSON.stringify({ event_type: gesture }));
+  }
+
+  private describe(client: ClientRecord, hasVolume: boolean, reports: Shown): void {
     const device = {
       identifiers: [`vortex_axis_${client.id}`],
       name: client.name,
@@ -242,6 +266,49 @@ export class HomeAssistant {
       true,
     );
     this.mqtt.publish(this.config("notify", client.id, "say"), JSON.stringify({ ...this.sayEntity(client.id, "Say"), device }), true);
+    // Readings from the room are only true while the client is there to take them.
+    const live = {
+      availability: [{ topic: STATUS }, { topic: `${BASE}/${client.id}/online`, payload_available: "ON", payload_not_available: "OFF" }],
+      availability_mode: "all",
+      device,
+    };
+    this.mqtt.publish(
+      this.config("sensor", client.id, "sound_level"),
+      reports.sound
+        ? JSON.stringify({
+            ...live,
+            name: "Sound level",
+            unique_id: `vortex_axis_${client.id}_sound_level`,
+            state_topic: `${BASE}/${client.id}/sound_level`,
+            // Full scale of its microphone, not calibrated sound pressure: good for "louder than usual", not for decibels.
+            unit_of_measurement: "dBFS",
+            state_class: "measurement",
+            icon: "mdi:volume-vibrate",
+          })
+        : "",
+      true,
+    );
+    this.mqtt.publish(
+      this.config("binary_sensor", client.id, "sound"),
+      reports.sound
+        ? JSON.stringify({ ...live, name: "Sound", unique_id: `vortex_axis_${client.id}_sound`, state_topic: `${BASE}/${client.id}/sound`, device_class: "sound" })
+        : "",
+      true,
+    );
+    this.mqtt.publish(
+      this.config("event", client.id, "gesture"),
+      reports.gestures
+        ? JSON.stringify({
+            ...live,
+            name: "Gesture",
+            unique_id: `vortex_axis_${client.id}_gesture`,
+            state_topic: `${BASE}/${client.id}/gesture`,
+            event_types: [...GESTURES],
+            icon: "mdi:gesture-swipe",
+          })
+        : "",
+      true,
+    );
     this.mqtt.publish(
       this.config("number", client.id, "volume"),
       hasVolume

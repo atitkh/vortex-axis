@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.12.4"
+#define AXIS_FIRMWARE_VERSION "0.13.0"
 
 namespace axis {
 
@@ -208,6 +208,11 @@ class Client {
     void interrupt() { wantInterrupt_ = true; }
     /** Answers the open question with the choice at `index`, as picked on the screen. Safe to call from any task. */
     void answer(uint8_t index) { wantAnswer_ = (int8_t)index; }
+    /**
+     * Tells Axis about a touch gesture the board has no use for itself: "hold", "swipe_left", "swipe_right",
+     * "swipe_up" or "swipe_down". `name` must stay valid (a literal). Dropped while offline. Safe from any task.
+     */
+    void gesture(const char *name) { wantGesture_ = name; }
 
     // --- microphone ------------------------------------------------------
     // For boards with the `mic` capability. These may be called from the
@@ -244,6 +249,7 @@ class Client {
     volatile uint32_t revision_ = 0;
     volatile bool wantInterrupt_ = false;
     volatile int8_t wantAnswer_ = -1;
+    const char *volatile wantGesture_ = nullptr;
     volatile bool recording_ = false;
     volatile bool online_ = false;
     /** True while the device is playing Axis's voice; its own sound must not pass for the room. */

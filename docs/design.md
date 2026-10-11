@@ -312,6 +312,8 @@ Added 2026-10-09 (`server/src/quiet.ts`). Four of Axis's own settings, so they c
 
 Added 2026-10-09 (`server/src/homeassistant.ts`, `server/src/mqtt.ts`). With `AXIS_MQTT_URL` set to the broker Home Assistant uses, every client is published through MQTT discovery as a device with a State sensor (offline, idle, listening, thinking, speaking, asked), an Online binary sensor, a Say notify entity and, where the client has one, a Volume number. The hub is a device with Say everywhere and a count of clients online. Text sent to a Say entity takes the same route as an agent's `say`; a title of "urgent" speaks through quiet hours. A removed client is removed from Home Assistant. The MQTT client is a small one of our own (QoS 0, a retained last will), again with no dependency.
 
+**Boards as sensors (0.28.0, firmware 0.13.0).** A client that reports `soundDb` and `soundActive` in its `sense` readings gets a Sound level sensor (dBFS, uncalibrated) and a Sound binary sensor; one that reports `gestures: 1` gets a Gesture event entity, and each `gesture` message it sends (hold, or a swipe in screen directions) is published as an event. These entities use two availability topics (Axis's status and the client's Online) so they read unavailable, not stale, while the board is away. The board measures the room in its microphone task: mean power over 5 s in 2 dB steps, and "sound" when a tenth of a window is well above the room's slow average, held 15 s; blocks while it speaks (and 0.8 s after) are left out. Only levels leave the board, and each part has a board setting to turn it off. Taps are not sent: they stay the board's own (talk, answer).
+
 ## The web client as an app, and the admin page
 
 Added 2026-10-09.

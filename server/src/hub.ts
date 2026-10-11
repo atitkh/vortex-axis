@@ -96,6 +96,7 @@ export class Hub implements TurnPort {
   private readonly pending = new Map<string, PendingCommand>();
   private commandCount = 0;
   private readonly connectListeners: Array<(session: Session) => void> = [];
+  private readonly gestureListeners: Array<(session: Session, gesture: string) => void> = [];
   private readonly settingsListeners: Array<() => void> = [];
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 
@@ -170,6 +171,11 @@ export class Hub implements TurnPort {
   }
 
   /** Called with every client as it connects, after its `welcome`. */
+  /** Called with each touch gesture a client reports and has no use for itself (a hold, a swipe). */
+  onGesture(listener: (session: Session, gesture: string) => void): void {
+    this.gestureListeners.push(listener);
+  }
+
   onConnect(listener: (session: Session) => void): void {
     this.connectListeners.push(listener);
   }
@@ -361,6 +367,9 @@ export class Hub implements TurnPort {
         return;
       case "sense":
         session.readings = { ...session.readings, ...message.readings };
+        return;
+      case "gesture":
+        for (const listener of this.gestureListeners) listener(session, message.gesture);
         return;
       case "describe":
         this.store.saveSchema(session.client.type, {

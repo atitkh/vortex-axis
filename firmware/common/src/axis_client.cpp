@@ -1295,6 +1295,7 @@ struct Client::Impl {
         if (!welcomed) {
             if (state.link == Link::Online) setLink(Link::Connecting, "Lost Axis, reconnecting");
             else if (state.link != Link::Connecting) setLink(Link::Connecting, "");
+            self.wantGesture_ = nullptr;  // a swipe made while offline means nothing later
             return;
         }
         setLink(Link::Online, state.turn == Turn::Error ? state.note : "");
@@ -1319,6 +1320,15 @@ struct Client::Impl {
                 logf("answered: %s", state.choices[index].c_str());
                 endAsk();
             }
+        }
+        if (self.wantGesture_) {
+            const char *name = self.wantGesture_;
+            self.wantGesture_ = nullptr;
+            JsonDocument doc;
+            doc["t"] = "gesture";
+            doc["gesture"] = name;
+            send(doc);
+            logf("gesture: %s", name);
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
         if (resetWanted) {

@@ -111,6 +111,15 @@ export const Sense = message("sense", {
   readings: ScalarMap,
 });
 
+/**
+ * A touch gesture the person made on the client that the client itself has no use for: a hold, or a swipe
+ * in the direction the screen shows it. Axis passes it on (to Home Assistant, as an event).
+ */
+export const GESTURES = ["hold", "swipe_left", "swipe_right", "swipe_up", "swipe_down"] as const;
+export const Gesture = message("gesture", {
+  gesture: Type.Union(GESTURES.map((g) => Type.Literal(g))),
+});
+
 /** Asks for settings newer than the version the client holds. */
 export const SettingsGet = message("settings.get", {
   have: Type.Integer({ minimum: 0 }),
@@ -315,6 +324,7 @@ export const CLIENT_MESSAGE_SCHEMAS = [
   Answer,
   Playback,
   Sense,
+  Gesture,
   SettingsGet,
   CommandResult,
   Describe,
@@ -349,6 +359,7 @@ export type Interrupt = Static<typeof Interrupt>;
 export type Answer = Static<typeof Answer>;
 export type Playback = Static<typeof Playback>;
 export type Sense = Static<typeof Sense>;
+export type Gesture = Static<typeof Gesture>;
 export type SettingsGet = Static<typeof SettingsGet>;
 export type CommandResult = Static<typeof CommandResult>;
 export type Describe = Static<typeof Describe>;
