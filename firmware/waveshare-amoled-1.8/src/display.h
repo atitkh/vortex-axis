@@ -42,6 +42,9 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels);
  */
 void blitScreen(const uint16_t *pixels);
 
+/** Draws a block of pixels, w by h row by row, at logical (x, y), turned to the current rotation. w and h at most 448. */
+void blitRect(int x, int y, int w, int h, const uint16_t *pixels);
+
 /** Blacks out a full-width band of `rows` rows starting at logical `y`. */
 void clearBand(int y, int rows);
 

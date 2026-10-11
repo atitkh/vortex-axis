@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.30.1 (2026-10-11), board firmware 0.14.1
+
+- **Web client:** a picture from a reply shows on the main screen under the answer too, not only in the history; it goes when the next exchange starts. Tap for full size.
+- **Boards:** a picture stays through the follow-up listening after the answer, and until 30 s after the speech ends; it closes on a tap, when you actually say something, on a question, or when the time is up. While it is up, listening, thinking and speaking show as a glow along the screen edges in the face's colours for each (`glow.cpp`), which anything full screen can use later.
+
 ## 0.30.0 (2026-10-11), board firmware 0.14.0
 
 - **Pictures on boards.** A board shows a picture from an agent's reply full screen for 30 s; a tap, listening or a question closes it. Axis shrinks the picture to the board's screen as a JPEG (`fit.ts`, in a worker thread) and sends it over the board's socket (new capability `image-frames`, messages `image.start`, `image.data`, `image.end`), since a board cannot open a second encrypted connection. First server dependencies besides `ws`: `pngjs` 7.0.0 and `jpeg-js` 0.4.4, pinned. Board firmware uses JPEGDEC 1.8.4.

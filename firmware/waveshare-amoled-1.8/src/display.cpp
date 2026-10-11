@@ -189,6 +189,30 @@ static void pushBand(int y, int h) { pushRows(band->getFramebuffer(), y, h); }
 
 void blitScreen(const uint16_t *pixels) { pushRows(pixels, 0, height()); }
 
+void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
+    static uint16_t row[LCD_HEIGHT];
+    if (w <= 0 || h <= 0 || w > LCD_HEIGHT || h > LCD_HEIGHT) return;
+    if (rotation == 0) {
+        for (int j = 0; j < h; j++) gfx->draw16bitRGBBitmap(x, y + j, const_cast<uint16_t *>(pixels + j * w), w, 1);
+    } else if (rotation == 180) {
+        for (int j = 0; j < h; j++) {
+            for (int i = 0; i < w; i++) row[i] = pixels[(h - 1 - j) * w + (w - 1 - i)];
+            gfx->draw16bitRGBBitmap(LCD_WIDTH - (x + w), LCD_HEIGHT - (y + h) + j, row, w, 1);
+        }
+    } else if (rotation == 90) {
+        // The same turn as pushRows: a logical column becomes a panel row.
+        for (int j = 0; j < w; j++) {
+            for (int i = 0; i < h; i++) row[i] = pixels[i * w + (w - 1 - j)];
+            gfx->draw16bitRGBBitmap(y, width() - (x + w) + j, row, h, 1);
+        }
+    } else {
+        for (int j = 0; j < w; j++) {
+            for (int i = 0; i < h; i++) row[i] = pixels[(h - 1 - i) * w + j];
+            gfx->draw16bitRGBBitmap(height() - (y + h), x + j, row, h, 1);
+        }
+    }
+}
+
 static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold12pt7b : &FreeSans9pt7b; }
 /** Where the letters stand in a band of that kind, measured from its top. */
 static int baselineFor(uint8_t size) { return size >= 3 ? 22 : 16; }

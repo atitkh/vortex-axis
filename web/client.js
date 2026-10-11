@@ -140,13 +140,21 @@ function markEmpty() {
 
 let fadeTimer;
 /** What was heard (dim) and what was said back (bright), as the board shows them. */
+$("said-picture").addEventListener("click", (event) => window.open(event.currentTarget.src, "_blank", "noopener"));
+
 function caption(heard, said, kind = "") {
-  if (heard !== undefined) $("heard").textContent = heard;
+  if (heard !== undefined) {
+    $("heard").textContent = heard;
+    // A new exchange: a picture from the last one goes (it stays in the history).
+    $("said-picture").classList.add("hidden");
+    $("said-picture").removeAttribute("src");
+  }
   if (said !== undefined) {
     $("said").textContent = said;
     $("said").className = `said ${kind}`.trim();
   }
-  document.body.classList.toggle("has-words", Boolean($("heard").textContent || $("said").textContent));
+  // Words or a picture: the face makes room.
+  document.body.classList.toggle("has-words", Boolean($("heard").textContent || $("said").textContent || !$("said-picture").classList.contains("hidden")));
   $("caption").classList.remove("faded");
   clearTimeout(fadeTimer);
   // Old words fade, so a glance tells whether they are fresh.
@@ -502,6 +510,13 @@ face.setIconStyle(settings.values.toolIcons);
       img.addEventListener("error", () => (el.textContent = "The picture is no longer available."));
       img.addEventListener("click", () => window.open(message.url, "_blank", "noopener"));
       el.append(img);
+      // And on the main screen, under what was said.
+      const shown = $("said-picture");
+      shown.alt = img.alt;
+      shown.onerror = () => shown.classList.add("hidden");
+      shown.src = message.url;
+      shown.classList.remove("hidden");
+      caption(undefined, undefined);
       break;
     }
     case "speak.start":

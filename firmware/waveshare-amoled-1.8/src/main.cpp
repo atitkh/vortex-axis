@@ -14,6 +14,7 @@
 #include "touch.h"
 #include "vortex.h"
 #include <JPEGDEC.h>
+#include "glow.h"
 #include <esp_heap_caps.h>
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
@@ -207,8 +208,9 @@ static uint32_t edgesUntil = 0;
 static bool edgesDrawn = false;
 
 // ---- pictures from agent replies ---------------------------------------------------------
-// One has the screen to itself for a while, centred on black. A tap closes it (and only closes it);
-// so does the device starting to listen, a question, or the time running out.
+// One has the screen to itself, centred on black, until 30 s after the device stops speaking. A tap
+// closes it (and only closes it); so does the person actually saying something (a new turn), a question,
+// or the edge frame. Listening for a follow-up, thinking and speaking show as a glow along the edges.
 static const uint32_t PICTURE_MS = 30000;
 static uint32_t pictureUntil = 0;
 static uint16_t *pictureFrame = nullptr;
@@ -243,6 +245,7 @@ static bool showPicture(const uint8_t *data, size_t size) {
     jpeg.close();
     if (!ok) return false;
     display::blitScreen(pictureFrame);
+    glow::reset();
     pictureUntil = millis() + PICTURE_MS;
     if (!pictureUntil) pictureUntil = 1;
     return true;
@@ -830,9 +833,23 @@ void loop() {
     }
     if (pictureUntil) {
         const touch::Gesture g = touch::poll();
-        const bool wanted = client.listening() || (state.link == axis::Link::Online && state.choiceCount > 0);
-        if ((int32_t)(millis() - pictureUntil) < 0 && g == touch::Gesture::None && !wanted) return;
+        if (g != touch::Gesture::None && g != touch::Gesture::Tap) onGesture(g);
+        const bool speaking = speaker::playing() || state.turn == axis::Turn::Speaking;
+        // The time on show runs from the end of the speech, so a long answer does not use it up.
+        if (speaking) pictureUntil = max(pictureUntil, millis() + PICTURE_MS);
+        const bool spoke = state.turn == axis::Turn::Transcribing;
+        const bool asked = state.link == axis::Link::Online && state.choiceCount > 0;
+        if ((int32_t)(millis() - pictureUntil) < 0 && g != touch::Gesture::Tap && !spoke && !asked && !edgesUntil) {
+            const glow::State doing = client.listening() ? glow::State::Listening
+                                      : speaking ? glow::State::Speaking
+                                      : state.turn == axis::Turn::Thinking ? glow::State::Thinking
+                                      : glow::State::None;
+            const float level = doing == glow::State::Listening ? mic::level() : doing == glow::State::Speaking ? speaker::level() : -1.0f;
+            glow::update(pictureFrame, doing, level);
+            return;
+        }
         pictureUntil = 0;
+        glow::reset();
         display::clear();
         redrawAll = true;
         askDrawn = "";
