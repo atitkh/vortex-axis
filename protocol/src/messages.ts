@@ -263,6 +263,28 @@ export const ReplyImage = message("reply.image", {
   alt: Type.Optional(Type.String({ maxLength: 500 })),
 });
 
+/**
+ * A picture sent over the socket itself, for clients with the `image-frames` capability (boards, which
+ * cannot fetch an address while their socket is open). Axis shrinks it to the client's screen (its
+ * `screenW` and `screenH` readings) as a baseline JPEG and sends `image.start`, then the bytes in order
+ * as base64 in `image.data` frames that fit the client's frame size, then `image.end`. Binary frames stay audio.
+ */
+export const ImageStart = message("image.start", {
+  imageId: Id,
+  turnId: Id,
+  mime: Type.Literal("image/jpeg"),
+  size: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
+  width: Type.Integer({ minimum: 1, maximum: 4096 }),
+  height: Type.Integer({ minimum: 1, maximum: 4096 }),
+});
+export const ImageData = message("image.data", {
+  imageId: Id,
+  data: Type.String({ minLength: 1, maxLength: 1_048_576 }),
+});
+export const ImageEnd = message("image.end", {
+  imageId: Id,
+});
+
 export const SpeakStart = message("speak.start", {
   turnId: Id,
   format: AudioFormat,
@@ -350,6 +372,9 @@ export const SERVER_MESSAGE_SCHEMAS = [
   Transcript,
   ReplyText,
   ReplyImage,
+  ImageStart,
+  ImageData,
+  ImageEnd,
   SpeakStart,
   SpeakEnd,
   Ask,
@@ -385,6 +410,9 @@ export type Transcript = Static<typeof Transcript>;
 export type ReplyText = Static<typeof ReplyText>;
 export type SpeakStart = Static<typeof SpeakStart>;
 export type ReplyImage = Static<typeof ReplyImage>;
+export type ImageStart = Static<typeof ImageStart>;
+export type ImageData = Static<typeof ImageData>;
+export type ImageEnd = Static<typeof ImageEnd>;
 export type SpeakEnd = Static<typeof SpeakEnd>;
 export type Ask = Static<typeof Ask>;
 export type AskEnd = Static<typeof AskEnd>;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Agent } from "../src/agent.js";
 import { MediaLines, MediaStore, splitMedia } from "../src/media.js";
+import { fitToJpeg } from "../src/fit.js";
+import jpeg from "jpeg-js";
+import { PNG } from "pngjs";
 import { ready, restart, useServer } from "./harness.js";
 
 /** Feeds text through the filter in the pieces given and returns what came out, and the sources found. */
@@ -72,8 +75,34 @@ describe("the picture store", () => {
   });
 });
 
+/** A real PNG, `w` by `h`, half red and half transparent. */
+function png(w: number, h: number): Buffer {
+  const img = new PNG({ width: w, height: h });
+  for (let i = 0; i < w * h; i++) img.data.set(i % w < w / 2 ? [255, 0, 0, 255] : [0, 0, 255, 0], i * 4);
+  return PNG.sync.write(img);
+}
+
+describe("shrinking a picture for a small screen", () => {
+  it("fits it in the box, keeps its shape, and lays transparency on black", async () => {
+    const fitted = await fitToJpeg(png(800, 400), "image/png", { width: 368, height: 448 });
+    expect([fitted.width, fitted.height]).toEqual([368, 184]);
+    const back = jpeg.decode(fitted.jpeg, { useTArray: true });
+    expect([back.width, back.height]).toEqual([368, 184]);
+    const at = (x: number) => Array.from(back.data.subarray((90 * 368 + x) * 4, (90 * 368 + x) * 4 + 3));
+    expect(at(40)[0]).toBeGreaterThan(200);
+    expect(Math.max(...at(320))).toBeLessThan(40);
+  });
+
+  it("enlarges a small one at most twice, and refuses what is not a picture or far too large", async () => {
+    expect((await fitToJpeg(png(50, 50), "image/png", { width: 368, height: 448 })).width).toBe(100);
+    await expect(fitToJpeg(Buffer.from("nope"), "image/png", { width: 10, height: 10 })).rejects.toThrow(/not a PNG/);
+    await expect(fitToJpeg(png(300, 300), "image/png", { width: 10, height: 10, maxPixels: 1000 })).rejects.toThrow(/too large/);
+    await expect(fitToJpeg(Buffer.from("x"), "image/gif", { width: 10, height: 10 })).rejects.toThrow(/cannot be shrunk/);
+  });
+});
+
 // A turn whose reply attaches a picture, end to end through Axis.
-const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+const PNG_BYTES = png(200, 100);
 let fetched: string[] = [];
 const agent: Agent = {
   reply: (_message, _signal, _onTool, _onState, _route, _onRun, onMedia) =>
@@ -83,7 +112,7 @@ const agent: Agent = {
     })(),
   fetchMedia: async (media) => {
     fetched.push(media.source);
-    return { bytes: PNG, mime: "image/png" };
+    return { bytes: PNG_BYTES, mime: "image/png" };
   },
   healthy: async () => true,
 };
@@ -103,8 +132,25 @@ describe("a reply with a picture", () => {
     const { ctx } = await import("./harness.js");
     const res = await fetch(`http://127.0.0.1:${ctx.app.port}${image.url}`);
     expect(res.headers.get("content-type")).toBe("image/png");
-    expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG_BYTES);
     expect((await fetch(`http://127.0.0.1:${ctx.app.port}/v1/media/nope`)).status).toBe(404);
+  });
+
+  it("sends a board the picture itself, shrunk to its screen, in frames that fit", async () => {
+    await restart({}, { agent });
+    const { client } = await ready(["screen", "image-frames"], { hello: { maxFrameBytes: 1024 } });
+    client.send({ t: "sense", readings: { screenW: 448, screenH: 368 } });
+    await new Promise((r) => setTimeout(r, 50));
+    client.send({ t: "text", turnId: "t1", text: "draw me a vortex" });
+    const start = await client.next("image.start");
+    await client.next("image.end");
+    expect(start).toMatchObject({ turnId: "t1", mime: "image/jpeg", width: 400, height: 200 });
+    const pieces = client.received.filter((m) => m.t === "image.data") as { data: string }[];
+    expect(pieces.every((p) => JSON.stringify(p).length <= 1024)).toBe(true);
+    const bytes = Buffer.concat(pieces.map((p) => Buffer.from(p.data, "base64")));
+    expect(bytes.length).toBe(start.size);
+    expect(jpeg.decode(bytes).width).toBe(400);
+    expect(client.types()).not.toContain("reply.image");
   });
 
   it("sends no picture to a client that cannot show one", async () => {

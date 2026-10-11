@@ -2,6 +2,8 @@
 
 #include <DNSServer.h>
 #include <HTTPClient.h>
+#include <mbedtls/base64.h>
+#include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <MD5Builder.h>
 #include <Preferences.h>
@@ -36,6 +38,8 @@ const uint32_t JOIN_TIMEOUT_MS = 45000;
 const uint32_t SETUP_IDLE_RETRY_MS = 5 * 60 * 1000;
 const uint32_t PAIR_RETRY_MS = 5000;
 const uint32_t SENSE_INTERVAL_MS = 60000;
+// The largest picture accepted over the socket; Axis sends screen-sized JPEGs of a few tens of KB.
+const size_t MAX_PICTURE_BYTES = 300000;
 
 // Microphone audio is 16 kHz, 16-bit mono, the one format version 1 allows upstream.
 const uint32_t MIC_RATE = 16000;
@@ -218,6 +222,13 @@ struct Client::Impl {
 
     Preferences prefs;
     String baseUrl, pairingCode, clientId, token;
+    // A picture arriving in image.data frames, and the last one complete, waiting for the board to take it.
+    uint8_t *picBuf = nullptr;
+    size_t picSize = 0, picGot = 0;
+    String picId, picTurn;
+    uint8_t *readyPic = nullptr;
+    size_t readyPicSize = 0;
+    String readyPicTurn;
 
     WebServer web{80};
     DNSServer dns;
@@ -675,6 +686,14 @@ struct Client::Impl {
         });
     }
 
+    /** Forgets a picture still arriving. */
+    void dropPicture() {
+        if (picBuf) heap_caps_free(picBuf);
+        picBuf = nullptr;
+        picSize = picGot = 0;
+        picId = "";
+    }
+
     void onMessage(uint8_t *payload, size_t length) {
         JsonDocument doc;
         if (deserializeJson(doc, payload, length)) return;
@@ -754,6 +773,48 @@ struct Client::Impl {
                 if (final) s.reply = text;
                 else s.reply += text;
             });
+        } else if (!strcmp(t, "image.start")) {
+            dropPicture();
+            const size_t size = doc["size"] | 0;
+            if (size == 0 || size > MAX_PICTURE_BYTES) {
+                logf("picture of %u bytes refused", (unsigned)size);
+                return;
+            }
+            picBuf = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+            if (!picBuf) {
+                logf("no memory for a picture of %u bytes", (unsigned)size);
+                return;
+            }
+            picSize = size;
+            picGot = 0;
+            picId = doc["imageId"] | "";
+            picTurn = doc["turnId"] | "";
+        } else if (!strcmp(t, "image.data")) {
+            if (!picBuf || picId != (doc["imageId"] | "")) return;
+            const char *data = doc["data"] | "";
+            size_t out = 0;
+            if (mbedtls_base64_decode(picBuf + picGot, picSize - picGot, &out, (const unsigned char *)data, strlen(data)) != 0) {
+                logf("a picture arrived damaged, dropped");
+                dropPicture();
+                return;
+            }
+            picGot += out;
+        } else if (!strcmp(t, "image.end")) {
+            if (!picBuf || picId != (doc["imageId"] | "")) return;
+            if (picGot != picSize) {
+                logf("a picture arrived incomplete (%u of %u bytes), dropped", (unsigned)picGot, (unsigned)picSize);
+                dropPicture();
+                return;
+            }
+            logf("picture of %u bytes", (unsigned)picSize);
+            xSemaphoreTake(lock, portMAX_DELAY);
+            if (readyPic) heap_caps_free(readyPic);
+            readyPic = picBuf;
+            readyPicSize = picSize;
+            readyPicTurn = picTurn;
+            xSemaphoreGive(lock);
+            picBuf = nullptr;
+            picSize = picGot = 0;
         } else if (!strcmp(t, "speak.start")) {
             if (!self.sink_) return;
             enterTurn(doc["turnId"]);
@@ -1911,6 +1972,20 @@ String Client::setting(const char *key, const char *fallback) {
     String out = value.isNull() ? String(fallback) : value.as<String>();
     xSemaphoreGive(impl_->lock);
     return out;
+}
+
+bool Client::takePicture(uint8_t *&data, size_t &size, String &turnId) {
+    xSemaphoreTake(impl_->lock, portMAX_DELAY);
+    const bool have = impl_->readyPic != nullptr;
+    if (have) {
+        data = impl_->readyPic;
+        size = impl_->readyPicSize;
+        turnId = impl_->readyPicTurn;
+        impl_->readyPic = nullptr;
+        impl_->readyPicSize = 0;
+    }
+    xSemaphoreGive(impl_->lock);
+    return have;
 }
 
 void Client::setReading(const char *key, long value) {

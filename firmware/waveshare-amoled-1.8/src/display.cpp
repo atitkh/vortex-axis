@@ -160,10 +160,9 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels) {
     }
 }
 
-/** Sends the top `h` rows of the band to the panel at logical `y`, turned to the current rotation. */
-static void pushBand(int y, int h) {
+/** Sends `h` rows of `src` (each width() wide) to the panel at logical `y`, turned to the current rotation. */
+static void pushRows(const uint16_t *src, int y, int h) {
     const int w = width();
-    const uint16_t *src = band->getFramebuffer();
     static uint16_t row[LCD_HEIGHT];
     if (rotation == 0 || rotation == 180) {
         for (int j = 0; j < h; j++) {
@@ -185,6 +184,11 @@ static void pushBand(int y, int h) {
         gfx->draw16bitRGBBitmap(px, j, row, h, 1);
     }
 }
+/** Sends the top `h` rows of the band to the panel at logical `y`, turned to the current rotation. */
+static void pushBand(int y, int h) { pushRows(band->getFramebuffer(), y, h); }
+
+void blitScreen(const uint16_t *pixels) { pushRows(pixels, 0, height()); }
+
 static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold12pt7b : &FreeSans9pt7b; }
 /** Where the letters stand in a band of that kind, measured from its top. */
 static int baselineFor(uint8_t size) { return size >= 3 ? 22 : 16; }

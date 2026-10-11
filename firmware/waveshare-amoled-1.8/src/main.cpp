@@ -13,6 +13,8 @@
 #include "imu.h"
 #include "touch.h"
 #include "vortex.h"
+#include <JPEGDEC.h>
+#include <esp_heap_caps.h>
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
 // `Serial` goes nowhere unless this is used and ARDUINO_USB_CDC_ON_BOOT is set.
@@ -20,7 +22,7 @@ HWCDC USBSerial;
 // Everything printed here also goes into a memory buffer the device serves at /logs.
 static axis::LogBuffer logOut(USBSerial);
 
-static const char *const CAPABILITIES[] = {"screen", "speaker", "mic"};
+static const char *const CAPABILITIES[] = {"screen", "speaker", "mic", "image-frames"};
 // What the Axis admin page offers for this board. Keep in step with applySettings() and the
 // client core's vadLimits(): a key listed here that nothing reads does nothing.
 static const axis::SettingDef SETTINGS[] = {
@@ -50,7 +52,7 @@ static const axis::ActionDef ACTIONS[] = {
     {"edges", "Show screen edges", "Draws a frame along the edges of the screen for ten seconds, to set the picture offset by.", false},
     {"motion", "Which way up", "Gravity along the board's axes in thousandths of g, and the rotation it calls for.", false},
 };
-static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 3, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
+static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 4, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
                                         ACTIONS, sizeof ACTIONS / sizeof ACTIONS[0]};
 
 static const uint16_t COLOR_HEAD = 0xFFFF;
@@ -203,6 +205,48 @@ static int wantedRotation() {
 // While this is in the future the screen shows only a frame along its edges.
 static uint32_t edgesUntil = 0;
 static bool edgesDrawn = false;
+
+// ---- pictures from agent replies ---------------------------------------------------------
+// One has the screen to itself for a while, centred on black. A tap closes it (and only closes it);
+// so does the device starting to listen, a question, or the time running out.
+static const uint32_t PICTURE_MS = 30000;
+static uint32_t pictureUntil = 0;
+static uint16_t *pictureFrame = nullptr;
+static int pictureW = 0, pictureH = 0, pictureX = 0, pictureY = 0, jpegW = 0, jpegH = 0;
+
+static int pictureBlock(JPEGDRAW *d) {
+    // Blocks at the right and bottom edges can be wider than the picture; only the picture is copied.
+    const int cols = min(d->iWidth, min(jpegW - d->x, pictureW - (pictureX + d->x)));
+    for (int row = 0; row < d->iHeight && cols > 0; row++) {
+        const int y = pictureY + d->y + row;
+        if (d->y + row >= jpegH || y >= pictureH) break;
+        memcpy(pictureFrame + y * pictureW + pictureX + d->x, d->pPixels + row * d->iWidth, cols * sizeof(uint16_t));
+    }
+    return 1;
+}
+
+/** Decodes a JPEG and puts it on the screen. False when it could not be read. */
+static bool showPicture(const uint8_t *data, size_t size) {
+    static JPEGDEC jpeg;
+    pictureW = display::width();
+    pictureH = display::height();
+    if (!pictureFrame) pictureFrame = (uint16_t *)heap_caps_malloc(pictureW * pictureH * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!pictureFrame) return false;
+    if (!jpeg.openRAM((uint8_t *)data, (int)size, pictureBlock)) return false;
+    jpegW = jpeg.getWidth();
+    jpegH = jpeg.getHeight();
+    pictureX = max(0, (pictureW - jpegW) / 2);
+    pictureY = max(0, (pictureH - jpegH) / 2);
+    memset(pictureFrame, 0, pictureW * pictureH * sizeof(uint16_t));
+    jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
+    const bool ok = jpeg.decode(0, 0, 0);
+    jpeg.close();
+    if (!ok) return false;
+    display::blitScreen(pictureFrame);
+    pictureUntil = millis() + PICTURE_MS;
+    if (!pictureUntil) pictureUntil = 1;
+    return true;
+}
 
 static void applySettings() {
     display::setColumnOffset((int)client.settingInt("screenOffset", 16));
@@ -773,6 +817,28 @@ void loop() {
             applySettings();
         }
     }
+    // A picture from an agent's reply. A newer one replaces it.
+    {
+        uint8_t *jpg = nullptr;
+        size_t size = 0;
+        String turnId;
+        if (client.takePicture(jpg, size, turnId)) {
+            const bool shown = !edgesUntil && showPicture(jpg, size);
+            heap_caps_free(jpg);
+            logOut.printf("[picture] %u bytes, %s\n", (unsigned)size, shown ? "shown" : "could not be shown");
+        }
+    }
+    if (pictureUntil) {
+        const touch::Gesture g = touch::poll();
+        const bool wanted = client.listening() || (state.link == axis::Link::Online && state.choiceCount > 0);
+        if ((int32_t)(millis() - pictureUntil) < 0 && g == touch::Gesture::None && !wanted) return;
+        pictureUntil = 0;
+        display::clear();
+        redrawAll = true;
+        askDrawn = "";
+        faceY = -1;
+    }
+
     // The edge frame for setting the picture offset has the screen to itself while it shows.
     if (edgesUntil) {
         if ((int32_t)(millis() - edgesUntil) < 0) {

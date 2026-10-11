@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.13.1"
+#define AXIS_FIRMWARE_VERSION "0.14.0"
 
 namespace axis {
 
@@ -213,6 +213,13 @@ class Client {
      * "swipe_up" or "swipe_down". `name` must stay valid (a literal). Dropped while offline. Safe from any task.
      */
     void gesture(const char *name) { wantGesture_ = name; }
+
+    /**
+     * A picture Axis sent over the socket (for the `image-frames` capability): a baseline JPEG sized for the
+     * screen, in PSRAM. On true the caller owns `data` and frees it with heap_caps_free. False when none waits.
+     * Safe to call from any task.
+     */
+    bool takePicture(uint8_t *&data, size_t &size, String &turnId);
 
     // --- microphone ------------------------------------------------------
     // For boards with the `mic` capability. These may be called from the

@@ -36,6 +36,12 @@ void clear();
  */
 void blitSquare(int x, int y, int size, const uint16_t *pixels);
 
+/**
+ * Draws a whole screen's worth of pixels: `pixels` is width() by height(), row by row, in logical
+ * coordinates, and is turned to the current rotation on the way out.
+ */
+void blitScreen(const uint16_t *pixels);
+
 /** Blacks out a full-width band of `rows` rows starting at logical `y`. */
 void clearBand(int y, int rows);
 

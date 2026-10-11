@@ -27,6 +27,7 @@ import { Progress } from "./progress.js";
 import { Background } from "./background.js";
 import { LiveActivities } from "./liveactivity.js";
 import { MediaStore, Pictures, type PicturePort } from "./media.js";
+import { fitToJpeg } from "./fit.js";
 import { PushService } from "./push.js";
 import { Hub } from "./hub.js";
 import { Store } from "./store.js";
@@ -220,6 +221,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     store: mediaStore,
     port: hub as unknown as PicturePort,
     fetch: () => (services.agent?.fetchMedia ? (media) => services.agent!.fetchMedia!(media) : undefined),
+    fit: (bytes, mime, box) => fitToJpeg(bytes, mime, box),
     log,
   });
   hub.usePictures(pictures);

@@ -144,26 +144,44 @@ export class MediaStore {
   }
 }
 
+/** A client as `Pictures` sees it. */
+interface PictureSession {
+  client: { id: string; capabilities: readonly string[] };
+  readings?: Record<string, unknown>;
+  maxFrameBytes?: number;
+}
+
 /** What `Pictures` needs of the hub: the clients online and a way to send them a message. */
 export interface PicturePort {
-  sessions(): Iterable<{ client: { id: string; capabilities: readonly string[] } }>;
-  session(clientId: string): { client: { id: string; capabilities: readonly string[] } } | undefined;
-  send(session: never, message: { t: "reply.image"; turnId: string; url: string; mime?: string }): void;
+  sessions(): Iterable<PictureSession>;
+  session(clientId: string): PictureSession | undefined;
+  send(session: never, message: Record<string, unknown> & { t: string }): void;
 }
 
 /** At most this many pictures from one reply. */
 const MAX_PER_REPLY = 4;
+/** A board's screen, when it has not said its size. */
+const DEFAULT_SCREEN = { width: 368, height: 448 };
+
+const showsUrl = (s: PictureSession | undefined) => Boolean(s?.client.capabilities.includes("images"));
+const showsFrames = (s: PictureSession | undefined) => Boolean(s?.client.capabilities.includes("image-frames"));
 
 /**
  * Gets the pictures of a reply to a screen that can show them: the client the reply was for when it can,
- * otherwise (a reply that arrived after the device stopped waiting) every online client that shows images.
+ * otherwise (a reply that arrived after the device stopped waiting) every online client that shows pictures.
+ * A client with `images` is sent an address; one with `image-frames` (a board) is sent the picture itself,
+ * shrunk to its screen, over its socket.
  */
 export class Pictures {
+  private count = 0;
+
   constructor(
     private readonly options: {
       store: MediaStore;
       port: PicturePort;
       fetch: () => ((media: { source: string; sessionKey?: string | undefined; agentId?: string | undefined }) => Promise<{ bytes: Buffer; mime: string }>) | undefined;
+      /** Shrinks a picture for a small screen (fit.ts). Without it, boards are sent no pictures. */
+      fit?: (bytes: Buffer, mime: string, box: { width: number; height: number }) => Promise<{ jpeg: Buffer; width: number; height: number }>;
       log?: (line: string) => void;
     },
   ) {}
@@ -175,7 +193,7 @@ export class Pictures {
   ): Promise<number> {
     const fetchMedia = this.options.fetch();
     if (!fetchMedia || !media.length) return 0;
-    const shows = (s: { client: { capabilities: readonly string[] } } | undefined) => Boolean(s?.client.capabilities.includes("images"));
+    const shows = (s: PictureSession | undefined) => showsUrl(s) || (showsFrames(s) && Boolean(this.options.fit));
     const own = this.options.port.session(to.clientId);
     const targets = shows(own) ? [own!] : to.orAnywhere ? [...this.options.port.sessions()].filter(shows) : [];
     if (!targets.length) {
@@ -190,8 +208,23 @@ export class Pictures {
           this.options.log?.(`left out a ${mime || "file of unknown type"} attached to a reply: only pictures are shown`);
           continue;
         }
-        const url = this.options.store.add(bytes, mime);
-        for (const session of targets) this.options.port.send(session as never, { t: "reply.image", turnId: to.turnId, url, mime });
+        const url = targets.some(showsUrl) ? this.options.store.add(bytes, mime) : undefined;
+        // One shrunk copy per screen size.
+        const fitted = new Map<string, Promise<{ jpeg: Buffer; width: number; height: number }>>();
+        for (const session of targets) {
+          if (showsUrl(session)) {
+            this.options.port.send(session as never, { t: "reply.image", turnId: to.turnId, url: url!, mime });
+            continue;
+          }
+          const box = screenOf(session);
+          const key = `${box.width}x${box.height}`;
+          if (!fitted.has(key)) fitted.set(key, this.options.fit!(bytes, mime, box));
+          try {
+            this.sendFrames(session, to.turnId, await fitted.get(key)!);
+          } catch (error) {
+            this.options.log?.(`a picture could not be made small enough for ${session.client.id}: ${(error as Error).message}`);
+          }
+        }
         sent++;
       } catch (error) {
         this.options.log?.(`a picture attached to a reply could not be fetched: ${(error as Error).message}`);
@@ -199,4 +232,23 @@ export class Pictures {
     }
     return sent;
   }
+
+  /** Sends a picture over a client's socket, in frames no larger than it takes. */
+  private sendFrames(session: PictureSession, turnId: string, picture: { jpeg: Buffer; width: number; height: number }): void {
+    const imageId = `img-${(++this.count).toString(36)}`;
+    // Room for the JSON around the data; base64 makes 4 characters of every 3 bytes.
+    const chunk = Math.max(300, Math.floor(((session.maxFrameBytes ?? 4096) - 120) / 4) * 3);
+    const send = (message: Record<string, unknown> & { t: string }) => this.options.port.send(session as never, message);
+    send({ t: "image.start", imageId, turnId, mime: "image/jpeg", size: picture.jpeg.length, width: picture.width, height: picture.height });
+    for (let at = 0; at < picture.jpeg.length; at += chunk) {
+      send({ t: "image.data", imageId, data: picture.jpeg.subarray(at, at + chunk).toString("base64") });
+    }
+    send({ t: "image.end", imageId });
+  }
+}
+
+/** The screen a client says it has, the way up it stands now. */
+function screenOf(session: PictureSession): { width: number; height: number } {
+  const w = Number(session.readings?.screenW), h = Number(session.readings?.screenH);
+  return w > 0 && h > 0 && w <= 4096 && h <= 4096 ? { width: w, height: h } : DEFAULT_SCREEN;
 }
