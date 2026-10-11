@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.14.1"
+#define AXIS_FIRMWARE_VERSION "0.15.0"
 
 namespace axis {
 

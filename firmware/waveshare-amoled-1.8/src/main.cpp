@@ -42,6 +42,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"onsetMs", "Wait for the first word", "number", "Listening", "How long to wait for you to start talking after a wake or a tap.", "6000", 1000, 20000, "ms", nullptr},
     {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
+    {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
 };
@@ -178,6 +179,11 @@ static const uint16_t COLOR_BAR = 0x6EBD;   // the idle face's cyan
 static const uint16_t COLOR_DONE = 0x57EA;  // green
 // Where the top of the face is now. -1 until it has been placed once.
 static int faceY = -1;
+// The notification light: when the last task finish was seen, the flash's end, and whether a glow is up.
+static uint8_t seenTaskState = 0;
+static uint32_t doneFlashUntil = 0;
+static bool noticeShown = false;
+static const uint32_t DONE_FLASH_MS = 1500;
 static bool hasSpeaker = false, hasMic = false;
 
 // A question with choices: the face stays, the question goes under it and the choices are buttons below.
@@ -811,6 +817,12 @@ void loop() {
         state = client.snapshot();
         seenRevision = state.revision;
         // Axis marks a task that has just finished; the sound is this device's to make or not.
+        // A task that has just finished flashes the edges green (silent, so quiet hours do not matter).
+        if (state.taskCount && state.taskState == 2 && seenTaskState != 2) {
+            doneFlashUntil = millis() + DONE_FLASH_MS;
+            if (!doneFlashUntil) doneFlashUntil = 1;
+        }
+        seenTaskState = state.taskCount ? state.taskState : 0;
         if (state.taskChimes != seenChimes) {
             seenChimes = state.taskChimes;
             if (hasSpeaker && client.settingInt("taskChime", 1) != 0 && !speaker::playing() && !client.listening()) speaker::chime();
@@ -921,6 +933,30 @@ void loop() {
         display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
         drawMicros += micros() - t0;
         frames++;
+    }
+
+    // The notification light, only while nothing else is going on: amber while a task waits for the person,
+    // a green flash when one finishes. It stays off the face, which draws itself.
+    {
+        const bool calm = !askShown && state.link == axis::Link::Online && state.turn == axis::Turn::Idle &&
+                          !client.listening() && !speaker::playing();
+        glow::State notice = glow::State::None;
+        float level = -1.0f;
+        if (calm && client.settingInt("notifyGlow", 1) != 0) {
+            if (doneFlashUntil && (int32_t)(started - doneFlashUntil) < 0) {
+                notice = glow::State::Done;
+                level = (doneFlashUntil - started) / (float)DONE_FLASH_MS;
+            } else if (state.taskCount && state.taskState == 1) {
+                notice = glow::State::Waiting;
+            }
+        }
+        if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
+        glow::Rect face;
+        if (drawFace) face = {(display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE};
+        glow::update(nullptr, notice, level, face);
+        // Text the glow lay over is drawn again once it is gone.
+        if (notice == glow::State::None && noticeShown) redrawAll = true;
+        noticeShown = notice != glow::State::None;
     }
 
     if (started - lastReport >= 60000) {

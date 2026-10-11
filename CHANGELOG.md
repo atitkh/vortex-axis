@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.15.0 (2026-10-11)
+
+- **Notification light.** While a board is idle, its screen edges glow amber, breathing slowly, while a task waits for the person, and flash green for a moment when a task finishes (silent, so also in quiet hours). It never draws over the face and goes away during a conversation. Board setting **Notification light** turns it off. Built on the edge glow (`glow.cpp`), which now also lays itself over a black screen and leaves a given rectangle alone.
+
 ## 0.30.1 (2026-10-11), board firmware 0.14.1
 
 - **Web client:** a picture from a reply shows on the main screen under the answer too, not only in the history; it goes when the next exchange starts. Tap for full size.
