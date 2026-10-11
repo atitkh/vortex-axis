@@ -472,6 +472,19 @@
       <p class="help">A tool switched off is taken from every agent at once, by both ways in. <span class="msg" id="tools-note"></span></p>
       <div id="tools-list"></div>
 
+      <h3>Try a tool</h3>
+      <p class="help">Calls a tool just as an agent would, through the same switch above, and shows what the agent would get back. It does it for real: a message is said, a timer is set, a reboot restarts the device. Where a tool can reach more than one device, pick which under Send to.</p>
+      <div class="form">
+        <label for="try-tool">Tool</label>
+        <div><select id="try-tool"></select><p class="help" id="try-about"></p></div>
+        <div class="contents" id="try-fields"></div>
+        <label>Sends</label>
+        <div><code class="mono" id="try-args">{}</code></div>
+        <span></span>
+        <div class="inline"><button class="primary" type="button" id="try-run">Try it</button><span class="msg" id="try-note"></span></div>
+      </div>
+      <div id="try-result"></div>
+
       <h3>OpenClaw progress cards</h3>
       <div>
         <label class="switch"><input type="checkbox" id="mirror-cards"> Show an OpenClaw agent's own step list as a task</label>

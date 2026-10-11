@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.31.0 (2026-10-11)
+
+- **Try a tool** on the admin page's Agent tools page: every agent tool can be called from one form drawn from the tool's own parameters, with a **Send to** choice where the tool can reach more than one device (the device last spoken to, one device, a location, or every device when the tool takes `everywhere`), and the answer shown as the agent would get it. A Try button on each tool's row opens it. It goes through the same function and on/off switch as an agent's call (`POST /admin/mcp/tools/try`), so it acts for real; a reboot asks first. `GET /admin/mcp` now carries each tool's parameters.
+
 ## Board firmware 0.15.2 (2026-10-11)
 
 - The glow's corner curve is wider (56 px) and a board setting, **Glow corner curve** (`glowCorner`), so it can be matched to the glass; at 32 px it sat inside the panel's rounded corners and was hidden there.

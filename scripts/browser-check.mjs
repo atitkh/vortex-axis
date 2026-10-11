@@ -373,6 +373,15 @@ try {
     step("agent tools by MCP", `token made on the page works; ${before} tools, ${after.length} after switching admin off; clients tool answered with ${listed.structuredContent.clients.length} device(s)`);
     await admin.run(`document.querySelector('#tools-list input[aria-label="vortex_axis_admin"]').click()`);
     await admin.until(`/vortex_axis_admin is on/.test(${byId("tools-note")}.textContent)`, "the tool to be switched back on");
+    // Trying a tool from the page: the say form offers every device, and the clients tool answers in the page.
+    await admin.run(`[...document.querySelectorAll('#tools-list tr')].find(r => r.textContent.includes('vortex_axis_say')).querySelector('button').click()`);
+    await admin.until(`[...document.querySelectorAll('#try-fields option')].some(o => o.value === 'everywhere') && document.querySelector('#try-fields textarea')`, "the say form");
+    await admin.run(`document.querySelector('#try-fields select').value = 'everywhere'; document.querySelector('#try-fields textarea').value = 'hello'; document.querySelector('#try-fields textarea').dispatchEvent(new Event('input'))`);
+    const sends = await admin.run(`${byId("try-args")}.textContent`);
+    if (sends !== '{"everywhere":true,"text":"hello"}') throw new Error(`the say form would send ${sends}`);
+    await admin.run(`${byId("try-tool")}.value = 'vortex_axis_clients'; ${byId("try-tool")}.dispatchEvent(new Event('change')); ${byId("try-run")}.click()`);
+    await admin.until(`/"clients"/.test(document.querySelector('#try-result pre')?.textContent ?? '')`, "the clients tool's answer");
+    step("trying a tool", `say form sends ${sends}; clients tool answered on the page`);
     await admin.run(`location.hash = '#integrations'`);
     await admin.until(`document.querySelectorAll('.integration').length >= 5`, "the integrations page again");
   }

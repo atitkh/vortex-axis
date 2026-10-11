@@ -947,8 +947,24 @@ export function createHttpHandler(deps: HttpDeps) {
             watch: deps.gateway.status().watch,
             publicHosts: config.publicHosts,
             tokens: access.tokens(),
-            tools: access.list().map(({ name, description, enabled }) => ({ name, description, enabled })),
+            tools: access.list().map(({ name, description, enabled, parameters }) => ({ name, description, enabled, parameters })),
           });
+        }
+        // Tries a tool from the admin page: the same function, and the same on/off guard, an agent's call goes through.
+        if (method === "POST" && parts.length === 4 && parts[2] === "tools" && parts[3] === "try" && deps.invoke) {
+          const body = (await readJson(req)) as { name?: unknown; arguments?: unknown };
+          const tool = access.list().find((t) => t.name === body.name);
+          if (!tool) throw new HttpError(404, `there is no tool called "${String(body.name)}"`);
+          const given = typeof body.arguments === "object" && body.arguments !== null && !Array.isArray(body.arguments) ? (body.arguments as Record<string, unknown>) : {};
+          activity?.note("admin", "", `Tried ${tool.name} from the admin page`);
+          const started = now();
+          try {
+            const result = await deps.invoke(tool.command, given);
+            return sendJson(res, 200, { ok: true, ms: now() - started, result: result ?? null });
+          } catch (error) {
+            // What the tool refused is the answer the person asked for, as an agent would read it.
+            return sendJson(res, 200, { ok: false, ms: now() - started, error: (error as Error).message });
+          }
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "tokens") {
           const body = (await readJson(req)) as { name?: unknown };

@@ -152,6 +152,22 @@ describe("tools switched on and off", () => {
   });
 });
 
+describe("trying a tool from the admin page", () => {
+  it("runs it through the same function and guard an agent's call goes through", async () => {
+    await ready(["speaker"], { name: "Desk" });
+    const listed = (await admin("GET", "/admin/mcp")).body.tools;
+    expect(listed.find((t: any) => t.name === "vortex_axis_say").parameters.required).toEqual(["text"]);
+
+    const clients = await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_clients", arguments: {} });
+    expect(clients.body).toMatchObject({ ok: true, ms: expect.any(Number), result: { clients: [{ name: "Desk", online: true }] } });
+    // What the tool refuses comes back as its answer, not as a failed request.
+    expect((await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_config", arguments: {} })).body).toMatchObject({ ok: false, error: "say which client" });
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_diag: false });
+    expect((await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_diag" })).body.error).toMatch(/switched off/);
+    expect((await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_fly" })).status).toBe(404);
+  });
+});
+
 describe("progress on the screens", () => {
   it("shows a task an agent reports on, step by step, and takes it away when asked", async () => {
     const token = await newToken();

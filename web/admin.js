@@ -2926,11 +2926,27 @@ function renderTools() {
             ),
             h("td", { class: "mono tight" }, tool.name),
             h("td", { class: "sub" }, TOOL_READS[tool.name] ?? tool.description),
+            h("td", { class: "num" },
+              h("button", {
+                type: "button", class: "small",
+                onclick: () => {
+                  $("try-tool").value = tool.name;
+                  drawTry();
+                  $("try-tool").scrollIntoView({ behavior: "smooth", block: "center" });
+                },
+              }, "Try"),
+            ),
           ),
         ),
       ),
     ),
   );
+
+  // The tools never change while Axis runs, so the form is drawn once and left alone on later refreshes.
+  if (!$("try-tool").options.length) {
+    $("try-tool").replaceChildren(...d.tools.map((tool) => h("option", { value: tool.name }, tool.name)));
+    drawTry();
+  }
 
   const url = `${location.origin}${d.path}`;
   $("mcp-url").value = url;
@@ -2981,6 +2997,129 @@ function renderTools() {
       : h("p", { class: "empty" }, "No tokens yet, so nothing can connect by MCP."),
   );
 }
+
+// --- trying a tool: a form drawn from the tool's own parameters --------------------------------------
+
+/** What an empty "Send to" means for each tool, in the tool's own terms. */
+const TRY_NO_TARGET = {
+  vortex_axis_sense: "Every device",
+  vortex_axis_admin: "Every device (for actions)",
+  vortex_axis_config: "Choose a device",
+};
+const TRY_TARGETS = new Set(["client", "location", "everywhere"]);
+/** Reads the form when Try it is pressed; set by drawTry. */
+let readTry = () => ({});
+
+function drawTry() {
+  const tool = lastTools?.tools.find((t) => t.name === $("try-tool").value);
+  if (!tool) return;
+  $("try-about").textContent = tool.enabled ? tool.description : `Switched off, so it will be refused, as it would be for an agent. ${tool.description}`;
+  const props = tool.parameters?.properties ?? {};
+  const required = new Set(tool.parameters?.required ?? []);
+  const fields = [];
+  const readers = [];
+
+  // One "Send to" for whichever of client, location and everywhere the tool takes.
+  if (props.client || props.location) {
+    const all = Boolean(props.everywhere);
+    const places = [...new Set(lastClients.map((c) => String(c.settings.location ?? "").trim()).filter(Boolean))].sort();
+    const select = h("select", { onchange: showArgs },
+      h("option", { value: "" }, TRY_NO_TARGET[tool.name] ?? "The device last spoken to"),
+      all ? h("option", { value: "everywhere" }, "Every device") : null,
+      ...(props.location ? places.map((place) => h("option", { value: `location:${place}` }, all ? `Every device in ${place}` : `A device in ${place}`)) : []),
+      ...lastClients.map((c) => h("option", { value: `client:${c.name}` }, `${c.name}${c.online ? "" : " (offline)"}`)),
+    );
+    fields.push(h("label", {}, "Send to"), h("div", {}, select));
+    readers.push((args) => {
+      const [kind, ...rest] = select.value.split(":");
+      if (kind === "everywhere") args.everywhere = true;
+      if (kind === "client") args.client = rest.join(":");
+      if (kind === "location") {
+        args.location = rest.join(":");
+        if (all) args.everywhere = true;
+      }
+    });
+  }
+
+  for (const [key, spec] of Object.entries(props)) {
+    if (TRY_TARGETS.has(key)) continue;
+    const label = h("label", {}, key, required.has(key) ? " *" : "");
+    let input;
+    let read;
+    if (spec.enum) {
+      input = h("select", { onchange: showArgs }, h("option", { value: "" }, "(default)"), ...spec.enum.map((v) => h("option", { value: v }, v)));
+      read = () => input.value || undefined;
+    } else if (spec.type === "boolean") {
+      input = h("input", { type: "checkbox", onchange: showArgs });
+      read = () => (input.checked ? true : undefined);
+      input = h("label", { class: "switch" }, input, " yes");
+    } else if (spec.type === "number" || spec.type === "integer") {
+      input = h("input", { type: "number", step: spec.type === "integer" ? "1" : "any", oninput: showArgs });
+      read = () => (input.value === "" ? undefined : Number(input.value));
+    } else if (spec.type === "array") {
+      // Steps can carry a status; plain names one to a line are the usual way, and enough to try it.
+      input = h("textarea", { rows: 3, spellcheck: "false", placeholder: "One to a line", oninput: showArgs });
+      read = () => {
+        const list = input.value.split("\n").map((v) => v.trim()).filter(Boolean);
+        return list.length ? list : undefined;
+      };
+    } else if (spec.type === undefined) {
+      // Any value: true, false, null and numbers are taken as such, anything else as text.
+      input = h("input", { class: "mono", spellcheck: "false", placeholder: "text, a number, true, false or null", oninput: showArgs });
+      read = () => {
+        if (input.value === "") return undefined;
+        try {
+          const v = JSON.parse(input.value);
+          return v === null || ["number", "boolean"].includes(typeof v) ? v : input.value;
+        } catch {
+          return input.value;
+        }
+      };
+    } else {
+      input = key === "text" || key === "question" || key === "note"
+        ? h("textarea", { rows: 2, oninput: showArgs })
+        : h("input", { spellcheck: "false", oninput: showArgs });
+      read = () => input.value.trim() || undefined;
+    }
+    fields.push(label, h("div", {}, input, spec.description ? h("p", { class: "help" }, spec.description) : null));
+    readers.push((args) => {
+      const v = read();
+      if (v !== undefined) args[key] = v;
+    });
+  }
+  if (!fields.length) fields.push(h("span"), h("p", { class: "help" }, "This tool takes nothing."));
+  $("try-fields").replaceChildren(...fields);
+  readTry = () => {
+    const args = {};
+    for (const reader of readers) reader(args);
+    return args;
+  };
+  $("try-result").replaceChildren();
+  note("try-note", "");
+  showArgs();
+}
+
+function showArgs() {
+  $("try-args").textContent = JSON.stringify(readTry());
+}
+
+$("try-tool").addEventListener("change", drawTry);
+$("try-run").addEventListener("click", (event) => {
+  const name = $("try-tool").value;
+  const args = readTry();
+  const tool = lastTools?.tools.find((t) => t.name === name);
+  if (name === "vortex_axis_admin" && args.action === "run" && /reboot|reset/i.test(String(args.run ?? "")) && !confirm(`Run ${args.run} on ${args.client ?? "the device"}? It restarts.`)) return;
+  const missing = (tool?.parameters?.required ?? []).filter((key) => args[key] === undefined);
+  if (missing.length) return note("try-note", `Fill in ${missing.join(" and ")} first.`, "bad");
+  note("try-note", name === "vortex_axis_ask" ? "Waiting for an answer on the device…" : "Running…");
+  act(event.target, "try-note", async () => {
+    const got = await api("POST", "/admin/mcp/tools/try", { name, arguments: args });
+    note("try-note", got.ok ? `Done in ${got.ms} ms.` : `Refused after ${got.ms} ms.`, got.ok ? "good" : "bad");
+    $("try-result").replaceChildren(
+      h("pre", { class: "mono tryout" }, got.ok ? JSON.stringify(got.result, null, 2) : got.error),
+    );
+  });
+});
 
 for (const [id, key] of [["mirror-questions", "mirrorQuestions"], ["mirror-approvals", "mirrorApprovals"]]) {
   $(id).addEventListener("change", (event) =>

@@ -758,3 +758,6 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 #face-icons.off .face-tile { opacity: 0.45; }
 #face-icon-ms-row, #face-icon-dots-row { margin: 6px 0 0; }
 #face-icon-ms-row label, #face-icon-dots-row label { min-width: 9.5em; }
+
+/* What a tool tried from the Agent tools page gave back. */
+pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 12px 0 0; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
