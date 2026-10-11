@@ -35,6 +35,8 @@ void clear();
  * face is round). `pixels` is w*h, row by row; (x, y) is its logical top left.
  */
 void blitSquare(int x, int y, int size, const uint16_t *pixels);
+/** Where blitSquare puts a square at logical (x, y): the panel position of its first pixel. */
+void squareOnPanel(int x, int y, int size, int &px, int &py);
 
 /**
  * Draws a whole screen's worth of pixels: `pixels` is width() by height(), row by row, in logical

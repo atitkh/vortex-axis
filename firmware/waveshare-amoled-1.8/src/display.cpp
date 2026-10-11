@@ -140,8 +140,9 @@ void clearBand(int y, int rows) {
     }
 }
 
-void blitSquare(int x, int y, int size, const uint16_t *pixels) {
-    int px = x, py = y;
+void squareOnPanel(int x, int y, int size, int &px, int &py) {
+    px = x;
+    py = y;
     if (rotation == 90) {
         px = y;
         py = width() - (x + size);
@@ -152,6 +153,11 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels) {
         px = height() - (y + size);
         py = x;
     }
+}
+
+void blitSquare(int x, int y, int size, const uint16_t *pixels) {
+    int px, py;
+    squareOnPanel(x, y, size, px, py);
     // Four rows per write: 4 x 240 = 960 pixels, still under the driver's 1024-pixel limit.
     // The face is round, so the same pixels go out whatever the rotation.
     const int rows = ROWS_PER_WRITE;

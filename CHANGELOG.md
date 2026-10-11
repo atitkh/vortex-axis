@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.15.2 (2026-10-11)
+
+- The glow's corner curve is wider (56 px) and a board setting, **Glow corner curve** (`glowCorner`), so it can be matched to the glass; at 32 px it sat inside the panel's rounded corners and was hidden there.
+- Where the glow runs across the face, it now lands in the right place when the board is turned: the face's frame is sent in the panel's own orientation, and `glow::tint` was laying the glow into it as if it were turned, so the amber line showed down the face's side instead of along the top edge.
+
 ## Board firmware 0.15.1 (2026-10-11)
 
 - The edge glow turns the corners on a curve (32 px) instead of two bands crossing in a square, so it follows the panel's rounded corners as one line.

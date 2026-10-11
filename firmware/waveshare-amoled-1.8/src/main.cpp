@@ -42,6 +42,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"onsetMs", "Wait for the first word", "number", "Listening", "How long to wait for you to start talking after a wake or a tap.", "6000", 1000, 20000, "ms", nullptr},
     {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
+    {"glowCorner", "Glow corner curve", "number", "Screen", "How round the edge glow turns the corners. Raise it until the corners show as a smooth curve.", "56", 12, 120, "pixels", nullptr},
     {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
@@ -263,6 +264,7 @@ static void applySettings() {
     display::setRotation(wantedRotation());
     vortex::setRotation(wantedRotation());
     display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
+    glow::setCorner((int)client.settingInt("glowCorner", 56));
     speaker::setVolume((int)client.settingInt("volume", 60));
     vortex::setIdleOff(client.setting("idleLooksOff").c_str());
     vortex::setIconStyle(client.setting("toolIcons").c_str());
@@ -932,7 +934,7 @@ void loop() {
         renderMicros += micros() - t0;
         // The notification light runs on across the face where they meet (the face drawn at the top, sideways).
         // The face draws a fresh frame each time, so laying the glow into it leaves nothing behind.
-        glow::tint(const_cast<uint16_t *>(frame), (display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE);
+        glow::tint(const_cast<uint16_t *>(frame), (display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE);
         display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
         drawMicros += micros() - t0;
         frames++;

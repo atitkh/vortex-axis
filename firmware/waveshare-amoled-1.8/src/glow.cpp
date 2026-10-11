@@ -8,8 +8,8 @@ namespace {
 
 const int DEPTH = 12;               // pixels in from the edge
 // The glow turns the corners on a curve this wide, so it reads as one line around the panel's own rounded
-// corners rather than two bands that cross there.
-const int RADIUS = 32;
+// corners rather than two bands that cross there. Board setting glowCorner, to match the glass.
+int RADIUS = 56;
 const uint32_t FRAME_MS = 50;
 // The face's own colours for each state (vortex.cpp's looks), and how fast it breathes in each.
 struct Tint {
@@ -124,20 +124,24 @@ void update(const uint16_t *under, State state, float level, Rect keepOut) {
     drawAll(under, t, strength, keepOut);
 }
 
-void tint(uint16_t *pixels, int x, int y, int w, int h) {
+void tint(uint16_t *pixels, int x, int y, int size) {
     if (drawn == State::None) return;
     const Tint &t = TINTS[(int)drawn];
     const int sw = display::width(), sh = display::height(), reach = max(DEPTH, RADIUS);
-    for (int j = 0; j < h; j++) {
-        const int py = y + j;
-        const bool nearRow = py < reach || py >= sh - reach;
-        for (int i = 0; i < w; i++) {
-            const int px = x + i;
-            if (!nearRow && px >= DEPTH && px < sw - DEPTH) continue;
-            pixels[j * w + i] = blend(pixels[j * w + i], t, alphaAt(px, py, drawnStrength));
+    // The face's frame is laid out as the panel sees it, not turned, so each pixel is found on the logical screen.
+    int ox, oy;
+    display::squareOnPanel(x, y, size, ox, oy);
+    for (int j = 0; j < size; j++) {
+        for (int i = 0; i < size; i++) {
+            int px, py;
+            display::toLogical(ox + i, oy + j, px, py);
+            if (py >= reach && py < sh - reach && px >= reach && px < sw - reach) continue;
+            pixels[j * size + i] = blend(pixels[j * size + i], t, alphaAt(px, py, drawnStrength));
         }
     }
 }
+
+void setCorner(int radius) { RADIUS = constrain(radius, DEPTH, 120); }
 
 void reset() { drawn = State::None; }
 
