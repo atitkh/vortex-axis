@@ -25,6 +25,12 @@ struct Rect {
  */
 void update(const uint16_t *under, State state, float level, Rect keepOut = {});
 
+/**
+ * Lays the glow now on show over `pixels`, a w by h block at logical (x, y) that something draws itself
+ * (the face) and `keepOut` left alone, so the glow runs on unbroken across it. Nothing when there is none.
+ */
+void tint(uint16_t *pixels, int x, int y, int w, int h);
+
 /** Forgets what was drawn, for when the screen has been redrawn from scratch. */
 void reset();
 

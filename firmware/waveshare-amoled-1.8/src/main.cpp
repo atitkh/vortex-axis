@@ -930,6 +930,9 @@ void loop() {
         const uint32_t t0 = micros();
         const uint16_t *frame = vortex::render(min(seconds, 0.1f));
         renderMicros += micros() - t0;
+        // The notification light runs on across the face where they meet (the face drawn at the top, sideways).
+        // The face draws a fresh frame each time, so laying the glow into it leaves nothing behind.
+        glow::tint(const_cast<uint16_t *>(frame), (display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE);
         display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
         drawMicros += micros() - t0;
         frames++;

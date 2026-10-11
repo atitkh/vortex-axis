@@ -7,6 +7,9 @@ namespace glow {
 namespace {
 
 const int DEPTH = 12;               // pixels in from the edge
+// The glow turns the corners on a curve this wide, so it reads as one line around the panel's own rounded
+// corners rather than two bands that cross there.
+const int RADIUS = 32;
 const uint32_t FRAME_MS = 50;
 // The face's own colours for each state (vortex.cpp's looks), and how fast it breathes in each.
 struct Tint {
@@ -23,28 +26,44 @@ const Tint TINTS[] = {
 
 State drawn = State::None;
 uint32_t lastDraw = 0;
-uint16_t strip[448 * DEPTH];
+float drawnStrength = 0;
+const int STRIP = 448 * DEPTH;
+uint16_t strip[STRIP];
 
-/** One edge strip at logical (x, y), w by h: the picture underneath with the glow laid over it. */
-void drawStrip(const uint16_t *under, int x, int y, int w, int h, const Tint &t, float strength) {
+/** How much glow logical (px, py) gets: full at the edge, gone DEPTH in, following the rounded corners. */
+float alphaAt(int px, int py, float strength) {
     const int sw = display::width(), sh = display::height();
+    const int cx = constrain(px, RADIUS, sw - 1 - RADIUS), cy = constrain(py, RADIUS, sh - 1 - RADIUS);
+    float d;
+    if (cx != px && cy != py) d = RADIUS - sqrtf((float)((px - cx) * (px - cx) + (py - cy) * (py - cy)));
+    else d = min(min(px, py), min(sw - 1 - px, sh - 1 - py));
+    if (d >= DEPTH) return 0.0f;
+    const float fall = d <= 0 ? 1.0f : 1.0f - d / DEPTH;
+    return strength * fall * fall;
+}
+
+uint16_t blend(uint16_t p, const Tint &t, float a) {
+    if (a <= 0) return p;
+    const float r = ((p >> 11) & 0x1F) / 31.0f, g = ((p >> 5) & 0x3F) / 63.0f, b = (p & 0x1F) / 31.0f;
+    const float nr = r + (t.r - r) * a, ng = g + (t.g - g) * a, nb = b + (t.b - b) * a;
+    return ((uint16_t)(nr * 31.0f + 0.5f) << 11) | ((uint16_t)(ng * 63.0f + 0.5f) << 5) | (uint16_t)(nb * 31.0f + 0.5f);
+}
+
+/** One piece at logical (x, y), w by h: the picture underneath with the glow laid over it. */
+void drawStrip(const uint16_t *under, int x, int y, int w, int h, const Tint &t, float strength) {
+    const int sw = display::width();
     for (int j = 0; j < h; j++) {
         for (int i = 0; i < w; i++) {
             const int px = x + i, py = y + j;
-            const uint16_t p = under ? under[py * sw + px] : 0;
-            const int d = min(min(px, py), min(sw - 1 - px, sh - 1 - py));
-            const float fall = 1.0f - (float)d / DEPTH;
-            const float a = d >= DEPTH ? 0.0f : strength * fall * fall;
-            const float r = ((p >> 11) & 0x1F) / 31.0f, g = ((p >> 5) & 0x3F) / 63.0f, b = (p & 0x1F) / 31.0f;
-            const float nr = r + (t.r - r) * a, ng = g + (t.g - g) * a, nb = b + (t.b - b) * a;
-            strip[j * w + i] = ((uint16_t)(nr * 31.0f + 0.5f) << 11) | ((uint16_t)(ng * 63.0f + 0.5f) << 5) | (uint16_t)(nb * 31.0f + 0.5f);
+            strip[j * w + i] = blend(under ? under[py * sw + px] : 0, t, alphaAt(px, py, strength));
         }
     }
     display::blitRect(x, y, w, h, strip);
 }
 
-/** Draws the part of a band that lies outside `keep` (the band runs along x when `across`, else along y). */
+/** Draws the part of a block that lies outside `keep` (cut along x when the block is wider than tall, else along y). */
 void drawBand(const uint16_t *under, int x, int y, int w, int h, const Tint &t, float strength, const Rect &keep) {
+    if (w <= 0 || h <= 0) return;
     const bool across = w >= h;
     int from = across ? x : y, to = across ? x + w : y + h;
     int cutFrom = to, cutTo = to;
@@ -55,8 +74,8 @@ void drawBand(const uint16_t *under, int x, int y, int w, int h, const Tint &t, 
             cutTo = min(to, across ? keep.x + keep.w : keep.y + keep.h);
         }
     }
-    // Pieces small enough for the strip buffer: a full band across, DEPTH rows at a time down the sides.
-    const int step = across ? 448 : DEPTH;
+    // Pieces small enough for the strip buffer.
+    const int step = across ? STRIP / h : STRIP / w;
     for (int a = from; a < to;) {
         if (a >= cutFrom && a < cutTo) {
             a = cutTo;
@@ -70,11 +89,16 @@ void drawBand(const uint16_t *under, int x, int y, int w, int h, const Tint &t, 
 }
 
 void drawAll(const uint16_t *under, const Tint &t, float strength, const Rect &keep) {
-    const int w = display::width(), h = display::height();
-    drawBand(under, 0, 0, w, DEPTH, t, strength, keep);
-    drawBand(under, 0, h - DEPTH, w, DEPTH, t, strength, keep);
-    drawBand(under, 0, DEPTH, DEPTH, h - 2 * DEPTH, t, strength, keep);
-    drawBand(under, w - DEPTH, DEPTH, DEPTH, h - 2 * DEPTH, t, strength, keep);
+    const int w = display::width(), h = display::height(), r = RADIUS;
+    // The four straight runs between the corners, then the corners, which are deeper to hold the curve.
+    drawBand(under, r, 0, w - 2 * r, DEPTH, t, strength, keep);
+    drawBand(under, r, h - DEPTH, w - 2 * r, DEPTH, t, strength, keep);
+    drawBand(under, 0, r, DEPTH, h - 2 * r, t, strength, keep);
+    drawBand(under, w - DEPTH, r, DEPTH, h - 2 * r, t, strength, keep);
+    drawBand(under, 0, 0, r, r, t, strength, keep);
+    drawBand(under, w - r, 0, r, r, t, strength, keep);
+    drawBand(under, 0, h - r, r, r, t, strength, keep);
+    drawBand(under, w - r, h - r, r, r, t, strength, keep);
 }
 
 }  // namespace
@@ -96,7 +120,23 @@ void update(const uint16_t *under, State state, float level, Rect keepOut) {
     const float breath = 0.5f + 0.5f * sinf(2.0f * PI * t.hz * now / 1000.0f);
     float strength = level >= 0 ? 0.35f + 0.6f * constrain(level, 0.0f, 1.0f) : 0.3f + 0.45f * breath;
     if (state == State::Done) strength = 0.9f * constrain(level, 0.0f, 1.0f);  // a flash fades right out
+    drawnStrength = strength;
     drawAll(under, t, strength, keepOut);
+}
+
+void tint(uint16_t *pixels, int x, int y, int w, int h) {
+    if (drawn == State::None) return;
+    const Tint &t = TINTS[(int)drawn];
+    const int sw = display::width(), sh = display::height(), reach = max(DEPTH, RADIUS);
+    for (int j = 0; j < h; j++) {
+        const int py = y + j;
+        const bool nearRow = py < reach || py >= sh - reach;
+        for (int i = 0; i < w; i++) {
+            const int px = x + i;
+            if (!nearRow && px >= DEPTH && px < sw - DEPTH) continue;
+            pixels[j * w + i] = blend(pixels[j * w + i], t, alphaAt(px, py, drawnStrength));
+        }
+    }
 }
 
 void reset() { drawn = State::None; }
