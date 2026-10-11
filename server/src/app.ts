@@ -191,7 +191,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     }
   };
   const progress = new Progress(hub, {
-    onBlocked: (task) => tellPhones(`${task.title}: needs you`, task.note || "The agent is waiting for you.", `task-${task.id}`),
+    // A phone showing it as a live activity has already sounded for it; the notification is for when that did not happen.
+    onBlocked: (task) => {
+      void liveActivities.reachedPhone(task.id).then((reached) => {
+        if (!reached) tellPhones(`${task.title}: needs you`, task.note || "The agent is waiting for you.", `task-${task.id}`);
+      });
+    },
     onEnd: (task, ending) => {
       const at = Date.now();
       activity.task({

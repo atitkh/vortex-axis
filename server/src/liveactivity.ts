@@ -133,6 +133,8 @@ export class LiveActivities {
   private sentCount = 0;
   private lastSentAt: number | undefined;
   private lastAck: { at: number; phone?: string | undefined } | undefined;
+  /** When Home Assistant last said it passed each activity on, by tag. */
+  private readonly ackedAt = new Map<string, number>();
   /** Tests waiting to hear Home Assistant passed theirs on. */
   private readonly ackWaiters: ((tag: string, phone: string | undefined) => void)[] = [];
   /** Activities an earlier run of Axis left on show, still to be ended. */
@@ -180,7 +182,25 @@ export class LiveActivities {
       // An acknowledgement that says nothing more is still one.
     }
     this.lastAck = { at: this.now(), phone };
+    if (tag) this.ackedAt.set(tag, this.now());
     if (tag) for (const waiter of this.ackWaiters.splice(0)) waiter(tag, phone);
+  }
+
+  /**
+   * Whether a task's latest update reached a phone: true once Home Assistant says it passed it on, false when it
+   * was never sent (switched off, a short task) or no word comes within `waitMs`. Lets a notification saying the
+   * same be left out.
+   */
+  async reachedPhone(taskId: string, waitMs = 10_000): Promise<boolean> {
+    const tag = tagFor("task", taskId);
+    const shown = this.shown.get(tag);
+    if (!shown) return false;
+    const deadline = this.now() + waitMs;
+    for (;;) {
+      if ((this.ackedAt.get(tag) ?? 0) >= shown.sentAt) return true;
+      if (this.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   /** Puts a short test activity on the phone, to check the blueprint is set up. Ends by itself. */
