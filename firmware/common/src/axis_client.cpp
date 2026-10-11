@@ -1925,7 +1925,8 @@ void Client::setReading(const char *key, long value) {
         }
         if (impl_->boardReadingValue[at] != value) {
             impl_->boardReadingValue[at] = value;
-            impl_->lastSense = 0;  // send the readings on the next pass
+            // Send the readings on the next pass. Not 0: in the first minute after a start that would wait it out.
+            impl_->lastSense = millis() - SENSE_INTERVAL_MS - 1;
         }
     }
     xSemaphoreGive(impl_->lock);

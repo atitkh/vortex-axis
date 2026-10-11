@@ -4,9 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## 0.28.0 (2026-10-11), board firmware 0.13.0
+## 0.28.0 (2026-10-11), board firmware 0.13.1
 
 - **Boards as Home Assistant sensors.** A board reports how loud its room is (`soundDb`, dB of microphone full scale over 5 s, in 2 dB steps) and whether there has been sound well above the room's usual level in the last 15 s (`soundActive`), levels only and never audio, with its own speech left out; Axis shows them as a **Sound level** sensor and a **Sound** binary sensor (device class sound), unavailable while the board is offline. Board setting **Room sound to Axis** turns it off.
+- Firmware 0.13.1: a reading that changes is sent on the next pass; before, any change in the first minute after a start held all readings back until the minute was up.
 - **Touch gestures as events.** A hold or a swipe (left, right, up, down, as the screen shows it) on a board goes to Axis as a new client message `gesture` and on to Home Assistant as an event of the board's **Gesture** entity, for automations. Taps still talk and answer. Board setting **Gestures to Axis** turns it off.
 
 ## 0.27.4 (2026-10-11)
