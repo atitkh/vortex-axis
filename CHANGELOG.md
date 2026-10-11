@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.27.4 (2026-10-11)
+
+- **Live activities sooner on the phone.** Every change of state (needs you, done, back to work, a timer going off) now goes at full priority, with a sound; only a step within the same state goes quietly, at the low priority iOS may hold back. A timer's activity says "Done" the moment it is due, not once the device has finished announcing it.
+
 ## 0.27.3 (2026-10-11)
 
 - **Back out 0.27.2.** The "needs you" notification is sent again while away even when a phone also shows the live activity: tapping the notification opens the installed web app, which tapping a live activity cannot (iOS opens it in the browser).

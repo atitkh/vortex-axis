@@ -15,12 +15,14 @@ import { spokenLength } from "./timers.js";
  * Not everything goes. iOS limits how often activities may start and be
  * updated, and drops what goes over quietly, so:
  * - a task shows once it has run for `startAfterMs` (a short one never does),
- *   or at once when it waits for the person ("needs you", which also sounds);
+ *   or at once when it waits for the person ("needs you");
  * - a timer shows when it is a minute or longer;
  * - updates to one activity are at least `gapMs` apart, except a change of
  *   state (running, needs you, done), which goes at once;
- * - a finished task updates quietly (Axis's own notification already says so);
- *   a finished timer sounds.
+ * - a change of state (needs you, done, back to work, a timer going off) sounds
+ *   and goes at full priority; a step within the same state goes quietly, at the
+ *   low priority iOS may hold back;
+ * - a timer shows "Done" the moment it is due.
  * An activity ends when its task leaves the screens or its timer is cancelled,
  * or a minute after the timer went off.
  */
@@ -93,8 +95,8 @@ export function taskMessage(task: Task, url?: string): LiveMessage {
       notification_icon_color: COLORS[state],
       // Waiting for the person takes the Dynamic Island; a finished task gives it up.
       relevance_score: state === "blocked" ? 1 : state === "done" ? 0.2 : 0.5,
-      // Only "needs you" makes a sound. Starting one always alerts; iOS gives no choice there.
-      silent: state !== "blocked",
+      // Settled per update in show(): only a step within the same state goes quietly.
+      silent: false,
       ...(url ? { url } : {}),
     },
   };
@@ -114,7 +116,7 @@ export function timerMessage(timer: TimerRecord, done: boolean, url?: string): L
       notification_icon: done ? "mdi:timer-check" : "mdi:timer-outline",
       notification_icon_color: COLORS.timer,
       relevance_score: done ? 0.9 : 0.8,
-      silent: !done,
+      silent: false,
       ...(url ? { url } : {}),
     },
   };
@@ -127,6 +129,7 @@ export class LiveActivities {
   /** Timers seen last time, to tell one that went off from one cancelled. */
   private lastTimers = new Map<string, TimerRecord>();
   private timer: NodeJS.Timeout | undefined;
+  private dueTimer: NodeJS.Timeout | undefined;
   private readonly now: () => number;
   private readonly startAfterMs: number;
   private readonly gapMs: number;
@@ -154,6 +157,7 @@ export class LiveActivities {
 
   stop(): void {
     clearInterval(this.timer);
+    clearTimeout(this.dueTimer);
     for (const s of this.shown.values()) clearTimeout(s.waiting);
   }
 
@@ -234,11 +238,18 @@ export class LiveActivities {
     const timers = new Map(this.options.timers().map((t) => [tagFor("timer", t.id), t]));
     for (const [tag, timer] of this.lastTimers) {
       // Gone from the list close to when it was due: it went off, rather than being cancelled.
-      if (!timers.has(tag) && this.shown.has(tag) && timer.dueAt <= now + 2_000) this.rang.set(tag, { timer, at: now });
+      if (!timers.has(tag) && this.shown.has(tag) && timer.dueAt <= now + 2_000 && !this.rang.has(tag)) this.rang.set(tag, { timer, at: now });
     }
     this.lastTimers = timers;
+    let nextDue = Infinity;
     for (const [tag, timer] of timers) {
       if (timer.seconds < TIMER_MIN_SECONDS && !this.shown.has(tag)) continue;
+      // Due: "Done" now, not once the device has finished announcing it and the timer is gone.
+      if (timer.dueAt <= now) {
+        if (this.shown.has(tag) && !this.rang.has(tag)) this.rang.set(tag, { timer, at: timer.dueAt });
+        continue;
+      }
+      nextDue = Math.min(nextDue, timer.dueAt);
       wanted.set(tag, { message: timerMessage(timer, false, url), state: "running" });
     }
     for (const [tag, rang] of this.rang) {
@@ -248,11 +259,17 @@ export class LiveActivities {
 
     for (const [tag, want] of wanted) this.show(tag, want.message, want.state);
     for (const tag of [...this.shown.keys()]) if (!wanted.has(tag)) this.end(tag);
+    // Looked at again the moment the next timer is due.
+    clearTimeout(this.dueTimer);
+    if (nextDue !== Infinity) this.dueTimer = setTimeout(() => this.sync(), Math.max(0, nextDue - now) + 50).unref();
   }
 
   private show(tag: string, message: LiveMessage, state: string): void {
-    const body = JSON.stringify(message);
     const shown = this.shown.get(tag);
+    // A change of state (needs you, done, a timer going off, back to work) sounds and goes at full priority;
+    // a step within the same state goes quietly, which iOS may deliver late.
+    if (message.data) message.data.silent = Boolean(shown && shown.state === state);
+    const body = JSON.stringify(message);
     if (shown && shown.sent === body) return;
     const now = this.now();
     // A change of state goes at once; anything else waits out the gap since the last update.

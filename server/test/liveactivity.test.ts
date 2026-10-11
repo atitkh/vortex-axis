@@ -47,7 +47,7 @@ describe("live activities", () => {
     w.now += 30_000;
     live.sync();
     expect(w.sent).toHaveLength(1);
-    expect(w.sent[0]).toMatchObject({ tag: "axis-task-t1", title: "Research", message: "searching", data: { live_update: true, silent: true } });
+    expect(w.sent[0]).toMatchObject({ tag: "axis-task-t1", title: "Research", message: "searching", data: { live_update: true, silent: false } });
   });
 
   it("never shows a task that finishes before then", () => {
@@ -82,6 +82,21 @@ describe("live activities", () => {
     expect(w.sent.map((m) => m.message)).toEqual(["searching", "Needs you: reading"]);
   });
 
+  it("sends a step within the same state quietly, and a change of state with a sound", () => {
+    const { w, live } = world();
+    w.now += 30_000;
+    w.tasks = [task()];
+    live.sync();
+    w.now += 10_000;
+    w.tasks = [task({ note: "reading" })];
+    live.sync();
+    w.tasks = [task({ note: "reading", state: "blocked" })];
+    live.sync();
+    w.tasks = [task({ note: "writing" })];
+    live.sync();
+    expect(w.sent.map((m) => [m.message, m.data!.silent])).toEqual([["searching", false], ["reading", true], ["Needs you: reading", false], ["writing", false]]);
+  });
+
   it("sends a held-back update when the gap is over", () => {
     const { w, live } = world();
     w.now += 30_000;
@@ -103,7 +118,7 @@ describe("live activities", () => {
     expect(w.sent[0]!.data).toMatchObject({ progress: 1, progress_max: 3, critical_text: "1/3" });
     w.tasks = [task({ total: 3, done: 3, state: "done" })];
     live.sync();
-    expect(w.sent[1]).toMatchObject({ message: "Done", data: { silent: true, notification_icon: "mdi:check-circle" } });
+    expect(w.sent[1]).toMatchObject({ message: "Done", data: { silent: false, notification_icon: "mdi:check-circle" } });
     w.tasks = [];
     live.sync();
     expect(w.sent[2]).toEqual({ tag: "axis-task-t1", end: true });
@@ -117,13 +132,18 @@ describe("live activities", () => {
     expect(w.sent[0]).toMatchObject({ tag: "axis-timer-7", title: "pasta", message: "10 minutes timer", data: { chronometer: true, when: 1600, when_relative: false } });
   });
 
-  it("says a timer that went off is done, with a sound, then ends it a minute later", () => {
+  it("says a timer is done the moment it is due, with a sound, then ends it a minute later", () => {
     const { w, live } = world();
     w.timers = [timer()];
     live.sync();
-    w.now = 1_600_500;
+    // Still in the list while the device announces it.
+    w.now = 1_600_000;
+    live.sync();
+    expect(w.sent[1]).toMatchObject({ message: "Done", data: { silent: false } });
+    w.now = 1_603_000;
     w.timers = [];
     live.sync();
+    expect(w.sent).toHaveLength(2);
     expect(w.sent[1]).toMatchObject({ message: "Done", data: { silent: false } });
     w.now += 61_000;
     live.sync();
