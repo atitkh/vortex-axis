@@ -140,7 +140,9 @@ export class Progress {
 
   /** Tasks on show. One that waits for the person comes first, whatever else is going on; then the one reported on last. */
   list(): Task[] {
-    this.prune();
+    // Whoever looks first may be the one to find a task gone (the live activities look every few seconds);
+    // the screens are told either way, just not from inside the look.
+    if (this.prune()) queueMicrotask(() => this.tell());
     const waiting = (task: Task) => (task.state === "blocked" ? 1 : 0);
     return [...this.tasks.values()].sort((a, b) => waiting(b) - waiting(a) || b.updatedAt - a.updatedAt);
   }
