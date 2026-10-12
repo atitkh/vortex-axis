@@ -48,6 +48,14 @@ public interface IDesktop
     Task TypeAsync(ScreenElement? target, string text, CancellationToken ct);
     /** Presses one key combination. */
     Task KeysAsync(KeyCombo combo, CancellationToken ct);
+    /** Starts a Start-menu app matched by name, or opens an http(s) address in the default browser. Returns what it opened. */
+    Task<string> OpenAsync(string? app, string? url, CancellationToken ct);
+    /** Brings to the front the window best matching an app name or a title. */
+    Task<WindowInfo> SwitchAsync(string window, CancellationToken ct);
+    /** Minimizes, maximizes, restores or moves to display `display` (1-based) the named window, or the one in front. */
+    Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct);
+    /** The next or previous virtual desktop. */
+    Task DesktopAsync(bool next, CancellationToken ct);
 }
 
 /** A key with the modifiers held for it: "ctrl+shift+t", "enter", "alt+tab". */
@@ -178,19 +186,27 @@ public sealed class DesktopCommands
                 Did?.Invoke($"Looked at the {scope}: {elements.Count} things{(look.Ocr ? ", text read from the pixels" : "")}");
                 return CommandAnswer.Done(data: LookData(look, elements));
             }
+            case "desktop.find":
+            {
+                if (!Toggle("allowLook", true)) return CommandAnswer.Fail("reading the screen is switched off for this computer");
+                var query = Str(p, "name") ?? "";
+                var look = await FreshLookAsync(ct);
+                var found = Match(look.Elements, query, Str(p, "kind")).Take(5).ToList();
+                Did?.Invoke($"Looked for \"{Clip(query, 40)}\": {found.Count} found");
+                var list = new JsonArray(found.Select(m => (JsonNode?)Brief(look.Elements[m.Index], m.Index + 1)).ToArray());
+                var data = new JsonObject { ["matches"] = list };
+                if (look.Window is { } w) data["window"] = new JsonObject { ["title"] = Clip(w.Title, 200), ["app"] = w.App };
+                return CommandAnswer.Done(data: data);
+            }
             case "desktop.point":
             {
                 int x, y;
                 string? label = null;
-                if (Int(p, "id") is int id)
-                {
-                    ScreenElement? e;
-                    lock (gate) e = id >= 1 && id <= last.Count ? last[id - 1] : null;
-                    if (e == null) return CommandAnswer.Fail($"no element {id} in the last look; look again");
-                    (x, y, label) = (e.X + e.W / 2, e.Y + e.H / 2, e.Name);
-                }
+                var (target, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
+                if (target != null) (x, y, label) = (target.X + target.W / 2, target.Y + target.H / 2, target.Name);
                 else if (Int(p, "x") is int px && Int(p, "y") is int py) (x, y) = (px, py);
-                else return CommandAnswer.Fail("point needs an id, or x and y");
+                else return CommandAnswer.Fail("point needs a name, an id, or x and y");
                 var words = Toggle("bubble", true) ? Str(p, "text") : null;
                 var seconds = Math.Clamp(Int(p, "seconds") ?? 6, 1, 60);
                 await desktop.PointAsync(x, y, words, seconds, ct);
@@ -202,7 +218,12 @@ public sealed class DesktopCommands
             case "desktop.hide":
                 await desktop.HideAsync();
                 return CommandAnswer.Done();
-            case "desktop.click" or "desktop.type" or "desktop.keys":
+            case "desktop.wait":
+                await Task.Delay(Math.Clamp(Int(p, "ms") ?? 500, 50, 3000), ct);
+                return CommandAnswer.Done();
+            case "desktop.steps":
+                return await StepsAsync(p, ct);
+            case "desktop.click" or "desktop.type" or "desktop.keys" or "desktop.open" or "desktop.switch" or "desktop.window" or "desktop.desktop":
                 return await ActAsync(name, p, ct);
             case "desktop.hello":
             {
@@ -217,24 +238,151 @@ public sealed class DesktopCommands
         }
     }
 
-    /** Clicking, typing and keys: switched off by the person (Axis's allowInput), and held to the app's own limits. */
+    /** What a step in `steps` may be. */
+    static readonly HashSet<string> StepActions = ["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find"];
+    public const int MaxSteps = 10;
+    /** A moment between steps, for the screen to catch up with the last one. */
+    const int SettleMs = 150;
+
+    /** Runs steps in order, stopping at the first that fails. Says how each went. */
+    async Task<CommandAnswer> StepsAsync(JsonElement p, CancellationToken ct)
+    {
+        if (!(p.ValueKind == JsonValueKind.Object && p.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
+              && data.TryGetProperty("steps", out var steps) && steps.ValueKind == JsonValueKind.Array))
+            return CommandAnswer.Fail("steps needs a list of steps");
+        if (steps.GetArrayLength() > MaxSteps) return CommandAnswer.Fail($"at most {MaxSteps} steps in one call");
+        var report = new JsonArray();
+        var i = 0;
+        foreach (var step in steps.EnumerateArray())
+        {
+            i++;
+            var action = Str(step, "action") ?? "";
+            if (!StepActions.Contains(action))
+                return StepsFailed(report, i, action, $"{action} cannot be a step");
+            if (i > 1) await Task.Delay(SettleMs, ct);
+            CommandAnswer answer;
+            try { answer = await RunAsync($"desktop.{action}", step, ct); }
+            catch (Exception e) { answer = CommandAnswer.Fail(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message); }
+            var line = new JsonObject { ["action"] = action, ["ok"] = answer.Ok };
+            if (answer.Payload != null) foreach (var (k, v) in answer.Payload) line[k] = v?.DeepClone();
+            if (answer.Data is JsonObject d && d["matches"] is JsonNode m) line["matches"] = m.DeepClone();
+            if (!answer.Ok) return StepsFailed(report, i, action, answer.Error ?? "failed", line);
+            report.Add(line);
+        }
+        Did?.Invoke($"Ran {i} steps");
+        return CommandAnswer.Done(data: new JsonObject { ["steps"] = report, ["done"] = i, ["of"] = i });
+    }
+
+    CommandAnswer StepsFailed(JsonArray report, int at, string action, string error, JsonObject? line = null)
+    {
+        line ??= new JsonObject { ["action"] = action, ["ok"] = false };
+        line["error"] = error;
+        report.Add(line);
+        Did?.Invoke($"Steps stopped at step {at} ({action}): {error}");
+        return new CommandAnswer(false, $"step {at} ({action}) failed: {error}", null,
+            new JsonObject { ["steps"] = report, ["done"] = at - 1, ["failed"] = at, ["error"] = error });
+    }
+
+    /** The window in front, read afresh, every element kept (not just the 250 a look sends), for finding by name. */
+    async Task<LookResult> FreshLookAsync(CancellationToken ct)
+    {
+        var look = await desktop.LookAsync("window", Toggle("autoOcr", true) ? OcrMode.Auto : OcrMode.Never, ct);
+        lock (gate) last = look.Elements;
+        return look;
+    }
+
+    /**
+     * The element a command means: `id` from the last look or find, or `name` (with `kind`) matched in a fresh
+     * look at the window in front. Neither: no element, and no failure. A name that matches nothing, or several
+     * equally, is a failure that lists what it found, with ids that hold for the next call.
+     */
+    async Task<(ScreenElement? Target, string? Fail)> TargetAsync(JsonElement p, CancellationToken ct)
+    {
+        if (Int(p, "id") is int id)
+        {
+            ScreenElement? e;
+            lock (gate) e = id >= 1 && id <= last.Count ? last[id - 1] : null;
+            return e == null ? (null, $"no element {id} in the last look; look again") : (e, null);
+        }
+        var query = Str(p, "name");
+        if (query == null) return (null, null);
+        var look = await FreshLookAsync(ct);
+        var matches = Match(look.Elements, query, Str(p, "kind"));
+        if (matches.Count == 0) return (null, $"nothing called \"{query}\" in the window in front ({look.Window?.Title ?? "none"}); try find, look, or switch first");
+        var top = matches[0];
+        var tied = matches.TakeWhile(m => m.Score == top.Score).ToList();
+        if (tied.Count > 1 && !Nested(look.Elements, tied))
+        {
+            var which = string.Join("; ", tied.Take(5).Select(m => $"id {m.Index + 1}: {look.Elements[m.Index].Kind} \"{Clip(look.Elements[m.Index].Name, 40)}\""));
+            return (null, $"\"{query}\" matches {tied.Count} things equally ({which}); use one of the ids");
+        }
+        // Several the same, one inside another (a button and its own label): the innermost.
+        var chosen = tied.Count > 1 ? tied.MinBy(m => (long)look.Elements[m.Index].W * look.Elements[m.Index].H) : top;
+        return (look.Elements[chosen.Index], null);
+    }
+
+    static bool Nested(IReadOnlyList<ScreenElement> all, List<(int Index, int Score)> tied)
+    {
+        var boxes = tied.Select(m => all[m.Index]).ToList();
+        var inner = boxes.MinBy(e => (long)e.W * e.H)!;
+        return boxes.All(e => inner.X >= e.X && inner.Y >= e.Y && inner.X + inner.W <= e.X + e.W && inner.Y + inner.H <= e.Y + e.H);
+    }
+
+    static string Norm(string s) => string.Join(' ', s.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim('.', '…', ':', ' ');
+
+    /**
+     * Elements whose name fits `query`, best first: the same name, then starting with it, then holding it at a
+     * word, then anywhere, then all its words. Things that can be used and things of the `kind` asked come
+     * before the rest; big containers (a window, a pane, a page) after.
+     */
+    public static List<(int Index, int Score)> Match(IReadOnlyList<ScreenElement> all, string query, string? kind)
+    {
+        var q = Norm(query);
+        if (q.Length == 0) return [];
+        var words = q.Split(' ');
+        var k = kind?.ToLowerInvariant();
+        var found = new List<(int Index, int Score)>();
+        for (var i = 0; i < all.Count; i++)
+        {
+            var e = all[i];
+            var n = Norm(e.Name);
+            if (n.Length == 0) continue;
+            var score = n == q ? 100
+                : n.StartsWith(q + " ", StringComparison.Ordinal) || n.StartsWith(q, StringComparison.Ordinal) && q.Length >= 3 ? 85
+                : n.Contains(" " + q, StringComparison.Ordinal) ? 75
+                : q.Length >= 3 && n.Contains(q, StringComparison.Ordinal) ? 65
+                : words.Length > 1 && words.All(w => n.Contains(w, StringComparison.Ordinal)) ? 55
+                : 0;
+            if (score == 0) continue;
+            if (Actionable.Contains(e.Kind)) score += 8;
+            if (k != null && e.Kind == k) score += 12;
+            if (e.Kind is "window" or "pane" or "group" or "document" or "titlebar") score -= 15;
+            found.Add((i, score));
+        }
+        return found.OrderByDescending(m => m.Score).ToList();
+    }
+
+    static JsonObject Brief(ScreenElement e, int id)
+    {
+        var o = new JsonObject { ["id"] = id, ["kind"] = e.Kind, ["name"] = Clip(e.Name, MaxText), ["x"] = e.X, ["y"] = e.Y, ["w"] = e.W, ["h"] = e.H };
+        if (e.Focused) o["focused"] = true;
+        return o;
+    }
+
+    /** Everything that changes the screen: switched off by the person (Axis's allowInput), and held to the app's own limits. */
     async Task<CommandAnswer> ActAsync(string name, JsonElement p, CancellationToken ct)
     {
         if (!Toggle("allowInput", true)) return CommandAnswer.Fail("clicking and typing are switched off for this computer");
-        ScreenElement? target = null;
-        if (Int(p, "id") is int id)
-        {
-            lock (gate) target = id >= 1 && id <= last.Count ? last[id - 1] : null;
-            if (target == null) return CommandAnswer.Fail($"no element {id} in the last look; look again");
-        }
         switch (name)
         {
             case "desktop.click":
             {
+                var (target, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
                 int x, y;
                 if (target != null) (x, y) = (target.X + target.W / 2, target.Y + target.H / 2);
                 else if (Int(p, "x") is int px && Int(p, "y") is int py) (x, y) = (px, py);
-                else return CommandAnswer.Fail("click needs an id, or x and y");
+                else return CommandAnswer.Fail("click needs a name, an id, or x and y");
                 var kind = (Str(p, "button") ?? "left") switch
                 {
                     "left" => ClickKind.Left,
@@ -253,12 +401,16 @@ public sealed class DesktopCommands
                 var text = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "";
                 if (text.Length == 0) return CommandAnswer.Fail("type needs text");
                 if (text.Length > MaxTyped) return CommandAnswer.Fail($"at most {MaxTyped} characters at a time");
+                var (target, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
                 if (target?.Kind == "password") return CommandAnswer.Fail("the app never types into a password field");
                 await desktop.TypeAsync(target, text, ct);
                 Did?.Invoke($"Typed {text.Length} characters{(target != null ? $" into {Clip(target.Name, 60)}" : "")}");
-                return CommandAnswer.Done(new JsonObject { ["typed"] = text.Length });
+                var payload = new JsonObject { ["typed"] = text.Length };
+                if (target != null) payload["into"] = Clip(target.Name, 200);
+                return CommandAnswer.Done(payload);
             }
-            default:
+            case "desktop.keys":
             {
                 var combo = KeyCombo.Parse(Str(p, "keys") ?? "");
                 if (combo.Blocked() is string why)
@@ -270,8 +422,48 @@ public sealed class DesktopCommands
                 Did?.Invoke($"Pressed {combo}");
                 return CommandAnswer.Done(new JsonObject { ["pressed"] = combo.ToString() });
             }
+            case "desktop.open":
+            {
+                var url = Str(p, "url");
+                if (url != null && !(url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                    return CommandAnswer.Fail("the app only opens http and https addresses");
+                var app = Str(p, "app");
+                if ((url == null) == (app == null)) return CommandAnswer.Fail("open needs app or url");
+                var opened = await desktop.OpenAsync(app, url, ct);
+                Did?.Invoke($"Opened {Clip(opened, 60)}");
+                return CommandAnswer.Done(new JsonObject { ["opened"] = Clip(opened, 200) });
+            }
+            case "desktop.switch":
+            {
+                var to = Str(p, "window");
+                if (to == null) return CommandAnswer.Fail("switch needs window");
+                var w = await desktop.SwitchAsync(to, ct);
+                Did?.Invoke($"Switched to {Clip(w.Title, 60)}");
+                return CommandAnswer.Done(WindowPayload(w));
+            }
+            case "desktop.window":
+            {
+                var op = Str(p, "do") ?? "";
+                if (op is not ("minimize" or "maximize" or "restore" or "move")) return CommandAnswer.Fail("window needs do: minimize, maximize, restore or move");
+                var display = Int(p, "display");
+                if (op == "move" && display is not >= 1) return CommandAnswer.Fail("move needs display, 1 or more");
+                var w = await desktop.WindowAsync(op, Str(p, "window"), display, ct);
+                Did?.Invoke($"{char.ToUpper(op[0])}{op[1..]}{(op == "move" ? $" to display {display}" : "")}: {Clip(w.Title, 60)}");
+                return CommandAnswer.Done(WindowPayload(w));
+            }
+            default:
+            {
+                var go = Str(p, "go");
+                if (go is not ("next" or "previous")) return CommandAnswer.Fail("desktop needs go: next or previous");
+                await desktop.DesktopAsync(go == "next", ct);
+                Did?.Invoke($"Went to the {go} desktop");
+                return CommandAnswer.Done(new JsonObject { ["went"] = go });
+            }
         }
     }
+
+    static JsonObject WindowPayload(WindowInfo w) =>
+        new() { ["window"] = Clip(w.Title, 200), ["app"] = w.App, ["x"] = w.X, ["y"] = w.Y, ["w"] = w.W, ["h"] = w.H };
 
     /** Most text one type sends. */
     public const int MaxTyped = 500;
@@ -375,4 +567,23 @@ public static class DesktopIdentity
 
     static JsonObject Setting(string key, string label, string kind, string group, string help, string def) =>
         new() { ["key"] = key, ["label"] = label, ["kind"] = kind, ["group"] = group, ["help"] = help, ["default"] = def };
+}
+
+/** How well a name fits what someone asked for, 0 for not at all. Shared by element, app and window matching. */
+public static class Fuzzy
+{
+    public static string Norm(string s) => string.Join(' ', s.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim('.', '…', ':', ' ');
+
+    public static int Score(string name, string query)
+    {
+        var n = Norm(name);
+        var q = Norm(query);
+        if (n.Length == 0 || q.Length == 0) return 0;
+        if (n == q) return 100;
+        if (n.StartsWith(q, StringComparison.Ordinal)) return 85;
+        if (n.Contains(" " + q, StringComparison.Ordinal)) return 75;
+        if (q.Length >= 3 && n.Contains(q, StringComparison.Ordinal)) return 65;
+        var words = q.Split(' ');
+        return words.Length > 1 && words.All(w => n.Contains(w, StringComparison.Ordinal)) ? 55 : 0;
+    }
 }

@@ -187,6 +187,13 @@ public sealed class AxisLink : IAsyncDisposable
                     var id = root.GetProperty("id").GetString()!;
                     var name = root.GetProperty("name").GetString()!;
                     var parameters = root.TryGetProperty("params", out var p2) ? p2.Clone() : default;
+                    // Structured arguments (desktop.steps) arrive beside the params; the handler sees them as params.data.
+                    if (root.TryGetProperty("data", out var extra))
+                    {
+                        var merged = parameters.ValueKind == JsonValueKind.Object ? (JsonObject)JsonNode.Parse(parameters.GetRawText())! : new JsonObject();
+                        merged["data"] = JsonNode.Parse(extra.GetRawText());
+                        parameters = JsonDocument.Parse(merged.ToJsonString()).RootElement.Clone();
+                    }
                     _ = Task.Run(() => AnswerAsync(id, name, parameters, ct), ct);
                     break;
                 case "error":

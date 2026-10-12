@@ -340,6 +340,8 @@ export const Command = message("command", {
   /** For example "config.set", "reboot", "timer.set", "diag". */
   name: Type.String({ minLength: 1, maxLength: 64 }),
   params: Type.Optional(Type.Record(Type.String({ minLength: 1, maxLength: 64 }), Scalar)),
+  /** Structured arguments, for a command that takes more than a few values (`desktop.steps`). Any JSON. */
+  data: Type.Optional(Type.Unknown()),
 });
 
 /** Something went wrong. `fatal` means Axis closes the connection next. */

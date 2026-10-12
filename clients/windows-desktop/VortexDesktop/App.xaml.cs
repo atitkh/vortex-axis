@@ -295,6 +295,36 @@ sealed class WindowsDesktop : IDesktop
         await Task.Run(() => Input.Type(text), ct);
     }
 
+    public async Task<string> OpenAsync(string? app, string? url, CancellationToken ct)
+    {
+        if (url != null)
+        {
+            await Task.Run(() => Windows.Browse(url), ct);
+            return url;
+        }
+        return await Task.Run(() => Windows.Launch(app!), ct);
+    }
+
+    public async Task<WindowInfo> SwitchAsync(string window, CancellationToken ct) =>
+        await Task.Run(() =>
+        {
+            var w = Windows.Find(window);
+            Windows.Focus(w.Handle);
+            return Windows.Info(w.Handle, w.Title, w.App);
+        }, ct);
+
+    public async Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct) =>
+        await Task.Run(() =>
+        {
+            var w = window != null ? Windows.Find(window) : Windows.Front();
+            Windows.Do(w.Handle, op, display);
+            return Windows.Info(w.Handle, w.Title, w.App);
+        }, ct);
+
+    // Ctrl+Win+Right and Left: Windows' own keys for the next and previous virtual desktop.
+    public Task DesktopAsync(bool next, CancellationToken ct) =>
+        Task.Run(() => Input.Press(new KeyCombo(true, false, false, true, next ? "right" : "left")), ct);
+
     public async Task KeysAsync(KeyCombo combo, CancellationToken ct)
     {
         Native.GetCursorPos(out var at);

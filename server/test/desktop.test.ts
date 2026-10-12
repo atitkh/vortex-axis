@@ -82,6 +82,46 @@ describe("the desktop tool (experimental)", () => {
     expect((await tryTool({ action: "keys", keys: "enter" })).body.error).toMatch(/switched off/);
   });
 
+  it("acts by name, runs steps in one call, and checks the presets before the computer hears of them", async () => {
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const pc = await computer("Desk PC");
+    const answer = async (name: string, reply: Record<string, unknown>) => {
+      const asked = await pc.next("command", 0, (m) => m.name === name);
+      pc.send({ t: "command.result", id: asked.id, ok: true, ...reply });
+      return asked;
+    };
+
+    const clicking = tryTool({ action: "click", name: "Send", kind: "button" });
+    expect((await answer("desktop.click", { payload: { how: "invoked", name: "Send" } })).params).toEqual({ name: "Send", kind: "button", button: "left" });
+    expect((await clicking).body.result).toMatchObject({ done: "click", how: "invoked" });
+
+    const typing = tryTool({ action: "type", into: "Message", text: "hi" });
+    expect((await answer("desktop.type", { payload: { typed: 2 } })).params).toEqual({ text: "hi", name: "Message" });
+    await typing;
+
+    const opening = tryTool({ action: "open", app: "Spotify" });
+    expect((await answer("desktop.open", { payload: { opened: "Spotify" } })).params).toEqual({ app: "Spotify" });
+    expect((await opening).body.result).toMatchObject({ opened: "Spotify" });
+    expect((await tryTool({ action: "open", url: "file:///C:/Windows" })).body.error).toMatch(/http/);
+    expect((await tryTool({ action: "open", app: "x", url: "https://a.example" })).body.error).toMatch(/one of them/);
+    expect((await tryTool({ action: "window", do: "close" })).body.error).toMatch(/minimize, maximize, restore or move/);
+    expect((await tryTool({ action: "window", do: "move" })).body.error).toMatch(/display/);
+
+    // Several steps go as one command, with the steps as structured data; a failed step comes back as a report, not an error.
+    const stepping = tryTool({ action: "steps", steps: [{ action: "switch", window: "Discord" }, { action: "click", name: "Message" }, { action: "type", text: "on my way" }, { action: "keys", keys: "enter" }] });
+    const steps = await pc.next("command", 0, (m) => m.name === "desktop.steps");
+    expect(steps.data).toEqual({ steps: [
+      { action: "switch", window: "Discord" },
+      { action: "click", name: "Message", button: "left" },
+      { action: "type", text: "on my way" },
+      { action: "keys", keys: "enter" },
+    ] });
+    pc.send({ t: "command.result", id: steps.id, ok: false, error: "step 2 (click) failed: nothing called Message", data: { steps: [{ action: "switch", ok: true }, { action: "click", ok: false, error: "nothing called Message" }], done: 1, failed: 2 } });
+    expect((await stepping).body.result).toMatchObject({ done: 1, failed: 2 });
+    expect((await tryTool({ action: "steps", steps: [{ action: "look" }] })).body.error).toMatch(/step 1: action must be one of/);
+    expect((await tryTool({ action: "steps", steps: Array(11).fill({ action: "wait" }) })).body.error).toMatch(/at most 10/);
+  });
+
   it("asks which computer when there are several", async () => {
     await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
     await computer("Desk PC");

@@ -419,7 +419,7 @@ export class Hub implements TurnPort {
   }
 
   /** Asks a client to carry out a command and waits for its answer. Rejects when it does not answer in time. */
-  command(session: Session, name: string, params?: ScalarMap, timeoutMs = 8000): Promise<CommandOutcome> {
+  command(session: Session, name: string, params?: ScalarMap, timeoutMs = 8000, data?: unknown): Promise<CommandOutcome> {
     const id = `k${++this.commandCount}`;
     const key = `${session.client.id}:${id}`;
     return new Promise((resolve, reject) => {
@@ -428,7 +428,7 @@ export class Hub implements TurnPort {
         reject(new Error(`${session.client.name} did not answer "${name}" in ${Math.round(timeoutMs / 1000)} s`));
       }, timeoutMs);
       this.pending.set(key, { resolve, timer });
-      this.send(session, { t: "command", id, name, ...(params ? { params } : {}) });
+      this.send(session, { t: "command", id, name, ...(params ? { params } : {}), ...(data !== undefined ? { data } : {}) });
     });
   }
 

@@ -72,6 +72,7 @@ const serverSamples: ServerMessage[] = [
   { t: "stop" },
   { t: "status", upstream: { openclaw: "up", stt: "down", tts: "up" } },
   { t: "command", id: "k1", name: "config.set", params: { key: "volume", value: 60 } },
+  { t: "command", id: "k9", name: "desktop.steps", data: { steps: [{ action: "click", name: "Send" }] } },
   { t: "error", code: "upstream_down", message: "speech recognition is unavailable" },
 ];
 

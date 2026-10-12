@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.36.0 and desktop app 0.3.0 (2026-10-12)
+
+Fewer model turns per task on a computer (owner's idea: preset commands; the time goes to the agent thinking between calls, not to the PC).
+
+- **By name:** `click`, `point` and `type` (`into`) take a `name` (and `kind` to narrow it), matched in a fresh read of the window in front: same name, then starts with, then a word, then anywhere; usable things first, big containers last; a button wins over its own label inside it. Several equal matches fail with their ids. **`find`** returns the five best matches with ids instead of a whole look.
+- **`steps`:** up to 10 of open, switch, window, desktop, click, type, keys, wait, find and point in one call, run in order with a short settle between, stopping at the first that fails; the answer says how each went (`done`, `failed`, `error`). Sent as the new optional `data` on `command` (protocol 1; only the desktop app is ever sent it).
+- **Presets:** `open` (a Start-menu app by name, through shell:AppsFolder, or an http(s) address; never a path or a command), `switch` (bring a window to the front by app or title), `window` (minimize, maximize, restore, move to display n; no close), `desktop` (next or previous virtual desktop). All held by the computer's **Let agents click and type** switch.
+
 ## 0.35.0 and desktop app 0.2.0 (2026-10-12)
 
 - **Computers can be clicked and typed on (experimental).** `vortex_axis_desktop` gains `click` (an element from the last look, pressed directly through UI Automation where it can be, else a real click there with the mouse put back; or `x`,`y`; `button` left, right or double), `type` (up to 500 characters a call, into an element or whatever has the focus) and `keys` (one combination: enter, ctrl+s, alt+tab…). The app's pointer glides to where it acts first.

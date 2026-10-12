@@ -35,6 +35,10 @@ sealed class FakeDesktop : IDesktop
         // A busy window: 400 lines of text far from the mouse, then the button the mouse is on.
         for (var i = 0; i < 400; i++) elements.Add(new("text", $"message {i}", 300, -1000 + i * 2, 900, 20));
         elements.Add(new("button", "Send", 1510, -100, 60, 40));
+        elements.Add(new("text", "Send", 1520, -95, 30, 20));  // the button's own label, inside it
+        elements.Add(new("edit", "Search", 100, -1060, 300, 30));
+        elements.Add(new("hyperlink", "Settings", 10, -900, 80, 20));
+        elements.Add(new("button", "Settings", 1800, -1060, 30, 30));
         return Task.FromResult(new LookResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040), 1530, -85, elements, 1920, 2160, false,
             0, -1080, [new Display(0, 0, 1920, 1080, true), new Display(0, -1080, 1920, 1080, false)]));
     }
@@ -55,4 +59,8 @@ sealed class FakeDesktop : IDesktop
         return Task.CompletedTask;
     }
     public Task KeysAsync(KeyCombo combo, CancellationToken ct) { Console.WriteLine($"pressing {combo}"); return Task.CompletedTask; }
+    public Task<string> OpenAsync(string? app, string? url, CancellationToken ct) { Console.WriteLine($"opening {app ?? url}"); return Task.FromResult(app ?? url!); }
+    public Task<WindowInfo> SwitchAsync(string window, CancellationToken ct) { Console.WriteLine($"switching to {window}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040)); }
+    public Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct) { Console.WriteLine($"window {op} {window} {display}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, 0, 1920, 1040)); }
+    public Task DesktopAsync(bool next, CancellationToken ct) { Console.WriteLine($"desktop {(next ? "next" : "previous")}"); return Task.CompletedTask; }
 }
