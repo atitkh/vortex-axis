@@ -643,6 +643,24 @@ export function createHttpHandler(deps: HttpDeps) {
           throw new HttpError(504, (error as Error).message);
         }
       }
+      // One kind of edge glow shown on a board for a few seconds, from the admin page's glow preview.
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "glow") {
+        const { client, session } = requireOnline(parts[2]!);
+        const body = (await readJson(req)) as { kind?: unknown; corner?: unknown };
+        const kinds = ["waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking"];
+        if (typeof body.kind !== "string" || !kinds.includes(body.kind)) throw new HttpError(400, `kind must be one of ${kinds.join(", ")}`);
+        const corner = Number(body.corner);
+        if (!Number.isInteger(corner) || corner < 12 || corner > 120) throw new HttpError(400, "corner must be a whole number from 12 to 120");
+        if (!withBuiltIns(store.getSchema(client.type)).settings.some((s) => s.key === "glowCorner")) {
+          throw new HttpError(400, `${client.name} has no edge glow`);
+        }
+        const ms = body.kind === "timer" ? 10_000 : 5_000;
+        try {
+          return sendJson(res, 200, { ...(await hub.command(session, "glow.show", { kind: body.kind, corner, ms }, 5000)), ms });
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+      }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "announce") {
         const { client, session } = requireOnline(parts[2]!);
         const body = (await readJson(req)) as { text?: unknown };

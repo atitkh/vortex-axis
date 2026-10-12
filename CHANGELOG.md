@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.33.1 and board firmware 0.17.1 (2026-10-11)
+
+- The glow preview's **Show on the device** puts the kind of glow picked there on the board for five seconds (the timer's countdown for ten), with the curve on the slider whether saved or not; it ran Find before. `POST /admin/clients/:id/glow` `{kind, corner}` sends the admin-only `command` `glow.show` `{kind, corner, ms}`; the board goes back to its saved curve afterwards. Find stays as the button beside the device's state.
+
 ## 0.33.0 and board firmware 0.17.0 (2026-10-11)
 
 - **Find this device.** Boards offer a `find` action: three chimes over about five seconds and a quick white pulse round the screen's edges for eight, ahead of everything but a conversation. The admin page puts a **Find** button beside any device that offers it, on the Clients list and next to the device's state.

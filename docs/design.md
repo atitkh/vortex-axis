@@ -181,7 +181,7 @@ Built 2026-10-08. `POST /admin/clients/:id/address {address}` sends a device the
 
 `POST /admin/clients/:id/reset {wifi?}` (firmware 0.10.3) sends the `reset` command, also admin only. The device answers, then clears its pairing, its address for Axis, its synced settings and any stored wake word, and restarts; with `wifi` it forgets the Wi-Fi as well and comes back as its setup network. Its firmware is not touched. Axis removes the client once the device has agreed; a device that refuses (older firmware) is left as it was.
 
-This command, `update`, `wake.model`, `timer.next`, `progress.show` and `ask.waiting` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
+This command, `update`, `wake.model`, `timer.next`, `progress.show`, `ask.waiting` and `glow.show` are for Axis and the admin page only. `vortex.axis.admin` refuses to run them for an agent even if a device lists one among its actions (`ADMIN_ONLY_COMMANDS` in `commands.ts`).
 
 ### 7.3 Wake words from Axis
 

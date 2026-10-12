@@ -191,6 +191,9 @@ static const uint32_t DONE_FLASH_MS = 1500;
 static uint32_t findUntil = 0;
 static uint8_t findChimes = 0;
 static const uint32_t FIND_MS = 8000, FIND_CHIME_EVERY_MS = 2600;
+// One kind of glow shown for a few seconds from the admin page's preview, with the corner curve being tried there.
+static glow::State previewKind = glow::State::None;
+static uint32_t previewFrom = 0, previewMs = 0;
 /** How long before a timer is due its countdown glow starts. */
 static const int32_t TIMER_GLOW_MS = 10000;
 static bool hasSpeaker = false, hasMic = false;
@@ -743,7 +746,7 @@ void setup() {
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
     logOut.printf("[boot] motion sensor %s\n", imu::begin() ? "found" : "NOT FOUND");
     // Actions the admin page can send.
-    client.onCommand([](const char *name, JsonObjectConst, JsonObject payload) {
+    client.onCommand([](const char *name, JsonObjectConst params, JsonObject payload) {
         if (!strcmp(name, "cue")) {
             speaker::cue();
             return true;
@@ -754,6 +757,19 @@ void setup() {
         }
         if (!strcmp(name, "talk")) {
             payload["started"] = client.startListening();
+            return true;
+        }
+        if (!strcmp(name, "glow.show")) {
+            static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking"};
+            static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
+                                                 glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking};
+            const char *kind = params["kind"] | "";
+            previewKind = glow::State::None;
+            for (int i = 0; i < 8; i++) if (!strcmp(kind, KINDS[i])) previewKind = STATES[i];
+            if (previewKind == glow::State::None) return false;
+            previewMs = constrain((int)(params["ms"] | 5000), 1000, 15000);
+            previewFrom = millis();
+            glow::setCorner((int)(params["corner"] | (int)client.settingInt("glowCorner", 56)));
             return true;
         }
         if (!strcmp(name, "find")) {
@@ -974,7 +990,30 @@ void loop() {
             findUntil = 0;
             findChimes = 0;
         }
-        if (findLeft > 0 && !client.listening() && !speaker::playing() && state.turn == axis::Turn::Idle) {
+        // A glow being tried from the admin page: that kind, for a few seconds, ahead of all but a conversation.
+        const uint32_t previewAt = previewKind != glow::State::None ? started - previewFrom : 0;
+        if (previewKind != glow::State::None && previewAt >= previewMs) {
+            previewKind = glow::State::None;
+            glow::setCorner((int)client.settingInt("glowCorner", 56));
+        }
+        const bool talking = client.listening() || speaker::playing() || state.turn != axis::Turn::Idle;
+        if (previewKind != glow::State::None && !talking) {
+            notice = previewKind;
+            const float t = previewAt / 1000.0f;
+            if (previewKind == glow::State::Done) {
+                // A flash fading right out, every two and a half seconds.
+                const uint32_t into = previewAt % 2500;
+                level = into < DONE_FLASH_MS ? 1.0f - into / (float)DONE_FLASH_MS : 0.0f;
+            } else if (previewKind == glow::State::Timer) {
+                const int32_t left = (int32_t)previewMs - (int32_t)previewAt;
+                sweep = left / (float)previewMs;
+                const float beat = (left % 1000) / 1000.0f;
+                level = beat * beat;
+            } else if (previewKind == glow::State::Listening || previewKind == glow::State::Speaking) {
+                // Something like a voice, as there is none.
+                level = constrain(sinf(t * 7.0f) * 0.5f + sinf(t * 13.3f) * 0.3f + 0.3f, 0.0f, 1.0f);
+            }
+        } else if (findLeft > 0 && !talking) {
             notice = glow::State::Find;
         } else if (calm && timerLeft > 0 && timerLeft <= TIMER_GLOW_MS && client.settingInt("timerGlow", 1) != 0) {
             notice = glow::State::Timer;

@@ -1696,13 +1696,11 @@ function renderGlowPreview(client, schema, devicePath) {
     });
     return b;
   });
-  const find = (schema.actions ?? []).find((a) => a.name === "find");
-  const findButton = find
-    ? h("button", { class: "small", type: "button", disabled: !client.online, onclick: (event) => act(event.target, "device-note", async () => {
-        const result = await runCommand(client, find);
-        note("device-note", result.ok ? `${client.name} is chiming and flashing white now, with the curve it has (${client.settings.glowCorner ?? def.default} px).` : result.text, result.ok ? "good" : "bad");
-      }) }, "Show on the device (Find)")
-    : null;
+  const showButton = h("button", { class: "small", type: "button", onclick: (event) => act(event.target, "device-note", async () => {
+    const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/glow`, { kind: p.state.key, corner: p.radius });
+    if (!result.ok) throw new Error(result.error === "not implemented on this device" ? `${client.name} needs newer firmware to show a glow from here.` : result.error || "the device did not show it");
+    note("device-note", `${client.name} is showing ${p.state.label.toLowerCase()} for ${result.ms / 1000} s, with a ${p.radius} px curve${p.dirty ? " (not saved yet)" : ""}.`, "good");
+  }) }, "Show on the device");
 
   $("device-glow").replaceChildren(
     h("div", { class: "glow-frame" }, canvas),
@@ -1710,7 +1708,7 @@ function renderGlowPreview(client, schema, devicePath) {
       h("div", { class: "glow-states" }, ...buttons),
       h("label", {}, "Glow corner curve", radiusIn, radiusOut),
       h("label", { title: "Only for this preview: where the glass hides the panel's corners. Kept in this browser." }, "Glass corner (guide)", glassIn, glassOut),
-      h("div", { class: "inline" }, save, findButton),
+      h("div", { class: "inline" }, save, showButton),
       h("p", { class: "help" }, `${w} × ${hgt}, the way up it stands now.`),
     ),
   );
