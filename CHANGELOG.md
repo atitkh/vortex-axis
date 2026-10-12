@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.17.2 (2026-10-11)
+
+- Fixed: **Show on the device** (and Find) only sometimes worked. Commands run on the client's task on the other core; the handler stamped the start with `millis()`, which could be later than the screen loop's frame time, so the unsigned elapsed time wrapped round and the glow was cancelled before it was drawn. The handler now leaves a request (under a lock) and the screen loop starts it on its own clock; the corner curve is also only changed from the screen loop now.
+
 ## 0.33.1 and board firmware 0.17.1 (2026-10-11)
 
 - The glow preview's **Show on the device** puts the kind of glow picked there on the board for five seconds (the timer's countdown for ten), with the curve on the slider whether saved or not; it ran Find before. `POST /admin/clients/:id/glow` `{kind, corner}` sends the admin-only `command` `glow.show` `{kind, corner, ms}`; the board goes back to its saved curve afterwards. Find stays as the button beside the device's state.

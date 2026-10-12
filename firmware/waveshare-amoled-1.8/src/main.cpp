@@ -194,6 +194,17 @@ static const uint32_t FIND_MS = 8000, FIND_CHIME_EVERY_MS = 2600;
 // One kind of glow shown for a few seconds from the admin page's preview, with the corner curve being tried there.
 static glow::State previewKind = glow::State::None;
 static uint32_t previewFrom = 0, previewMs = 0;
+// Commands arrive on the client's task, on the other core, at any point in a frame. They only leave a
+// request here; the screen loop starts it on its own clock, so a start time is never later than the
+// frame's (that wrapped the elapsed time round and cancelled the glow before it was drawn).
+struct GlowRequest {
+    glow::State kind;
+    uint32_t ms;
+    int corner;
+};
+static portMUX_TYPE requestLock = portMUX_INITIALIZER_UNLOCKED;
+static GlowRequest glowRequest;
+static uint32_t glowRequests = 0, findRequests = 0;  // counted up under requestLock
 /** How long before a timer is due its countdown glow starts. */
 static const int32_t TIMER_GLOW_MS = 10000;
 static bool hasSpeaker = false, hasMic = false;
@@ -764,18 +775,20 @@ void setup() {
             static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
                                                  glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking};
             const char *kind = params["kind"] | "";
-            previewKind = glow::State::None;
-            for (int i = 0; i < 8; i++) if (!strcmp(kind, KINDS[i])) previewKind = STATES[i];
-            if (previewKind == glow::State::None) return false;
-            previewMs = constrain((int)(params["ms"] | 5000), 1000, 15000);
-            previewFrom = millis();
-            glow::setCorner((int)(params["corner"] | (int)client.settingInt("glowCorner", 56)));
+            GlowRequest request = {glow::State::None, (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
+                                   (int)(params["corner"] | (int)client.settingInt("glowCorner", 56))};
+            for (int i = 0; i < 8; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
+            if (request.kind == glow::State::None) return false;
+            portENTER_CRITICAL(&requestLock);
+            glowRequest = request;
+            glowRequests++;
+            portEXIT_CRITICAL(&requestLock);
             return true;
         }
         if (!strcmp(name, "find")) {
-            findUntil = millis() + FIND_MS;
-            if (!findUntil) findUntil = 1;
-            findChimes = 3;
+            portENTER_CRITICAL(&requestLock);
+            findRequests++;
+            portEXIT_CRITICAL(&requestLock);
             return true;
         }
         if (!strcmp(name, "edges")) {
@@ -980,6 +993,27 @@ void loop() {
         // A timer's last seconds come first: a red edge that shrinks clockwise as they run out, beating each second.
         const int32_t timerLeft = state.timerCount ? (int32_t)(state.timerEndsAt - started) : -1;
         // Somebody looking for this device comes before everything but a conversation.
+        // Requests from the admin page, started here on this frame's clock.
+        {
+            static uint32_t seenGlow = 0, seenFind = 0;
+            portENTER_CRITICAL(&requestLock);
+            const GlowRequest request = glowRequest;
+            const uint32_t glows = glowRequests, finds = findRequests;
+            portEXIT_CRITICAL(&requestLock);
+            if (glows != seenGlow) {
+                seenGlow = glows;
+                previewKind = request.kind;
+                previewMs = request.ms;
+                previewFrom = started;
+                glow::setCorner(request.corner);
+            }
+            if (finds != seenFind) {
+                seenFind = finds;
+                findUntil = started + FIND_MS;
+                if (!findUntil) findUntil = 1;
+                findChimes = 3;
+            }
+        }
         const int32_t findLeft = findUntil ? (int32_t)(findUntil - started) : 0;
         if (findLeft > 0) {
             if (findChimes && (int32_t)(FIND_MS - findLeft) >= (int32_t)((3 - findChimes) * FIND_CHIME_EVERY_MS)) {
