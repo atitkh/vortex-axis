@@ -66,6 +66,24 @@ sealed class ScreenReader
         return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read, screen.X, screen.Y, monitors);
     }
 
+    /** The window in front and the focused control: two small reads, for the answer after an action. */
+    public async Task<ScreenState> StateAsync(CancellationToken ct)
+    {
+        var work = Task.Run(() =>
+        {
+            var focus = new List<ScreenElement>();
+            using (Cache.Activate())
+            {
+                try { Add(focus, AutomationElement.FocusedElement?.GetUpdatedCache(Cache)); }
+                catch (Exception) { }
+            }
+            return new ScreenState(Foreground(), focus.FirstOrDefault());
+        }, ct);
+        // A window that will not answer leaves the focus out, not the action's answer.
+        if (await Task.WhenAny(work, Task.Delay(2000, ct)) != work) return new ScreenState(Foreground(), null);
+        return await work;
+    }
+
     /** Runs on a pool thread: UI Automation calls cross into other processes and can be slow. */
     static (WindowInfo?, List<ScreenElement>, Rectangle?) Read(string scope, Native.POINT mouse)
     {

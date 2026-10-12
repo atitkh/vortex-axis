@@ -62,5 +62,7 @@ sealed class FakeDesktop : IDesktop
     public Task<string> OpenAsync(string? app, string? url, CancellationToken ct) { Console.WriteLine($"opening {app ?? url}"); return Task.FromResult(app ?? url!); }
     public Task<WindowInfo> SwitchAsync(string window, CancellationToken ct) { Console.WriteLine($"switching to {window}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040)); }
     public Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct) { Console.WriteLine($"window {op} {window} {display}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, 0, 1920, 1040)); }
+    public Task<ScreenState> StateAsync(CancellationToken ct) =>
+        Task.FromResult(new ScreenState(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040), new ScreenElement("edit", "Message #general", 300, -100, 1200, 40, "hello", true)));
     public Task DesktopAsync(bool next, CancellationToken ct) { Console.WriteLine($"desktop {(next ? "next" : "previous")}"); return Task.CompletedTask; }
 }

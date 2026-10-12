@@ -227,6 +227,8 @@ sealed class WindowsDesktop : IDesktop
     public Task<LookResult> LookAsync(string scope, OcrMode ocr, CancellationToken ct) =>
         reader.LookAsync(scope, ocr, () => overlay.Dispatcher.InvokeAsync(overlay.HideNow).Task, ct);
 
+    public Task<ScreenState> StateAsync(CancellationToken ct) => reader.StateAsync(ct);
+
     public Task PointAsync(int x, int y, string? text, double seconds, CancellationToken ct) =>
         overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, text, seconds, size())).Task;
 

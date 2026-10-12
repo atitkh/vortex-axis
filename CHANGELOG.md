@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.37.0 and desktop app 0.4.0 (2026-10-12)
+
+Fewer tokens per task on a computer (owner picked three of the ideas).
+
+- **`after` on every action:** click, type, keys, open, switch, window, desktop and steps answer with the window in front (`new` when it is not the one in front before), what has the focus and its value, read about 0.3 s after the action (1.2 s after an open). Two small UI Automation reads, not a look; the description tells agents to trust it instead of looking again. `steps` carries one `after` at the end (also when a step fails).
+- **Leaner looks:** each element is one line, `id kind x,y wxh name [= value] [*focus] [(ocr)]`, about half the text of the old object; `screen`, `mouse`, `window` and `monitors` likewise. `find` matches use the same lines.
+- **Shorter tool:** the `vortex_axis_desktop` definition is about 37 % shorter (description and parameters); it now states how looks are ranked (focus, under the mouse, then usable things nearest the mouse). The app's own refusals are no longer listed to agents; they still apply.
+
 ## 0.36.0 and desktop app 0.3.0 (2026-10-12)
 
 Fewer model turns per task on a computer (owner's idea: preset commands; the time goes to the agent thinking between calls, not to the PC).

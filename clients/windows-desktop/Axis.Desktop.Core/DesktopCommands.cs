@@ -21,6 +21,9 @@ public sealed record WindowInfo(string Title, string App, int X, int Y, int W, i
 /** One display, in screen pixels. With several, the ones left of or above the main one have negative coordinates. */
 public sealed record Display(int X, int Y, int W, int H, bool Primary);
 
+/** The window in front and what has the focus, read cheaply after an action instead of a whole look. */
+public sealed record ScreenState(WindowInfo? Window, ScreenElement? Focus);
+
 /**
  * What a look found. Coordinates are screen pixels, the same ones pointing takes; the whole desktop is
  * the box (ScreenX, ScreenY, ScreenW, ScreenH), which starts left of or above 0 when a display sits there.
@@ -56,6 +59,8 @@ public interface IDesktop
     Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct);
     /** The next or previous virtual desktop. */
     Task DesktopAsync(bool next, CancellationToken ct);
+    /** The window in front and the focused control, without reading the rest of the window. */
+    Task<ScreenState> StateAsync(CancellationToken ct);
 }
 
 /** A key with the modifiers held for it: "ctrl+shift+t", "enter", "alt+tab". */
@@ -157,7 +162,10 @@ public sealed class DesktopCommands
     {
         try
         {
-            return await RunAsync(name, p, ct);
+            if (!Changes.Contains(name)) return await RunAsync(name, p, ct);
+            var before = await StateOrNullAsync(ct);
+            var answer = await RunAsync(name, p, ct);
+            return await WithAfterAsync(answer, name, p, before, ct);
         }
         catch (Exception e)
         {
@@ -193,9 +201,9 @@ public sealed class DesktopCommands
                 var look = await FreshLookAsync(ct);
                 var found = Match(look.Elements, query, Str(p, "kind")).Take(5).ToList();
                 Did?.Invoke($"Looked for \"{Clip(query, 40)}\": {found.Count} found");
-                var list = new JsonArray(found.Select(m => (JsonNode?)Brief(look.Elements[m.Index], m.Index + 1)).ToArray());
+                var list = new JsonArray(found.Select(m => (JsonNode?)Line(look.Elements[m.Index], m.Index + 1)).ToArray());
                 var data = new JsonObject { ["matches"] = list };
-                if (look.Window is { } w) data["window"] = new JsonObject { ["title"] = Clip(w.Title, 200), ["app"] = w.App };
+                if (look.Window is { } w) data["window"] = $"{Clip(w.Title, 200)} ({w.App})";
                 return CommandAnswer.Done(data: data);
             }
             case "desktop.point":
@@ -237,6 +245,48 @@ public sealed class DesktopCommands
                 return CommandAnswer.Fail("not implemented on this device");
         }
     }
+
+    /** Commands that change the screen: their answer says what is in front afterwards, so the agent need not look again. */
+    static readonly HashSet<string> Changes =
+        ["desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps"];
+    /** How long the screen gets to catch up before it is read again; an app being started takes longer. */
+    const int AfterMs = 300, AfterOpenMs = 1200;
+
+    async Task<ScreenState?> StateOrNullAsync(CancellationToken ct)
+    {
+        try { return await desktop.StateAsync(ct); }
+        catch (Exception) { return null; }
+    }
+
+    /**
+     * Adds `after` to an action's answer: the window in front (with `new` when it is not the one in front
+     * before), what has the focus and its value. A few dozen characters instead of a look.
+     */
+    async Task<CommandAnswer> WithAfterAsync(CommandAnswer answer, string name, JsonElement p, ScreenState? before, CancellationToken ct)
+    {
+        var opened = name == "desktop.open" || name == "desktop.steps" && StepsInclude(p, "open");
+        await Task.Delay(opened ? AfterOpenMs : AfterMs, ct);
+        var now = await StateOrNullAsync(ct);
+        if (now == null) return answer;
+        var after = new JsonObject();
+        if (now.Window is { } w)
+        {
+            after["window"] = $"{Clip(w.Title, 120)} ({w.App})";
+            if (before?.Window is { } b && (b.Title != w.Title || b.App != w.App)) after["new"] = true;
+        }
+        if (now.Focus is { } f)
+        {
+            after["focus"] = $"{f.Kind} {Clip(f.Name, 80)}".TrimEnd();
+            if (!string.IsNullOrEmpty(f.Value)) after["value"] = Clip(f.Value!, 120);
+        }
+        var data = answer.Data as JsonObject ?? new JsonObject();
+        data["after"] = after;
+        return answer with { Data = data };
+    }
+
+    static bool StepsInclude(JsonElement p, string action) =>
+        p.ValueKind == JsonValueKind.Object && p.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Object
+        && d.TryGetProperty("steps", out var s) && s.ValueKind == JsonValueKind.Array && s.EnumerateArray().Any(e => Str(e, "action") == action);
 
     /** What a step in `steps` may be. */
     static readonly HashSet<string> StepActions = ["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find"];
@@ -362,11 +412,17 @@ public sealed class DesktopCommands
         return found.OrderByDescending(m => m.Score).ToList();
     }
 
-    static JsonObject Brief(ScreenElement e, int id)
+    /**
+     * One element as one short line, about half the text of an object with named fields:
+     * `id kind x,y wxh name`, then `= value`, `*focus`, `(ocr)` when they apply. "17 button 1510,-100 60x40 Send".
+     */
+    public static string Line(ScreenElement e, int id)
     {
-        var o = new JsonObject { ["id"] = id, ["kind"] = e.Kind, ["name"] = Clip(e.Name, MaxText), ["x"] = e.X, ["y"] = e.Y, ["w"] = e.W, ["h"] = e.H };
-        if (e.Focused) o["focused"] = true;
-        return o;
+        var line = $"{id} {e.Kind} {e.X},{e.Y} {e.W}x{e.H} {Clip(e.Name, MaxText)}".TrimEnd();
+        if (!string.IsNullOrEmpty(e.Value)) line += $" = {Clip(e.Value!, MaxText)}";
+        if (e.Focused) line += " *focus";
+        if (e.Source != "ui") line += $" ({e.Source})";
+        return line;
     }
 
     /** Everything that changes the screen: switched off by the person (Axis's allowInput), and held to the app's own limits. */
@@ -463,7 +519,7 @@ public sealed class DesktopCommands
     }
 
     static JsonObject WindowPayload(WindowInfo w) =>
-        new() { ["window"] = Clip(w.Title, 200), ["app"] = w.App, ["x"] = w.X, ["y"] = w.Y, ["w"] = w.W, ["h"] = w.H };
+        new() { ["window"] = $"{Clip(w.Title, 200)} ({w.App}) {w.X},{w.Y} {w.W}x{w.H}" };
 
     /** Most text one type sends. */
     public const int MaxTyped = 500;
@@ -517,21 +573,17 @@ public sealed class DesktopCommands
                 best = (long)e.W * e.H;
                 under = i + 1;
             }
-            var o = new JsonObject { ["id"] = i + 1, ["kind"] = e.Kind, ["name"] = Clip(e.Name, MaxText), ["x"] = e.X, ["y"] = e.Y, ["w"] = e.W, ["h"] = e.H };
-            if (!string.IsNullOrEmpty(e.Value)) o["value"] = Clip(e.Value!, MaxText);
-            if (e.Focused) o["focused"] = true;
-            if (e.Source != "ui") o["from"] = e.Source;
-            list.Add(o);
+            list.Add(Line(e, i + 1));
         }
+        // Boxes as "x,y wxh", the same form as the element lines.
         var data = new JsonObject
         {
-            ["screen"] = new JsonObject { ["x"] = look.ScreenX, ["y"] = look.ScreenY, ["w"] = look.ScreenW, ["h"] = look.ScreenH },
-            ["mouse"] = new JsonObject { ["x"] = look.MouseX, ["y"] = look.MouseY },
+            ["screen"] = $"{look.ScreenX},{look.ScreenY} {look.ScreenW}x{look.ScreenH}",
+            ["mouse"] = $"{look.MouseX},{look.MouseY}",
         };
-        if (look.Window is { } w)
-            data["window"] = new JsonObject { ["title"] = Clip(w.Title, 200), ["app"] = w.App, ["x"] = w.X, ["y"] = w.Y, ["w"] = w.W, ["h"] = w.H };
+        if (look.Window is { } w) data["window"] = $"{Clip(w.Title, 200)} ({w.App}) {w.X},{w.Y} {w.W}x{w.H}";
         if (look.Monitors is { Count: > 0 } monitors)
-            data["monitors"] = new JsonArray(monitors.Select(m => (JsonNode?)new JsonObject { ["x"] = m.X, ["y"] = m.Y, ["w"] = m.W, ["h"] = m.H, ["primary"] = m.Primary }).ToArray());
+            data["monitors"] = new JsonArray(monitors.Select(m => (JsonNode?)$"{m.X},{m.Y} {m.W}x{m.H}{(m.Primary ? " main" : "")}").ToArray());
         if (under is int u) data["underMouse"] = u;
         data["elements"] = list;
         if (look.Elements.Count > elements.Count) data["more"] = look.Elements.Count - elements.Count;
