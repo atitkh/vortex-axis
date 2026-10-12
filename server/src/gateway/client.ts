@@ -11,6 +11,13 @@ export interface NodeTool {
   description: string;
   command: string;
   parameters: Record<string, unknown>;
+  /**
+   * Offered through MCP only, never published on the node: its command is not in the node's declared
+   * list, which cannot grow without a person approving the node again.
+   */
+  mcpOnly?: boolean;
+  /** Off until an admin switches it on. */
+  experimental?: boolean;
 }
 
 /** `via` says who called, for the Live page: "OpenClaw" when it is left out, since the node's door came first. */

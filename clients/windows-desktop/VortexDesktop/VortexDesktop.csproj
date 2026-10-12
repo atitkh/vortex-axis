@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Windows app: a small window, a tray icon, the pointer it draws over the screen, and the screen reader. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <!-- For the tray icon, screen bounds and screen capture. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Builds on Linux too (in the .NET SDK container); it only runs on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <!-- WPF and Windows Forms share names (Application, MessageBox); every file says which it means. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>VortexAxisDesktop</AssemblyName>
+    <RootNamespace>Axis.Desktop.App</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>VorteX Axis Desktop</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Axis.Desktop.Core/Axis.Desktop.Core.csproj" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <Resource Include="logo.png" />
+    <Resource Include="app.ico" />
+  </ItemGroup>
+</Project>

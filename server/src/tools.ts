@@ -16,6 +16,8 @@ import type { AgentTokenRecord, Store } from "./store.js";
  */
 
 const META_OFF = "tools_off";
+/** Experimental tools an admin has switched on; they are off otherwise. */
+const META_ON = "tools_on";
 /** `nodes notify` on the gateway arrives as this command, and is the say tool by another name. */
 const SAME_AS: Record<string, string> = { "system.notify": "vortex.axis.say" };
 
@@ -25,12 +27,20 @@ export class ToolAccess {
     private readonly activity?: Activity,
   ) {}
 
-  private off(): Set<string> {
+  private read(key: string): Set<string> {
     try {
-      return new Set(JSON.parse(this.store.getMeta(META_OFF) ?? "[]") as string[]);
+      return new Set(JSON.parse(this.store.getMeta(key) ?? "[]") as string[]);
     } catch {
       return new Set();
     }
+  }
+
+  /** Switched off by an admin, and experimental tools not switched on. */
+  private off(): Set<string> {
+    const off = this.read(META_OFF);
+    const on = this.read(META_ON);
+    for (const tool of NODE_TOOLS) if (tool.experimental && !on.has(tool.name)) off.add(tool.name);
+    return off;
   }
 
   /** Every tool, with whether it is switched on. */
@@ -46,17 +56,26 @@ export class ToolAccess {
 
   /** Switches tools on or off by name. Unknown names are refused. */
   set(changes: Record<string, unknown>): void {
-    const off = this.off();
+    const current = this.off();
+    const off = this.read(META_OFF);
+    const turnedOn = this.read(META_ON);
     const said: string[] = [];
     for (const [name, on] of Object.entries(changes)) {
-      if (!NODE_TOOLS.some((tool) => tool.name === name)) throw new Error(`there is no tool called "${name}"`);
+      const tool = NODE_TOOLS.find((t) => t.name === name);
+      if (!tool) throw new Error(`there is no tool called "${name}"`);
       if (typeof on !== "boolean") throw new Error(`${name} must be true or false`);
-      if (on === !off.has(name)) continue;
-      if (on) off.delete(name);
-      else off.add(name);
+      if (on === !current.has(name)) continue;
+      if (on) {
+        off.delete(name);
+        if (tool.experimental) turnedOn.add(name);
+      } else {
+        off.add(name);
+        turnedOn.delete(name);
+      }
       said.push(`${name} ${on ? "on" : "off"}`);
     }
     this.store.setMeta(META_OFF, off.size ? JSON.stringify([...off]) : undefined);
+    this.store.setMeta(META_ON, turnedOn.size ? JSON.stringify([...turnedOn]) : undefined);
     if (said.length) this.activity?.note("admin", "", `Agent tools: ${said.join(", ")}`);
   }
 

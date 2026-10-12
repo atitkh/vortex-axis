@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The part of the desktop app that talks to Axis. No Windows APIs, so it builds and runs anywhere (the smoke test runs it on Linux). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Axis.Desktop</RootNamespace>
+  </PropertyGroup>
+</Project>

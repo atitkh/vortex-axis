@@ -56,10 +56,12 @@ describe("MCP", () => {
     expect((await fetch(`${ctx.base}/mcp`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(405);
   });
 
-  it("offers exactly the tools the OpenClaw node does", async () => {
+  it("offers the tools the OpenClaw node does, and experimental ones only once switched on", async () => {
     const token = await newToken();
     const { body } = await rpc(token, "tools/list");
-    expect(body.result.tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.map((t) => t.name));
+    expect(body.result.tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.filter((t) => !t.experimental).map((t) => t.name));
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    expect((await rpc(token, "tools/list")).body.result.tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.map((t) => t.name));
     const say = body.result.tools.find((t: any) => t.name === "vortex_axis_say");
     expect(say).toEqual({ name: "vortex_axis_say", description: NODE_TOOLS[0]!.description, inputSchema: NODE_TOOLS[0]!.parameters });
   });
@@ -130,6 +132,7 @@ describe("tools switched on and off", () => {
     expect((await admin("PATCH", "/admin/mcp/tools", { vortex_axis_admin: false, vortex_axis_say: false })).body.tools.filter((t: any) => !t.enabled).map((t: any) => t.name)).toEqual([
       "vortex_axis_say",
       "vortex_axis_admin",
+      "vortex_axis_desktop",
     ]);
     await restart();
     const names = (await rpc(token, "tools/list")).body.result.tools.map((t: any) => t.name);

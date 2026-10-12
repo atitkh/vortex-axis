@@ -38,6 +38,7 @@ const clientSamples: ClientMessage[] = [
   { t: "sense", readings: { battery: 0.81, charging: false, room: "office" } },
   { t: "settings.get", have: 3 },
   { t: "command.result", id: "k1", ok: true, payload: { volume: 60 } },
+  { t: "command.result", id: "k2", ok: true, data: { elements: [{ id: 1, name: "Send", x: 10, y: 20, w: 40, h: 16 }] } },
   {
     t: "describe",
     settings: [
@@ -85,7 +86,7 @@ describe("protocol version", () => {
 
 describe("client messages", () => {
   it("has a sample for every message type", () => {
-    expect(clientSamples.map((m) => m.t).sort()).toEqual([...CLIENT_MESSAGE_TYPES].sort());
+    expect([...new Set(clientSamples.map((m) => m.t))].sort()).toEqual([...CLIENT_MESSAGE_TYPES].sort());
   });
 
   it.each(clientSamples)("round-trips $t", (sample) => {

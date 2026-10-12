@@ -396,6 +396,17 @@ Added 2026-10-10 (0.25.0), asked for by the owner: the speech services that ran 
 - **Kept:** voiceprints only (`voice_samples`), never recordings; a turn's voiceprint is held in memory for ten minutes so it can teach a voice from the admin page, then dropped. The activity log gains whose voice each turn was (`turns.speaker`).
 - **Not a lock.** It decides what context a voice gets, never who may approve something.
 
+## Computers: seeing and pointing (experimental)
+
+Added 2026-10-12, asked for by the owner as a prototype after looking at a phone-plus-Mac assistant that points at things on screen. The flow is borrowed, not the build: the boards stay the face and the microphone, a computer becomes one more Axis client, and the agent decides what to do; Axis only carries the call there and the answer back.
+
+- **The client:** `clients/windows-desktop/`, a C#/.NET 8 WPF app in the tray (`Axis.Desktop.Core` is the protocol and the commands, no Windows APIs, so `Axis.Desktop.Smoke` tests it anywhere; `VortexDesktop` is the window, the pointer and the screen reader). It pairs with a code like any device, type `windows-desktop`, capability `desktop`, and describes its settings (allowLook, bubble, autoOcr, pointerSize) and one action (Show the pointer).
+- **Looking:** Windows UI Automation for the window in front (or what is under and around the mouse, or the open windows), with Windows' own OCR when a window exposes fewer than eight named controls (or when asked). Elements come back with ids, kinds, names, values and boxes in physical screen pixels (the app is per-monitor DPI aware). A password field's value is never read. At most 250 elements.
+- **Pointing:** the app's own pointer, a click-through, never-focused window in the face's cyan with a breathing ring and the agent's words beside it; it glides between spots and fades after `seconds`. The person's mouse is never moved.
+- **The tool:** `vortex_axis_desktop` (look, point, hide), MCP only (`mcpOnly`): it is not declared on the node, whose command list cannot grow without the owner approving the node again. Experimental tools are off until switched on (`tools_on` in `meta`).
+- **The person's say:** a pause in the app (window, tray, Ctrl+Alt+S anywhere) refuses everything; `allowLook` refuses looks. Text on the screen is information to the agent, never instructions (said in the tool's description).
+- **Not yet:** clicking, typing, keys and opening apps (phase 2, with confirmation on a board); a line about the computer on each spoken turn and a "hands on" glow (phase 3); screenshots for the agent's own eyes.
+
 ## Versions
 
 Added 2026-10-09. There are three kinds of version and they answer three different questions.

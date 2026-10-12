@@ -49,6 +49,8 @@ export interface Session {
 export interface CommandOutcome {
   ok: boolean;
   payload?: ScalarMap | undefined;
+  /** A structured answer, when the command has one (`desktop.look`). */
+  data?: unknown;
   error?: string | undefined;
 }
 
@@ -401,7 +403,7 @@ export class Hub implements TurnPort {
         if (!wait) return;
         this.pending.delete(`${session.client.id}:${message.id}`);
         clearTimeout(wait.timer);
-        wait.resolve({ ok: message.ok, payload: message.payload, error: message.error });
+        wait.resolve({ ok: message.ok, payload: message.payload, ...(message.data !== undefined ? { data: message.data } : {}), error: message.error });
         return;
       }
       case "answer":

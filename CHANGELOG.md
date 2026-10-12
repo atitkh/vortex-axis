@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.34.0 and desktop app 0.1.0 (2026-10-12)
+
+- **Computers, experimental: seeing and pointing.** A Windows desktop app (`clients/windows-desktop/`, C#/.NET 8, one self-contained `.exe`, styled like the web client) pairs with Axis as a client with the new `desktop` capability. An agent with the new tool `vortex_axis_desktop` can **look** (the window in front, what is under the mouse, or the open windows: controls by UI Automation, text by Windows' OCR when a window says little; ids, kinds, names, boxes; never a password's value) and **point** (the app's own glowing pointer with the agent's words beside it; the mouse is not moved). The person can pause it from the window, the tray or Ctrl+Alt+S. The tool is MCP only (not on the OpenClaw node, so no re-approval) and, like any experimental tool, off until switched on under Agent tools. `command.result` gains an optional `data` (any JSON). The admin page's **Add a device** offers the app for download once `scripts/build-desktop.sh` has built it into the data folder (`GET /admin/desktop`, `/admin/desktop/app`).
+
 ## Board firmware 0.17.2 (2026-10-11)
 
 - Fixed: **Show on the device** (and Find) only sometimes worked. Commands run on the client's task on the other core; the handler stamped the start with `millis()`, which could be later than the screen loop's frame time, so the unsigned elapsed time wrapped round and the glow was cancelled before it was drawn. The handler now leaves a request (under a lock) and the screen loop starts it on its own clock; the corner curve is also only changed from the screen loop now.

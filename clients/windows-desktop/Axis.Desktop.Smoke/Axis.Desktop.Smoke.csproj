@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pairs a pretend computer with a running Axis and answers its desktop commands from a fake screen. For testing the Core on any OS. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Axis.Desktop.Core/Axis.Desktop.Core.csproj" />
+  </ItemGroup>
+</Project>

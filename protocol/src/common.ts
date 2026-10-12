@@ -10,6 +10,8 @@ export const CAPABILITIES = [
   "sensors",
   "images",
   "image-frames",
+  // A computer's desktop (experimental): Axis may ask what is on it and point at things there.
+  "desktop",
 ] as const;
 
 export const Capability = Type.Union(

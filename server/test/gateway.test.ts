@@ -149,7 +149,7 @@ describe("pairing with the gateway", () => {
     expect(methods.slice(0, 2)).toEqual(["node.pluginTools.update", "node.event"]);
     expect(methods).not.toContain("node.pluginSurface.refresh");
     const tools = gateway.nodeRequests[0]!.params.tools;
-    expect(tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.map((t) => t.name));
+    expect(tools.map((t: any) => t.name)).toEqual(NODE_TOOLS.filter((t) => !t.mcpOnly).map((t) => t.name));
     expect(tools.every((t: any) => t.pluginId === "vortex-axis" && NODE_COMMANDS.includes(t.command))).toBe(true);
     expect(gateway.nodeRequests[1]!.params).toMatchObject({ event: "node.presence.alive", payload: { platform: "vortex-axis" } });
   });

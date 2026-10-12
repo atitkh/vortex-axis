@@ -76,6 +76,18 @@
               {
                 "const": "sensors",
                 "type": "string"
+              },
+              {
+                "const": "images",
+                "type": "string"
+              },
+              {
+                "const": "image-frames",
+                "type": "string"
+              },
+              {
+                "const": "desktop",
+                "type": "string"
               }
             ]
           }
@@ -389,6 +401,45 @@
         }
       }
     },
+    "gesture": {
+      "$id": "gesture",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "gesture"
+      ],
+      "properties": {
+        "t": {
+          "const": "gesture",
+          "type": "string"
+        },
+        "gesture": {
+          "anyOf": [
+            {
+              "const": "hold",
+              "type": "string"
+            },
+            {
+              "const": "swipe_left",
+              "type": "string"
+            },
+            {
+              "const": "swipe_right",
+              "type": "string"
+            },
+            {
+              "const": "swipe_up",
+              "type": "string"
+            },
+            {
+              "const": "swipe_down",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
     "settings.get": {
       "$id": "settings.get",
       "additionalProperties": false,
@@ -452,6 +503,7 @@
             }
           }
         },
+        "data": {},
         "error": {
           "maxLength": 256,
           "type": "string"
@@ -835,6 +887,135 @@
         },
         "final": {
           "type": "boolean"
+        }
+      }
+    },
+    "reply.image": {
+      "$id": "reply.image",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "turnId",
+        "url"
+      ],
+      "properties": {
+        "t": {
+          "const": "reply.image",
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "maxLength": 512,
+          "type": "string"
+        },
+        "mime": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "alt": {
+          "maxLength": 500,
+          "type": "string"
+        }
+      }
+    },
+    "image.start": {
+      "$id": "image.start",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "imageId",
+        "turnId",
+        "mime",
+        "size",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "t": {
+          "const": "image.start",
+          "type": "string"
+        },
+        "imageId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "turnId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "mime": {
+          "const": "image/jpeg",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 1,
+          "maximum": 1000000,
+          "type": "integer"
+        },
+        "width": {
+          "minimum": 1,
+          "maximum": 4096,
+          "type": "integer"
+        },
+        "height": {
+          "minimum": 1,
+          "maximum": 4096,
+          "type": "integer"
+        }
+      }
+    },
+    "image.data": {
+      "$id": "image.data",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "imageId",
+        "data"
+      ],
+      "properties": {
+        "t": {
+          "const": "image.data",
+          "type": "string"
+        },
+        "imageId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "data": {
+          "minLength": 1,
+          "maxLength": 1048576,
+          "type": "string"
+        }
+      }
+    },
+    "image.end": {
+      "$id": "image.end",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "imageId"
+      ],
+      "properties": {
+        "t": {
+          "const": "image.end",
+          "type": "string"
+        },
+        "imageId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
         }
       }
     },
@@ -1225,6 +1406,18 @@
               },
               {
                 "const": "sensors",
+                "type": "string"
+              },
+              {
+                "const": "images",
+                "type": "string"
+              },
+              {
+                "const": "image-frames",
+                "type": "string"
+              },
+              {
+                "const": "desktop",
                 "type": "string"
               }
             ]

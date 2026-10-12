@@ -20,6 +20,7 @@ import { Voiceprints } from "./voiceprint.js";
 import { createHttpHandler } from "./http.js";
 import { AgentAsks } from "./agentasks.js";
 import { AskLight } from "./asklight.js";
+import { Desktops } from "./desktop.js";
 import { CardMirror } from "./cards.js";
 import { RealtimeTalk } from "./talk.js";
 import { Attachment } from "./attach.js";
@@ -114,7 +115,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     displayName: config.gateway.displayName,
     version: AXIS_VERSION,
     commands: [...NODE_COMMANDS],
-    tools: NODE_TOOLS,
+    tools: NODE_TOOLS.filter((tool) => !tool.mcpOnly),
     log,
     onStateChange: () => {
       recordLinks();
@@ -319,7 +320,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
-      createInvokeHandler({ hub, store, timers, delivery, progress, attachment, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+      createInvokeHandler({ hub, store, timers, delivery, progress, attachment, desktops: new Desktops(hub, store), activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
     ),
     (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );

@@ -191,6 +191,11 @@ export const CommandResult = message("command.result", {
   id: Id,
   ok: Type.Boolean(),
   payload: Type.Optional(ScalarMap),
+  /**
+   * A structured answer, for a command whose answer is more than a few values (`desktop.look`: the
+   * elements on a screen). Any JSON; the connection's 1 MB frame limit bounds it.
+   */
+  data: Type.Optional(Type.Unknown()),
   error: Type.Optional(Type.String({ maxLength: 256 })),
 });
 

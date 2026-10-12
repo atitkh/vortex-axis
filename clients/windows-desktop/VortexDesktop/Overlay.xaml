@@ -1,0 +1,39 @@
+<Window x:Class="Axis.Desktop.App.Overlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False" Focusable="False"
+        ResizeMode="NoResize" SizeToContent="Manual" Width="820" Height="420"
+        Title="VorteX Axis pointer">
+    <!-- The pointer's tip is at (410, 210), the middle of this window, so the words fit on either side; Overlay.cs places the window so the tip lands on the spot. -->
+    <Canvas x:Name="Stage">
+        <!-- A soft ring that breathes where the tip is. -->
+        <Ellipse x:Name="Ring" Width="40" Height="40" Canvas.Left="390" Canvas.Top="190" Stroke="#6FD4EF" StrokeThickness="2" Opacity="0.7">
+            <Ellipse.Effect>
+                <DropShadowEffect Color="#6FD4EF" BlurRadius="18" ShadowDepth="0" Opacity="0.9" />
+            </Ellipse.Effect>
+        </Ellipse>
+        <!-- The pointer: an arrow in the face's cyan, tip at its top left. -->
+        <Path x:Name="Arrow" Canvas.Left="410" Canvas.Top="210" Fill="#6FD4EF" Stroke="#000000" StrokeThickness="1.5" StrokeLineJoin="Round"
+              Data="M 0,0 L 0,26 L 7,19.5 L 12,30 L 16.5,28 L 11.5,18 L 21,18 Z">
+            <Path.RenderTransform>
+                <ScaleTransform x:Name="ArrowScale" ScaleX="1.4" ScaleY="1.4" />
+            </Path.RenderTransform>
+            <Path.Effect>
+                <DropShadowEffect Color="#6FD4EF" BlurRadius="14" ShadowDepth="0" Opacity="0.8" />
+            </Path.Effect>
+        </Path>
+        <!-- What the agent says, beside the pointer. -->
+        <Border x:Name="Bubble" Canvas.Left="448" Canvas.Top="238" MaxWidth="330" Padding="14,10" CornerRadius="14"
+                Background="#E6111110" BorderBrush="#262624" BorderThickness="1" Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect Color="#000000" BlurRadius="20" ShadowDepth="2" Opacity="0.6" />
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Rectangle Width="3" RadiusX="1.5" RadiusY="1.5" Fill="#6FD4EF" Margin="0,2,10,2" />
+                <TextBlock x:Name="Words" Foreground="#E9E9E6" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14.5"
+                           TextWrapping="Wrap" MaxWidth="300" LineHeight="20" />
+            </StackPanel>
+        </Border>
+    </Canvas>
+</Window>

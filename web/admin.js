@@ -711,6 +711,7 @@ function route() {
   }
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
+  if (name === "pair" && token) checkDesktopApp();
   // The live stream is only held open while somebody is looking at it.
   if (name === "live" && token) openLive();
   else closeLive();
@@ -2247,6 +2248,38 @@ function renderPairDone() {
   toast(`${fresh.name} paired.`);
 }
 
+// The Windows desktop app (experimental): offered when scripts/build-desktop.sh has put it in the data folder.
+async function checkDesktopApp() {
+  try {
+    const info = await api("GET", "/admin/desktop");
+    $("desktop-download").disabled = !info.available;
+    $("desktop-info").textContent = info.available
+      ? `version ${info.version ?? "?"} · ${Math.round(info.size / 1048576)} MB`
+      : "not built on this hub yet (scripts/build-desktop.sh)";
+  } catch {
+    $("desktop-info").textContent = "";
+  }
+}
+
+$("desktop-download").addEventListener("click", (event) =>
+  act(event.target, null, async () => {
+    // The admin side wants the token in a header, which a plain link cannot send.
+    event.target.textContent = "Downloading…";
+    try {
+      const res = await fetch("/admin/desktop/app", { headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `download failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = h("a", { href: url, download: "VortexAxisDesktop.exe" });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } finally {
+      event.target.textContent = "Download the desktop app";
+    }
+  }),
+);
+
 $("setup-copy").addEventListener("click", async (event) => {
   const value = $("setup-string").value;
   if (!value) return;
@@ -3147,6 +3180,7 @@ const TOOL_READS = {
   vortex_axis_progress: "Show, silently, how a long piece of the agent's work is going.",
   vortex_axis_session: "Point every device at another of the agent's conversations, and back.",
   vortex_axis_diag: "Check that Axis and its services are working.",
+  vortex_axis_desktop: "Experimental, off until switched on: see what is on a paired computer's screen and point at things there (the Windows desktop app). It cannot click or type.",
 };
 
 function renderTools() {
@@ -3258,6 +3292,7 @@ const TRY_NO_TARGET = {
   vortex_axis_sense: "Every device",
   vortex_axis_admin: "Every device (for actions)",
   vortex_axis_config: "Choose a device",
+  vortex_axis_desktop: "The computer (when there is one)",
 };
 const TRY_TARGETS = new Set(["client", "location", "everywhere"]);
 /** Reads the form when Try it is pressed; set by drawTry. */
