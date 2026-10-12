@@ -29,7 +29,7 @@ export const NODE_COMMANDS = [
 ] as const;
 
 /** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
-export const ADMIN_ONLY_COMMANDS = ["address", "reset", "update", "wake.model", "timer.next", "progress.show"];
+export const ADMIN_ONLY_COMMANDS = ["address", "reset", "update", "wake.model", "timer.next", "progress.show", "ask.waiting"];
 
 const TARGET_PROPERTIES = {
   client: { type: "string", description: "Name or id of one client. Use vortex_axis_clients to see them." },

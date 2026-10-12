@@ -40,6 +40,8 @@ export interface AgentAsksOptions {
   listening?: () => boolean;
   /** Told when what a session waits on changes, so its task on the screens can say so. */
   onChange?: (sessionKey: string) => void;
+  /** Told when anything starts or stops waiting, or goes on or off a device. */
+  onWaiting?: () => void;
   /** What Axis signs an answer with. */
   resolvedBy?: string;
   log?: (line: string) => void;
@@ -53,6 +55,8 @@ interface Waiting {
   /** A few words for the task line. */
   line: string;
   abort: AbortController;
+  /** While it is on a device (or a phone), waiting for an answer there. */
+  shown?: boolean;
 }
 
 /** A device shows a question for this long at most; the gateway may wait longer, elsewhere. */
@@ -81,6 +85,13 @@ export class AgentAsks {
   waitingOn(sessionKey: string): string | undefined {
     for (const entry of this.waiting.values()) if (entry.sessionKey === sessionKey) return entry.line;
     return undefined;
+  }
+
+  /** How many wait for the person on no device right now: shown on none, or given up on there while the gateway still waits. */
+  unshown(): number {
+    let count = 0;
+    for (const entry of this.waiting.values()) if (!entry.shown) count++;
+    return count;
   }
 
   /** Everything waiting, for the admin page. */
@@ -114,6 +125,7 @@ export class AgentAsks {
     const left = (Number(expiresAtMs) || this.now() + 15 * 60_000) - this.now();
     setTimeout(() => this.waiting.get(id) === waiting && this.settled(id), Math.max(1_000, Math.min(left, 60 * 60_000)) + 2_000).unref();
     if (entry.sessionKey) this.options.onChange?.(entry.sessionKey);
+    this.options.onWaiting?.();
     return waiting;
   }
 
@@ -125,6 +137,19 @@ export class AgentAsks {
     this.waiting.delete(id);
     entry.abort.abort();
     if (entry.sessionKey) this.options.onChange?.(entry.sessionKey);
+    this.options.onWaiting?.();
+  }
+
+  /** Puts a question to the person through the route, marked as on show while it is. */
+  private async shownAsk(entry: Waiting, input: Parameters<AskRoute["ask"]>[0]): Promise<AskResult | undefined> {
+    entry.shown = true;
+    this.options.onWaiting?.();
+    try {
+      return await this.options.route.ask(input);
+    } finally {
+      entry.shown = false;
+      if ([...this.waiting.values()].includes(entry)) this.options.onWaiting?.();
+    }
   }
 
   private async question(record: any): Promise<void> {
@@ -149,7 +174,7 @@ export class AgentAsks {
         if (!text || !id) return;
         const left = Math.min(MAX_SHOWN_MS, (Number(record.expiresAtMs) || this.now() + MAX_SHOWN_MS) - this.now());
         if (left < 5_000) return;
-        const result = await this.options.route.ask({ question: text.slice(0, 500), choices, timeoutMs: left, silent: false, signal: entry.abort.signal });
+        const result = await this.shownAsk(entry, { question: text.slice(0, 500), choices, timeoutMs: left, silent: false, signal: entry.abort.signal });
         if (entry.abort.signal.aborted || !result) return;
         // A choice as it was offered; or the person's own words where the question takes them.
         const answer = result.answer ?? (result.said && (!choices.length || q?.isOther) ? result.said.trim() : undefined);
@@ -187,7 +212,7 @@ export class AgentAsks {
       const left = Math.min(MAX_SHOWN_MS, (Number(payload.expiresAtMs) || this.now() + MAX_SHOWN_MS) - this.now());
       if (left < 5_000) return;
       const question = short(`${kind === "exec" ? "Run this command?" : "Allow this?"} ${what}${detail}`.replace(/\s+/g, " "), 500);
-      const result = await this.options.route.ask({ question, choices: [ALLOW, DENY], timeoutMs: left, silent: true, signal: entry.abort.signal });
+      const result = await this.shownAsk(entry, { question, choices: [ALLOW, DENY], timeoutMs: left, silent: true, signal: entry.abort.signal });
       if (entry.abort.signal.aborted || !result?.answer) return;
       // Only a finger allows. A voice may refuse.
       if (result.answer === ALLOW && result.how !== "tap") return;

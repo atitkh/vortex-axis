@@ -705,7 +705,10 @@ function route() {
   // The face page animates twenty-odd canvases; they only run while it is open.
   if (name === "face") openFaces();
   else closeFaces();
-  if (name !== "device") closeDeviceFace();
+  if (name !== "device") {
+    closeDeviceFace();
+    stopGlowPreview();
+  }
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
   // The live stream is only held open while somebody is looking at it.
@@ -1298,6 +1301,29 @@ const clientId = (idOrName) => {
 /** Settings a device sets for itself, location excepted (it is shown on its own). */
 const ownKeys = (c) => Object.keys(c.layers.device).filter((k) => !DEVICE_ONLY.has(k));
 
+/**
+ * "Find": a device that offers the find action chimes and flashes, to tell which one is which.
+ * Nothing for a device that does not offer it or is offline.
+ */
+function findButton(client, noteId) {
+  const action = (lastTypes[client.type]?.actions ?? []).find((a) => a.name === "find");
+  if (!action || !client.online) return null;
+  return h("button", {
+    type: "button",
+    class: "small find-button",
+    title: action.help || "",
+    onclick: (event) => {
+      event.stopPropagation();
+      act(event.target, noteId ?? null, async () => {
+        const result = await runCommand(client, action);
+        if (!result.ok) throw new Error(result.text);
+        if (noteId) note(noteId, `${client.name} is chiming and flashing now.`, "good");
+        else toast(`${client.name} is chiming and flashing now.`);
+      });
+    },
+  }, "Find");
+}
+
 function renderClients() {
   const clients = lastClients;
   if (!clients.length) {
@@ -1327,6 +1353,7 @@ function renderClients() {
       h("td", { class: "hide-narrow sub", title: own.join(", ") }, own.length ? plural(own.length, "own value") : "shared"),
       h("td", { class: "hide-narrow mono sub" }, c.version),
       h("td", { class: "hide-narrow sub tight" }, c.online ? "now" : ago(c.lastSeenAt)),
+      h("td", { class: "tight" }, findButton(c)),
     );
   });
   $("client-table").replaceChildren(
@@ -1346,6 +1373,7 @@ function renderClients() {
           h("th", { class: "hide-narrow" }, "Settings"),
           h("th", { class: "hide-narrow" }, "Version"),
           h("th", { class: "hide-narrow tight" }, "Last seen"),
+          h("th", { class: "tight" }, ""),
         ),
       ),
       h("tbody", {}, rows),
@@ -1372,7 +1400,7 @@ function renderDevice() {
   const schema = lastTypes[client.type] || { settings: [], actions: [], links: [] };
   const devicePath = `/admin/settings/device/${encodeURIComponent(client.id)}`;
   $("device-title").textContent = client.name;
-  $("device-state").replaceChildren(stat(client.online ? "online" : `offline, last seen ${ago(client.lastSeenAt)}`, client.online ? "good" : ""));
+  $("device-state").replaceChildren(stat(client.online ? "online" : `offline, last seen ${ago(client.lastSeenAt)}`, client.online ? "good" : ""), findButton(client, "device-note"));
   $("device-remove").disabled = false;
 
   // Name and location are this device's alone, so they sit at the top and save as they change.
@@ -1519,6 +1547,7 @@ function renderDevice() {
   );
 
   renderReadings(client);
+  renderGlowPreview(client, schema, devicePath);
   if ($("device-history").dataset.drawn !== `${view.id}:${activityData.at}`) renderDeviceHistory();
 
   const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
@@ -1564,6 +1593,195 @@ function renderDevice() {
             ),
     }),
   );
+}
+
+// --- device page: the edge glow, as the board draws it ------------------------------------
+
+/**
+ * The board's glow (firmware glow.cpp), worked out the same way: how far a pixel is in from the edge,
+ * following a curve of `radius` at the corners, fading out DEPTH pixels in, blended over black.
+ * Keep the colours, paces and strengths in step with glow.cpp.
+ */
+const GLOW_DEPTH = 12;
+const GLOW_STATES = [
+  { key: "waiting", label: "Needs you", rgb: [1, 0.6, 0.08], hz: 0.5 },
+  { key: "question", label: "Question", rgb: [0.2, 0.5, 1], hz: 0.8 },
+  { key: "done", label: "Done flash", rgb: [0.34, 1, 0.4], hz: 0 },
+  { key: "timer", label: "Timer", rgb: [1, 0.16, 0.1], hz: 0 },
+  { key: "find", label: "Find", rgb: [1, 1, 1], hz: 2.5 },
+  { key: "listening", label: "Listening", rgb: [0.15, 1, 0.55], hz: 1.2 },
+  { key: "thinking", label: "Thinking", rgb: [0.62, 0.4, 1], hz: 0.9 },
+  { key: "speaking", label: "Speaking", rgb: [0.55, 0.95, 1], hz: 2.4 },
+];
+const GLASS_KEY = "axis.glassCorner";
+let glowPreview;
+
+/** Every pixel the glow can reach, with how strong it is there at full strength and where it sits round the screen. */
+function glowMap(w, hgt, radius) {
+  const index = [], fall = [], turn = [];
+  for (let py = 0; py < hgt; py++) {
+    for (let px = 0; px < w; px++) {
+      const cx = Math.min(Math.max(px, radius), w - 1 - radius), cy = Math.min(Math.max(py, radius), hgt - 1 - radius);
+      const d = cx !== px && cy !== py ? radius - Math.hypot(px - cx, py - cy) : Math.min(px, py, w - 1 - px, hgt - 1 - py);
+      if (d >= GLOW_DEPTH) continue;
+      const f = d <= 0 ? 1 : 1 - d / GLOW_DEPTH;
+      let t = Math.atan2(px - w / 2, hgt / 2 - py) / (2 * Math.PI);
+      if (t < 0) t += 1;
+      index.push(py * w + px);
+      fall.push(f * f);
+      turn.push(t);
+    }
+  }
+  return { index: Int32Array.from(index), fall: Float32Array.from(fall), turn: Float32Array.from(turn) };
+}
+
+/** Builds the preview for a device whose firmware draws the glow (it offers glowCorner), or brings it up to date. */
+function renderGlowPreview(client, schema, devicePath) {
+  const box = $("device-glow-box");
+  const def = schema.settings.find((d) => d.key === "glowCorner");
+  box.hidden = !def;
+  if (!def) return stopGlowPreview();
+  const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
+  const saved = Number(client.settings.glowCorner ?? def.default ?? 56);
+  if (glowPreview?.clientId === client.id && glowPreview.w === w && glowPreview.hgt === hgt) {
+    // Follows a value saved elsewhere, unless the slider is being moved.
+    if (!glowPreview.dirty && glowPreview.radius !== saved) glowPreview.setRadius(saved);
+    glowPreview.start();
+    return;
+  }
+  stopGlowPreview();
+
+  const scale = Math.min(1, 220 / Math.max(w, hgt));
+  const canvas = h("canvas", { width: w, height: hgt, style: `width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px` });
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(w, hgt);
+  const p = { clientId: client.id, w, hgt, radius: saved, dirty: false, state: GLOW_STATES[0], glass: Number(localStorage.getItem(GLASS_KEY)) || 40, map: glowMap(w, hgt, saved), frame: 0 };
+
+  const radiusOut = h("span", { class: "mono" }, `${saved} px`);
+  const radiusIn = h("input", { type: "range", min: def.min ?? 12, max: def.max ?? 120, value: saved });
+  const save = h("button", { class: "small", disabled: true }, "Save for this device");
+  const glassOut = h("span", { class: "mono" }, `${p.glass} px`);
+  const glassIn = h("input", { type: "range", min: 0, max: 120, value: p.glass });
+  p.setRadius = (r) => {
+    p.radius = r;
+    p.map = glowMap(w, hgt, r);
+    radiusIn.value = r;
+    radiusOut.textContent = `${r} px`;
+  };
+  radiusIn.addEventListener("input", () => {
+    p.setRadius(Number(radiusIn.value));
+    p.dirty = p.radius !== Number(client.settings.glowCorner ?? def.default ?? 56);
+    save.disabled = !p.dirty;
+  });
+  glassIn.addEventListener("input", () => {
+    p.glass = Number(glassIn.value);
+    glassOut.textContent = `${p.glass} px`;
+    localStorage.setItem(GLASS_KEY, String(p.glass));
+  });
+  save.addEventListener("click", (event) =>
+    act(event.target, "device-note", async () => {
+      await api("PATCH", devicePath, { values: { glowCorner: p.radius } });
+      p.dirty = false;
+      save.disabled = true;
+      toast(`Glow corner curve ${p.radius} px saved for ${client.name}. It uses it from the next glow.`);
+      await refresh();
+    }),
+  );
+  const buttons = GLOW_STATES.map((state) => {
+    const b = h("button", { class: `small${state === p.state ? " on" : ""}`, type: "button" }, state.label);
+    b.addEventListener("click", () => {
+      p.state = state;
+      p.started = performance.now();
+      for (const other of buttons) other.classList.toggle("on", other === b);
+    });
+    return b;
+  });
+  const find = (schema.actions ?? []).find((a) => a.name === "find");
+  const findButton = find
+    ? h("button", { class: "small", type: "button", disabled: !client.online, onclick: (event) => act(event.target, "device-note", async () => {
+        const result = await runCommand(client, find);
+        note("device-note", result.ok ? `${client.name} is chiming and flashing white now, with the curve it has (${client.settings.glowCorner ?? def.default} px).` : result.text, result.ok ? "good" : "bad");
+      }) }, "Show on the device (Find)")
+    : null;
+
+  $("device-glow").replaceChildren(
+    h("div", { class: "glow-frame" }, canvas),
+    h("div", { class: "glow-controls" },
+      h("div", { class: "glow-states" }, ...buttons),
+      h("label", {}, "Glow corner curve", radiusIn, radiusOut),
+      h("label", { title: "Only for this preview: where the glass hides the panel's corners. Kept in this browser." }, "Glass corner (guide)", glassIn, glassOut),
+      h("div", { class: "inline" }, save, findButton),
+      h("p", { class: "help" }, `${w} × ${hgt}, the way up it stands now.`),
+    ),
+  );
+
+  const draw = (now) => {
+    if (!canvas.isConnected || view.name !== "device") return (p.frame = 0);
+    p.frame = requestAnimationFrame(draw);
+    // The board draws about twenty times a second; so does this.
+    if (p.last && now - p.last < 50) return;
+    p.last = now;
+    const t = (now - (p.started ?? 0)) / 1000;
+    const s = p.state;
+    let strength, sweep = 1;
+    if (s.key === "done") {
+      // A 1.5 s flash fading right out, every 3 s.
+      const into = t % 3;
+      strength = into < 1.5 ? 0.9 * (1 - into / 1.5) : 0;
+    } else if (s.key === "timer") {
+      // The last ten seconds, over and over: shrinking clockwise from the top middle, a beat each second.
+      const left = 10 - (t % 11);
+      sweep = Math.max(0, left / 10);
+      const beat = left > 0 ? left % 1 : 0;
+      strength = 0.35 + 0.6 * beat * beat;
+    } else if (s.key === "listening" || s.key === "speaking") {
+      // A voice: uneven, like a level.
+      const level = Math.max(0, Math.sin(t * 7) * 0.5 + Math.sin(t * 13.3) * 0.3 + 0.3);
+      strength = 0.35 + 0.6 * Math.min(1, level);
+    } else {
+      strength = 0.3 + 0.45 * (0.5 + 0.5 * Math.sin(2 * Math.PI * s.hz * t));
+    }
+    const data = image.data;
+    data.fill(0);
+    for (let i = 3; i < data.length; i += 4) data[i] = 255;
+    const { index, fall, turn } = p.map;
+    const [r, g, b] = s.rgb;
+    for (let k = 0; k < index.length; k++) {
+      if (sweep < 1 && turn[k] > sweep) continue;
+      const a = strength * fall[k], o = index[k] * 4;
+      // Over black, as the board's blend: the colour times its strength, in 5-6-5 steps.
+      data[o] = Math.round(r * a * 31) * 255 / 31;
+      data[o + 1] = Math.round(g * a * 63) * 255 / 63;
+      data[o + 2] = Math.round(b * a * 31) * 255 / 31;
+    }
+    ctx.putImageData(image, 0, 0);
+    // Where the glass hides the corners: dim outside it, and a dashed guide along it.
+    if (p.glass > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, hgt);
+      ctx.roundRect(0, 0, w, hgt, p.glass);
+      ctx.fillStyle = "rgba(17,17,17,0.85)";
+      ctx.fill("evenodd");
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(1, 1, w - 2, hgt - 2, p.glass);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+  p.start = () => {
+    if (!p.frame) p.frame = requestAnimationFrame(draw);
+  };
+  glowPreview = p;
+  p.start();
+}
+
+function stopGlowPreview() {
+  if (glowPreview?.frame) cancelAnimationFrame(glowPreview.frame);
+  glowPreview = undefined;
 }
 
 /** Runs one of a device's actions and words the answer. */

@@ -44,7 +44,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
     {"glowCorner", "Glow corner curve", "number", "Screen", "How round the edge glow turns the corners. Raise it until the corners show as a smooth curve.", "56", 12, 120, "pixels", nullptr},
     {"timerGlow", "Timer countdown glow", "toggle", "Screen", "In a timer's last ten seconds, a red glow runs round the screen's edges and shrinks as the time runs out, beating once a second.", "1", 0, 0, nullptr, nullptr},
-    {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
+    {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, a blue one while a question waits for you on another device, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
 };
@@ -53,6 +53,7 @@ static const axis::ActionDef ACTIONS[] = {
     {"chime", "Play chime", "The two-note boot chime.", false},
     {"talk", "Start listening", "Same as tapping the screen while idle.", false},
     {"mic", "Microphone levels", "Room level, speech threshold and wake word statistics.", false},
+    {"find", "Find this device", "Chimes three times and flashes the screen's edges white for eight seconds, to tell which device is which.", false},
     {"edges", "Show screen edges", "Draws a frame along the edges of the screen for ten seconds, to set the picture offset by.", false},
     {"motion", "Which way up", "Gravity along the board's axes in thousandths of g, and the rotation it calls for.", false},
 };
@@ -186,6 +187,10 @@ static uint8_t seenTaskState = 0;
 static uint32_t doneFlashUntil = 0;
 static bool noticeShown = false;
 static const uint32_t DONE_FLASH_MS = 1500;
+// "Find this device": until when the edges flash white, and how many of its chimes are still to come.
+static uint32_t findUntil = 0;
+static uint8_t findChimes = 0;
+static const uint32_t FIND_MS = 8000, FIND_CHIME_EVERY_MS = 2600;
 /** How long before a timer is due its countdown glow starts. */
 static const int32_t TIMER_GLOW_MS = 10000;
 static bool hasSpeaker = false, hasMic = false;
@@ -751,6 +756,12 @@ void setup() {
             payload["started"] = client.startListening();
             return true;
         }
+        if (!strcmp(name, "find")) {
+            findUntil = millis() + FIND_MS;
+            if (!findUntil) findUntil = 1;
+            findChimes = 3;
+            return true;
+        }
         if (!strcmp(name, "edges")) {
             edgesUntil = millis() + 10000;
             edgesDrawn = false;
@@ -952,7 +963,20 @@ void loop() {
         float level = -1.0f, sweep = 1.0f;
         // A timer's last seconds come first: a red edge that shrinks clockwise as they run out, beating each second.
         const int32_t timerLeft = state.timerCount ? (int32_t)(state.timerEndsAt - started) : -1;
-        if (calm && timerLeft > 0 && timerLeft <= TIMER_GLOW_MS && client.settingInt("timerGlow", 1) != 0) {
+        // Somebody looking for this device comes before everything but a conversation.
+        const int32_t findLeft = findUntil ? (int32_t)(findUntil - started) : 0;
+        if (findLeft > 0) {
+            if (findChimes && (int32_t)(FIND_MS - findLeft) >= (int32_t)((3 - findChimes) * FIND_CHIME_EVERY_MS)) {
+                findChimes--;
+                if (hasSpeaker && !speaker::playing() && !client.listening()) speaker::chime();
+            }
+        } else {
+            findUntil = 0;
+            findChimes = 0;
+        }
+        if (findLeft > 0 && !client.listening() && !speaker::playing() && state.turn == axis::Turn::Idle) {
+            notice = glow::State::Find;
+        } else if (calm && timerLeft > 0 && timerLeft <= TIMER_GLOW_MS && client.settingInt("timerGlow", 1) != 0) {
             notice = glow::State::Timer;
             sweep = timerLeft / (float)TIMER_GLOW_MS;
             const float beat = (timerLeft % 1000) / 1000.0f;  // 1 on each whole second, fading to 0
@@ -961,6 +985,9 @@ void loop() {
             if (doneFlashUntil && (int32_t)(started - doneFlashUntil) < 0) {
                 notice = glow::State::Done;
                 level = (doneFlashUntil - started) / (float)DONE_FLASH_MS;
+            } else if (state.asksElsewhere) {
+                // A question waiting somewhere else, or on no screen any more: blue, ahead of a task's amber.
+                notice = glow::State::Question;
             } else if (state.taskCount && state.taskState == 1) {
                 notice = glow::State::Waiting;
             }

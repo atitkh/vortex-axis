@@ -171,6 +171,16 @@ export class Hub implements TurnPort {
     return this.turns.ask(session, question, choices, timeoutMs, options);
   }
 
+  /** Called whenever a question opens or closes on any client. */
+  onAsksChange(listener: () => void): void {
+    this.turns.onAsksChange(listener);
+  }
+
+  /** The ids of the clients with a question open right now. */
+  askingClients(): string[] {
+    return this.turns.askingClients();
+  }
+
   /** What each client is in the middle of, for the admin page. */
   doing(): ClientNow[] {
     return this.turns.now();

@@ -23,6 +23,8 @@ const Tint TINTS[] = {
     {1.00f, 0.60f, 0.08f, 0.5f},  // Waiting: amber, slow
     {0.34f, 1.00f, 0.40f, 0.0f},  // Done: green
     {1.00f, 0.16f, 0.10f, 0.0f},  // Timer: red, beating once a second (the caller's level)
+    {0.20f, 0.50f, 1.00f, 0.8f},  // Question: blue, a little quicker than waiting
+    {1.00f, 1.00f, 1.00f, 2.5f},  // Find: white, quick
 };
 
 State drawn = State::None;

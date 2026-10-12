@@ -425,6 +425,17 @@ export class TurnManager {
   private sayCount = 0;
   private readonly asks = new Map<string, PendingAsk>();
   private askCount = 0;
+  private readonly askListeners: (() => void)[] = [];
+
+  /** Called whenever a question opens or closes on any client. */
+  onAsksChange(listener: () => void): void {
+    this.askListeners.push(listener);
+  }
+
+  /** The clients with a question open right now. */
+  askingClients(): string[] {
+    return [...this.asks.keys()];
+  }
 
   /** Hands long agent runs to `background` from now on, sending turns to `busySessionKey` while one holds the usual conversation. */
   readonly useBackground: (background: Background, busySessionKey: string, handoverMs?: number) => void;
@@ -678,6 +689,7 @@ export class TurnManager {
         timer: setTimeout(expire, timeoutMs),
         hardStop: Date.now() + timeoutMs + 30_000,
       });
+      for (const listener of this.askListeners) listener();
       this.port.send(session, { t: "ask", askId, question: question.slice(0, 500), choices, timeoutMs });
       options.signal?.addEventListener("abort", () => {
         if (this.asks.get(id)?.askId === askId) this.endAsk(session, { answer: null });
@@ -697,6 +709,7 @@ export class TurnManager {
     if (!pending) return;
     this.asks.delete(id);
     clearTimeout(pending.timer);
+    for (const listener of this.askListeners) listener();
     if (tellClient) this.port.send(session, { t: "ask.end", askId: pending.askId });
     pending.resolve(result);
   }

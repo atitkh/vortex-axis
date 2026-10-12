@@ -766,3 +766,14 @@ pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radi
 .calls details summary { cursor: pointer; }
 .calls .call-detail { margin: 6px 0 0; overflow-wrap: anywhere; }
 .calls .call-detail code { white-space: pre-wrap; }
+
+/* Device page: the edge glow preview. */
+.glow-preview { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.glow-preview .glow-frame { background: #111; border: 1px solid #333; border-radius: 22px; padding: 8px; }
+.glow-preview canvas { display: block; background: #000; }
+.glow-preview .glow-controls { flex: 1 1 260px; display: grid; gap: 10px; }
+.glow-preview .glow-states { display: flex; flex-wrap: wrap; gap: 6px; }
+.glow-preview .glow-states button.on { outline: 2px solid var(--accent); }
+.glow-preview label { display: grid; grid-template-columns: 9em 1fr 4em; gap: 8px; align-items: center; font-size: 13px; }
+.glow-preview input[type="range"] { width: 100%; }
+.find-button { margin-left: 8px; }

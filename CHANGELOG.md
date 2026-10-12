@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.33.0 and board firmware 0.17.0 (2026-10-11)
+
+- **Find this device.** Boards offer a `find` action: three chimes over about five seconds and a quick white pulse round the screen's edges for eight, ahead of everything but a conversation. The admin page puts a **Find** button beside any device that offers it, on the Clients list and next to the device's state.
+- **Blue glow while a question waits elsewhere** (firmware 0.17.0). Axis tells every screen how many questions wait for the person where it is not showing them (`server/src/asklight.ts`, the `command` `ask.waiting` with `elsewhere`): a question open on another device, or an OpenClaw agent's question or approval that is on no device (shown nowhere, or given up on by the device while the gateway still waits; `AgentAsks.unshown`). An idle board pulses its edges blue while there are any, ahead of a task's amber; under the **Notification light** setting. Sent only when a screen's number changes, and on connect.
+- **Edge glow preview** on a device's admin page, for devices that offer `glowCorner`: the glow drawn the way the board draws it (glow.cpp ported: depth, curve, colours, paces, the timer's sweep), each kind on a button, a **Glow corner curve** slider that redraws live and saves for that device, and a dashed guide for where the glass hides the corners (kept in the browser only).
+- Fixed: the protocol tests had no samples for `gesture`, `reply.image` and `image.*`, so two of them failed since 0.28.0/0.29.0.
+
 ## 0.32.0 and board firmware 0.16.0 (2026-10-11)
 
 - **Agent tool calls on the Live page.** Every call of an Axis tool shows as it starts and ends: the tool, who made it (OpenClaw, `MCP: <token name>` or the admin page), what it was given and gave back (click the tool name), how long it took, and done or the reason it was refused (a switched-off tool included). Last 40 kept in memory; what was given and given back is deleted after ten minutes like a turn's words, and with **Clear now**. `InvokeHandler` takes an optional `via`; `Live.recordTools` wraps the guarded handler.

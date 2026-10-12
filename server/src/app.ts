@@ -19,6 +19,7 @@ import { Live } from "./live.js";
 import { Voiceprints } from "./voiceprint.js";
 import { createHttpHandler } from "./http.js";
 import { AgentAsks } from "./agentasks.js";
+import { AskLight } from "./asklight.js";
 import { CardMirror } from "./cards.js";
 import { RealtimeTalk } from "./talk.js";
 import { Attachment } from "./attach.js";
@@ -260,6 +261,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     approvals: () => config.mirrorApprovals,
     listening: () => gateway.status().watch?.missing.includes("operator.questions") === false,
     onChange: (sessionKey) => cards.refresh(sessionKey),
+    onWaiting: () => askLight.refresh(),
     log,
     note: (text) => activity.note("agent", "", text, "info"),
     route: {
@@ -282,6 +284,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       },
     },
   });
+  // Screens glow blue while a question waits for the person somewhere they are not showing it.
+  const askLight: AskLight = new AskLight(hub, () => asks.unshown());
   const cards: CardMirror = new CardMirror({ source: gateway, progress, enabled: () => config.mirrorCards, waitingOn: (sessionKey) => asks.waitingOn(sessionKey), log });
   cards.start();
   // Whether the gateway still offers what all of the above lean on: asked whenever the link comes up.

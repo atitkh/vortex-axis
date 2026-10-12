@@ -49,6 +49,7 @@ const clientSamples: ClientMessage[] = [
     links: [{ label: "Device log", path: "/logs" }],
     address: "192.168.1.42",
   },
+  { t: "gesture", gesture: "swipe_down" },
 ];
 
 const serverSamples: ServerMessage[] = [
@@ -58,6 +59,10 @@ const serverSamples: ServerMessage[] = [
   { t: "turn", turnId: "t1", state: "thinking" },
   { t: "transcript", turnId: "t1", text: "what time is it" },
   { t: "reply.text", turnId: "t1", text: "It is eight o'clock.", final: true },
+  { t: "reply.image", turnId: "t1", url: "/v1/media/m1", mime: "image/png", alt: "A chart" },
+  { t: "image.start", imageId: "i1", turnId: "t1", mime: "image/jpeg", size: 1200, width: 368, height: 448 },
+  { t: "image.data", imageId: "i1", data: "/9j/4AAQ" },
+  { t: "image.end", imageId: "i1" },
   { t: "speak.start", turnId: "t1", format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 } },
   { t: "speak.end", turnId: "t1" },
   { t: "ask", askId: "a1", question: "Turn off the lights?", choices: ["Yes", "No"], timeoutMs: 30000 },

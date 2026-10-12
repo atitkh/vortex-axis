@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.16.0"
+#define AXIS_FIRMWARE_VERSION "0.17.0"
 
 namespace axis {
 
@@ -131,6 +131,8 @@ struct Snapshot {
     String taskOthers;
     /** Goes up by one each time Axis marks a finished task with a sound. */
     uint8_t taskChimes = 0;
+    /** Questions waiting for the person that this device is not showing: on another device, or on none any more. */
+    uint8_t asksElsewhere = 0;
 };
 
 /**

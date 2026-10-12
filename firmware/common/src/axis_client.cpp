@@ -665,7 +665,7 @@ struct Client::Impl {
             cancelRecording();
             // A question cannot be answered now, and Axis sends the timers again on the next connect.
             endAsk();
-            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; s.taskSteps = ""; s.taskOthers = ""; });
+            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; s.taskSteps = ""; s.taskOthers = ""; s.asksElsewhere = 0; });
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -1307,6 +1307,12 @@ struct Client::Impl {
                 s.taskTotal = (uint16_t)constrain(total, 0, 999);
                 s.taskState = stateName == "blocked" ? 1 : stateName == "done" ? 2 : 0;
             });
+            handled = true;
+        }
+        else if (!strcmp(name, "ask.waiting")) {
+            // Axis keeps the questions. This is only so a screen can say one is waiting somewhere.
+            const uint8_t elsewhere = (uint8_t)constrain((int)(doc["params"]["elsewhere"] | 0), 0, 255);
+            update([&](Snapshot &s) { s.asksElsewhere = elsewhere; });
             handled = true;
         }
         if (self.commandHandler_ && self.commandHandler_(name, doc["params"], payload)) handled = true;
