@@ -50,6 +50,38 @@ describe("the desktop tool (experimental)", () => {
     expect((await tryTool({ action: "point" })).body.error).toMatch(/needs an id/);
   });
 
+  it("clicks, types and presses keys, and refuses all three when they are switched off for the computer", async () => {
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const pc = await computer("Desk PC");
+    const answer = async (name: string, reply: Record<string, unknown>, match: (m: any) => boolean = () => true) => {
+      const asked = await pc.next("command", 0, (m) => m.name === name && match(m));
+      pc.send({ t: "command.result", id: asked.id, ok: true, ...reply });
+      return asked;
+    };
+
+    const clicking = tryTool({ action: "click", id: 3, button: "double" });
+    expect((await answer("desktop.click", { payload: { x: 10, y: 20, how: "mouse" } })).params).toEqual({ id: 3, button: "double" });
+    expect((await clicking).body.result).toMatchObject({ computer: "Desk PC", done: "click", how: "mouse" });
+
+    const typing = tryTool({ action: "type", text: "on my way" });
+    expect((await answer("desktop.type", { payload: { typed: 9 } })).params).toEqual({ text: "on my way" });
+    expect((await typing).body.result).toMatchObject({ done: "type", typed: 9 });
+
+    const pressing = tryTool({ action: "keys", keys: "enter" });
+    expect((await answer("desktop.keys", { payload: { pressed: "enter" } })).params).toEqual({ keys: "enter" });
+    expect((await pressing).body.result).toMatchObject({ done: "keys", pressed: "enter" });
+
+    expect((await tryTool({ action: "type", text: "x".repeat(501) })).body.error).toMatch(/at most 500/);
+    expect((await tryTool({ action: "click", button: "middle", x: 1, y: 1 })).body.error).toMatch(/left, right or double/);
+
+    // Switched off on the computer's page: refused by Axis before the computer hears of it.
+    const { body } = await admin("GET", "/admin/clients");
+    const id = body.clients.find((c: any) => c.name === "Desk PC").id;
+    await admin("PATCH", `/admin/settings/device/${id}`, { values: { allowInput: 0 } });
+    expect((await tryTool({ action: "click", x: 5, y: 5 })).body.error).toMatch(/switched off for Desk PC/);
+    expect((await tryTool({ action: "keys", keys: "enter" })).body.error).toMatch(/switched off/);
+  });
+
   it("asks which computer when there are several", async () => {
     await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
     await computer("Desk PC");

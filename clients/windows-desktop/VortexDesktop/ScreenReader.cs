@@ -145,7 +145,7 @@ sealed class ScreenReader
                 value = (e.GetCachedPropertyValue(ValuePattern.ValueProperty) as string)?.Trim();
             // A container with no name says nothing; a field says something even unnamed.
             if (name.Length == 0 && string.IsNullOrEmpty(value) && kind is not ("edit" or "document" or "password" or "combobox")) return;
-            list.Add(new ScreenElement(kind, name, (int)box.X, (int)box.Y, (int)box.Width, (int)box.Height, value, c.HasKeyboardFocus));
+            list.Add(new ScreenElement(kind, name, (int)box.X, (int)box.Y, (int)box.Width, (int)box.Height, value, c.HasKeyboardFocus) { Ref = e });
         }
         // One element that will not describe itself (gone, or an app's own oddity) is left out, not the whole look.
         catch (Exception) { }

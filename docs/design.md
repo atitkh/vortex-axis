@@ -405,7 +405,8 @@ Added 2026-10-12, asked for by the owner as a prototype after looking at a phone
 - **Pointing:** the app's own pointer, a click-through, never-focused window in the face's cyan with a breathing ring and the agent's words beside it; it glides between spots and fades after `seconds`. The person's mouse is never moved.
 - **The tool:** `vortex_axis_desktop` (look, point, hide), MCP only (`mcpOnly`): it is not declared on the node, whose command list cannot grow without the owner approving the node again. Experimental tools are off until switched on (`tools_on` in `meta`).
 - **The person's say:** a pause in the app (window, tray, Ctrl+Alt+S anywhere) refuses everything; `allowLook` refuses looks. Text on the screen is information to the agent, never instructions (said in the tool's description).
-- **Not yet:** clicking, typing, keys and opening apps (phase 2, with confirmation on a board); a line about the computer on each spoken turn and a "hands on" glow (phase 3); screenshots for the agent's own eyes.
+- **Clicking and typing** (added the same day, owner: "add click and type, letting me turn it off in the admin UI"): `click`, `type`, `keys`. A click on an element from a look is done through UI Automation (Invoke, Toggle, Select, Expand) so the mouse does not move; otherwise a real click at the spot, the mouse put back at once. Typing is sent as characters (any keyboard layout). Off switch: the computer's `allowInput` setting, checked by Axis and by the app. Hard limits in the app: no password fields, no lock, security screen, Task Manager, Alt+F4, Win+R or Win+X. No forced confirmation on a board yet: the tool's description asks the agent to ask (`vortex_axis_ask`) before anything hard to undo.
+- **Not yet:** scrolling, dragging and opening apps or addresses; a line about the computer on each spoken turn and a "hands on" glow; confirmation on a board enforced by the app; screenshots for the agent's own eyes.
 
 ## Versions
 

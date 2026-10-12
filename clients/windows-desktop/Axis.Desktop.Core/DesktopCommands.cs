@@ -4,7 +4,14 @@ using System.Text.Json.Nodes;
 namespace Axis.Desktop;
 
 /** Something readable on the screen: a control the window exposes, or text read from its pixels. */
-public sealed record ScreenElement(string Kind, string Name, int X, int Y, int W, int H, string? Value = null, bool Focused = false, string Source = "ui");
+public sealed record ScreenElement(string Kind, string Name, int X, int Y, int W, int H, string? Value = null, bool Focused = false, string Source = "ui")
+{
+    /** The platform's own handle on the control, to act on it directly. Never sent. */
+    public object? Ref { get; init; }
+}
+
+/** Which click: one with the left button, one with the right, or two quick left ones. */
+public enum ClickKind { Left, Right, Double }
 
 /** When to read text from the pixels: never, only when the window exposes little, or always. */
 public enum OcrMode { Never, Auto, Always }
@@ -31,6 +38,75 @@ public interface IDesktop
     Task HideAsync();
     /** The middle of the main screen, for "show the pointer". */
     (int X, int Y) Centre { get; }
+
+    /**
+     * Clicks `target` (from the last look) or (x, y). Returns how: "invoked" when the control was pressed
+     * directly, without the mouse; "mouse" when a real click was sent there (and the mouse put back).
+     */
+    Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct);
+    /** Types `text` into `target`, or into whatever has the focus. Refuses a password field. */
+    Task TypeAsync(ScreenElement? target, string text, CancellationToken ct);
+    /** Presses one key combination. */
+    Task KeysAsync(KeyCombo combo, CancellationToken ct);
+}
+
+/** A key with the modifiers held for it: "ctrl+shift+t", "enter", "alt+tab". */
+public sealed record KeyCombo(bool Ctrl, bool Alt, bool Shift, bool Win, string Key)
+{
+    static readonly HashSet<string> Named =
+    [
+        "enter", "tab", "escape", "backspace", "delete", "insert", "space", "up", "down", "left", "right",
+        "home", "end", "pageup", "pagedown", "printscreen", "capslock", "menu",
+        "volumeup", "volumedown", "volumemute", "mediaplaypause", "medianext", "mediaprevious", "mediastop",
+    ];
+    static readonly Dictionary<string, string> Aliases = new()
+    {
+        ["return"] = "enter", ["esc"] = "escape", ["del"] = "delete", ["ins"] = "insert", ["pgup"] = "pageup", ["pgdn"] = "pagedown",
+        ["arrowup"] = "up", ["arrowdown"] = "down", ["arrowleft"] = "left", ["arrowright"] = "right", ["spacebar"] = "space",
+        ["playpause"] = "mediaplaypause", ["mute"] = "volumemute",
+    };
+
+    /** Reads "Ctrl+Shift+T" and the like. Throws FormatException on anything it does not know. */
+    public static KeyCombo Parse(string text)
+    {
+        var parts = (text ?? "").ToLowerInvariant().Replace(" ", "").Split('+', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) throw new FormatException("keys is empty");
+        bool ctrl = false, alt = false, shift = false, win = false;
+        foreach (var m in parts[..^1])
+        {
+            switch (m)
+            {
+                case "ctrl" or "control": ctrl = true; break;
+                case "alt" or "option": alt = true; break;
+                case "shift": shift = true; break;
+                case "win" or "windows" or "meta" or "super" or "cmd": win = true; break;
+                default: throw new FormatException($"\"{m}\" is not a modifier (ctrl, alt, shift, win)");
+            }
+        }
+        var key = parts[^1];
+        key = Aliases.GetValueOrDefault(key, key);
+        var known = Named.Contains(key) || key.Length == 1 && key[0] is >= ' ' and <= '~'
+            || key.Length is 2 or 3 && key[0] == 'f' && int.TryParse(key[1..], out var f) && f is >= 1 and <= 24;
+        if (!known) throw new FormatException($"\"{parts[^1]}\" is not a key this knows");
+        return new KeyCombo(ctrl, alt, shift, win, key);
+    }
+
+    /**
+     * Combinations the app never presses, whatever an agent asks: locking the computer, signing out or
+     * the security screen, Task Manager, and closing the window in front.
+     */
+    public string? Blocked() => this switch
+    {
+        { Win: true, Key: "l" } => "locking the computer",
+        { Ctrl: true, Alt: true, Key: "delete" or "end" } => "the security screen",
+        { Ctrl: true, Shift: true, Key: "escape" } => "Task Manager",
+        { Alt: true, Key: "f4" } => "closing the window",
+        { Win: true, Key: "x" or "r" } => "the power menu or Run",
+        _ => null,
+    };
+
+    public override string ToString() =>
+        string.Join("+", new[] { Ctrl ? "ctrl" : null, Alt ? "alt" : null, Shift ? "shift" : null, Win ? "win" : null, Key }.Where(s => s != null));
 }
 
 /**
@@ -126,6 +202,8 @@ public sealed class DesktopCommands
             case "desktop.hide":
                 await desktop.HideAsync();
                 return CommandAnswer.Done();
+            case "desktop.click" or "desktop.type" or "desktop.keys":
+                return await ActAsync(name, p, ct);
             case "desktop.hello":
             {
                 // The admin page's "Show the pointer": proof the app is there and drawing.
@@ -138,6 +216,65 @@ public sealed class DesktopCommands
                 return CommandAnswer.Fail("not implemented on this device");
         }
     }
+
+    /** Clicking, typing and keys: switched off by the person (Axis's allowInput), and held to the app's own limits. */
+    async Task<CommandAnswer> ActAsync(string name, JsonElement p, CancellationToken ct)
+    {
+        if (!Toggle("allowInput", true)) return CommandAnswer.Fail("clicking and typing are switched off for this computer");
+        ScreenElement? target = null;
+        if (Int(p, "id") is int id)
+        {
+            lock (gate) target = id >= 1 && id <= last.Count ? last[id - 1] : null;
+            if (target == null) return CommandAnswer.Fail($"no element {id} in the last look; look again");
+        }
+        switch (name)
+        {
+            case "desktop.click":
+            {
+                int x, y;
+                if (target != null) (x, y) = (target.X + target.W / 2, target.Y + target.H / 2);
+                else if (Int(p, "x") is int px && Int(p, "y") is int py) (x, y) = (px, py);
+                else return CommandAnswer.Fail("click needs an id, or x and y");
+                var kind = (Str(p, "button") ?? "left") switch
+                {
+                    "left" => ClickKind.Left,
+                    "right" => ClickKind.Right,
+                    "double" => ClickKind.Double,
+                    var other => throw new FormatException($"button must be left, right or double, not {other}"),
+                };
+                var how = await desktop.ClickAsync(target, x, y, kind, ct);
+                Did?.Invoke($"{(kind == ClickKind.Left ? "Clicked" : kind == ClickKind.Right ? "Right-clicked" : "Double-clicked")} {(target != null ? Clip(target.Name, 60) : $"{x}, {y}")}");
+                var payload = new JsonObject { ["x"] = x, ["y"] = y, ["how"] = how };
+                if (target != null) payload["name"] = Clip(target.Name, 200);
+                return CommandAnswer.Done(payload);
+            }
+            case "desktop.type":
+            {
+                var text = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "";
+                if (text.Length == 0) return CommandAnswer.Fail("type needs text");
+                if (text.Length > MaxTyped) return CommandAnswer.Fail($"at most {MaxTyped} characters at a time");
+                if (target?.Kind == "password") return CommandAnswer.Fail("the app never types into a password field");
+                await desktop.TypeAsync(target, text, ct);
+                Did?.Invoke($"Typed {text.Length} characters{(target != null ? $" into {Clip(target.Name, 60)}" : "")}");
+                return CommandAnswer.Done(new JsonObject { ["typed"] = text.Length });
+            }
+            default:
+            {
+                var combo = KeyCombo.Parse(Str(p, "keys") ?? "");
+                if (combo.Blocked() is string why)
+                {
+                    Did?.Invoke($"Refused to press {combo} ({why})");
+                    return CommandAnswer.Fail($"the app never presses {combo} ({why})");
+                }
+                await desktop.KeysAsync(combo, ct);
+                Did?.Invoke($"Pressed {combo}");
+                return CommandAnswer.Done(new JsonObject { ["pressed"] = combo.ToString() });
+            }
+        }
+    }
+
+    /** Most text one type sends. */
+    public const int MaxTyped = 500;
 
     static readonly HashSet<string> Actionable =
     [
@@ -227,6 +364,7 @@ public static class DesktopIdentity
     {
         ["settings"] = new JsonArray(
             Setting("allowLook", "Let agents read the screen", "toggle", "Desktop", "Off refuses every look. The person at the computer can also pause the app from its window or tray.", "1"),
+            Setting("allowInput", "Let agents click and type", "toggle", "Desktop", "Off refuses clicks, typing and key presses; looking and pointing go on. The app never types into a password field or presses lock, sign-out, Task Manager or Alt+F4.", "1"),
             Setting("bubble", "Words beside the pointer", "toggle", "Desktop", "Show what the agent says next to its pointer.", "1"),
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),

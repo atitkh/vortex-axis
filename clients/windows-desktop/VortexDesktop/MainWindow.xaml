@@ -33,7 +33,7 @@
 
         <!-- Not paired yet. -->
         <StackPanel x:Name="PairPanel" Grid.Row="1" Margin="0,18,0,0">
-            <TextBlock Text="Connect this computer to Axis so agents can see what's on the screen and point at things. It can't click or type yet." Style="{StaticResource Help}" />
+            <TextBlock Text="Connect this computer to Axis so agents can see what's on the screen, point at things, and click and type when you ask. It never types passwords." Style="{StaticResource Help}" />
             <TextBlock Text="Axis address" Style="{StaticResource Label}" />
             <TextBox x:Name="AddressBox" ToolTip="For example 192.168.1.20:8440, or a setup string axis://…" />
             <TextBlock Text="Pairing code" Style="{StaticResource Label}" />
@@ -59,7 +59,7 @@
                 <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,16,0,0" />
                 <CheckBox x:Name="AllowSwitch" Style="{StaticResource Switch}" Margin="0,14,0,0" Click="OnAllow">
                     <StackPanel>
-                        <TextBlock Text="Let agents see and point" />
+                        <TextBlock Text="Let agents see, point, click and type" />
                         <TextBlock Text="Off pauses everything. Ctrl+Alt+S toggles it from anywhere." Style="{StaticResource Help}" />
                     </StackPanel>
                 </CheckBox>

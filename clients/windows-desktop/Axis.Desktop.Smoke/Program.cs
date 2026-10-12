@@ -44,4 +44,15 @@ sealed class FakeDesktop : IDesktop
         return Task.CompletedTask;
     }
     public Task HideAsync() { Console.WriteLine("hidden"); return Task.CompletedTask; }
+    public Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
+    {
+        Console.WriteLine($"{kind} click at {x},{y} on {target?.Name}");
+        return Task.FromResult(target != null ? "invoked" : "mouse");
+    }
+    public Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
+    {
+        Console.WriteLine($"typing {text.Length} characters into {target?.Name ?? "the focus"}");
+        return Task.CompletedTask;
+    }
+    public Task KeysAsync(KeyCombo combo, CancellationToken ct) { Console.WriteLine($"pressing {combo}"); return Task.CompletedTask; }
 }

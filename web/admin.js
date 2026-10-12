@@ -3180,7 +3180,7 @@ const TOOL_READS = {
   vortex_axis_progress: "Show, silently, how a long piece of the agent's work is going.",
   vortex_axis_session: "Point every device at another of the agent's conversations, and back.",
   vortex_axis_diag: "Check that Axis and its services are working.",
-  vortex_axis_desktop: "Experimental, off until switched on: see what is on a paired computer's screen and point at things there (the Windows desktop app). It cannot click or type.",
+  vortex_axis_desktop: "Experimental, off until switched on: see, point at, click and type on a paired computer (the Windows desktop app). Clicking and typing can be switched off on that computer's page.",
 };
 
 function renderTools() {

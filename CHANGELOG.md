@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.35.0 and desktop app 0.2.0 (2026-10-12)
+
+- **Computers can be clicked and typed on (experimental).** `vortex_axis_desktop` gains `click` (an element from the last look, pressed directly through UI Automation where it can be, else a real click there with the mouse put back; or `x`,`y`; `button` left, right or double), `type` (up to 500 characters a call, into an element or whatever has the focus) and `keys` (one combination: enter, ctrl+s, alt+tab…). The app's pointer glides to where it acts first.
+- **Limits the agent cannot lift:** never types into a password field (the one named or the one with the focus); never presses lock (Win+L), the security screen, Task Manager, Alt+F4, Win+R or Win+X; everything stops while the app is paused (Ctrl+Alt+S).
+- **Off switch:** the computer's setting **Let agents click and type** (`allowInput`, on by default) on its admin page. Axis refuses before asking the computer, and the app refuses too. Looking and pointing go on.
+- The tool's description tells agents to look again after anything that changes the screen and to ask with `vortex_axis_ask` before anything hard to undo.
+
 ## 0.34.1 and desktop app 0.1.1 (2026-10-12)
 
 - **Several displays:** a look now says where the whole desktop starts (`screen` x, y) and gives each display's box (`monitors`). The first live test had a Discord window on a display above the main one; its buttons had negative y, and the agent took them for off-screen.

@@ -12,12 +12,16 @@ import type { Store } from "./store.js";
  * `desktop.point` with where it pointed. Ids hold until the next look.
  */
 
-const ACTIONS = ["look", "point", "hide"] as const;
+const ACTIONS = ["look", "point", "hide", "click", "type", "keys"] as const;
+/** Most characters one type carries: a command's values are at most 512 characters. */
+export const MAX_TYPED = 500;
 type Action = (typeof ACTIONS)[number];
 
 /** How long a computer gets to read its screen: reading a busy window's controls can take a while. */
 const LOOK_TIMEOUT_MS = 15_000;
 const POINT_TIMEOUT_MS = 5_000;
+/** A click on a control that opens something can take a moment to come back; so can a long text. */
+const ACT_TIMEOUT_MS = 15_000;
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const whole = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined);
@@ -80,6 +84,8 @@ export class Desktops {
       return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
     }
 
+    if (action === "click" || action === "type" || action === "keys") return this.act(session, action, params);
+
     if (action === "hide") {
       const outcome = await this.hub.command(session, "desktop.hide", {}, POINT_TIMEOUT_MS);
       if (!outcome.ok) throw new Error(outcome.error || `${computer} did not hide its pointer`);
@@ -98,5 +104,35 @@ export class Desktops {
     const outcome = await this.hub.command(session, "desktop.point", args, POINT_TIMEOUT_MS);
     if (!outcome.ok) throw new Error(outcome.error || `${computer} could not point there`);
     return { computer, pointed: true, ...(outcome.payload ?? {}) };
+  }
+
+  /** Clicking, typing and keys: refused here when switched off for the computer, and held to the app's own limits there. */
+  private async act(session: Session, action: "click" | "type" | "keys", params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const computer = session.client.name;
+    const allowed = this.hub.settings(session).allowInput;
+    if (allowed === 0 || allowed === false || allowed === "0") throw new Error(`clicking and typing are switched off for ${computer} on the VorteX Axis admin page`);
+    const args: Record<string, string | number> = {};
+    const id = whole(params.id);
+    if (id !== undefined) args.id = id;
+    if (action === "click") {
+      const x = whole(params.x), y = whole(params.y);
+      if (id === undefined && (x === undefined || y === undefined)) throw new Error("click needs an id from the last look, or x and y");
+      if (id === undefined) Object.assign(args, { x: x!, y: y! });
+      const button = text(params.button) ?? "left";
+      if (!["left", "right", "double"].includes(button)) throw new Error("button must be left, right or double");
+      args.button = button;
+    } else if (action === "type") {
+      const words = typeof params.text === "string" ? params.text : "";
+      if (!words) throw new Error("type needs text");
+      if (words.length > MAX_TYPED) throw new Error(`type takes at most ${MAX_TYPED} characters at a time; send the rest in another call`);
+      args.text = words;
+    } else {
+      const keys = text(params.keys);
+      if (!keys) throw new Error("keys needs a combination, such as enter or ctrl+s");
+      args.keys = keys.slice(0, 64);
+    }
+    const outcome = await this.hub.command(session, `desktop.${action}`, args, ACT_TIMEOUT_MS);
+    if (!outcome.ok) throw new Error(outcome.error || `${computer} could not ${action === "keys" ? "press that" : action}`);
+    return { computer, done: action, ...(outcome.payload ?? {}) };
   }
 }

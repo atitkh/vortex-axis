@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Interop;
 using Forms = System.Windows.Forms;
 
@@ -230,4 +231,74 @@ sealed class WindowsDesktop : IDesktop
         overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, text, seconds, size())).Task;
 
     public Task HideAsync() => overlay.Dispatcher.InvokeAsync(overlay.HideAsync).Task.Unwrap();
+
+    /** Shows the pointer where it is about to act, and gives it a moment to get there. */
+    async Task ShowAt(int x, int y, string words, CancellationToken ct)
+    {
+        await overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, words, 3, size()));
+        await Task.Delay(350, ct);
+    }
+
+    public async Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
+    {
+        await ShowAt(x, y, kind == ClickKind.Right ? "Right-click" : kind == ClickKind.Double ? "Double-click" : "Click", ct);
+        // A control that can be pressed directly is, and the mouse stays where it is.
+        if (kind == ClickKind.Left && target?.Ref is AutomationElement e)
+        {
+            var pressed = Task.Run(() => Press(e), ct);
+            // A press that opens a dialog may not come back until it closes; it has happened by then.
+            if (await Task.WhenAny(pressed, Task.Delay(3000, ct)) != pressed || pressed.Result) return "invoked";
+        }
+        await Task.Run(() => Input.Click(x, y, kind), ct);
+        return "mouse";
+    }
+
+    /** Presses a control through UI Automation, if it offers a way to. False when it does not. */
+    static bool Press(AutomationElement e)
+    {
+        try
+        {
+            if (e.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke)) { ((InvokePattern)invoke).Invoke(); return true; }
+            if (e.TryGetCurrentPattern(TogglePattern.Pattern, out var toggle)) { ((TogglePattern)toggle).Toggle(); return true; }
+            if (e.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var select)) { ((SelectionItemPattern)select).Select(); return true; }
+            if (e.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var expand))
+            {
+                var p = (ExpandCollapsePattern)expand;
+                if (p.Current.ExpandCollapseState == ExpandCollapseState.Expanded) p.Collapse(); else p.Expand();
+                return true;
+            }
+        }
+        catch (Exception) { }
+        return false;
+    }
+
+    public async Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
+    {
+        var (x, y) = target != null ? (target.X + target.W / 2, target.Y + target.H / 2) : Centre;
+        await Task.Run(() =>
+        {
+            // Never into a password field: the one named, or whatever has the focus.
+            if (target?.Ref is AutomationElement e)
+            {
+                if (e.Current.IsPassword) throw new InvalidOperationException("the app never types into a password field");
+                try { e.SetFocus(); } catch (Exception) { }
+            }
+            var focused = AutomationElement.FocusedElement;
+            if (focused?.Current.IsPassword == true) throw new InvalidOperationException("the field with the focus is a password field; the app never types there");
+            if (target == null && focused != null)
+            {
+                var box = focused.Current.BoundingRectangle;
+                if (!box.IsEmpty && !double.IsInfinity(box.Width)) (x, y) = ((int)(box.X + box.Width / 2), (int)(box.Y + box.Height / 2));
+            }
+        }, ct);
+        await ShowAt(x, y, "Typing", ct);
+        await Task.Run(() => Input.Type(text), ct);
+    }
+
+    public async Task KeysAsync(KeyCombo combo, CancellationToken ct)
+    {
+        Native.GetCursorPos(out var at);
+        await ShowAt(at.X, at.Y, combo.ToString(), ct);
+        await Task.Run(() => Input.Press(combo), ct);
+    }
 }
