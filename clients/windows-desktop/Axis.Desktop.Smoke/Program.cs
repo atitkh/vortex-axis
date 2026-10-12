@@ -29,11 +29,14 @@ sealed class FakeDesktop : IDesktop
         Console.WriteLine($"asked to look: scope {scope}, ocr {ocr}");
         var elements = new List<ScreenElement>
         {
-            new("window", "Chat - Discord", 0, 0, 1920, 1040),
-            new("edit", "Message #general", 300, 980, 1200, 40, Focused: true),
-            new("button", "Send", 1510, 980, 60, 40),
+            new("window", "Chat - Discord", 0, -1080, 1920, 1040),
+            new("edit", "Message #general", 300, -100, 1200, 40, Focused: true),
         };
-        return Task.FromResult(new LookResult(new WindowInfo("Chat - Discord", "Discord", 0, 0, 1920, 1040), 1530, 995, elements, 1920, 1080, false));
+        // A busy window: 400 lines of text far from the mouse, then the button the mouse is on.
+        for (var i = 0; i < 400; i++) elements.Add(new("text", $"message {i}", 300, -1000 + i * 2, 900, 20));
+        elements.Add(new("button", "Send", 1510, -100, 60, 40));
+        return Task.FromResult(new LookResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040), 1530, -85, elements, 1920, 2160, false,
+            0, -1080, [new Display(0, 0, 1920, 1080, true), new Display(0, -1080, 1920, 1080, false)]));
     }
     public Task PointAsync(int x, int y, string? text, double seconds, CancellationToken ct)
     {

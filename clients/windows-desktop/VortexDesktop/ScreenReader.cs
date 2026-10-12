@@ -22,8 +22,8 @@ namespace Axis.Desktop.App;
  */
 sealed class ScreenReader
 {
-    /** Most controls taken from one window before giving up on the rest. */
-    const int MaxCollected = 600;
+    /** Most controls taken from one window; the best of them are picked to send (DesktopCommands.Pick). */
+    const int MaxCollected = 1500;
     /** Fewer named controls than this, and auto OCR reads the pixels too. */
     const int SparseBelow = 8;
     static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
@@ -61,7 +61,9 @@ sealed class ScreenReader
             await hideOwn();
             elements.AddRange(await OcrAsync(box, ct));
         }
-        return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read);
+        var monitors = System.Windows.Forms.Screen.AllScreens
+            .Select(m => new Display(m.Bounds.X, m.Bounds.Y, m.Bounds.Width, m.Bounds.Height, m.Primary)).ToList();
+        return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read, screen.X, screen.Y, monitors);
     }
 
     /** Runs on a pool thread: UI Automation calls cross into other processes and can be slow. */
@@ -139,13 +141,14 @@ sealed class ScreenReader
             var name = (c.Name ?? "").Trim();
             string? value = null;
             if (c.IsPassword) kind = "password";  // never its contents
-            else if ((bool)e.GetCachedPropertyValue(AutomationElement.IsValuePatternAvailableProperty))
+            else if (e.GetCachedPropertyValue(AutomationElement.IsValuePatternAvailableProperty) is true)
                 value = (e.GetCachedPropertyValue(ValuePattern.ValueProperty) as string)?.Trim();
             // A container with no name says nothing; a field says something even unnamed.
             if (name.Length == 0 && string.IsNullOrEmpty(value) && kind is not ("edit" or "document" or "password" or "combobox")) return;
             list.Add(new ScreenElement(kind, name, (int)box.X, (int)box.Y, (int)box.Width, (int)box.Height, value, c.HasKeyboardFocus));
         }
-        catch (ElementNotAvailableException) { }
+        // One element that will not describe itself (gone, or an app's own oddity) is left out, not the whole look.
+        catch (Exception) { }
     }
 
     /** "ControlType.Button" → "button". */

@@ -212,7 +212,8 @@ public sealed class AxisLink : IAsyncDisposable
         }
         catch (Exception e)
         {
-            answer = CommandAnswer.Fail(e.Message);
+            // Some Windows errors carry no message; the kind of error is still worth knowing.
+            answer = CommandAnswer.Fail(string.IsNullOrWhiteSpace(e.Message) ? $"{e.GetType().Name} (0x{e.HResult:X8})" : $"{e.Message} ({e.GetType().Name})");
         }
         var reply = new JsonObject { ["t"] = "command.result", ["id"] = id, ["ok"] = answer.Ok };
         if (answer.Payload != null) reply["payload"] = answer.Payload;

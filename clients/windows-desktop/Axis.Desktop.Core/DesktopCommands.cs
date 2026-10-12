@@ -11,8 +11,15 @@ public enum OcrMode { Never, Auto, Always }
 
 public sealed record WindowInfo(string Title, string App, int X, int Y, int W, int H);
 
-/** What a look found. Coordinates are screen pixels, the same ones pointing takes. */
-public sealed record LookResult(WindowInfo? Window, int MouseX, int MouseY, IReadOnlyList<ScreenElement> Elements, int ScreenW, int ScreenH, bool Ocr);
+/** One display, in screen pixels. With several, the ones left of or above the main one have negative coordinates. */
+public sealed record Display(int X, int Y, int W, int H, bool Primary);
+
+/**
+ * What a look found. Coordinates are screen pixels, the same ones pointing takes; the whole desktop is
+ * the box (ScreenX, ScreenY, ScreenW, ScreenH), which starts left of or above 0 when a display sits there.
+ */
+public sealed record LookResult(WindowInfo? Window, int MouseX, int MouseY, IReadOnlyList<ScreenElement> Elements, int ScreenW, int ScreenH, bool Ocr,
+    int ScreenX = 0, int ScreenY = 0, IReadOnlyList<Display>? Monitors = null);
 
 /** What the computer itself does: read the screen, draw the pointer. The Windows app supplies it; the smoke test fakes it. */
 public interface IDesktop
@@ -64,6 +71,21 @@ public sealed class DesktopCommands
 
     public async Task<CommandAnswer> HandleAsync(string name, JsonElement p, CancellationToken ct)
     {
+        try
+        {
+            return await RunAsync(name, p, ct);
+        }
+        catch (Exception e)
+        {
+            // Said in the app as well as to the agent, so the person sees why it failed.
+            var why = string.IsNullOrWhiteSpace(e.Message) ? $"{e.GetType().Name} (0x{e.HResult:X8})" : $"{e.Message} ({e.GetType().Name})";
+            Did?.Invoke($"{name} failed: {why}");
+            return CommandAnswer.Fail(why);
+        }
+    }
+
+    async Task<CommandAnswer> RunAsync(string name, JsonElement p, CancellationToken ct)
+    {
         if (name.StartsWith("desktop.", StringComparison.Ordinal) && Paused)
             return CommandAnswer.Fail("the person at the computer has paused the VorteX Axis desktop app");
         switch (name)
@@ -75,7 +97,7 @@ public sealed class DesktopCommands
                 if (scope is not ("window" or "mouse" or "screen")) return CommandAnswer.Fail("scope must be window, mouse or screen");
                 var ocr = Bool(p, "ocr") ? OcrMode.Always : Toggle("autoOcr", true) ? OcrMode.Auto : OcrMode.Never;
                 var look = await desktop.LookAsync(scope, ocr, ct);
-                var elements = look.Elements.Take(MaxElements).ToList();
+                var elements = Pick(look.Elements, look.MouseX, look.MouseY, MaxElements);
                 lock (gate) last = elements;
                 Did?.Invoke($"Looked at the {scope}: {elements.Count} things{(look.Ocr ? ", text read from the pixels" : "")}");
                 return CommandAnswer.Done(data: LookData(look, elements));
@@ -117,6 +139,41 @@ public sealed class DesktopCommands
         }
     }
 
+    static readonly HashSet<string> Actionable =
+    [
+        "button", "edit", "hyperlink", "menuitem", "checkbox", "radiobutton", "combobox", "tabitem", "listitem",
+        "treeitem", "slider", "spinner", "splitbutton", "menubaritem", "dataitem", "password", "document",
+    ];
+
+    /**
+     * The `max` elements most worth sending, kept in the order the window listed them. The window itself,
+     * what has the focus and what holds the mouse always go; then things that can be used, nearest the
+     * mouse first; then the rest, nearest the mouse first.
+     */
+    public static List<ScreenElement> Pick(IReadOnlyList<ScreenElement> all, int mouseX, int mouseY, int max)
+    {
+        if (all.Count <= max) return all.ToList();
+        static double Distance(ScreenElement e, int x, int y)
+        {
+            var dx = Math.Max(Math.Max(e.X - x, 0), x - (e.X + e.W));
+            var dy = Math.Max(Math.Max(e.Y - y, 0), y - (e.Y + e.H));
+            return Math.Sqrt((double)dx * dx + (double)dy * dy);
+        }
+        int Rank(ScreenElement e, int i)
+        {
+            if (i == 0 || e.Kind == "window" || e.Focused) return 0;
+            if (Distance(e, mouseX, mouseY) == 0 && Actionable.Contains(e.Kind)) return 0;
+            return Actionable.Contains(e.Kind) ? 1 : 2;
+        }
+        return all
+            .Select((e, i) => (e, i, rank: Rank(e, i), far: Distance(e, mouseX, mouseY)))
+            .OrderBy(t => t.rank).ThenBy(t => t.far).ThenBy(t => t.i)
+            .Take(max)
+            .OrderBy(t => t.i)
+            .Select(t => t.e)
+            .ToList();
+    }
+
     static JsonObject LookData(LookResult look, List<ScreenElement> elements)
     {
         int? under = null;
@@ -139,11 +196,13 @@ public sealed class DesktopCommands
         }
         var data = new JsonObject
         {
-            ["screen"] = new JsonObject { ["w"] = look.ScreenW, ["h"] = look.ScreenH },
+            ["screen"] = new JsonObject { ["x"] = look.ScreenX, ["y"] = look.ScreenY, ["w"] = look.ScreenW, ["h"] = look.ScreenH },
             ["mouse"] = new JsonObject { ["x"] = look.MouseX, ["y"] = look.MouseY },
         };
         if (look.Window is { } w)
             data["window"] = new JsonObject { ["title"] = Clip(w.Title, 200), ["app"] = w.App, ["x"] = w.X, ["y"] = w.Y, ["w"] = w.W, ["h"] = w.H };
+        if (look.Monitors is { Count: > 0 } monitors)
+            data["monitors"] = new JsonArray(monitors.Select(m => (JsonNode?)new JsonObject { ["x"] = m.X, ["y"] = m.Y, ["w"] = m.W, ["h"] = m.H, ["primary"] = m.Primary }).ToArray());
         if (under is int u) data["underMouse"] = u;
         data["elements"] = list;
         if (look.Elements.Count > elements.Count) data["more"] = look.Elements.Count - elements.Count;

@@ -76,13 +76,13 @@ export class Desktops {
       const scope = text(params.scope) ?? "window";
       if (!["window", "mouse", "screen"].includes(scope)) throw new Error("scope must be window, mouse or screen");
       const outcome = await this.hub.command(session, "desktop.look", { scope, ocr: params.ocr === true }, LOOK_TIMEOUT_MS);
-      if (!outcome.ok) throw new Error(outcome.error ?? `${computer} could not read its screen`);
+      if (!outcome.ok) throw new Error(outcome.error || `${computer} could not read its screen, and did not say why`);
       return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
     }
 
     if (action === "hide") {
       const outcome = await this.hub.command(session, "desktop.hide", {}, POINT_TIMEOUT_MS);
-      if (!outcome.ok) throw new Error(outcome.error ?? `${computer} did not hide its pointer`);
+      if (!outcome.ok) throw new Error(outcome.error || `${computer} did not hide its pointer`);
       return { computer, hidden: true };
     }
 
@@ -96,7 +96,7 @@ export class Desktops {
     const seconds = whole(params.seconds);
     if (seconds !== undefined) args.seconds = Math.min(60, Math.max(1, seconds));
     const outcome = await this.hub.command(session, "desktop.point", args, POINT_TIMEOUT_MS);
-    if (!outcome.ok) throw new Error(outcome.error ?? `${computer} could not point there`);
+    if (!outcome.ok) throw new Error(outcome.error || `${computer} could not point there`);
     return { computer, pointed: true, ...(outcome.payload ?? {}) };
   }
 }

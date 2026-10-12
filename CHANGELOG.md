@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.34.1 and desktop app 0.1.1 (2026-10-12)
+
+- **Several displays:** a look now says where the whole desktop starts (`screen` x, y) and gives each display's box (`monitors`). The first live test had a Discord window on a display above the main one; its buttons had negative y, and the agent took them for off-screen.
+- **The best 250, not the first 250:** a busy window's elements are picked before the cut (`DesktopCommands.Pick`): the window, what has the focus and what holds the mouse always; then things that can be used, nearest the mouse first; then the rest. Sent in the window's own order. The app now reads up to 1500 to pick from.
+- **A look no longer fails on one odd element:** an element that will not describe itself is left out. In the first live test, two looks at a Brave window failed in 0.4 s with an empty error, and the agent pointed at a guessed spot. Errors now always say what kind they are, in the app's Recently list as well, and Axis words an empty one. The tool's description asks agents to say a look failed rather than point at a guess.
+
 ## 0.34.0 and desktop app 0.1.0 (2026-10-12)
 
 - **Computers, experimental: seeing and pointing.** A Windows desktop app (`clients/windows-desktop/`, C#/.NET 8, one self-contained `.exe`, styled like the web client) pairs with Axis as a client with the new `desktop` capability. An agent with the new tool `vortex_axis_desktop` can **look** (the window in front, what is under the mouse, or the open windows: controls by UI Automation, text by Windows' OCR when a window says little; ids, kinds, names, boxes; never a password's value) and **point** (the app's own glowing pointer with the agent's words beside it; the mouse is not moved). The person can pause it from the window, the tray or Ctrl+Alt+S. The tool is MCP only (not on the OpenClaw node, so no re-approval) and, like any experimental tool, off until switched on under Agent tools. `command.result` gains an optional `data` (any JSON). The admin page's **Add a device** offers the app for download once `scripts/build-desktop.sh` has built it into the data folder (`GET /admin/desktop`, `/admin/desktop/app`).
