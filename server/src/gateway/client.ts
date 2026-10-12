@@ -13,7 +13,8 @@ export interface NodeTool {
   parameters: Record<string, unknown>;
 }
 
-export type InvokeHandler = (command: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+/** `via` says who called, for the Live page: "OpenClaw" when it is left out, since the node's door came first. */
+export type InvokeHandler = (command: string, params: Record<string, unknown>, via?: string) => Promise<Record<string, unknown>>;
 
 export interface GatewayClientOptions {
   store: Store;

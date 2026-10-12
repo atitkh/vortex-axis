@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.32.0 and board firmware 0.16.0 (2026-10-11)
+
+- **Agent tool calls on the Live page.** Every call of an Axis tool shows as it starts and ends: the tool, who made it (OpenClaw, `MCP: <token name>` or the admin page), what it was given and gave back (click the tool name), how long it took, and done or the reason it was refused (a switched-off tool included). Last 40 kept in memory; what was given and given back is deleted after ten minutes like a turn's words, and with **Clear now**. `InvokeHandler` takes an optional `via`; `Live.recordTools` wraps the guarded handler.
+- **Timer countdown glow** (firmware 0.16.0). In a timer's last ten seconds, an idle board's edges glow red, lit clockwise from the top middle and shrinking as the seconds run out, beating once a second. It comes before the notification light. Board setting **Timer countdown glow** (`timerGlow`), on by default.
+- Fixed: 0.31.0 raised the version in the top-level `package.json` only; `server/` and `protocol/` now carry the same number again.
+
 ## 0.31.0 (2026-10-11)
 
 - **Try a tool** on the admin page's Agent tools page: every agent tool can be called from one form drawn from the tool's own parameters, with a **Send to** choice where the tool can reach more than one device (the device last spoken to, one device, a location, or every device when the tool takes `everywhere`), and the answer shown as the agent would get it. A Try button on each tool's row opens it. It goes through the same function and on/off switch as an agent's call (`POST /admin/mcp/tools/try`), so it acts for real; a reboot asks first. `GET /admin/mcp` now carries each tool's parameters.

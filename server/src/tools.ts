@@ -65,12 +65,12 @@ export class ToolAccess {
    * switched off is refused, by whichever door it came.
    */
   guard(handler: InvokeHandler): InvokeHandler {
-    return async (command, params) => {
+    return async (command, params, via) => {
       const tool = NODE_TOOLS.find((t) => t.command === (SAME_AS[command] ?? command));
       if (tool && this.off().has(tool.name)) {
         throw new Error(`${tool.name} is switched off on the VorteX Axis admin page`);
       }
-      return handler(command, params);
+      return handler(command, params, via);
     };
   }
 

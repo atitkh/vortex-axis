@@ -1,3 +1,4 @@
+import type { InvokeHandler } from "./gateway/client.js";
 import type { TurnRecord, WakeRecord } from "./store.js";
 
 /**
@@ -41,11 +42,29 @@ export interface LiveTurn {
   totalMs?: number;
 }
 
+/** One call of an agent tool, by whichever door it came. */
+export interface LiveToolCall {
+  key: string;
+  /** Who called: "OpenClaw", "MCP: <token name>" or "Admin page". */
+  via: string;
+  tool: string;
+  startedAt: number;
+  /** What it was given and what it gave back, as JSON cut to a length. Deleted with a turn's words. */
+  args?: string;
+  result?: string;
+  error?: string;
+  endedAt?: number;
+  ms?: number;
+  /** Unset while it runs. */
+  outcome?: "ok" | "refused";
+}
+
 export type LiveEvent =
   | { type: "turn"; turn: LiveTurn }
   | { type: "wake"; wake: WakeRecord & { client: string } }
+  | { type: "tool"; call: LiveToolCall }
   /** Everything at once, after turns were forgotten: what a page should now show in place of what it had. */
-  | { type: "snapshot"; turns: LiveTurn[] };
+  | { type: "snapshot"; turns: LiveTurn[]; calls: LiveToolCall[] };
 
 /** How many finished turns are kept to look back at. */
 const KEEP_TURNS = 30;
@@ -54,9 +73,20 @@ const WORDS_MS = 10 * 60_000;
 /** A turn open this long was lost track of. */
 const STALE_MS = 10 * 60_000;
 const MAX_WORDS = 4000;
+/** How many tool calls are kept to look back at, and how much of what each was given and gave back. */
+const KEEP_CALLS = 40;
+const MAX_CALL_TEXT = 2000;
+
+const cut = (value: unknown) => {
+  const text = JSON.stringify(value ?? null);
+  return text.length > MAX_CALL_TEXT ? `${text.slice(0, MAX_CALL_TEXT)}…` : text;
+};
 
 export class Live {
   private turns: LiveTurn[] = [];
+  /** Tool calls, oldest first. */
+  private toolCalls: LiveToolCall[] = [];
+  private callCount = 0;
   private readonly open = new Map<string, LiveTurn>();
   private readonly listeners = new Set<(event: LiveEvent) => void>();
 
@@ -66,6 +96,41 @@ export class Live {
   subscribe(listener: (event: LiveEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Recent tool calls, newest first. */
+  calls(): LiveToolCall[] {
+    this.forgetOldWords();
+    return [...this.toolCalls].reverse();
+  }
+
+  /**
+   * Wraps the function that carries out tool calls so that each one shows here as it starts and ends,
+   * whoever made it, including one refused because its tool is switched off.
+   */
+  recordTools(handler: InvokeHandler, toolName: (command: string) => string): InvokeHandler {
+    return async (command, params, via) => {
+      const call: LiveToolCall = { key: `call-${++this.callCount}`, via: via ?? "OpenClaw", tool: toolName(command), startedAt: this.now(), args: cut(params) };
+      this.toolCalls.push(call);
+      if (this.toolCalls.length > KEEP_CALLS) this.toolCalls.shift();
+      this.publish({ type: "tool", call });
+      const finish = (outcome: "ok" | "refused") => {
+        call.endedAt = this.now();
+        call.ms = call.endedAt - call.startedAt;
+        call.outcome = outcome;
+        this.publish({ type: "tool", call });
+      };
+      try {
+        const result = await handler(command, params, via);
+        call.result = cut(result);
+        finish("ok");
+        return result;
+      } catch (error) {
+        call.error = (error as Error).message;
+        finish("refused");
+        throw error;
+      }
+    };
   }
 
   /** Recent turns, newest first. */
@@ -88,7 +153,14 @@ export class Live {
       delete turn.said;
       changed = true;
     }
-    if (changed) this.publish({ type: "snapshot", turns: [...this.turns].reverse() });
+    for (const call of this.toolCalls) {
+      if (call.endedAt === undefined || call.endedAt > cutoff) continue;
+      if (call.args === undefined && call.result === undefined) continue;
+      delete call.args;
+      delete call.result;
+      changed = true;
+    }
+    if (changed) this.publish({ type: "snapshot", turns: [...this.turns].reverse(), calls: [...this.toolCalls].reverse() });
   }
 
   /** Forgets every finished turn now, words and timings, and the words so far of any turn still running. */
@@ -98,7 +170,9 @@ export class Live {
       delete turn.heard;
       delete turn.said;
     }
-    this.publish({ type: "snapshot", turns: [...this.turns].reverse() });
+    this.toolCalls = this.toolCalls.filter((call) => call.endedAt === undefined);
+    for (const call of this.toolCalls) delete call.args;
+    this.publish({ type: "snapshot", turns: [...this.turns].reverse(), calls: [...this.toolCalls].reverse() });
   }
 
   /** A turn reached a stage. The first stage of a turn is what makes it appear. */

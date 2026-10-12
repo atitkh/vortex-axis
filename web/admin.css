@@ -761,3 +761,8 @@ code { background: var(--sunk); border-color: var(--line); border-radius: 5px; }
 
 /* What a tool tried from the Agent tools page gave back. */
 pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 12px 0 0; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* A tool call's arguments and answer on the Live page. */
+.calls details summary { cursor: pointer; }
+.calls .call-detail { margin: 6px 0 0; overflow-wrap: anywhere; }
+.calls .call-detail code { white-space: pre-wrap; }

@@ -382,6 +382,10 @@ try {
     await admin.run(`${byId("try-tool")}.value = 'vortex_axis_clients'; ${byId("try-tool")}.dispatchEvent(new Event('change')); ${byId("try-run")}.click()`);
     await admin.until(`/"clients"/.test(document.querySelector('#try-result pre')?.textContent ?? '')`, "the clients tool's answer");
     step("trying a tool", `say form sends ${sends}; clients tool answered on the page`);
+    // The call just tried is on the Live page, with who made it.
+    await admin.run(`location.hash = '#live'`);
+    await admin.until(`[...document.querySelectorAll('#live-calls tbody tr')].some(r => r.textContent.includes('vortex_axis_clients') && r.textContent.includes('Admin page'))`, "the tool call on the Live page");
+    step("tool calls on the live page", await admin.run(`document.querySelector('#live-calls tbody tr').textContent`));
     await admin.run(`location.hash = '#integrations'`);
     await admin.until(`document.querySelectorAll('.integration').length >= 5`, "the integrations page again");
   }

@@ -46,7 +46,7 @@ export interface McpDeps {
  * no answer.
  */
 export function createMcpHandler(deps: McpDeps) {
-  async function one(message: RpcMessage): Promise<object | undefined> {
+  async function one(message: RpcMessage, via: string): Promise<object | undefined> {
     if (typeof message !== "object" || message === null || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
       return failure((message as RpcMessage | null)?.id, -32600, "not a JSON-RPC 2.0 request");
     }
@@ -77,7 +77,7 @@ export function createMcpHandler(deps: McpDeps) {
         if (!tool) return failure(id, -32602, `there is no tool called "${String(params.name)}"`);
         const given = (typeof params.arguments === "object" && params.arguments !== null ? params.arguments : {}) as Record<string, unknown>;
         try {
-          const result = await deps.invoke(tool.command, given);
+          const result = await deps.invoke(tool.command, given, via);
           return ok({ content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result, isError: false });
         } catch (error) {
           // A tool that could not do what was asked is a result the agent should read, not a protocol error.
@@ -95,12 +95,12 @@ export function createMcpHandler(deps: McpDeps) {
   }
 
   /** Takes the parsed body of a POST: one message or a batch. `undefined` means there is nothing to send back. */
-  return async function handle(body: unknown): Promise<object | object[] | undefined> {
+  return async function handle(body: unknown, via = "MCP"): Promise<object | object[] | undefined> {
     if (Array.isArray(body)) {
       if (!body.length) return failure(null, -32600, "an empty batch");
-      const answers = (await Promise.all(body.map((message) => one(message as RpcMessage)))).filter((a): a is object => a !== undefined);
+      const answers = (await Promise.all(body.map((message) => one(message as RpcMessage, via)))).filter((a): a is object => a !== undefined);
       return answers.length ? answers : undefined;
     }
-    return one(body as RpcMessage);
+    return one(body as RpcMessage, via);
   };
 }

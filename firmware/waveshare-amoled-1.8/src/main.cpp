@@ -43,6 +43,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"silenceMs", "Quiet that ends a sentence", "number", "Listening", nullptr, "900", 300, 5000, "ms", nullptr},
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
     {"glowCorner", "Glow corner curve", "number", "Screen", "How round the edge glow turns the corners. Raise it until the corners show as a smooth curve.", "56", 12, 120, "pixels", nullptr},
+    {"timerGlow", "Timer countdown glow", "toggle", "Screen", "In a timer's last ten seconds, a red glow runs round the screen's edges and shrinks as the time runs out, beating once a second.", "1", 0, 0, nullptr, nullptr},
     {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
@@ -185,6 +186,8 @@ static uint8_t seenTaskState = 0;
 static uint32_t doneFlashUntil = 0;
 static bool noticeShown = false;
 static const uint32_t DONE_FLASH_MS = 1500;
+/** How long before a timer is due its countdown glow starts. */
+static const int32_t TIMER_GLOW_MS = 10000;
 static bool hasSpeaker = false, hasMic = false;
 
 // A question with choices: the face stays, the question goes under it and the choices are buttons below.
@@ -946,8 +949,15 @@ void loop() {
         const bool calm = !askShown && state.link == axis::Link::Online && state.turn == axis::Turn::Idle &&
                           !client.listening() && !speaker::playing();
         glow::State notice = glow::State::None;
-        float level = -1.0f;
-        if (calm && client.settingInt("notifyGlow", 1) != 0) {
+        float level = -1.0f, sweep = 1.0f;
+        // A timer's last seconds come first: a red edge that shrinks clockwise as they run out, beating each second.
+        const int32_t timerLeft = state.timerCount ? (int32_t)(state.timerEndsAt - started) : -1;
+        if (calm && timerLeft > 0 && timerLeft <= TIMER_GLOW_MS && client.settingInt("timerGlow", 1) != 0) {
+            notice = glow::State::Timer;
+            sweep = timerLeft / (float)TIMER_GLOW_MS;
+            const float beat = (timerLeft % 1000) / 1000.0f;  // 1 on each whole second, fading to 0
+            level = beat * beat;
+        } else if (calm && client.settingInt("notifyGlow", 1) != 0) {
             if (doneFlashUntil && (int32_t)(started - doneFlashUntil) < 0) {
                 notice = glow::State::Done;
                 level = (doneFlashUntil - started) / (float)DONE_FLASH_MS;
@@ -958,7 +968,7 @@ void loop() {
         if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
         glow::Rect face;
         if (drawFace) face = {(display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE};
-        glow::update(nullptr, notice, level, face);
+        glow::update(nullptr, notice, level, face, sweep);
         // Text the glow lay over is drawn again once it is gone.
         if (notice == glow::State::None && noticeShown) redrawAll = true;
         noticeShown = notice != glow::State::None;

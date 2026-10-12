@@ -50,6 +50,8 @@ export interface App {
   progress: Progress;
   /** Which tools agents have, and the tokens that let a harness in by MCP. */
   tools: ToolAccess;
+  /** What is happening now, for the admin page's Live view: turns, wake words and tool calls. */
+  live: Live;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -310,8 +312,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const watchGateway = () =>
     gateway.watch([...(config.mirrorQuestions ? ["operator.questions"] : []), ...(config.mirrorApprovals ? ["operator.approvals"] : [])]);
   const tools = new ToolAccess(store, activity);
-  const invoke = tools.guard(
-    createInvokeHandler({ hub, store, timers, delivery, progress, attachment, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+  // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
+  const invoke = live.recordTools(
+    tools.guard(
+      createInvokeHandler({ hub, store, timers, delivery, progress, attachment, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+    ),
+    (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );
   gateway.onInvokeCommand(invoke);
 
@@ -430,6 +436,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     backup,
     progress,
     tools,
+    live,
     server,
     port,
     async close() {

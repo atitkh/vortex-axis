@@ -165,6 +165,18 @@ describe("trying a tool from the admin page", () => {
     await admin("PATCH", "/admin/mcp/tools", { vortex_axis_diag: false });
     expect((await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_diag" })).body.error).toMatch(/switched off/);
     expect((await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_fly" })).status).toBe(404);
+
+    // Each call is on the Live page, newest first, with who made it; the refused one too.
+    const calls = ctx.app.live.calls();
+    expect(calls.map((c: any) => [c.tool, c.via, c.outcome])).toEqual([
+      ["vortex_axis_diag", "Admin page", "refused"],
+      ["vortex_axis_config", "Admin page", "refused"],
+      ["vortex_axis_clients", "Admin page", "ok"],
+    ]);
+    expect(calls[2].result).toContain('"Desk"');
+    const token = await newToken("Coding agent");
+    await rpc(token, "tools/call", { name: "vortex_axis_timer", arguments: { action: "list" } });
+    expect(ctx.app.live.calls()[0]).toMatchObject({ tool: "vortex_axis_timer", via: "MCP: Coding agent", outcome: "ok", args: '{"action":"list"}' });
   });
 });
 

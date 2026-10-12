@@ -2655,6 +2655,7 @@ const STAGES = { listening: "Listening", transcribing: "Recognising", thinking: 
 const LIVE_OUTCOMES = { cancelled: ["dropped", ""] };
 let liveTurns = [];
 let liveWakes = [];
+let liveCalls = [];
 let liveStop;
 let liveTick;
 let liveUp = false;
@@ -2672,7 +2673,7 @@ async function openLive() {
   const stop = (liveStop = new AbortController());
   clearInterval(liveTick);
   // A running step counts up on screen between the messages that move it along.
-  liveTick = setInterval(() => liveTurns.some((t) => !t.outcome) && renderLive(), 200);
+  liveTick = setInterval(() => (liveTurns.some((t) => !t.outcome) || liveCalls.some((c) => !c.outcome)) && renderLive(), 200);
   renderLive();
   try {
     const res = await fetch("/admin/live", { headers: { authorization: `Bearer ${token}` }, signal: stop.signal });
@@ -2706,8 +2707,15 @@ async function openLive() {
 }
 
 function liveEvent(name, data) {
-  if (name === "snapshot") liveTurns = data.turns;
-  else if (name === "turn") {
+  if (name === "snapshot") {
+    liveTurns = data.turns;
+    liveCalls = data.calls ?? [];
+  } else if (name === "tool") {
+    const at = liveCalls.findIndex((c) => c.key === data.key);
+    if (at >= 0) liveCalls[at] = data;
+    else liveCalls.unshift(data);
+    liveCalls = liveCalls.slice(0, 40);
+  } else if (name === "turn") {
     const at = liveTurns.findIndex((t) => t.key === data.key);
     if (at >= 0) liveTurns[at] = data;
     else liveTurns.unshift(data);
@@ -2763,6 +2771,35 @@ function renderLive() {
     ...(liveTurns.length
       ? liveTurns.map(liveTurnCard)
       : [h("p", { class: "empty" }, "Nothing to show yet. Say the wake word, tap a device or type in the web client, and the turn shows up here as it happens.")]),
+  );
+  // A call's details are opened by a click; keep what is open open across the redraws a running call causes.
+  const opened = new Set([...$("live-calls").querySelectorAll("details[open]")].map((d) => d.dataset.key));
+  $("live-calls").replaceChildren(
+    liveCalls.length
+      ? h("table", { class: "numbers calls" },
+          h("thead", {}, h("tr", {}, h("th", {}, "When"), h("th", {}, "Tool"), h("th", {}, "By"), h("th", { class: "num" }, "Took"), h("th", {}, "Outcome"))),
+          h("tbody", {},
+            ...liveCalls.map((c) => {
+              const took = c.ms ?? Date.now() - c.startedAt;
+              const detail = [c.args && ["Given", c.args], c.result && ["Gave back", c.result], c.error && ["Refused", c.error]].filter(Boolean);
+              return h("tr", {},
+                h("td", { class: "tight" }, second(c.startedAt)),
+                h("td", {},
+                  detail.length
+                    ? h("details", { "data-key": c.key, open: opened.has(c.key) },
+                        h("summary", { class: "mono" }, c.tool),
+                        ...detail.map(([label, text]) => h("p", { class: "call-detail" }, h("b", {}, label), " ", h("code", { class: "mono" }, text))),
+                      )
+                    : h("span", { class: "mono" }, c.tool),
+                ),
+                h("td", { class: "sub" }, c.via),
+                h("td", { class: "num" }, ms(took)),
+                h("td", {}, !c.outcome ? stat("running", "warn") : c.outcome === "ok" ? stat("done", "good") : stat(c.error ?? "refused", "bad")),
+              );
+            }),
+          ),
+        )
+      : h("p", { class: "empty" }, "No tool calls since Axis started. When an agent uses an Axis tool, it shows up here."),
   );
   $("live-wakes").replaceChildren(
     liveWakes.length

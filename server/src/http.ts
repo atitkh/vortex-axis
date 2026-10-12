@@ -481,7 +481,8 @@ export function createHttpHandler(deps: HttpDeps) {
         mcpFailures.delete(address);
       }
       const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
-      if (!deps.tools.authenticate(token)) {
+      const holder = deps.tools.authenticate(token);
+      if (!holder) {
         if (token) {
           const failed = mcpFailures.get(address) ?? { count: 0, until: 0 };
           failed.count += 1;
@@ -506,7 +507,7 @@ export function createHttpHandler(deps: HttpDeps) {
         if (error instanceof HttpError && error.status === 413) throw error;
         return sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "the request body is not valid JSON" } });
       }
-      const answer = await mcp(body);
+      const answer = await mcp(body, `MCP: ${holder.name}`);
       if (answer === undefined) {
         res.writeHead(202, SECURITY_HEADERS);
         res.end();
@@ -921,9 +922,12 @@ export function createHttpHandler(deps: HttpDeps) {
           "x-accel-buffering": "no",
         });
         const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        write("snapshot", { at: now(), turns: deps.live.snapshot() });
+        write("snapshot", { at: now(), turns: deps.live.snapshot(), calls: deps.live.calls() });
         const stop = deps.live.subscribe((event) =>
-          write(event.type, event.type === "turn" ? event.turn : event.type === "wake" ? event.wake : { at: now(), turns: event.turns }),
+          write(
+            event.type,
+            event.type === "turn" ? event.turn : event.type === "wake" ? event.wake : event.type === "tool" ? event.call : { at: now(), turns: event.turns, calls: event.calls },
+          ),
         );
         // A line now and then keeps proxies from closing a quiet stream.
         const beat = setInterval(() => res.write(": still here\n\n"), 20_000);
@@ -959,7 +963,7 @@ export function createHttpHandler(deps: HttpDeps) {
           activity?.note("admin", "", `Tried ${tool.name} from the admin page`);
           const started = now();
           try {
-            const result = await deps.invoke(tool.command, given);
+            const result = await deps.invoke(tool.command, given, "Admin page");
             return sendJson(res, 200, { ok: true, ms: now() - started, result: result ?? null });
           } catch (error) {
             // What the tool refused is the answer the person asked for, as an agent would read it.

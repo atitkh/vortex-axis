@@ -22,11 +22,13 @@ const Tint TINTS[] = {
     {0.55f, 0.95f, 1.00f, 2.4f},  // Speaking: cyan
     {1.00f, 0.60f, 0.08f, 0.5f},  // Waiting: amber, slow
     {0.34f, 1.00f, 0.40f, 0.0f},  // Done: green
+    {1.00f, 0.16f, 0.10f, 0.0f},  // Timer: red, beating once a second (the caller's level)
 };
 
 State drawn = State::None;
 uint32_t lastDraw = 0;
 float drawnStrength = 0;
+float drawnSweep = 1.0f;
 const int STRIP = 448 * DEPTH;
 uint16_t strip[STRIP];
 
@@ -38,6 +40,13 @@ float alphaAt(int px, int py, float strength) {
     if (cx != px && cy != py) d = RADIUS - sqrtf((float)((px - cx) * (px - cx) + (py - cy) * (py - cy)));
     else d = min(min(px, py), min(sw - 1 - px, sh - 1 - py));
     if (d >= DEPTH) return 0.0f;
+    // Only the part of the way round still lit, measured clockwise from the top middle.
+    if (drawnSweep < 1.0f) {
+        if (drawnSweep <= 0.0f) return 0.0f;
+        float turn = atan2f((float)(px - sw / 2), (float)(sh / 2 - py)) / (2.0f * PI);
+        if (turn < 0) turn += 1.0f;
+        if (turn > drawnSweep) return 0.0f;
+    }
     const float fall = d <= 0 ? 1.0f : 1.0f - d / DEPTH;
     return strength * fall * fall;
 }
@@ -103,7 +112,7 @@ void drawAll(const uint16_t *under, const Tint &t, float strength, const Rect &k
 
 }  // namespace
 
-void update(const uint16_t *under, State state, float level, Rect keepOut) {
+void update(const uint16_t *under, State state, float level, Rect keepOut, float sweep) {
     const uint32_t now = millis();
     if (state == State::None) {
         if (drawn != State::None) drawAll(under, TINTS[0], 0.0f, keepOut);  // puts back what was underneath
@@ -121,6 +130,8 @@ void update(const uint16_t *under, State state, float level, Rect keepOut) {
     float strength = level >= 0 ? 0.35f + 0.6f * constrain(level, 0.0f, 1.0f) : 0.3f + 0.45f * breath;
     if (state == State::Done) strength = 0.9f * constrain(level, 0.0f, 1.0f);  // a flash fades right out
     drawnStrength = strength;
+    // Every pixel of the edge is drawn each time, so the part the sweep has left goes back to what is underneath.
+    drawnSweep = constrain(sweep, 0.0f, 1.0f);
     drawAll(under, t, strength, keepOut);
 }
 
