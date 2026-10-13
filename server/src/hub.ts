@@ -172,8 +172,8 @@ export class Hub implements TurnPort {
 
   /** Puts a question to the person at a client. See `TurnManager.ask`. */
   /** A turn started by Axis for something the person asked to have done later; see Turns.task. */
-  task(session: Session, text: string): Promise<{ handedOver: boolean }> {
-    return this.turns.task(session, text);
+  task(session: Session, text: string, title: string): Promise<{ handedOver: boolean }> {
+    return this.turns.task(session, text, title);
   }
 
   ask(session: Session, question: string, choices: string[], timeoutMs: number, options: { silent?: boolean; signal?: AbortSignal } = {}): Promise<AskResult> {

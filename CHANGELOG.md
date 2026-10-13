@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.42.2 (2026-10-13)
+
+- **A task's answer says what it is about.** It opened cold, some minutes after it was asked for. It now begins "About <the task's label, or the start of what was asked>:", as the answer of a run handed over to the background does, in speech and on the screen. A task with nothing to tell still says nothing.
+- **A device waits 45 seconds** for the agent before it stops waiting and the run carries on in the background (it was 30, which had started to cut in on ordinary answers). `AXIS_HANDOVER_MS` changes it.
+
 ## 0.42.1 (2026-10-13)
 
 - **A board flashed from the flasher page did not start** (owner's first try: "partition 3 invalid ... exceeds flash chip size 0x800000", over and over). PlatformIO's factory image says in its header that the flash is 8 MB, the generic board definition's size, while this board is built for 16 MB; a cable upload corrects the header on the way, a browser flasher writes the file as it is. `scripts/factory-image.mjs` now makes the factory image with esptool, with the size from the board's `platformio.ini` and the checksum renewed, and checks the result; the flasher folder, `push-firmware.mjs` and the release workflow all use it. A board left in that state is fine: flash it again from the page (hold BOOT while plugging in if it is not found). Fixed at the source as well: the board's `platformio.ini` now sets `board_upload.flash_size`, so the bootloader PlatformIO builds has the right size in its header to begin with; the script stays as the check. Only the factory image was affected: updates over Wi-Fi send the application alone, and boards flashed by cable had their header corrected by the upload.

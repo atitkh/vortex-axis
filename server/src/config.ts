@@ -171,7 +171,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     outputHoldMs: integer("AXIS_OUTPUT_HOLD_MS", env.AXIS_OUTPUT_HOLD_MS, 10 * 60 * 1000),
     messageHoldMs: integer("AXIS_MESSAGE_HOLD_MS", env.AXIS_MESSAGE_HOLD_MS, 10 * 60 * 1000),
-    handoverMs: integer("AXIS_HANDOVER_MS", env.AXIS_HANDOVER_MS, 30 * 1000),
+    handoverMs: integer("AXIS_HANDOVER_MS", env.AXIS_HANDOVER_MS, 45 * 1000),
     liveActivities: env.AXIS_LIVE_ACTIVITIES === "1" || env.AXIS_LIVE_ACTIVITIES === "true",
     mcpPublic: env.AXIS_MCP_PUBLIC === "1" || env.AXIS_MCP_PUBLIC === "true",
     mirrorCards: env.AXIS_MIRROR_CARDS !== "0" && env.AXIS_MIRROR_CARDS !== "false",

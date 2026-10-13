@@ -1,4 +1,5 @@
 import { DesktopApp } from "./desktopapp.js";
+import { titleFrom } from "./background.js";
 import { FirmwareStore } from "./firmware.js";
 import { importBundledFirmware } from "./bundled.js";
 import { createServer, type Server } from "node:http";
@@ -199,7 +200,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       const release = timer.mayAct ? () => {} : desktops.holdLookOnly(`the scheduled task "${timers.name(timer)}" was not allowed to act on a computer`);
       let later = false;
       try {
-        later = (await hub.task(session, words)).handedOver;
+        // What it is called when its answer is spoken: its label, or the start of what was asked.
+        later = (await hub.task(session, words, timer.label || titleFrom(timer.task ?? ""))).handedOver;
       } finally {
         if (later) setTimeout(release, 15 * 60_000).unref();
         else release();

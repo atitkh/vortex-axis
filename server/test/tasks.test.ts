@@ -70,7 +70,9 @@ describe("a timer that does something", () => {
     expect(asked[0]).toContain("scheduled task");
     expect(asked[0]).toContain("may look but not click");
     expect(asked[0]).toContain("Check whether the build finished and say so.");
-    expect(spoken).toEqual(["The build passed."]);
+    // The answer says first what it is about: it comes when nobody is asking.
+    expect(spoken.join(" ")).toBe("About build: The build passed.");
+    expect(await desk.next("reply.text", 0, (m) => m.final)).toMatchObject({ text: "About build: The build passed." });
     // No "your timer is done", and it is off the list.
     expect(spoken.join(" ")).not.toMatch(/timer/);
     expect(ctx.app.timers.list()).toHaveLength(0);
@@ -121,6 +123,19 @@ describe("a timer that does something", () => {
     await desk.next("speak.start", mark, (m) => m.turnId.startsWith("task-") && m.turnId !== first);
     expect(acted).toBe("click");
     expect(asked.at(-1)).toContain("allowed this task to click and type");
+  });
+
+  it("says nothing at all when the agent has nothing to tell, and names an unlabelled task by what was asked", async () => {
+    const desk = await device("Desk", ["screen", "speaker", "mic"]);
+    answer = ["NO_REPLY"];
+    await invoke("vortex.axis.timer", { action: "set", seconds: 1, label: "watch", then: "Say something only if the build failed.", client: "Desk" });
+    await desk.next("reply.text", 0, (m) => m.final && m.turnId.startsWith("task-"));
+    expect(spoken).toEqual([]);
+
+    answer = ["Still running."];
+    await invoke("vortex.axis.timer", { action: "set", seconds: 1, then: "Check whether the long download has finished yet and tell me.", client: "Desk" });
+    await hearOut(desk);
+    expect(spoken.join(" ")).toMatch(/^About Check whether the long download has…: Still running\.$/);
   });
 
   it("stays look-only when the person says so or says nothing, and refuses a task that is too long", async () => {

@@ -738,14 +738,14 @@ export class TurnManager {
    * Waits for a conversation on that device to end first. Resolves when the turn has ended, saying whether
    * the agent's run was handed over to go on in the background.
    */
-  async task(session: Session, text: string, waitMs = 120_000): Promise<{ handedOver: boolean }> {
+  async task(session: Session, text: string, title: string, waitMs = 120_000): Promise<{ handedOver: boolean }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session) || this.active.has(session.client.id)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
     const turnId = `task-${++this.sayCount}`;
-    const failure = await this.run(session, turnId, { text });
+    const failure = await this.run(session, turnId, { text, title });
     if (failure && failure !== "interrupted") throw new Error(failure);
     return { handedOver: this.lastHandedOver === turnId };
   }
@@ -814,7 +814,11 @@ export class TurnManager {
   private async run(
     session: Session,
     turnId: string,
-    input: { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] } | { text: string } | { say: string; silent?: boolean; share?: SpeechShare },
+    input:
+      | { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] }
+      // `title`: a turn Axis started for something asked earlier. Its answer opens with "About <title>:".
+      | { text: string; title?: string }
+      | { say: string; silent?: boolean; share?: SpeechShare },
     outcome?: { heard: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
@@ -1015,7 +1019,7 @@ export class TurnManager {
         const stopRun = () => run.abort();
         signal.addEventListener("abort", stopRun, { once: true });
         handover = {
-          question: text,
+          question: "text" in input && input.title ? input.title : text,
           release: () => signal.removeEventListener("abort", stopRun),
         };
         source = agent.reply(
@@ -1069,10 +1073,24 @@ export class TurnManager {
               onFirstAudio: () => (record.firstAudioMs ??= Date.now() - started),
             })
           : undefined;
-      const emit = (piece: Piece) => {
+      const put = (piece: Piece) => {
         if (queue) queue.add(piece);
         else showPiece(piece);
         if (queue?.failed) throw queue.failure;
+      };
+      // An answer nobody is waiting for says first what it is about, the way a handed-over run's does,
+      // so it does not come out of nowhere. Only once there is something to say: a silent reply stays silent.
+      const about = "text" in input && input.title ? `About ${input.title}: ` : "";
+      let introduced = !about;
+      const emit = (piece: Piece) => {
+        if (!introduced) {
+          introduced = true;
+          const opener = new SentenceSplitter();
+          for (const first of opener.pushPieces(about)) put(first);
+          const rest = opener.flushPiece();
+          if (rest) put(rest);
+        }
+        put(piece);
       };
 
       // An agent reply that turns out to be "NO_REPLY" must not be spoken, so nothing goes out
@@ -1083,7 +1101,7 @@ export class TurnManager {
       const reader = source[Symbol.asyncIterator]();
       // The agent may go quiet for a long time (searching, building). After `handoverMs` with nothing new the device
       // says it will report back and is free again, and the rest of the run is followed in the background.
-      const handoverMs = fromAgent && handover && this.options.background ? (this.options.handoverMs ?? 30_000) : 0;
+      const handoverMs = fromAgent && handover && this.options.background ? (this.options.handoverMs ?? 45_000) : 0;
       let next = reader.next();
       for (;;) {
         let quiet: NodeJS.Timeout | undefined;
@@ -1144,7 +1162,7 @@ export class TurnManager {
 
       if (hasScreen) {
         // A silent reply leaves the screen empty rather than showing "NO_REPLY".
-        this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : full.trim().slice(0, 16000), final: true });
+        this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : `${about}${full.trim()}`.slice(0, 16000), final: true });
       }
       if (media.length && this.options.pictures) void this.options.pictures.show(media, { clientId: id, turnId });
       if (speaker?.started) {
