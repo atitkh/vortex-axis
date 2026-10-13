@@ -732,6 +732,26 @@ export class TurnManager {
     return outcome;
   }
 
+  /**
+   * Starts a turn nobody is asking for just now: something the person asked earlier to have done later (a
+   * timer's task). The words go to the agent as a typed turn would, and its answer is spoken on `session`.
+   * Waits for a conversation on that device to end first. Resolves when the turn has ended, saying whether
+   * the agent's run was handed over to go on in the background.
+   */
+  async task(session: Session, text: string, waitMs = 120_000): Promise<{ handedOver: boolean }> {
+    const deadline = Date.now() + waitMs;
+    while (this.busy(session) || this.active.has(session.client.id)) {
+      if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
+      await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
+    }
+    const turnId = `task-${++this.sayCount}`;
+    const failure = await this.run(session, turnId, { text });
+    if (failure && failure !== "interrupted") throw new Error(failure);
+    return { handedOver: this.lastHandedOver === turnId };
+  }
+  /** The last turn whose run was handed over to the background. */
+  private lastHandedOver: string | undefined;
+
   /** Forgets a client that disconnected. */
   drop(session: Session): void {
     const id = session.client.id;
@@ -1084,6 +1104,7 @@ export class TurnManager {
           });
           handover!.job = job;
           record.handedOver = true;
+          this.lastHandedOver = turnId;
           turn.thinking = false;
           if (this.active.get(id) !== turn) {
             this.active.set(id, turn);

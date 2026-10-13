@@ -2767,10 +2767,11 @@ function renderNow() {
     ),
     ...now.timers.map((t) =>
       h("tr", {},
-        h("td", {}, "Timer"),
+        h("td", {}, t.task ? "Task for later" : "Timer"),
         h("td", {}, device(t.clientId, t.client)),
-        h("td", {}, t.label || `${countdown(t.seconds * 1000)} timer`),
-        h("td", { class: "num" }, t.dueAt > now.at ? `${countdown(t.dueAt - now.at)} left` : "due, announcing"),
+        // A task shows what the agent is to do, and whether it may act on a computer when it does.
+        h("td", {}, t.task ? `${t.label ? `${t.label}: ` : ""}${t.task} ` : t.label || `${countdown(t.seconds * 1000)} timer`, t.task ? stat(t.mayAct ? "may act on a computer" : "look only", t.mayAct ? "warn" : "") : ""),
+        h("td", { class: "num" }, t.dueAt > now.at ? `${countdown(t.dueAt - now.at)} left` : t.task ? "due, the agent is on it" : "due, announcing"),
         h("td", { class: "num" },
           h("button", {
             type: "button",

@@ -36,6 +36,8 @@ The desktop app lets an agent read a computer's screen and, if allowed, click an
 - The app never types into a password field, never takes a screenshot while one has the focus, and never presses lock, sign-out, the security screen, Task Manager, Alt+F4, Win+R or Win+X. It opens only Start-menu apps and http(s) addresses, never a path or a command.
 - Not yet: a confirmation before sending, posting, deleting or buying (the tool's description asks agents to ask first, and nothing enforces it), and a list of apps an agent may not read or touch.
 
+**Things done later, with nobody watching.** An agent can leave itself a task for later (a timer with something to do). While such a task runs, the desktop tool is look-only: nothing is clicked or typed. It may act only if the person allowed it when the task was set, and Axis asks them that itself, on the device, with its own question; an agent's word that they agreed does not count. This governs Axis's desktop tool only. Whatever else an agent can do through its own harness (send mail, run commands) is not Axis's to limit.
+
 **Updates.** Axis tells a computer to update when it has a newer build; the app downloads it with its own token and checks its size and SHA-256 before swapping it in. Both come from the same Axis, so the check guards against a broken download, not against a hostile Axis. The app refuses an update over plain HTTP unless Axis is on the same computer, the local network or a tailnet. The app is not code-signed yet, so Windows warns when it is first run.
 
 **What an agent sees goes to its model.** Screen text from looks, and screenshots when they are on, are sent to whatever model the agent uses, and they stay in that agent's conversation history. Axis keeps none of it.

@@ -46,6 +46,7 @@ export interface App {
   /** The OpenClaw gateway link. It exists even when another agent answers turns. */
   gateway: GatewayClient;
   timers: Timers;
+  desktops: Desktops;
   /** Gets agent-started speech to a client by whatever route it has: live, by notification, or kept for later. */
   delivery: Delivery;
   push: PushService;
@@ -178,7 +179,33 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Firmware a release image came with, onto the shelves (only when newer than what is there).
   importBundledFirmware(config.bundledDir, new FirmwareStore(config.dataDir), log);
   const desktops = new Desktops(hub, store);
-  const timers = new Timers({ store, hub, activity, log });
+  const timers = new Timers({
+    store,
+    hub,
+    activity,
+    log,
+    // A timer's task, when it is due: the agent is given it as a turn of its own, and answers on that device.
+    runTask: async (session, timer) => {
+      const minutes = Math.max(1, Math.round((Date.now() - timer.createdAt) / 60_000));
+      const ago = minutes >= 120 ? `${Math.round(minutes / 60)} hours` : `${minutes} minute${minutes === 1 ? "" : "s"}`;
+      const rule = timer.mayAct
+        ? "The user allowed this task to click and type on their computer."
+        : "Nobody is watching: on the user's computer you may look but not click, type or change anything. If acting is what it takes, say what you found and what you would do.";
+      const words =
+        `[scheduled task: the user asked for this ${ago} ago and is not asking anything now. ${rule} ` +
+        `Do it, then say the result in a sentence or two. If there is nothing worth telling them, answer NO_REPLY.] ${timer.task}`;
+      // Without the person's leave, computers are look-only while it runs: also for a while after a long
+      // run was handed over to go on in the background.
+      const release = timer.mayAct ? () => {} : desktops.holdLookOnly(`the scheduled task "${timers.name(timer)}" was not allowed to act on a computer`);
+      let later = false;
+      try {
+        later = (await hub.task(session, words)).handedOver;
+      } finally {
+        if (later) setTimeout(release, 15 * 60_000).unref();
+        else release();
+      }
+    },
+  });
   const wakeWords = new WakeWordStore(config.dataDir);
   const wakeWordSync = new WakeWordSync(wakeWords, store, hub);
   // Browsers that allowed notifications are reached through their push service when their page is closed.
@@ -450,6 +477,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     hub,
     gateway,
     timers,
+    desktops,
     delivery,
     push,
     backup,

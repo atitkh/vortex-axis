@@ -59,6 +59,25 @@ export class Desktops {
     });
   }
 
+  /** Reasons the computers are look-only just now (a scheduled task the person did not allow to act), newest last. */
+  private readonly lookOnly: string[] = [];
+
+  /**
+   * Makes every computer look-only until the returned function is called: clicking, typing and the rest are
+   * refused, looking goes on. For a task that runs with nobody watching and was not allowed to act. Axis
+   * cannot tell which agent call belongs to which turn, so it is all calls while the task runs.
+   */
+  holdLookOnly(reason: string): () => void {
+    this.lookOnly.push(reason);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const at = this.lookOnly.lastIndexOf(reason);
+      if (at >= 0) this.lookOnly.splice(at, 1);
+    };
+  }
+
   /** The computers an agent is using right now, for the admin page. */
   inUse(): InUse[] {
     return [...this.using.values()].map(({ timer: _timer, ...use }) => use);
@@ -243,6 +262,8 @@ export class Desktops {
 
   /** Clicking, typing and everything else that changes the screen: refused here when switched off for the computer. */
   private mayChange(session: Session): void {
+    const held = this.lookOnly.at(-1);
+    if (held) throw new Error(`not now: ${held}. Looking is allowed (look, find, screenshot if it is on); tell the person what you found and what you would do, and let them ask for it`);
     const allowed = this.hub.settings(session).allowInput;
     if (allowed === 0 || allowed === false || allowed === "0") {
       throw new Error(`clicking and typing are switched off for ${session.client.name} on the VorteX Axis admin page`);

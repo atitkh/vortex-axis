@@ -19,7 +19,15 @@ export interface TimersOptions {
   retryMs?: number;
   /** How long a device's chime is given before the words start. */
   chimeMs?: number;
+  /**
+   * Carries out a timer's task when it is due: hands it to the agent, whose answer is spoken on `session`.
+   * Without it, a timer with a task rings like any other and says what it was for.
+   */
+  runTask?: (session: Session, timer: TimerRecord) => Promise<void>;
 }
+
+/** Longest a task's instruction may be. */
+export const MAX_TASK_CHARS = 1000;
 
 /** "5 minute", "1 hour 30 minute", "45 second": a length of time as it is said before the word "timer". */
 export function spokenLength(seconds: number): string {
@@ -47,6 +55,7 @@ export class Timers {
   private readonly log: (line: string) => void;
   private readonly retryMs: number;
   private readonly chimeMs: number;
+  private runTask: TimersOptions["runTask"];
   private wait: NodeJS.Timeout | undefined;
   /** When each overdue timer is next tried. */
   private readonly retryAt = new Map<number, number>();
@@ -62,12 +71,18 @@ export class Timers {
     this.log = options.log ?? (() => {});
     this.retryMs = options.retryMs ?? RETRY_MS;
     this.chimeMs = options.chimeMs ?? 900;
+    this.runTask = options.runTask;
     this.hub.onConnect((session) => this.tell(session));
   }
 
   /** Called after every change to the timers: one set, cancelled or gone off. */
   onChange(listener: () => void): void {
     this.changeListeners.push(listener);
+  }
+
+  /** Says how tasks are carried out, for when that can only be wired up after the timers exist. */
+  useTaskRunner(run: NonNullable<TimersOptions["runTask"]>): void {
+    this.runTask = run;
   }
 
   start(): void {
@@ -79,7 +94,8 @@ export class Timers {
     if (this.wait) clearTimeout(this.wait);
   }
 
-  set(session: Session, seconds: number, label: string): TimerRecord {
+  /** With `task`, the timer does not ring: when it is due the agent is given the task and its answer is spoken. */
+  set(session: Session, seconds: number, label: string, task?: { text: string; mayAct: boolean }): TimerRecord {
     if (this.store.listTimers().length >= MAX_TIMERS) throw new Error(`there are already ${MAX_TIMERS} timers running`);
     const now = this.now();
     const timer = this.store.addTimer({
@@ -88,8 +104,13 @@ export class Timers {
       seconds,
       dueAt: now + seconds * 1000,
       createdAt: now,
+      ...(task ? { task: task.text.slice(0, MAX_TASK_CHARS), mayAct: task.mayAct } : {}),
     });
-    this.activity?.note("timer", timer.clientId, `Timer set on ${session.client.name}: ${this.name(timer)}`);
+    this.activity?.note(
+      "timer",
+      timer.clientId,
+      task ? `Task set on ${session.client.name} for ${spokenLength(seconds)} from now: ${this.name(timer)}${task.mayAct ? " (may act on a computer)" : ""}` : `Timer set on ${session.client.name}: ${this.name(timer)}`,
+    );
     this.arm();
     this.tell();
     return timer;
@@ -155,6 +176,21 @@ export class Timers {
     this.firing.add(timer.id);
     try {
       const session = this.outputFor(timer);
+      if (timer.task && this.runTask) {
+        // Taken off the list first: the work may take a while, and it must not be started twice.
+        this.store.removeTimer(timer.id);
+        this.retryAt.delete(timer.id);
+        this.tell();
+        this.activity?.note("timer", timer.clientId, `Task due: ${this.name(timer)}, handed to the agent, to be answered on ${session.client.name}`);
+        try {
+          await this.runTask(session, timer);
+        } catch (error) {
+          this.activity?.note("timer", timer.clientId, `Task "${this.name(timer)}" could not be carried out: ${(error as Error).message}`, "warn");
+          // The person is told it did not happen, rather than hearing nothing.
+          await this.hub.say(session, `I could not do what you asked me to do later, ${this.name(timer)}: ${(error as Error).message}.`).catch(() => undefined);
+        }
+        return;
+      }
       const lateMin = Math.round((this.now() - timer.dueAt) / 60_000);
       const words =
         lateMin >= 1
@@ -207,7 +243,7 @@ export class Timers {
     const params = next
       ? // An unnamed timer is shown as "Timer 0:42". Its length would read like a second timer starting.
         // The id lets a client with a cancel button say which timer it means.
-        { label: next.label || "Timer", ms: Math.max(1, next.dueAt - this.now()), count: all.length, id: next.id }
+        { label: next.label || (next.task ? "Task" : "Timer"), ms: Math.max(1, next.dueAt - this.now()), count: all.length, id: next.id }
       : { label: "", ms: 0, count: 0 };
     for (const session of only ? [only] : this.hub.sessions()) {
       if (!session.client.capabilities.includes("screen")) continue;

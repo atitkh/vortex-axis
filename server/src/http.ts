@@ -1189,6 +1189,8 @@ export function createHttpHandler(deps: HttpDeps) {
             client: nameOf(t.clientId),
             seconds: t.seconds,
             dueAt: t.dueAt,
+            // What the agent is to do when it is due, when the timer is one of those.
+            ...(t.task ? { task: t.task, mayAct: t.mayAct === true } : {}),
           })),
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.

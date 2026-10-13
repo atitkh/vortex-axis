@@ -7,7 +7,7 @@ import { withBuiltIns } from "./schema.js";
 import type { Store, TimerRecord } from "./store.js";
 import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
-import { MAX_TIMER_SECONDS, type Timers } from "./timers.js";
+import { MAX_TASK_CHARS, MAX_TIMER_SECONDS, type Timers } from "./timers.js";
 import type { Desktops } from "./desktop.js";
 
 /**
@@ -89,7 +89,12 @@ export const NODE_TOOLS: NodeTool[] = [
       "and says so by itself; you do not need to do anything then. action set needs seconds, and takes a " +
       "short label such as pasta. action list shows the timers running with the seconds left. action cancel " +
       "takes an id or a label, or all true. With no client or location, a new timer goes to the device the user " +
-      "last spoke to.",
+      "last spoke to. " +
+      "To DO something later instead of reminding (\"in 20 minutes check the build and tell me\"), set with `then`: " +
+      "a full instruction to your later self, with everything needed to do it without this conversation. When due " +
+      "you are given it as a new turn, and your answer is spoken on that device. It runs once; it does not repeat. " +
+      "It may look at the user's computer but not click or type there, unless the user asked for that: then pass " +
+      "act true, and the device itself asks the user to allow it.",
     parameters: {
       type: "object",
       properties: {
@@ -98,6 +103,8 @@ export const NODE_TOOLS: NodeTool[] = [
         label: { type: "string", description: "What the timer is for, a word or two. Also picks the timer to cancel." },
         id: { type: "number", description: "Id of the timer to cancel, from list." },
         all: { type: "boolean", description: "With cancel: cancel every timer, or every timer on the client given." },
+        then: { type: "string", description: "With set: what you are to do when it is due, as an instruction to yourself (max 1000 characters)." },
+        act: { type: "boolean", description: "With then: ask the user to let the task click and type on their computer." },
         ...TARGET_PROPERTIES,
       },
     },
@@ -323,6 +330,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
     client: store.getClient(timer.clientId)?.name ?? timer.clientId,
     setForSeconds: timer.seconds,
     secondsLeft: Math.max(0, Math.round((timer.dueAt - now()) / 1000)),
+    ...(timer.task ? { then: timer.task, mayAct: timer.mayAct === true } : {}),
   });
 
   const describe = (session: Session | undefined, clientId: string) => {
@@ -483,7 +491,33 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           if (!Number.isFinite(seconds) || seconds < 1) throw new Error("say how long: seconds must be 1 or more");
           if (seconds > MAX_TIMER_SECONDS) throw new Error("a timer can be at most seven days");
           const session = hub.pickOutput({ client: name, location });
-          return { set: timerView(timers.set(session, seconds, text(params.label) ?? "")) };
+          const then = typeof params.then === "string" ? params.then.trim() : "";
+          if (!then) return { set: timerView(timers.set(session, seconds, text(params.label) ?? "")) };
+          if (then.length > MAX_TASK_CHARS) throw new Error(`then can be at most ${MAX_TASK_CHARS} characters: say it shorter`);
+          const label = text(params.label) ?? "";
+          // Acting on a computer with nobody watching is the person's to allow, and Axis asks them itself:
+          // an agent saying it was allowed is not enough. No answer, or no way to ask, means look-only.
+          let mayAct = false;
+          let asked: string | undefined;
+          if (params.act === true) {
+            asked = "not asked";
+            const caps = session.client.capabilities;
+            if (caps.includes("mic") || caps.includes("screen")) {
+              try {
+                const what = label ? `the ${label} task` : "that task";
+                const answer = await hub.ask(session, `When ${what} runs later, may it click and type on your computer?`, ["Allow", "Look only"], 30_000);
+                mayAct = answer.answer === "Allow";
+                asked = mayAct ? "allowed" : answer.timedOut ? "no answer" : "look only";
+              } catch (error) {
+                asked = `could not ask (${(error as Error).message})`;
+              }
+            }
+          }
+          const set = timers.set(session, seconds, label, { text: then, mayAct });
+          return {
+            set: timerView(set),
+            ...(asked ? { asked, note: mayAct ? "The person allowed it to act on a computer." : "It will run look-only on computers: the person did not allow it to act. Tell them so." } : {}),
+          };
         }
         const clientId = name ? clientNamed(name).id : undefined;
         if (action === "list") return { timers: timers.list(clientId).map(timerView) };

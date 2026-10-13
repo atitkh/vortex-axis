@@ -181,6 +181,11 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE turns ADD COLUMN handed_over INTEGER;
   `,
+  // A timer may carry something for the agent to do when it is due, and whether the person allowed it to act.
+  `
+  ALTER TABLE timers ADD COLUMN task TEXT;
+  ALTER TABLE timers ADD COLUMN may_act INTEGER;
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -213,6 +218,10 @@ export interface TimerRecord {
   seconds: number;
   dueAt: number;
   createdAt: number;
+  /** What the agent is to do when it is due, in its own words from when it was set. Without one, the timer only rings. */
+  task?: string | undefined;
+  /** The person said, when asked by Axis, that the task may click and type on a computer. */
+  mayAct?: boolean | undefined;
 }
 
 interface TurnRow {
@@ -495,8 +504,8 @@ export class Store {
 
   addTimer(timer: Omit<TimerRecord, "id">): TimerRecord {
     const result = this.db
-      .prepare("INSERT INTO timers (client_id, label, seconds, due_at, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(timer.clientId, timer.label, timer.seconds, timer.dueAt, timer.createdAt);
+      .prepare("INSERT INTO timers (client_id, label, seconds, due_at, created_at, task, may_act) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(timer.clientId, timer.label, timer.seconds, timer.dueAt, timer.createdAt, timer.task ?? null, timer.mayAct ? 1 : 0);
     return { ...timer, id: Number(result.lastInsertRowid) };
   }
 
@@ -509,6 +518,8 @@ export class Store {
       seconds: number;
       due_at: number;
       created_at: number;
+      task: string | null;
+      may_act: number | null;
     }>;
     return rows.map((r) => ({
       id: r.id,
@@ -517,6 +528,7 @@ export class Store {
       seconds: r.seconds,
       dueAt: r.due_at,
       createdAt: r.created_at,
+      ...(r.task ? { task: r.task, mayAct: r.may_act === 1 } : {}),
     }));
   }
 

@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.42.0 (2026-10-13)
+
+**Timers that do something** (owner: "check on it in 20 minutes" set a timer that only reminded him).
+
+- The timer tool's `set` takes **`then`**: an instruction the agent writes to its later self. When the timer is due it does not ring: Axis gives the agent that instruction as a turn of its own (marked as scheduled, with how long ago it was asked for) and the answer is spoken on the device the timer belongs to, like any reply. An answer of `NO_REPLY` says nothing, for "tell me only if it failed". It runs once; repeating is not Axis's job. The countdown on the screens says "Task" for one without a label.
+- **Look-only on computers unless the person allowed it, and Axis asks them itself.** While a scheduled task runs, clicking, typing and every other desktop action that changes something is refused (looking goes on), and the agent is told so. To act, the agent sets the task with `act: true`; the device then asks the person, in Axis's own words, "may it click and type on your computer?" with Allow and Look only to tap or say. Only "Allow" counts: no answer, a device that cannot ask, or anything else leaves it look-only, and the tool's answer tells the agent which. An agent saying the person agreed is not enough. A task whose run is handed over to the background stays look-only for 15 minutes more.
+- The limit is on Axis's own desktop tool. What an agent does with tools Axis does not provide is its harness's to govern (`SECURITY.md` says so).
+- The admin page's Now table shows such a timer as "Task for later" with what it is to do and whether it may act. If a task cannot be carried out, the person is told rather than hearing nothing.
+- `Turns.task` starts a turn nobody is asking for just now; `Desktops.holdLookOnly`; timers keep `task` and `may_act`.
+
 ## 0.41.3 (2026-10-13)
 
 - **Every Axis serves the flasher, at `/flash`** (owner: why wait for a page on GitHub?). It installs the firmware on the hub's own shelf, so the board ends up on what the hub has; the installer's files are in the image (fetched from npm when it is built), so nothing is loaded from anywhere else. Linked from **Add a device**. Browsers allow USB access only over https or from localhost, and the page says so when it is opened otherwise.
