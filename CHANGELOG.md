@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.7.2 and board firmware 0.18.2 (2026-10-13)
+
+- **The computer shows when an agent is using it.** A pill at the top of the main screen, "VorteX is using this computer" with a breathing rose dot and the last thing done, from an agent's first desktop command until 8 s after its last. Click-through, never takes the focus, steps out of the picture for looks that read pixels and for screenshots. Tray: "Show when an agent is using this computer" (on by default). Not while paused, and not for the admin page's "Show the pointer".
+- **Boards:** the "Computer in use" glow shows only while the face is idle, not round the thinking face, where it cost frames; the computer icon says it there.
+
 ## 0.40.1 and board firmware 0.18.1 (2026-10-13)
 
 - **Swipe down puts finished tasks away.** A `swipe_down` from any device clears the tasks that are done from every screen (`Progress.clearDone`); ones under way or waiting stay. A board sends that swipe while a finished task shows even with its "gestures" setting off.

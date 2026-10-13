@@ -1061,9 +1061,9 @@ void loop() {
             sweep = timerLeft / (float)TIMER_GLOW_MS;
             const float beat = (timerLeft % 1000) / 1000.0f;  // 1 on each whole second, fading to 0
             level = beat * beat;
-        } else if (state.desktopBusy && !askShown && client.settingInt("handsGlow", 1) != 0 &&
-                   (calm || state.turn == axis::Turn::Thinking)) {
-            // An agent at a computer nearby: rose, also around the thinking face of the turn that set it going.
+        } else if (calm && state.desktopBusy && client.settingInt("handsGlow", 1) != 0) {
+            // An agent at a computer nearby: rose, only while the face is idle. Over the thinking face it cost
+            // frames (the glow redraws the edges 10 times a second); the computer icon says it there instead.
             notice = glow::State::Hands;
         } else if (calm && client.settingInt("notifyGlow", 1) != 0) {
             if (doneFlashUntil && (int32_t)(started - doneFlashUntil) < 0) {

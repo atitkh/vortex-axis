@@ -29,6 +29,7 @@ public partial class App : System.Windows.Application
     const int HotkeyId = 0xA515, TalkKeyId = 0xA516;
     Voice? voice;
     VoicePill? pill;
+    ControlPill? controlPill;
     readonly VoiceIo voiceIo = new();
     Forms.ToolStripMenuItem? voiceItem;
     Mutex? single;
@@ -70,8 +71,14 @@ public partial class App : System.Windows.Application
         RemoveOldBuild();
         overlay = new Overlay();
         var reader = new ScreenReader();
-        commands = new DesktopCommands(new WindowsDesktop(reader, overlay, () => pointerSize)) { Paused = saved.Paused };
-        commands.Did += line => Dispatcher.BeginInvoke(() => Note(line));
+        var desktop = new WindowsDesktop(reader, overlay, () => pointerSize) { StepAside = () => controlPill?.StepAside() };
+        commands = new DesktopCommands(desktop) { Paused = saved.Paused };
+        commands.Did += line => Dispatcher.BeginInvoke(() =>
+        {
+            Note(line);
+            controlPill?.Did(line);
+        });
+        controlPill = new ControlPill();
         BuildTray();
         window = new MainWindow();
         // Started with Windows: straight to the tray. Otherwise the window shows.
@@ -121,7 +128,14 @@ public partial class App : System.Windows.Application
         link = new AxisLink(pairing, DesktopIdentity.Create(Version, saved.Voice))
         {
             AudioBufferMs = saved.Voice ? 8000 : 0,
-            OnCommand = (name, p, ct) => name == "update" ? UpdateAsync(pairing, p, ct) : commands!.HandleAsync(name, p, ct),
+            OnCommand = (name, p, ct) =>
+            {
+                if (name == "update") return UpdateAsync(pairing, p, ct);
+                // An agent at this computer is shown for as long as it is (not the admin page's "Show the pointer").
+                if (name.StartsWith("desktop.", StringComparison.Ordinal) && name != "desktop.hello" && !Paused && saved.ShowControl)
+                    Dispatcher.BeginInvoke(() => controlPill?.Touch());
+                return commands!.HandleAsync(name, p, ct);
+            },
         };
         link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
         link.StateChanged += (state, why) => Dispatcher.BeginInvoke(() =>
@@ -254,6 +268,9 @@ public partial class App : System.Windows.Application
         pauseItem = new Forms.ToolStripMenuItem("Pause", null, (_, _) => SetPaused(!Paused));
         menu.Items.Add(pauseItem);
         menu.Items.Add("Show the pointer", null, (_, _) => ShowPointer());
+        var controlItem = new Forms.ToolStripMenuItem("Show when an agent is using this computer") { Checked = saved.ShowControl, CheckOnClick = true };
+        controlItem.CheckedChanged += (_, _) => { saved.ShowControl = controlItem.Checked; saved.Store(); };
+        menu.Items.Add(controlItem);
         voiceItem = new Forms.ToolStripMenuItem("Talk from this computer (Ctrl+Alt+Space)", null, (_, _) => _ = SetVoiceAsync(!saved.Voice)) { Checked = saved.Voice };
         menu.Items.Add(voiceItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -360,6 +377,16 @@ sealed class WindowsDesktop : IDesktop
 
     public WindowsDesktop(ScreenReader reader, Overlay overlay, Func<double> size) => (this.reader, this.overlay, this.size) = (reader, overlay, size);
 
+    /** Whatever else of the app's own is on screen and must not be in a capture (the "using this computer" pill). */
+    public Action? StepAside { get; set; }
+
+    /** Before the pixels are read: the app's own pointer and pill out of the picture. */
+    void HideOwn()
+    {
+        overlay.HideNow();
+        StepAside?.Invoke();
+    }
+
     public (int X, int Y) Centre
     {
         get
@@ -394,7 +421,7 @@ sealed class WindowsDesktop : IDesktop
     }
 
     public Task<LookResult> LookAsync(string scope, OcrMode ocr, CancellationToken ct) =>
-        reader.LookAsync(scope, ocr, () => overlay.Dispatcher.InvokeAsync(overlay.HideNow).Task, ct);
+        reader.LookAsync(scope, ocr, () => overlay.Dispatcher.InvokeAsync(HideOwn).Task, ct);
 
     public Task<ScreenState> StateAsync(CancellationToken ct) => reader.StateAsync(ct);
 
@@ -606,7 +633,7 @@ sealed class WindowsDesktop : IDesktop
         if (area.Width < 8 || area.Height < 8) throw new InvalidOperationException("there is nothing on screen there to take a picture of");
 
         // The pointer steps out of the picture, and the screen gets a frame to repaint without it.
-        var hidden = overlay.Dispatcher.InvokeAsync(overlay.HideNow).Task;
+        var hidden = overlay.Dispatcher.InvokeAsync(HideOwn).Task;
         await Task.WhenAny(hidden, Task.Delay(500, ct));
         await Task.Delay(60, ct);
         return await Task.Run(() => Capture(area, maxSide, window), ct);

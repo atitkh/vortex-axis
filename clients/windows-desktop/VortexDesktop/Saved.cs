@@ -21,6 +21,8 @@ public sealed class Saved
     public bool Paused { get; set; }
     /** Talking from this computer (its microphone and speakers as an Axis device). On unless switched off. */
     public bool Voice { get; set; } = true;
+    /** The pill at the top of the screen while an agent is using this computer. */
+    public bool ShowControl { get; set; } = true;
 
     static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VorteX Axis");
     static string FilePath => Path.Combine(Folder, "desktop.json");
