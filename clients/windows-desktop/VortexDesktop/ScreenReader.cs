@@ -27,6 +27,9 @@ sealed class ScreenReader
     /** Fewer named controls than this, and auto OCR reads the pixels too. */
     const int SparseBelow = 8;
     static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan OcrPatience = TimeSpan.FromSeconds(4);
+    /** How long the after-an-action read of the focus may take; past it the answer goes without the focus. */
+    const int StatePatienceMs = 1500;
 
     static readonly CacheRequest Cache = MakeCache();
 
@@ -48,10 +51,13 @@ sealed class ScreenReader
     {
         Native.GetCursorPos(out var mouse);
         var screen = System.Windows.Forms.SystemInformation.VirtualScreen;
-        var work = Task.Run(() => Read(scope, mouse), ct);
-        if (await Task.WhenAny(work, Task.Delay(Patience, ct)) != work)
-            throw new TimeoutException("the window took too long to describe itself; try scope mouse, or ocr");
-        var (window, elements, area) = await work;
+        (WindowInfo?, List<ScreenElement>, Rectangle?) got;
+        try { got = await Uia.Run(() => Read(scope, mouse), (int)Patience.TotalMilliseconds, "reading the window", ct); }
+        catch (TimeoutException) when (Uia.Stuck < 8)
+        {
+            throw new TimeoutException($"{Foreground()?.Title ?? "the window in front"} took too long to describe itself; try scope mouse, or ocr");
+        }
+        var (window, elements, area) = got;
 
         var named = elements.Count(e => e.Kind is not ("window" or "pane" or "group") && e.Name.Length > 0);
         var read = ocr == OcrMode.Always || (ocr == OcrMode.Auto && named < SparseBelow && scope != "screen");
@@ -59,7 +65,9 @@ sealed class ScreenReader
         {
             // The pointer would be read as text; it steps out of the picture for the capture.
             await hideOwn();
-            elements.AddRange(await OcrAsync(box, ct));
+            var reading = OcrAsync(box, ct);
+            // OCR is Windows' own and normally quick; a stuck one leaves the text out, not the look.
+            if (await Task.WhenAny(reading, Task.Delay(OcrPatience, ct)) == reading) elements.AddRange(await reading);
         }
         var monitors = System.Windows.Forms.Screen.AllScreens
             .Select(m => new Display(m.Bounds.X, m.Bounds.Y, m.Bounds.Width, m.Bounds.Height, m.Primary)).ToList();
@@ -69,22 +77,22 @@ sealed class ScreenReader
     /** The window in front and the focused control: two small reads, for the answer after an action. */
     public async Task<ScreenState> StateAsync(CancellationToken ct)
     {
-        var work = Task.Run(() =>
+        ScreenElement? focus = null;
+        try
         {
-            var focus = new List<ScreenElement>();
-            using (Cache.Activate())
+            focus = await Uia.Run(() =>
             {
-                try { Add(focus, AutomationElement.FocusedElement?.GetUpdatedCache(Cache)); }
-                catch (Exception) { }
-            }
-            return new ScreenState(Foreground(), focus.FirstOrDefault());
-        }, ct);
+                var found = new List<ScreenElement>();
+                using (Cache.Activate()) Add(found, AutomationElement.FocusedElement?.GetUpdatedCache(Cache));
+                return found.FirstOrDefault();
+            }, StatePatienceMs, "reading the focus", ct);
+        }
         // A window that will not answer leaves the focus out, not the action's answer.
-        if (await Task.WhenAny(work, Task.Delay(2000, ct)) != work) return new ScreenState(Foreground(), null);
-        return await work;
+        catch (Exception) when (!ct.IsCancellationRequested) { }
+        return new ScreenState(Foreground(), focus);
     }
 
-    /** Runs on a pool thread: UI Automation calls cross into other processes and can be slow. */
+    /** Runs on its own thread (Uia.Run): UI Automation calls cross into other processes and can hang. */
     static (WindowInfo?, List<ScreenElement>, Rectangle?) Read(string scope, Native.POINT mouse)
     {
         var list = new List<ScreenElement>();
@@ -131,12 +139,12 @@ sealed class ScreenReader
         }
     }
 
-    static WindowInfo? Foreground()
+    /** The window in front, from Windows itself (never UI Automation, so a frozen window cannot hold it up). */
+    public static WindowInfo? Foreground()
     {
         var hwnd = Native.GetForegroundWindow();
         if (hwnd == IntPtr.Zero || !Native.GetWindowRect(hwnd, out var r)) return null;
-        string title = "", app = "";
-        try { title = AutomationElement.FromHandle(hwnd).Current.Name ?? ""; } catch { }
+        string title = Native.Title(hwnd), app = "";
         try
         {
             Native.GetWindowThreadProcessId(hwnd, out var pid);

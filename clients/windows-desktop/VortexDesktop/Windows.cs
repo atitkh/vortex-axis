@@ -85,10 +85,26 @@ static class Windows
         return w ?? throw new InvalidOperationException("no window is in front");
     }
 
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    const uint GA_ROOTOWNER = 3;
+
+    /** True when `front` is `want`, or a dialog or popup `want` owns (a Save As box counts as its window). */
+    public static bool SameOrOwned(IntPtr front, IntPtr want)
+    {
+        if (front == IntPtr.Zero) return false;
+        if (front == want) return true;
+        var owner = GetAncestor(front, GA_ROOTOWNER);
+        if (owner == want) return true;
+        for (var w = GetWindow(front, GW_OWNER); w != IntPtr.Zero; w = GetWindow(w, GW_OWNER))
+            if (w == want) return true;
+        return false;
+    }
+
     /** Brings a window to the front. Windows lets a background app do that only just after a key press, so one is made (Alt, alone). */
     public static void Focus(IntPtr hwnd)
     {
         if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        if (Native.GetForegroundWindow() == hwnd) return;
         keybd_event(0x12, 0, 0, UIntPtr.Zero);
         keybd_event(0x12, 0, 2, UIntPtr.Zero);
         SetForegroundWindow(hwnd);

@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.37.1 and desktop app 0.4.1 (2026-10-12)
+
+Fixes from the owner's first use of 0.4.0 (looks never answered; "open Notepad and type hello world" typed into another window's chat box; the pointer barely moved).
+
+- **Looks hung:** every UI Automation call now runs on its own thread with a deadline (`Uia.Run`), never on the thread pool. In 0.4.0 the before/after focus reads gave up after 2 s but left their pool thread blocked inside a window that did not answer; enough of them starved the app until even a look could not reach its own 10 s limit, and Axis gave up at 15 s. A read past its deadline now fails with the window named; with 8 reads stuck, calls fail at once saying a window is frozen. The window title comes from Windows, not UI Automation. OCR has a 4 s limit.
+- **open waits for its window:** it waits up to 8 s for a new window (or the front to change, or a window of that app), brings it to the front and answers `note` when none showed. The agent no longer needs a `wait` step.
+- **type and keys go to the right window:** the app remembers the window last opened, switched to, clicked or typed in (for 90 s). If something else has taken the front, it is brought back first; when it cannot be, nothing is typed and the error says which window is in front. A dialog that window owns counts as it.
+- **The pointer shows every action:** open and switch point at the window, typing points at the field with the text in the bubble (it stays up while typing), keys point at the window; the pointer gets a little longer to glide there.
+- Tool description: open and type say the above; the steps example has no `wait`. Package versions back in step.
+
 ## 0.37.0 and desktop app 0.4.0 (2026-10-12)
 
 Fewer tokens per task on a computer (owner picked three of the ideas).

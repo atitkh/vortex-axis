@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
@@ -213,6 +214,17 @@ sealed class WindowsDesktop : IDesktop
     readonly Overlay overlay;
     readonly Func<double> size;
 
+    /**
+     * The window the agent last opened, switched to or acted in. Typing and keys go there: if something
+     * else has taken the front since (a chat window grabbing focus, a slow app opening), it is brought
+     * back first, and nothing is typed when it cannot be. Forgotten after IntendedFor.
+     */
+    IntPtr intended;
+    DateTime intendedAt;
+    static readonly TimeSpan IntendedFor = TimeSpan.FromSeconds(90);
+    /** Longest an app gets to show its window after open. */
+    const int OpenPatienceMs = 8000;
+
     public WindowsDesktop(ScreenReader reader, Overlay overlay, Func<double> size) => (this.reader, this.overlay, this.size) = (reader, overlay, size);
 
     public (int X, int Y) Centre
@@ -222,6 +234,30 @@ sealed class WindowsDesktop : IDesktop
             var area = Forms.Screen.PrimaryScreen!.Bounds;
             return (area.X + area.Width / 2, area.Y + area.Height / 2);
         }
+    }
+
+    void Intend(IntPtr hwnd)
+    {
+        intended = hwnd;
+        intendedAt = DateTime.UtcNow;
+    }
+
+    void IntendFront() => Intend(Native.GetForegroundWindow());
+
+    /**
+     * Before typing or keys: makes sure the window the agent is working in is in front (a dialog it owns
+     * counts as it), bringing it back if needed. Throws, so nothing is typed, when it cannot.
+     */
+    async Task EnsureFrontAsync(CancellationToken ct)
+    {
+        var want = intended;
+        if (want == IntPtr.Zero || DateTime.UtcNow - intendedAt > IntendedFor || !Native.IsWindow(want)) return;
+        var front = Native.GetForegroundWindow();
+        if (Windows.SameOrOwned(front, want)) return;
+        await Uia.Run(() => Windows.Focus(want), 3000, "bringing the window forward", ct);
+        front = Native.GetForegroundWindow();
+        if (!Windows.SameOrOwned(front, want))
+            throw new InvalidOperationException($"\"{Native.Title(want)}\" could not be brought back to the front (\"{Native.Title(front)}\" is there); nothing was typed");
     }
 
     public Task<LookResult> LookAsync(string scope, OcrMode ocr, CancellationToken ct) =>
@@ -234,25 +270,40 @@ sealed class WindowsDesktop : IDesktop
 
     public Task HideAsync() => overlay.Dispatcher.InvokeAsync(overlay.HideAsync).Task.Unwrap();
 
-    /** Shows the pointer where it is about to act, and gives it a moment to get there. */
-    async Task ShowAt(int x, int y, string words, CancellationToken ct)
+    /** Shows the pointer where it is about to act, and gives it time to glide there so the person can follow. */
+    async Task ShowAt(int x, int y, string words, CancellationToken ct, double seconds = 3)
     {
-        await overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, words, 3, size()));
-        await Task.Delay(350, ct);
+        await overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, words, seconds, size()));
+        await Task.Delay(450, ct);
     }
+
+    /** The pointer on a window's title bar: where a person looks for "this one". */
+    Task ShowOnWindow(WindowInfo w, string words, CancellationToken ct) =>
+        ShowAt(w.X + w.W / 2, w.Y + Math.Min(60, Math.Max(w.H / 2, 1)), words, ct);
 
     public async Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
     {
         await ShowAt(x, y, kind == ClickKind.Right ? "Right-click" : kind == ClickKind.Double ? "Double-click" : "Click", ct);
-        // A control that can be pressed directly is, and the mouse stays where it is.
-        if (kind == ClickKind.Left && target?.Ref is AutomationElement e)
+        try
         {
-            var pressed = Task.Run(() => Press(e), ct);
-            // A press that opens a dialog may not come back until it closes; it has happened by then.
-            if (await Task.WhenAny(pressed, Task.Delay(3000, ct)) != pressed || pressed.Result) return "invoked";
+            // A control that can be pressed directly is, and the mouse stays where it is.
+            if (kind == ClickKind.Left && target?.Ref is AutomationElement e)
+            {
+                try
+                {
+                    if (await Uia.Run(() => Press(e), 3000, "pressing the control", ct)) return "invoked";
+                }
+                // A press that opens a dialog may not come back until it closes; it has happened by then.
+                catch (TimeoutException) { return "invoked"; }
+            }
+            await Uia.Run(() => Input.Click(x, y, kind), 3000, "clicking", ct);
+            return "mouse";
         }
-        await Task.Run(() => Input.Click(x, y, kind), ct);
-        return "mouse";
+        finally
+        {
+            await Task.Delay(150, ct);
+            IntendFront();
+        }
     }
 
     /** Presses a control through UI Automation, if it offers a way to. False when it does not. */
@@ -276,8 +327,9 @@ sealed class WindowsDesktop : IDesktop
 
     public async Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
     {
-        var (x, y) = target != null ? (target.X + target.W / 2, target.Y + target.H / 2) : Centre;
-        await Task.Run(() =>
+        if (target == null) await EnsureFrontAsync(ct);
+        var (x, y) = target != null ? (target.X + target.W / 2, target.Y + target.H / 2) : WindowMiddle();
+        await Uia.Run(() =>
         {
             // Never into a password field: the one named, or whatever has the focus.
             if (target?.Ref is AutomationElement e)
@@ -290,47 +342,112 @@ sealed class WindowsDesktop : IDesktop
             if (target == null && focused != null)
             {
                 var box = focused.Current.BoundingRectangle;
-                if (!box.IsEmpty && !double.IsInfinity(box.Width)) (x, y) = ((int)(box.X + box.Width / 2), (int)(box.Y + box.Height / 2));
+                if (!box.IsEmpty && !double.IsInfinity(box.Width) && box.Width > 0)
+                    (x, y) = ((int)(box.X + Math.Min(box.Width / 2, 120)), (int)(box.Y + Math.Min(box.Height / 2, 40)));
             }
-        }, ct);
-        await ShowAt(x, y, "Typing", ct);
-        await Task.Run(() => Input.Type(text), ct);
+        }, 3000, "finding where to type", ct);
+        await ShowAt(x, y, $"Typing \"{(text.Length > 24 ? text[..23] + "…" : text)}\"", ct, 3 + text.Length / 60.0);
+        // Checked again right before the keys go: the pointer's moment is long enough for focus to wander.
+        if (target == null) await EnsureFrontAsync(ct);
+        await Uia.Run(() => Input.Type(text), 30000, "typing", ct);
+        IntendFront();
     }
 
-    public async Task<string> OpenAsync(string? app, string? url, CancellationToken ct)
+    (int X, int Y) WindowMiddle()
     {
+        var w = ScreenReader.Foreground();
+        return w == null ? Centre : (w.X + w.W / 2, w.Y + w.H / 2);
+    }
+
+    public async Task<(string Opened, WindowInfo? Window)> OpenAsync(string? app, string? url, CancellationToken ct)
+    {
+        var before = Windows.List().Select(w => w.Handle).ToHashSet();
+        var front = Native.GetForegroundWindow();
+        string name;
         if (url != null)
         {
-            await Task.Run(() => Windows.Browse(url), ct);
-            return url;
+            await Uia.Run(() => Windows.Browse(url), 8000, "opening the address", ct);
+            name = url;
         }
-        return await Task.Run(() => Windows.Launch(app!), ct);
+        else name = await Uia.Run(() => Windows.Launch(app!), 8000, "starting the app", ct);
+        // Waits for what was opened to show, then makes sure it is in front, so the next step types into it
+        // and not into whatever had the focus before.
+        var opened = await WaitForWindowAsync(before, front, url != null ? null : name, ct);
+        if (opened == null) return (name, null);
+        await Uia.Run(() => Windows.Focus(opened.Handle), 3000, "bringing the window forward", ct);
+        Intend(opened.Handle);
+        var info = Windows.Info(opened.Handle, opened.Title, opened.App);
+        await ShowOnWindow(info, $"Opened {(name.Length > 30 ? name[..29] + "…" : name)}", ct);
+        return (name, info);
     }
 
-    public async Task<WindowInfo> SwitchAsync(string window, CancellationToken ct) =>
-        await Task.Run(() =>
+    /**
+     * The window an open produced: a new window, else (apps that reuse theirs, a browser opening a tab) the
+     * window in front once it changed, else an open window matching the app's name. Null if nothing showed.
+     */
+    static async Task<Windows.Open?> WaitForWindowAsync(HashSet<IntPtr> before, IntPtr front, string? app, CancellationToken ct)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(OpenPatienceMs);
+        while (DateTime.UtcNow < until)
+        {
+            await Task.Delay(150, ct);
+            var now = Windows.List();
+            var fresh = now.FirstOrDefault(w => !before.Contains(w.Handle));
+            if (fresh != null)
+            {
+                // A window gets its real title a moment after it appears.
+                await Task.Delay(250, ct);
+                return Windows.List().FirstOrDefault(w => w.Handle == fresh.Handle) ?? fresh;
+            }
+            var f = Native.GetForegroundWindow();
+            if (f != front && now.FirstOrDefault(w => w.Handle == f) is { } changed) return changed;
+        }
+        if (app == null) return null;
+        try { return Windows.Find(app); } catch (InvalidOperationException) { return null; }
+    }
+
+    public async Task<WindowInfo> SwitchAsync(string window, CancellationToken ct)
+    {
+        var info = await Uia.Run(() =>
         {
             var w = Windows.Find(window);
             Windows.Focus(w.Handle);
+            Intend(w.Handle);
             return Windows.Info(w.Handle, w.Title, w.App);
-        }, ct);
+        }, 4000, "switching windows", ct);
+        await ShowOnWindow(info, $"Switched to {info.App}", ct);
+        return info;
+    }
 
-    public async Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct) =>
-        await Task.Run(() =>
+    public async Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct)
+    {
+        var info = await Uia.Run(() =>
         {
             var w = window != null ? Windows.Find(window) : Windows.Front();
             Windows.Do(w.Handle, op, display);
+            if (op == "minimize") { if (intended == w.Handle) intended = IntPtr.Zero; }
+            else Intend(w.Handle);
             return Windows.Info(w.Handle, w.Title, w.App);
-        }, ct);
+        }, 4000, "arranging the window", ct);
+        if (op != "minimize") await ShowOnWindow(info, op == "move" ? $"Moved to display {display}" : char.ToUpper(op[0]) + op[1..], ct);
+        return info;
+    }
 
     // Ctrl+Win+Right and Left: Windows' own keys for the next and previous virtual desktop.
-    public Task DesktopAsync(bool next, CancellationToken ct) =>
-        Task.Run(() => Input.Press(new KeyCombo(true, false, false, true, next ? "right" : "left")), ct);
+    public async Task DesktopAsync(bool next, CancellationToken ct)
+    {
+        await Uia.Run(() => Input.Press(new KeyCombo(true, false, false, true, next ? "right" : "left")), 3000, "changing desktop", ct);
+        intended = IntPtr.Zero;
+    }
 
     public async Task KeysAsync(KeyCombo combo, CancellationToken ct)
     {
-        Native.GetCursorPos(out var at);
-        await ShowAt(at.X, at.Y, combo.ToString(), ct);
-        await Task.Run(() => Input.Press(combo), ct);
+        await EnsureFrontAsync(ct);
+        var (x, y) = WindowMiddle();
+        await ShowAt(x, y, combo.ToString(), ct);
+        await Uia.Run(() => Input.Press(combo), 3000, "pressing keys", ct);
+        // Keys may move to another window on purpose (alt+tab, ctrl+n): wherever they land is where the agent is now.
+        await Task.Delay(150, ct);
+        IntendFront();
     }
 }

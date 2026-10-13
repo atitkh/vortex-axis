@@ -1,6 +1,6 @@
 {
   "name": "@vortex-axis/protocol",
-  "version": "0.36.0",
+  "version": "0.37.1",
   "private": true,
   "description": "Versioned message definitions between a client and VorteX Axis",
   "type": "module",

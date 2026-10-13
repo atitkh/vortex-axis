@@ -32,7 +32,20 @@ static class Native
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
+    [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /** A window's title. Safe on a frozen window: Windows answers it without asking the window. */
+    public static string Title(IntPtr hwnd)
+    {
+        var length = GetWindowTextLength(hwnd);
+        if (length <= 0) return "";
+        var text = new System.Text.StringBuilder(length + 1);
+        GetWindowText(hwnd, text, text.Capacity);
+        return text.ToString();
+    }
 
     /** Dark title bar and rounded corners, where Windows offers them; silently nothing elsewhere. */
     public static void DarkChrome(IntPtr hwnd)

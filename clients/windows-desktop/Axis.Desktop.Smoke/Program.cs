@@ -59,7 +59,7 @@ sealed class FakeDesktop : IDesktop
         return Task.CompletedTask;
     }
     public Task KeysAsync(KeyCombo combo, CancellationToken ct) { Console.WriteLine($"pressing {combo}"); return Task.CompletedTask; }
-    public Task<string> OpenAsync(string? app, string? url, CancellationToken ct) { Console.WriteLine($"opening {app ?? url}"); return Task.FromResult(app ?? url!); }
+    public Task<(string, WindowInfo?)> OpenAsync(string? app, string? url, CancellationToken ct) { Console.WriteLine($"opening {app ?? url}"); return Task.FromResult<(string, WindowInfo?)>((app ?? url!, new WindowInfo(app ?? url!, app ?? "browser", 0, 0, 800, 600))); }
     public Task<WindowInfo> SwitchAsync(string window, CancellationToken ct) { Console.WriteLine($"switching to {window}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040)); }
     public Task<WindowInfo> WindowAsync(string op, string? window, int? display, CancellationToken ct) { Console.WriteLine($"window {op} {window} {display}"); return Task.FromResult(new WindowInfo("Chat - Discord", "Discord", 0, 0, 1920, 1040)); }
     public Task<ScreenState> StateAsync(CancellationToken ct) =>

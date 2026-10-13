@@ -51,8 +51,11 @@ public interface IDesktop
     Task TypeAsync(ScreenElement? target, string text, CancellationToken ct);
     /** Presses one key combination. */
     Task KeysAsync(KeyCombo combo, CancellationToken ct);
-    /** Starts a Start-menu app matched by name, or opens an http(s) address in the default browser. Returns what it opened. */
-    Task<string> OpenAsync(string? app, string? url, CancellationToken ct);
+    /**
+     * Starts a Start-menu app matched by name, or opens an http(s) address in the default browser, waits for
+     * its window and brings it to the front. Returns what it opened and that window (null if none showed).
+     */
+    Task<(string Opened, WindowInfo? Window)> OpenAsync(string? app, string? url, CancellationToken ct);
     /** Brings to the front the window best matching an app name or a title. */
     Task<WindowInfo> SwitchAsync(string window, CancellationToken ct);
     /** Minimizes, maximizes, restores or moves to display `display` (1-based) the named window, or the one in front. */
@@ -250,7 +253,7 @@ public sealed class DesktopCommands
     static readonly HashSet<string> Changes =
         ["desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps"];
     /** How long the screen gets to catch up before it is read again; an app being started takes longer. */
-    const int AfterMs = 300, AfterOpenMs = 1200;
+    const int AfterMs = 300, AfterOpenMs = 400;
 
     async Task<ScreenState?> StateOrNullAsync(CancellationToken ct)
     {
@@ -485,9 +488,12 @@ public sealed class DesktopCommands
                     return CommandAnswer.Fail("the app only opens http and https addresses");
                 var app = Str(p, "app");
                 if ((url == null) == (app == null)) return CommandAnswer.Fail("open needs app or url");
-                var opened = await desktop.OpenAsync(app, url, ct);
-                Did?.Invoke($"Opened {Clip(opened, 60)}");
-                return CommandAnswer.Done(new JsonObject { ["opened"] = Clip(opened, 200) });
+                var (opened, window) = await desktop.OpenAsync(app, url, ct);
+                Did?.Invoke($"Opened {Clip(opened, 60)}{(window == null ? " (no window showed yet)" : "")}");
+                var payload = new JsonObject { ["opened"] = Clip(opened, 200) };
+                // No window: the next type or keys would land wherever the focus already is, so the agent is told.
+                if (window == null) payload["note"] = "no window showed within 8 s; check before typing";
+                return CommandAnswer.Done(payload);
             }
             case "desktop.switch":
             {

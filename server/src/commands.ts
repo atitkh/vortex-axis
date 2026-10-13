@@ -217,8 +217,8 @@ export const NODE_TOOLS: NodeTool[] = [
     experimental: true,
     description:
       "Use the user's computer (VorteX Axis desktop app). Act by name without looking first; batch actions in `steps`. " +
-      "Actions: open (app by Start-menu name, or url), switch (to a window), window (do minimize/maximize/restore/move to display n), " +
-      "desktop (go next/previous), click (name, id or x,y), type (text into a field by name, or the focus), keys (one combo: enter, ctrl+s), " +
+      "Actions: open (app by Start-menu name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n), " +
+      "desktop (go next/previous), click (name, id or x,y), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s), " +
       "find (best 5 matches for a name), look (scope window, mouse for \"what's this\", screen for open windows), point/hide (own pointer), " +
       "steps (up to 10 of these as objects; stops at the first failure). " +
       "Acting answers carry `after` (window in front, `new` if it changed, focus and its value): trust it instead of looking again. " +
@@ -252,7 +252,7 @@ export const NODE_TOOLS: NodeTool[] = [
         steps: {
           type: "array",
           maxItems: 10,
-          description: "e.g. [{action:\"open\",app:\"Notepad\"},{action:\"wait\",ms:800},{action:\"type\",text:\"hi\"}]",
+          description: "e.g. [{action:\"open\",app:\"Notepad\"},{action:\"type\",text:\"hi\"}]",
           items: { type: "object" },
         },
         scope: { type: "string", enum: ["window", "mouse", "screen"] },
