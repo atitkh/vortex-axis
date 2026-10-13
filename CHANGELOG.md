@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.41.3 (2026-10-13)
+
+- **Every Axis serves the flasher, at `/flash`** (owner: why wait for a page on GitHub?). It installs the firmware on the hub's own shelf, so the board ends up on what the hub has; the installer's files are in the image (fetched from npm when it is built), so nothing is loaded from anywhere else. Linked from **Add a device**. Browsers allow USB access only over https or from localhost, and the page says so when it is opened otherwise.
+- The firmware shelf keeps a **factory image** beside a build when it is given one: a release image brings it (`bundled/firmware/manifest.json`, `factory`), `scripts/push-firmware.mjs` uploads it, and `POST /admin/firmware/<type>?version=..&part=factory` takes one by hand. Removing a build removes it.
+- The standalone flasher folder (GitHub Pages) carries the installer too; no CDN.
+
 ## 0.41.2 (2026-10-13)
 
 More of what a stranger needs.

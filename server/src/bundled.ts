@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { newer } from "./desktopapp.js";
 import type { FirmwareStore } from "./firmware.js";
@@ -8,6 +8,8 @@ interface BundledFirmware {
   type: string;
   version: string;
   file: string;
+  /** The factory image that goes with it, for the flasher page. */
+  factory?: string;
 }
 
 /**
@@ -27,14 +29,25 @@ export function importBundledFirmware(bundledDir: string | undefined, store: Fir
   const taken: string[] = [];
   for (const entry of Array.isArray(manifest) ? manifest : []) {
     if (typeof entry?.type !== "string" || typeof entry.version !== "string" || typeof entry.file !== "string" || entry.file.includes("/") || entry.file.includes("..")) continue;
+    const safe = (name: unknown): name is string => typeof name === "string" && !name.includes("/") && !name.includes("..");
     const kept = store.shelf(entry.type).builds.map((b) => b.version);
-    if (kept.some((v) => v === entry.version || newer(v, entry.version))) continue;
-    try {
-      store.save(entry.type, entry.version, readFileSync(join(bundledDir, "firmware", entry.file)));
-      taken.push(`${entry.type} ${entry.version}`);
-      log(`firmware: ${entry.type} ${entry.version} from the image is now current`);
-    } catch (error) {
-      log(`firmware: ${entry.type} ${entry.version} from the image could not be kept: ${(error as Error).message}`);
+    if (!kept.some((v) => v === entry.version || newer(v, entry.version))) {
+      try {
+        store.save(entry.type, entry.version, readFileSync(join(bundledDir, "firmware", entry.file)));
+        taken.push(`${entry.type} ${entry.version}`);
+        log(`firmware: ${entry.type} ${entry.version} from the image is now current`);
+      } catch (error) {
+        log(`firmware: ${entry.type} ${entry.version} from the image could not be kept: ${(error as Error).message}`);
+        continue;
+      }
+    }
+    // Its factory image, for a build that is on the shelf without one (this one, or the same version put there by hand).
+    if (safe(entry.factory) && store.build(entry.type, entry.version) && !existsSync(store.factoryPath(entry.type, entry.version))) {
+      try {
+        store.saveFactory(entry.type, entry.version, readFileSync(join(bundledDir, "firmware", entry.factory)));
+      } catch (error) {
+        log(`firmware: the factory image for ${entry.type} ${entry.version} could not be kept: ${(error as Error).message}`);
+      }
     }
   }
   return taken;

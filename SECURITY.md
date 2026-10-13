@@ -44,6 +44,8 @@ The desktop app lets an agent read a computer's screen and, if allowed, click an
 
 Boards keep their Wi-Fi password and token in flash. They trust public certificates for `axis+tls://` addresses and refuse self-signed ones. Firmware updates come only from the Axis a board is paired with, checked by MD5 against what Axis said, and a build that does not reach Axis within three minutes is rolled back. Firmware is not signed.
 
+**The flasher page** (`/flash`) is served to anyone who can reach Axis, under a public name too. It holds no secret: the page, the installer and the firmware, which is public.
+
 ## Known gaps
 
 - No signed firmware or signed desktop app.

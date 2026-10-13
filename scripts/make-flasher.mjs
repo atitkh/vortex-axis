@@ -1,7 +1,7 @@
 // Puts together the browser flasher: the page, a board's factory image and the manifest ESP Web Tools reads.
 //   node scripts/make-flasher.mjs <board folder, built> <output folder>
 // The board must have been built (pio run) so that its factory image exists.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,13 +23,20 @@ if (!version) {
   process.exit(1);
 }
 mkdirSync(out, { recursive: true });
-copyFileSync(join(root, "flasher", "index.html"), join(out, "index.html"));
+for (const name of ["index.html", "flash.js"]) copyFileSync(join(root, "flasher", name), join(out, name));
+// The installer's own files, fetched by scripts/fetch-esp-web-tools.mjs.
+const tools = join(root, "flasher", "esp-web-tools");
+if (!existsSync(join(tools, "install-button.js"))) {
+  console.error("flasher/esp-web-tools is empty: run node scripts/fetch-esp-web-tools.mjs first");
+  process.exit(1);
+}
+cpSync(tools, join(out, "esp-web-tools"), { recursive: true });
 copyFileSync(join(builds, env, "firmware.factory.bin"), join(out, "firmware-factory.bin"));
 writeFileSync(
   join(out, "manifest.json"),
   JSON.stringify(
     {
-      name: "VorteX Axis board",
+      name: "Waveshare ESP32-S3-Touch-AMOLED-1.8",
       version,
       // The person is asked whether to wipe the board first: yes for a board that ran something else,
       // no to keep a VorteX Axis board's Wi-Fi and pairing.

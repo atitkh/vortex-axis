@@ -86,6 +86,8 @@ export interface Config {
   timeZone: string;
   /** Folder holding the web pages. Undefined serves none. */
   webDir: string | undefined;
+  /** The flasher page and its installer (`flasher/` beside the server). */
+  flasherDir: string | undefined;
   /** What a release image comes with: board firmware and the desktop app (`bundled/` beside the server). */
   bundledDir: string | undefined;
 }
@@ -182,6 +184,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     homeAssistant: env.AXIS_MQTT_URL ? { url: env.AXIS_MQTT_URL, discoveryPrefix: env.AXIS_HA_DISCOVERY_PREFIX || "homeassistant" } : undefined,
     // The compiled server sits in server/dist, two levels below the repository root.
     webDir: env.AXIS_WEB_DIR || fileURLToPath(new URL("../../web", import.meta.url)),
+    flasherDir: env.AXIS_FLASHER_DIR || fileURLToPath(new URL("../../flasher", import.meta.url)),
     bundledDir: env.AXIS_BUNDLED_DIR || fileURLToPath(new URL("../../bundled", import.meta.url)),
   };
 }

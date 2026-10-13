@@ -428,6 +428,50 @@ export function createHttpHandler(deps: HttpDeps) {
     // The stamp of the web files being served, so an open page can tell it has been replaced.
     if (method === "GET" && url.pathname === "/v1/web-version") return sendJson(res, 200, { version: webVersion });
 
+    // The flasher: a page that puts the firmware on a new board over USB from the browser (Chrome or Edge, and
+    // only over https or from localhost: the browser's rule for USB). It installs what is on this hub's own
+    // shelf. Nothing here is secret (the firmware is public), so it is served to anyone who can reach Axis.
+    if (method === "GET" && (url.pathname === "/flash" || parts[0] === "flash") && config.flasherDir) {
+      // Without the slash the page's own files would be looked for one level up.
+      if (url.pathname === "/flash") {
+        res.writeHead(302, { ...SECURITY_HEADERS, location: "/flash/" });
+        return void res.end();
+      }
+      const types = firmware.shelves().map((shelf) => shelf.type);
+      const wanted = url.searchParams.get("type");
+      const ready = (wanted ? [wanted] : types).map((t) => firmware.factory(t)).find((f) => f !== undefined);
+      if (parts.length === 2 && parts[1] === "manifest.json") {
+        if (!ready) throw new HttpError(404, "there is no firmware with a factory image on this hub");
+        return sendJson(res, 200, {
+          name: store.getMeta(`type_label:${ready.type}`) || ready.type,
+          version: ready.version,
+          // The person is asked whether to wipe the board first: yes for one that ran something else.
+          new_install_prompt_erase: true,
+          new_install_improv_wait_time: 0,
+          builds: [{ chipFamily: "ESP32-S3", parts: [{ path: `firmware/${encodeURIComponent(ready.type)}.bin`, offset: 0 }] }],
+        });
+      }
+      if (parts.length === 3 && parts[1] === "firmware" && parts[2]!.endsWith(".bin")) {
+        const found = firmware.factory(decodeURIComponent(parts[2]!.slice(0, -4)));
+        if (!found) throw new HttpError(404, "there is no such firmware");
+        res.writeHead(200, { ...SECURITY_HEADERS, "content-type": "application/octet-stream", "content-length": found.size, "cache-control": "no-cache" });
+        createReadStream(firmware.factoryPath(found.type, found.version)).pipe(res);
+        return;
+      }
+      // The page and its installer: plain files, by name only.
+      const name = parts.length === 1 ? "index.html" : parts.length === 2 ? parts[1]! : parts.length === 3 && parts[1] === "esp-web-tools" ? `esp-web-tools/${parts[2]}` : "";
+      const type = CONTENT_TYPES[extname(name)];
+      if (!type || !/^(?:esp-web-tools\/)?[\w-][\w.-]*$/.test(name)) throw new HttpError(404, "not found");
+      let body: Buffer;
+      try {
+        body = readFileSync(join(config.flasherDir, name));
+      } catch {
+        throw new HttpError(404, name.startsWith("esp-web-tools/") ? "the installer is not in this build of Axis" : "not found");
+      }
+      res.writeHead(200, { ...SECURITY_HEADERS, "content-security-policy": PAGE_POLICY, "content-type": type, "content-length": body.length, "cache-control": "no-cache" });
+      return void res.end(body);
+    }
+
     // The pages themselves hold no secrets. Everything they do goes through
     // the same endpoints, with the same checks, as any other caller.
     if (method === "GET") {
@@ -830,6 +874,16 @@ export function createHttpHandler(deps: HttpDeps) {
             firmware: shelves.map((shelf) => shelf.builds.find((b) => b.version === shelf.current)!),
             shelves,
           });
+        }
+        // The factory image that goes with a build already uploaded, for the flasher page.
+        if (method === "POST" && parts.length === 3 && url.searchParams.get("part") === "factory") {
+          try {
+            firmware.saveFactory(type, url.searchParams.get("version") ?? "", await readBytes(req, MAX_FIRMWARE_BYTES));
+            return sendJson(res, 201, firmware.factory(type) ?? { type, version: url.searchParams.get("version") });
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            throw new HttpError(400, (error as Error).message);
+          }
         }
         if (method === "POST" && parts.length === 3) {
           try {

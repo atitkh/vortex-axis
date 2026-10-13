@@ -54,21 +54,23 @@ jobs:
             build=$(ls -d "$board"/.pio/build/*/ | head -1)
             # For updates over Wi-Fi: the application image. For a board's first flash: the factory image.
             cp "$build/firmware.bin" "bundled/firmware/$type.bin"
+            cp "$build/firmware.factory.bin" "bundled/firmware/$type.factory.bin"
             cp "$build/firmware.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}.bin"
             cp "$build/firmware.factory.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}-factory.bin"
             [ $first = 1 ] || echo "," >> bundled/firmware/manifest.json
             first=0
-            printf '{"type":"%s","version":"%s","file":"%s.bin"}' "$type" "${{ steps.v.outputs.firmware }}" "$type" >> bundled/firmware/manifest.json
+            printf '{"type":"%s","version":"%s","file":"%s.bin","factory":"%s.factory.bin"}' "$type" "${{ steps.v.outputs.firmware }}" "$type" "$type" >> bundled/firmware/manifest.json
           done
           echo "]" >> bundled/firmware/manifest.json
           cat bundled/firmware/manifest.json
 
-      # The browser flasher: the page, the factory image and its manifest, for GitHub Pages.
+      # The browser flasher as a page of its own, for GitHub Pages (every Axis also serves it, at /flash).
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - name: Browser flasher
         run: |
+          node scripts/fetch-esp-web-tools.mjs
           node scripts/make-flasher.mjs firmware/waveshare-amoled-1.8 out/flasher
           ls -la out/flasher
       - uses: actions/upload-pages-artifact@v3
@@ -111,7 +113,7 @@ jobs:
           else
             # Here only built, to prove the image builds with everything in it.
             docker build --build-arg AXIS_COMMIT="${GITHUB_SHA::7}" -t vortex-axis:release-check .
-            docker run --rm --entrypoint sh vortex-axis:release-check -c 'ls -la bundled/firmware bundled/desktop && cat bundled/firmware/manifest.json'
+            docker run --rm --entrypoint sh vortex-axis:release-check -c 'ls -la bundled/firmware bundled/desktop flasher flasher/esp-web-tools | head -40 && cat bundled/firmware/manifest.json'
             docker rmi vortex-axis:release-check > /dev/null
           fi
 

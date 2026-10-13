@@ -33,6 +33,14 @@ const call = async (method, path, body) => {
 
 const saved = await call("POST", `/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version)}`, image);
 console.log(`uploaded ${saved.type} ${saved.version}, ${saved.size} bytes, md5 ${saved.md5}`);
+// The factory image too, so the hub's flasher page (/flash) can put this version on a new board.
+try {
+  const factory = readFileSync(join(buildDir, env.name, "firmware.factory.bin"));
+  await call("POST", `/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version)}&part=factory`, factory);
+  console.log(`uploaded its factory image, ${factory.length} bytes`);
+} catch (error) {
+  console.log(`no factory image uploaded: ${error.message}`);
+}
 
 if (flags.includes("--update")) {
   const { clients } = await call("GET", "/admin/clients");

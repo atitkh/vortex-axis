@@ -30,6 +30,12 @@ describe("what a release image comes with", () => {
 
     expect(importBundledFirmware(bundled, store, (l) => log.push(l))).toEqual(["board 0.18.2"]);
     expect(store.info("board")?.version).toBe("0.18.2");
+    // Its factory image comes along when the image has one, also for a build already on the shelf.
+    expect(store.factory("board")).toBeUndefined();
+    writeFileSync(join(bundled, "firmware", "board.factory.bin"), image(3));
+    writeFileSync(join(bundled, "firmware", "manifest.json"), JSON.stringify([{ type: "board", version: "0.18.2", file: "board.bin", factory: "board.factory.bin" }]));
+    expect(importBundledFirmware(bundled, store, () => {})).toEqual([]);
+    expect(store.factory("board")).toMatchObject({ version: "0.18.2" });
     // Again: already there.
     expect(importBundledFirmware(bundled, store, () => {})).toEqual([]);
     // Somebody uploaded a newer one by hand: the image's older one stays out.

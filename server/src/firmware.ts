@@ -140,6 +140,35 @@ export class FirmwareStore {
     return info;
   }
 
+  /** Where a build's factory image is kept: the whole flash for a new board, written at offset 0 by cable. */
+  factoryPath(type: string, version: string): string {
+    return join(this.dir, type, `${version}.factory`);
+  }
+
+  /**
+   * Keeps the factory image that goes with a build already on the shelf (bootloader, partitions and that
+   * application in one file), for the flasher page. Throws with a reason when it is not usable.
+   */
+  saveFactory(type: string, version: string, data: Buffer): void {
+    if (!this.build(type, version)) throw new Error("upload the build itself first: there is no such version on the shelf");
+    if (data.length < 64 * 1024) throw new Error("that file is too small to be a factory image");
+    if (data.length > MAX_FIRMWARE_BYTES) throw new Error("a factory image can be at most 8 MB");
+    // It starts with the bootloader, an ESP32 image like any other.
+    if (data[0] !== 0xe9) throw new Error("that is not an ESP32 image (use firmware.factory.bin from the build)");
+    writeFileSync(this.factoryPath(type, version), data);
+  }
+
+  /** The current build of a type, when its factory image is here too: what the flasher page installs. */
+  factory(type: string): { type: string; version: string; size: number } | undefined {
+    const info = this.info(type);
+    if (!info) return undefined;
+    try {
+      return { type, version: info.version, size: statSync(this.factoryPath(type, info.version)).size };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Chooses which build devices are sent. False when there is no such build. */
   setCurrent(type: string, version: string): boolean {
     if (!this.build(type, version)) return false;
@@ -152,6 +181,7 @@ export class FirmwareStore {
     if (!this.build(type, version)) return false;
     rmSync(this.path(type, version), { force: true });
     rmSync(join(this.dir, type, `${version}.json`), { force: true });
+    rmSync(this.factoryPath(type, version), { force: true });
     const left = this.shelf(type);
     if (!left.builds.length) rmSync(join(this.dir, type), { recursive: true, force: true });
     else if (left.current) writeFileSync(join(this.dir, type, "current"), left.current);

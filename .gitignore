@@ -35,3 +35,6 @@ __pycache__/
 # Filled by the release workflow before the image is built (see bundled/.keep).
 bundled/*
 !bundled/.keep
+
+# The flasher page's installer, fetched by scripts/fetch-esp-web-tools.mjs.
+flasher/esp-web-tools/

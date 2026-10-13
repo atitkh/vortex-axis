@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flash a VorteX Axis board</title>
-<!-- The installer button (ESP Web Tools, Apache-2.0): flashes over USB from the browser, nothing to install. -->
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<!-- The installer button (ESP Web Tools, Apache-2.0): flashes over USB from the browser, nothing to install.
+     Its files sit beside this page (esp-web-tools/), put there when the page is built or the image made. -->
+<script type="module" src="esp-web-tools/install-button.js"></script>
+<script type="module" src="flash.js"></script>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #050507; color: #e9eaf0; font: 16px/1.55 system-ui, "Segoe UI", sans-serif; }
@@ -30,6 +32,7 @@
 <main>
   <h1>Flash a VorteX Axis board</h1>
   <p class="lead">Puts the VorteX Axis firmware on a new board over USB, from this page. You do this once: after that the board updates itself over Wi-Fi from your Axis.</p>
+  <p class="warn" id="insecure" hidden>This page was opened over plain http, where browsers do not allow USB access. Open it through your hub's https address, or from the machine Axis runs on as <code>http://localhost:8440/flash</code>.</p>
 
   <div class="box">
     <p><strong id="what">Waveshare ESP32-S3-Touch-AMOLED-1.8</strong><br><span class="note" id="version">firmware</span></p>
@@ -57,16 +60,7 @@
     <li>The board joins, pairs, and shows its face. Say "Hey Vortex", or tap the screen.</li>
   </ol>
 
-  <p class="note">No Axis yet? Start with the <a id="repo" href="https://github.com/atitkh/vortex-axis#quick-start">quick start</a>. Prefer the command line? The same firmware is on the project's releases page, with PlatformIO instructions in <code>docs/hardware.md</code>.</p>
+  <p class="note" id="outro">Prefer the command line? The same firmware is on the project's releases page, with instructions in <code>docs/hardware.md</code>.</p>
 </main>
-<script>
-  // Say which version this page installs, from the manifest it will use.
-  fetch("manifest.json").then((r) => r.json()).then((m) => {
-    document.getElementById("version").textContent = `firmware ${m.version}`;
-  }).catch(() => {
-    document.getElementById("version").textContent = "No firmware has been published to this page yet.";
-    document.getElementById("install").hidden = true;
-  });
-</script>
 </body>
 </html>

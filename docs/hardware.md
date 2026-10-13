@@ -21,7 +21,7 @@ A battery is optional. Without one it runs from USB-C.
 
 A new board needs the firmware put on it once, by cable. After that it updates from your Axis.
 
-**From the browser (easiest).** Open the project's flasher page in Chrome or Edge on a computer, plug the board in with a USB-C cable that carries data, and press **Connect and install**. The page says what to do if the board is not found (hold BOOT while plugging in). The page is published with each release; `flasher/README.md` says how to serve it yourself.
+**From the browser (easiest).** Your Axis serves a flasher page at `/flash` (there is a link on the admin page's **Add a device**). Open it in Chrome or Edge on a computer, plug the board in with a USB-C cable that carries data, and press **Connect and install**: it puts on the firmware your hub came with. Browsers only allow USB access over `https` or from `localhost`, so open the page through your hub's https address, or on the machine Axis runs on as `http://localhost:8440/flash`. The page says what to do if the board is not found (hold BOOT while plugging in). The same page is published with each release for people who have no hub yet.
 
 **From the command line.** Download `firmware-waveshare-amoled-1.8-<version>-factory.bin` from a release and write it at offset 0:
 

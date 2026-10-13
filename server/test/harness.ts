@@ -65,6 +65,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     homeAssistant: undefined,
     webDir: fileURLToPath(new URL("../../web", import.meta.url)),
     bundledDir: undefined,
+    flasherDir: fileURLToPath(new URL("../../flasher", import.meta.url)),
     ...overrides,
   };
 }
