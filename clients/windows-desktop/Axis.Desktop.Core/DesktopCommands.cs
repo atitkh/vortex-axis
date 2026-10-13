@@ -29,7 +29,11 @@ public sealed record ScreenState(WindowInfo? Window, ScreenElement? Focus);
  * the box (ScreenX, ScreenY, ScreenW, ScreenH), which starts left of or above 0 when a display sits there.
  */
 public sealed record LookResult(WindowInfo? Window, int MouseX, int MouseY, IReadOnlyList<ScreenElement> Elements, int ScreenW, int ScreenH, bool Ocr,
-    int ScreenX = 0, int ScreenY = 0, IReadOnlyList<Display>? Monitors = null);
+    int ScreenX = 0, int ScreenY = 0, IReadOnlyList<Display>? Monitors = null)
+{
+    /** Why reading the pixels was skipped, when it was wanted and did not work. */
+    public string? OcrFailed { get; init; }
+}
 
 /** What the computer itself does: read the screen, draw the pointer. The Windows app supplies it; the smoke test fakes it. */
 public interface IDesktop
@@ -165,6 +169,7 @@ public sealed class DesktopCommands
     {
         try
         {
+            if (name is "desktop.look" or "desktop.find") return await WithinAsync(RunAsync(name, p, ct), ReadDeadlineMs, name);
             if (!Changes.Contains(name)) return await RunAsync(name, p, ct);
             var before = await StateOrNullAsync(ct);
             var answer = await RunAsync(name, p, ct);
@@ -247,6 +252,18 @@ public sealed class DesktopCommands
             default:
                 return CommandAnswer.Fail("not implemented on this device");
         }
+    }
+
+    /** Axis waits 15 s for a look; past this the app answers anyway, so the agent hears why instead of a timeout. */
+    const int ReadDeadlineMs = 12000;
+
+    async Task<CommandAnswer> WithinAsync(Task<CommandAnswer> work, int ms, string name)
+    {
+        if (await Task.WhenAny(work, Task.Delay(ms)) == work) return await work;
+        _ = work.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        var why = $"reading the screen took longer than {ms / 1000} s (the window in front is not answering); try again, or switch to another window";
+        Did?.Invoke($"{name} failed: {why}");
+        return CommandAnswer.Fail(why);
     }
 
     /** Commands that change the screen: their answer says what is in front afterwards, so the agent need not look again. */
@@ -593,6 +610,7 @@ public sealed class DesktopCommands
         if (under is int u) data["underMouse"] = u;
         data["elements"] = list;
         if (look.Elements.Count > elements.Count) data["more"] = look.Elements.Count - elements.Count;
+        if (look.OcrFailed != null) data["ocr"] = $"text from the pixels skipped: {look.OcrFailed}";
         return data;
     }
 

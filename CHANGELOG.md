@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.37.2 and desktop app 0.4.2 (2026-10-12)
+
+The owner's first run of 0.4.1: open Notepad and type worked, but every `look` still went unanswered while `find` (the same read) answered in 0.2 s.
+
+- **Looks that read pixels never answered.** Every failing look was on a window with few controls (Notepad, a page still loading, the area under the mouse), which turns on OCR; `find` on busy windows never did. The pointer hide, the capture and Windows' OCR now run off the look's thread under one 4 s deadline; past it the look answers without the pixel text and says why (`ocr`). Which of the three hung is not known (no Windows here).
+- **Backstop:** look and find always answer within 12 s, naming the trouble, instead of Axis timing out at 15 s.
+- **"Brave Windows is not a computer":** an agent that passes the device the person spoke from as `client` now gets the computer (the only one online, or the one in that device's location) instead of an error. Axis also logs a message from a device that it refuses.
+
 ## 0.37.1 and desktop app 0.4.1 (2026-10-12)
 
 Fixes from the owner's first use of 0.4.0 (looks never answered; "open Notepad and type hello world" typed into another window's chat box; the pointer barely moved).

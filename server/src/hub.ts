@@ -286,8 +286,11 @@ export class Hub implements TurnPort {
       }
       const parsed = parseClientMessage(data.toString());
       if (!parsed.ok) {
-        if (session) this.send(session, { t: "error", code: "bad_message", message: clip(parsed.error) });
-        else this.fail(socket, "bad_message", parsed.error, CLOSE_PROTOCOL);
+        if (session) {
+          // Logged too: a refused command.result otherwise shows up only as the command timing out.
+          console.warn(`client ${session.client.id} (${session.client.name}) sent a message Axis refused (${data.toString().length} chars): ${clip(parsed.error)}`);
+          this.send(session, { t: "error", code: "bad_message", message: clip(parsed.error) });
+        } else this.fail(socket, "bad_message", parsed.error, CLOSE_PROTOCOL);
         return;
       }
       const message = parsed.message;

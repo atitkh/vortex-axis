@@ -38,17 +38,21 @@ export class Desktops {
   }
 
   /**
-   * The computer a call means: the one named; else the only one online; else the one in the
-   * location of the device last spoken to.
+   * The computer a call means: the one named; else the only one online; else the one in the location
+   * of the device named (when that is not a computer) or of the device last spoken to.
    */
   pick(named: string | undefined, location: string | undefined): Session {
     if (named) {
       const client = this.store.findClient(named);
       if (!client) throw new Error(`there is no client called "${named}"`);
       const session = this.hub.session(client.id);
-      if (!session) throw new Error(`${client.name} is offline`);
-      if (!session.client.capabilities.includes("desktop")) throw new Error(`${client.name} is not a computer`);
-      return session;
+      const computer = session ? session.client.capabilities.includes("desktop") : client.capabilities.includes("desktop");
+      if (computer) {
+        if (!session) throw new Error(`${client.name} is offline`);
+        return session;
+      }
+      // Agents pass the device the person spoke from (a board, a browser): that names a place, not a computer.
+      location ??= session ? String(this.hub.settings(session).location ?? "") || undefined : undefined;
     }
     const all = this.online();
     if (!all.length) throw new Error("no computer is connected to VorteX Axis (the desktop app is not running, or not paired)");

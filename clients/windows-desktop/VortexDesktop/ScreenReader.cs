@@ -59,19 +59,27 @@ sealed class ScreenReader
         }
         var (window, elements, area) = got;
 
+        string? ocrFailed = null;
         var named = elements.Count(e => e.Kind is not ("window" or "pane" or "group") && e.Name.Length > 0);
         var read = ocr == OcrMode.Always || (ocr == OcrMode.Auto && named < SparseBelow && scope != "screen");
         if (read && area is { Width: > 8, Height: > 8 } box)
         {
-            // The pointer would be read as text; it steps out of the picture for the capture.
-            await hideOwn();
-            var reading = OcrAsync(box, ct);
-            // OCR is Windows' own and normally quick; a stuck one leaves the text out, not the look.
-            if (await Task.WhenAny(reading, Task.Delay(OcrPatience, ct)) == reading) elements.AddRange(await reading);
+            // The pointer would be read as text; it steps out of the picture for the capture. All of it (the hide,
+            // the capture, Windows' OCR) off this thread and under one deadline: a stuck one leaves the text out,
+            // not the look. 0.4.0 and 0.4.1 looks that needed OCR never answered.
+            var reading = Task.Run(async () =>
+            {
+                var hidden = hideOwn();
+                await Task.WhenAny(hidden, Task.Delay(500));
+                return await OcrAsync(box, ct);
+            }, ct);
+            if (await Task.WhenAny(reading, Task.Delay(OcrPatience, ct)) == reading && reading.IsCompletedSuccessfully) elements.AddRange(reading.Result);
+            else ocrFailed = reading.IsFaulted ? reading.Exception!.GetBaseException().Message : "took too long";
         }
         var monitors = System.Windows.Forms.Screen.AllScreens
             .Select(m => new Display(m.Bounds.X, m.Bounds.Y, m.Bounds.Width, m.Bounds.Height, m.Primary)).ToList();
-        return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read, screen.X, screen.Y, monitors);
+        return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read && ocrFailed == null, screen.X, screen.Y, monitors)
+            { OcrFailed = ocrFailed };
     }
 
     /** The window in front and the focused control: two small reads, for the answer after an action. */
