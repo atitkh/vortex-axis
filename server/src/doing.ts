@@ -7,11 +7,13 @@
  * The kinds are the icons of docs/face.md section 8. A client draws the ones
  * it knows and ignores the rest.
  */
-export const DOING = ["search", "web", "home", "calendar", "list", "files", "code", "timer", "message", "memory", "image", "tool"] as const;
+export const DOING = ["search", "web", "home", "calendar", "list", "files", "code", "timer", "message", "memory", "image", "computer", "tool"] as const;
 export type Doing = (typeof DOING)[number];
 
 /** Read in order: the first that fits wins, so the narrower come before the wider. */
 const RULES: [RegExp, Doing][] = [
+  // Looking at or using a computer: Axis's desktop tool, a harness's computer use, a node's screen snapshot.
+  [/desktop|computer|screen_?snapshot|screen\.snapshot/, "computer"],
   [/timer|alarm|remind|cron|schedul/, "timer"],
   [/memory|recall|remember|wiki/, "memory"],
   [/image|photo|picture|camera|video|screenshot|vision/, "image"],

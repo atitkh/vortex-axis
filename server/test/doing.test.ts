@@ -20,6 +20,8 @@ describe("what kind of work a tool is", () => {
       read: "files",
       vortex_axis_say: "message",
       sessions_send: "message",
+      mcp__VorteXAxisMCP__vortex_axis_desktop: "computer",
+      computer: "computer",
       sessions_spawn: "tool",
       something_unheard_of: "tool",
     };

@@ -818,6 +818,7 @@ const ICON_READS = {
   message: "saying or sending something: a device, a chat, a mail",
   memory: "its own memory and notes",
   image: "making or looking at a picture",
+  computer: "the desktop tool, looking at or using a computer",
   tool: "any other tool",
 };
 const ICON_STYLE_HELP = {

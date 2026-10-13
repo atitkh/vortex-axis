@@ -38,6 +38,8 @@ export const ICONS = {
   memory: [ring(12, 6.5, 7, 3), [5, 6.5, 5, 17.5], [19, 6.5, 19, 17.5], ring(12, 17.5, 7, 3, 0, Math.PI), ring(12, 12, 7, 3, 0, Math.PI)],
   // A picture: the frame, a hill line and the sun.
   image: [[3.5, 5, 20.5, 5, 20.5, 19, 3.5, 19, 3.5, 5], [3.5, 16, 9, 11, 13, 15, 16, 12.5, 20.5, 16.5], ring(15.5, 9, 1.3, 1.3, 0, 2 * Math.PI, 8)],
+  // A computer: the screen, its stand and foot. An agent looking at or using one (the desktop tool).
+  computer: [[3.5, 4.5, 20.5, 4.5, 20.5, 15.5, 3.5, 15.5, 3.5, 4.5], [12, 15.5, 12, 19.5], [7.5, 19.5, 16.5, 19.5]],
   // Any other tool: a hub with rays, like a small cog.
   tool: [ring(12, 12, 3.5), ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
     const a = (i * Math.PI) / 4, c = Math.cos(a), s = Math.sin(a);
@@ -80,6 +82,7 @@ export const ICON_TINTS = {
   message: [0.3, 1.0, 0.85],
   memory: [0.75, 0.5, 1.0],
   image: [1.0, 0.45, 0.9],
+  computer: [1.0, 0.32, 0.62],
   tool: [0.8, 0.82, 0.9],
 };
 

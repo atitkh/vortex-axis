@@ -370,6 +370,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   };
   startHomeAssistant();
   hub.onGesture((session, gesture) => homeAssistant?.gesture(session.client.id, gesture));
+  // A swipe down on a device puts away the tasks that are finished, on every screen.
+  hub.onGesture((session, gesture) => {
+    if (gesture !== "swipe_down") return;
+    const gone = progress.clearDone();
+    if (gone) activity.note("task", session.client.id, `${gone} finished task${gone === 1 ? "" : "s"} put away with a swipe on ${session.client.name}`);
+  });
 
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {

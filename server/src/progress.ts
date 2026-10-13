@@ -215,6 +215,14 @@ export class Progress {
     return gone.length;
   }
 
+  /** Takes the finished tasks off the screens (a swipe down on a board). Ones still under way stay. */
+  clearDone(): number {
+    const gone = [...this.tasks.values()].filter((task) => task.state === "done");
+    for (const task of gone) this.tasks.delete(task.id);
+    if (gone.length) this.tell();
+    return gone.length;
+  }
+
   private prune(): boolean {
     let changed = false;
     for (const [id, task] of this.tasks) {

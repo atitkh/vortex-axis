@@ -22,4 +22,22 @@ describe("the task line", () => {
     await Promise.resolve();
     expect(shown.at(-1)).toMatchObject({ title: "", state: "none", count: 0 });
   });
+
+  it("puts the finished tasks away on a swipe, and leaves the ones under way", () => {
+    const shown: Record<string, unknown>[] = [];
+    const screen = { client: { capabilities: ["screen"], id: "c" } };
+    const hub = {
+      onConnect: () => undefined,
+      sessions: () => [screen],
+      quiet: () => false,
+      command: async (_s: unknown, _name: string, params: Record<string, unknown>) => void shown.push(params),
+    };
+    const progress = new Progress(hub as never, { now: () => 1_000_000 });
+    progress.update({ id: "a", title: "Backup", state: "done" });
+    progress.update({ id: "b", title: "Build", done: 1, total: 3 });
+    expect(progress.clearDone()).toBe(1);
+    expect(progress.list().map((t) => t.title)).toEqual(["Build"]);
+    expect(shown.at(-1)).toMatchObject({ title: "Build" });
+    expect(progress.clearDone()).toBe(0);
+  });
 });

@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.40.1 and board firmware 0.18.1 (2026-10-13)
+
+- **Swipe down puts finished tasks away.** A `swipe_down` from any device clears the tasks that are done from every screen (`Progress.clearDone`); ones under way or waiting stay. A board sends that swipe while a finished task shows even with its "gestures" setting off.
+- **A computer icon** among the tool icons (now thirteen): shown while the agent uses the desktop tool, a harness's computer use or a node's screen snapshot (`doingFor`: desktop, computer, screen snapshot). Rose, like the "Computer in use" glow. Defined in `web/icons.js`, `icons.h` regenerated.
+- **Admin Live page:** finished tasks, tool calls, turns and wake words each scroll in their own box (420 px), table headings staying in view.
+
 ## Desktop app 0.7.1 (2026-10-13)
 
 - The same as 0.7.0 as described below. A first, unfinished 0.7.0 build (no `screen` capability, so no transcript, reply text or questions in the pill) sat in the data folder for a few minutes during development and the owner's computer updated itself to it; a new number makes it update again. `scripts/build-desktop.sh` publishes at once to every computer with auto-update: bump the version only when a build is meant to go out, and build experiments elsewhere.

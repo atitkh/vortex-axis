@@ -777,3 +777,10 @@ pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radi
 .glow-preview label { display: grid; grid-template-columns: 9em 1fr 4em; gap: 8px; align-items: center; font-size: 13px; }
 .glow-preview input[type="range"] { width: 100%; }
 .find-button { margin-left: 8px; }
+
+/* The Live page's lists (finished tasks, tool calls, turns, wake words) each scroll in their own box, so a
+   long one does not push the others off the page. The headings of a table stay in view. */
+#live-tasks, #live-calls, #live-turns, #live-wakes { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+#live-tasks:has(table), #live-calls:has(table), #live-wakes:has(table) { border: 1px solid var(--line); background: var(--surface); }
+#live-tasks table, #live-calls table, #live-wakes table { border: none; }
+#live-tasks th, #live-calls th, #live-wakes th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: 0 1px 0 var(--line); }

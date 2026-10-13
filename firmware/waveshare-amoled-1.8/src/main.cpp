@@ -667,7 +667,9 @@ static void onGesture(touch::Gesture g) {
         const int dx = c - a, dy = d - b;
         name = abs(dx) >= abs(dy) ? (dx < 0 ? "swipe_left" : "swipe_right") : (dy < 0 ? "swipe_up" : "swipe_down");
     }
-    const bool on = client.settingInt("gestures", 1) != 0;
+    // A swipe down puts a finished task away (Axis takes it off every screen), so that one is always sent.
+    const bool dismiss = !strcmp(name, "swipe_down") && state.taskCount && state.taskState == 2;
+    const bool on = dismiss || client.settingInt("gestures", 1) != 0;
     logOut.printf("[touch] %s%s\n", name, on ? "" : " (not sent: gestures are off)");
     if (on) client.gesture(name);
 }
