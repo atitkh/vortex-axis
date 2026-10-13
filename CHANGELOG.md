@@ -4,12 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## Desktop app 0.4.4 (2026-10-12)
+## Desktop app 0.4.5 (2026-10-12; replaces 0.4.4, which was never installed)
 
-**The real cause of unanswered looks, since 0.4.0.** 0.4.3's new warning on the owner's PC said it: "the answer could not be sent: JsonSerializerOptions instance must specify a TypeInfoResolver". 0.4.0 made a look's elements plain strings and added them with `JsonArray.Add<string>`, which wraps them in a way that needs reflection-based JSON; the published app has that switched off, so turning the answer into text threw, and the old code swallowed the error. `find` built its list with explicit `JsonNode` casts and kept working. The look took 189 ms on Notepad; nothing was slow.
+**The real cause of unanswered looks, since 0.4.0.** 0.4.3's new warning on the owner's PC said it: "the answer could not be sent: JsonSerializerOptions instance must specify a TypeInfoResolver". 0.4.0 made a look's elements plain strings and added them with `JsonArray.Add<string>`, which wraps them so that writing them needs a type resolver; AxisLink writes every message with its own options object, made by hand without one, so turning a look's answer into text threw, and the old code swallowed the error. `find` built its list with explicit `JsonNode` casts and kept working. The look itself took 189 ms on Notepad; nothing was slow.
 
-- Elements are added as `JsonNode`. Reproduced with the real Core and reflection off (look failed, find fine), and fixed (both answer).
-- Every build of the desktop projects now has reflection-based JSON off (`Directory.Build.props`), as the published app does, so the smoke console and test harnesses fail the same way.
+- Elements are added as `JsonNode`, and AxisLink's options carry a resolver, so the trap is closed twice. Reproduced exactly (same message) with the real Core and the default runtime setting, and fixed.
+- Audit: every desktop command (look in all scopes, find, point, hide, wait, hello, click, type, keys, open, switch, window, desktop, steps passing and failing, an unknown command) and the describe message, through the real Core, serialize even with the old resolver-less options.
+- 0.4.4 also switched reflection-based JSON off for all desktop builds; that would have broken the app's saved pairing file (`Saved.cs` uses reflection), so 0.4.5 takes it back out.
 - The thread-pool explanation given for 0.4.1 was a guess and was wrong about looks; 0.4.1-0.4.3's deadlines on Windows calls, the OCR deadline, the 12 s fallback and the send-failure warnings stay as hardening.
 
 ## 0.37.3 and desktop app 0.4.3 (2026-10-12)

@@ -30,7 +30,13 @@ public sealed class AxisLink : IAsyncDisposable
 {
     public const int Protocol = 1;
     static readonly int[] BackoffSeconds = [1, 2, 5, 10, 30];
-    static readonly JsonSerializerOptions Json = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+    // With a resolver: options made by hand have none, and then any value not built from a plain string, number or
+    // bool (JsonArray.Add<T>, JsonValue.Create<T>) cannot be written. That broke every look in 0.4.0 to 0.4.3.
+    static readonly JsonSerializerOptions Json = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+    };
 
     readonly ClientIdentity identity;
     readonly Pairing pairing;
