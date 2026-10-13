@@ -56,6 +56,8 @@ public sealed class Voice
     public string? Question { get; private set; }
     public IReadOnlyList<string> Choices { get; private set; } = [];
     string? askId;
+    /** While thinking: the kind of work the agent has picked up (a tool icon's name) or why it is held up, if Axis said. */
+    public string? Doing { get; private set; }
     /** The microphone's level just now, 0 to 1, for a meter. */
     public double Level { get; private set; }
     /** Anything shown changed. */
@@ -217,6 +219,8 @@ public sealed class Voice
                         "idle" => playing != null ? VoiceMode.Speaking : VoiceMode.Idle,
                         _ => Mode,
                     };
+                    if (state == "thinking") { if (S("doing") is { } doing) Doing = doing == "none" ? null : doing; }
+                    else Doing = null;
                     if (state == "error" && S("detail") is { Length: > 0 } why) Reply = why;
                     Set(mode);
                     break;

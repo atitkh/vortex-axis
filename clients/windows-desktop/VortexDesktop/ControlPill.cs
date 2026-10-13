@@ -26,6 +26,8 @@ sealed class ControlPill : Window
     /** It came or went: what sits under it moves. */
     public event Action? Moved;
     /** The room it takes at the top of the screen, 0 when hidden. */
+    /** An agent is at this computer just now (also while the pill has stepped aside for a capture). */
+    public bool Active => wanted;
     public double Room => IsVisible ? ActualHeight + 6 : 0;
 
     public ControlPill()
@@ -65,6 +67,7 @@ sealed class ControlPill : Window
             away.Stop();
             wanted = false;
             Hide();
+            Moved?.Invoke();
         };
     }
 
@@ -78,7 +81,9 @@ sealed class ControlPill : Window
     /** An agent's command has just come in. */
     public void Touch()
     {
+        var was = wanted;
         wanted = true;
+        if (!was) Moved?.Invoke();
         away.Stop();
         away.Start();
         if (!IsVisible) Show();

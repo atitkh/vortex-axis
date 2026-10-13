@@ -30,6 +30,7 @@ public partial class App : System.Windows.Application
     Voice? voice;
     VoicePill? pill;
     ControlPill? controlPill;
+    FaceWindow? faceWindow;
     readonly VoiceIo voiceIo = new();
     Forms.ToolStripMenuItem? voiceItem;
     Mutex? single;
@@ -71,7 +72,7 @@ public partial class App : System.Windows.Application
         RemoveOldBuild();
         overlay = new Overlay();
         var reader = new ScreenReader();
-        var desktop = new WindowsDesktop(reader, overlay, () => pointerSize) { StepAside = () => controlPill?.StepAside() };
+        var desktop = new WindowsDesktop(reader, overlay, () => pointerSize) { StepAside = () => { controlPill?.StepAside(); faceWindow?.StepAside(); } };
         commands = new DesktopCommands(desktop) { Paused = saved.Paused };
         commands.Did += line => Dispatcher.BeginInvoke(() =>
         {
@@ -79,6 +80,10 @@ public partial class App : System.Windows.Application
             controlPill?.Did(line);
         });
         controlPill = new ControlPill();
+        faceWindow = new FaceWindow();
+        faceWindow.Clicked += () => { if (voice != null && !Paused && State == LinkState.Online) voice.Press(); };
+        controlPill.Moved += ShowFace;
+        faceWindow.Keep(saved.KeepFace && saved.ShowFace);
         BuildTray();
         window = new MainWindow();
         // Started with Windows: straight to the tray. Otherwise the window shows.
@@ -158,10 +163,22 @@ public partial class App : System.Windows.Application
                 pill = new VoicePill { Below = () => controlPill?.Room ?? 0 };
                 if (controlPill != null) controlPill.Moved += () => pill.Replace();
             }
-            voice.Changed += () => Dispatcher.BeginInvoke(() => { if (voice != null) pill.Show(voice); });
+            voice.Changed += () => Dispatcher.BeginInvoke(() =>
+            {
+                if (voice != null) pill.Show(voice);
+                ShowFace();
+            });
         }
         else voice = null;
         link.Start();
+    }
+
+    /** The face follows the voice part and whether an agent is at this computer. On the UI thread. */
+    void ShowFace()
+    {
+        if (faceWindow == null) return;
+        if (!saved.ShowFace || Paused) { faceWindow.Set(VoiceMode.Idle, -1, null, false); return; }
+        faceWindow.Set(voice?.Mode ?? VoiceMode.Idle, voice?.Level ?? -1, voice?.Doing, controlPill?.Active ?? false);
     }
 
     /** Talking from this computer on or off: the hub hears of it on the next connection, so it reconnects now. */
@@ -275,6 +292,12 @@ public partial class App : System.Windows.Application
         var controlItem = new Forms.ToolStripMenuItem("Show when an agent is using this computer") { Checked = saved.ShowControl, CheckOnClick = true };
         controlItem.CheckedChanged += (_, _) => { saved.ShowControl = controlItem.Checked; saved.Store(); };
         menu.Items.Add(controlItem);
+        var faceItem = new Forms.ToolStripMenuItem("Show Vortex's face") { Checked = saved.ShowFace, CheckOnClick = true };
+        var keepItem = new Forms.ToolStripMenuItem("Keep the face on screen (click it to talk)") { Checked = saved.KeepFace, CheckOnClick = true };
+        faceItem.CheckedChanged += (_, _) => { saved.ShowFace = faceItem.Checked; saved.Store(); faceWindow?.Keep(saved.KeepFace && saved.ShowFace); ShowFace(); };
+        keepItem.CheckedChanged += (_, _) => { saved.KeepFace = keepItem.Checked; saved.Store(); faceWindow?.Keep(saved.KeepFace && saved.ShowFace); };
+        menu.Items.Add(faceItem);
+        menu.Items.Add(keepItem);
         voiceItem = new Forms.ToolStripMenuItem("Talk from this computer (Ctrl+Alt+Space)", null, (_, _) => _ = SetVoiceAsync(!saved.Voice)) { Checked = saved.Voice };
         menu.Items.Add(voiceItem);
         menu.Items.Add(new Forms.ToolStripSeparator());

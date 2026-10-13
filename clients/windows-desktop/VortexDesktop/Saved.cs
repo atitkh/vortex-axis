@@ -23,6 +23,10 @@ public sealed class Saved
     public bool Voice { get; set; } = true;
     /** The pill at the top of the screen while an agent is using this computer. */
     public bool ShowControl { get; set; } = true;
+    /** Vortex's face at the bottom of the screen during a turn and while an agent is at this computer. */
+    public bool ShowFace { get; set; } = true;
+    /** The face stays on screen between turns, and a click on it talks. */
+    public bool KeepFace { get; set; }
 
     static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VorteX Axis");
     static string FilePath => Path.Combine(Folder, "desktop.json");

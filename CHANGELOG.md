@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.7.4 (2026-10-13)
+
+- **Vortex's face on the computer** (owner's layout: words at the top, the face at the bottom). The boards' face on a dark disc, 132 px, at the bottom centre of the main screen: it fades in for a voice turn (listening follows the microphone, thinking shows the tool icon Axis names, speaking pulses) and while an agent is using the computer (thinking, with the computer icon), and fades out 2.5 s after. Click-through, never takes the focus, out of the picture for captures. Tray: "Show Vortex's face" (on) and "Keep the face on screen (click it to talk)" (off): kept, it idles through the idle looks and a click is the talk key.
+- The face is `Face` in Core, a line-for-line port of `web/vortex.js` that gives the platform circles to paint; its icons come from `web/icons.js` by `scripts/gen-icons.mjs` (`FaceIcons.g.cs`). docs/face.md now has three copies to keep in step. Frames rendered on Linux from the real class and looked at: idle, listening, thinking, the computer icon in dots and as a line, speaking. The window itself not run on Windows.
+- `Voice.Doing`: what Axis says the agent is doing while it thinks.
+
 ## Desktop app 0.7.3 (2026-10-13)
 
 - The voice pill has the look of the "using this computer" pill and sits at the top of the main screen too (it was at the bottom): near-black, a thin edge in the state's colour (mint listening, violet thinking, cyan speaking, blue for a question), as wide as its words up to 460 px. When both show, it sits just under the other and moves up when that one goes.
