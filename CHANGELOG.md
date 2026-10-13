@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.37.3 and desktop app 0.4.3 (2026-10-12)
+
+On 0.4.2 a look at Notepad showed "Looked at the window: 85 things" in the app, yet Axis heard nothing in 15 s; not even the 12 s fallback answer arrived. The same look answer, built by the real Core from a fake Notepad, is 3.5 KB and passes Axis's protocol check, so the answer is being held up or lost on the PC. Instrumented instead of guessed:
+
+- **Axis logs a late answer** (`answered "desktop.look" N ms after it was sent, too late`), so a slow answer is told apart from a lost one.
+- **The app no longer swallows a failed send:** it says so in its own list, as it does an answer that took over 10 s (work vs sending time) and a command that waited over 1 s to start; each with the thread pool's state.
+- **Look timings** in the app's list: total, reading the controls, reading the pixels, and the thread pool's state. The list shows seconds.
+- **Thread pool floor** of 32 workers, in case slow Windows calls are starving it (what broke 0.4.0).
+
 ## 0.37.2 and desktop app 0.4.2 (2026-10-12)
 
 The owner's first run of 0.4.1: open Notepad and type worked, but every `look` still went unanswered while `find` (the same read) answered in 0.2 s.
