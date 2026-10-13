@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm, stat, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import type { Activity } from "./activity.js";
 import type { Config } from "./config.js";
@@ -131,6 +131,8 @@ export class Backup {
       await rename(join(dir, "axis.sqlite.part"), join(dir, "axis.sqlite"));
       const today = join(dir, "daily", `axis-${new Date(started).toISOString().slice(0, 10)}.sqlite`);
       if (!(await exists(today))) await cp(snapshot, today);
+      // Copies hold the same keys and token hashes as the file itself: for this user only, where the folder allows it.
+      for (const copy of [join(dir, "axis.sqlite"), today]) await chmod(copy, 0o600).catch(() => undefined);
       const oldest = new Date(started - Math.max(1, config.backupKeepDays) * 86_400_000).toISOString().slice(0, 10);
       for (const name of await readdir(join(dir, "daily"))) {
         const day = DAILY.exec(name)?.[1];

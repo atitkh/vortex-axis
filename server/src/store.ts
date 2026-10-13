@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, backup } from "node:sqlite";
 import type { Capability, Scalar, ScalarMap } from "@vortex-axis/protocol";
@@ -342,6 +342,15 @@ export class Store {
     } else {
       mkdirSync(dataDir, { recursive: true });
       this.db = new DatabaseSync(join(dataDir, "axis.sqlite"));
+      // The file holds the gateway's private key, the push keys and every token's hash: for this user only.
+      // Best effort: a data folder on a share may not take modes.
+      for (const [path, mode] of [[dataDir, 0o700], [join(dataDir, "axis.sqlite"), 0o600]] as const) {
+        try {
+          chmodSync(path, mode);
+        } catch {
+          /* a folder on network storage may not allow it */
+        }
+      }
       // A rollback journal, not write-ahead logging: WAL needs shared memory
       // between processes and is not safe when the data folder is on network
       // storage, which is a common place to keep it. Axis writes rarely, so

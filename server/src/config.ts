@@ -9,6 +9,8 @@ export interface Config {
   dataDir: string;
   /** Bearer token for the admin API. The admin API is disabled when unset. */
   adminToken: string | undefined;
+  /** An admin token was set but is too short to be used. */
+  adminTokenTooShort?: boolean;
   /**
    * Host names Axis is reached by from outside, for example a public domain
    * behind a reverse proxy. Requests for these get the client side only: the
@@ -116,12 +118,17 @@ function list(value: string | undefined): string[] {
 }
 
 /** Reads configuration from environment variables. Nothing is host-specific in code. */
+/** Fewest characters an admin token may have. `openssl rand -hex 24` gives 48. */
+export const MIN_ADMIN_TOKEN = 24;
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     host: env.AXIS_HOST || "0.0.0.0",
     port: integer("AXIS_PORT", env.AXIS_PORT, 8440),
     dataDir: env.AXIS_DATA_DIR || "./data",
-    adminToken: env.AXIS_ADMIN_TOKEN || undefined,
+    // Shorter than this is too easy to guess through the public side's door: the admin side stays off.
+    adminToken: env.AXIS_ADMIN_TOKEN && env.AXIS_ADMIN_TOKEN.length >= MIN_ADMIN_TOKEN ? env.AXIS_ADMIN_TOKEN : undefined,
+    adminTokenTooShort: Boolean(env.AXIS_ADMIN_TOKEN) && env.AXIS_ADMIN_TOKEN!.length < MIN_ADMIN_TOKEN,
     publicHosts: list(env.AXIS_PUBLIC_HOSTS).map((host) => host.toLowerCase()),
     trustedProxies: list(env.AXIS_TRUSTED_PROXIES),
     pairingCodeTtlMs: integer("AXIS_PAIRING_CODE_TTL_MS", env.AXIS_PAIRING_CODE_TTL_MS, 10 * 60 * 1000),

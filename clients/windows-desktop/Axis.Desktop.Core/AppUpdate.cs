@@ -22,10 +22,28 @@ public static class AppUpdate
         return offer;
     }
 
+    /** True for a host on this computer, the local network or a tailnet (100.64.0.0/10), by address or local name. */
+    public static bool Nearby(string host)
+    {
+        if (host is "localhost" || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".lan", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".home.arpa", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".ts.net", StringComparison.OrdinalIgnoreCase)
+            || !host.Contains('.')) return true;
+        if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip)) return false;
+        if (System.Net.IPAddress.IsLoopback(ip)) return true;
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6) return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6UniqueLocal;
+        var b = ip.GetAddressBytes();
+        return b[0] == 10 || b[0] == 172 && b[1] >= 16 && b[1] <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254
+            || b[0] == 100 && b[1] >= 64 && b[1] <= 127;
+    }
+
     /** Downloads the offer to `file` and checks it. Throws, leaving no file, when anything does not match. */
     public static async Task DownloadAsync(Pairing pairing, Offer offer, string file, CancellationToken ct)
     {
         var address = AxisAddress.Parse(pairing.Address);
+        // A program fetched over a plain connection across the internet could be swapped on the way, and the
+        // checksum came the same way. Plain http only to this computer, the local network or a tailnet.
+        if (address.Http.Scheme != "https" && !Nearby(address.Http.Host))
+            throw new InvalidOperationException($"not updating over an unencrypted connection to {address.Http.Host}; reach Axis over https to update");
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(address.Http, offer.Path));
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", pairing.Token);

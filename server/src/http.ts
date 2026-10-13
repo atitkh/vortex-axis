@@ -263,7 +263,8 @@ export function createHttpHandler(deps: HttpDeps) {
   let pairFailures: number[] = [];
 
   function requireAdmin(req: IncomingMessage): void {
-    if (!config.adminToken) throw new HttpError(503, "admin API is disabled: AXIS_ADMIN_TOKEN is not set");
+    if (!config.adminToken)
+      throw new HttpError(503, config.adminTokenTooShort ? "admin API is disabled: AXIS_ADMIN_TOKEN is too short (24 characters or more)" : "admin API is disabled: AXIS_ADMIN_TOKEN is not set");
     const address = addressOf(req);
     const record = adminFailures.get(address);
     if (record && record.count >= ADMIN_FAILURES) {

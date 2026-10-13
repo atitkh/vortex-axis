@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.40.2 and desktop app 0.7.7 (2026-10-13)
+
+First part of getting ready to be public: a scrub and a security review (`SECURITY.md`, new).
+
+- **The admin token must be 24 characters or more.** Shorter, the admin side stays off and the log says why (`.env.example` says so too).
+- **The data folder and database are for Axis's own user only** (`700`, `600`), and so are backup copies, where the folder allows it. They hold the gateway's private key, the push keys and every token's hash; they were readable by every user on the host.
+- **The desktop app will not update over plain HTTP across the internet**: only over https, or to Axis on the same computer, the local network or a tailnet. The checksum came the same way as the program, so it could not protect a download on an open link.
+- Scrub: no secret was ever committed (no token, key, `.env` or database in any commit). Current files: a test used the owner's first name, and the status history named the boards; both made generic. The git history still holds installation details (see the project's notes before publishing it).
+
 ## Desktop app 0.7.6 (2026-10-13)
 
 - **The face follows the agent's voice.** While it speaks, the figure swells with what is coming out of the speakers (`IVoiceIo.PlayLevel`, measured as the audio is handed to the device; `Voice.Loudness`), as it follows the microphone while listening. It only pulsed on its own before.
