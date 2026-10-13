@@ -1,3 +1,4 @@
+import { DesktopApp } from "./desktopapp.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
@@ -171,6 +172,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity,
     log,
   });
+  const desktopApp = new DesktopApp(config.dataDir, hub, log);
   const timers = new Timers({ store, hub, activity, log });
   const wakeWords = new WakeWordStore(config.dataDir);
   const wakeWordSync = new WakeWordSync(wakeWords, store, hub);
@@ -390,6 +392,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const quietTimer = setInterval(() => hub.checkQuiet(), 60_000);
   quietTimer.unref();
   hub.onConnect(() => hub.checkQuiet());
+  const stopDesktopUpdates = desktopApp.start();
 
   const backup = new Backup({ store, config, activity, log });
   backup.start();
@@ -402,7 +405,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ desktopApp, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -455,6 +458,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       if (healthTimer) clearInterval(healthTimer);
       clearInterval(quietTimer);
       clearInterval(forgetTimer);
+      stopDesktopUpdates();
       homeAssistant?.stop();
       timers.stop();
       gateway.stop();

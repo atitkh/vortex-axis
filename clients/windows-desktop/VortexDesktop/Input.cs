@@ -69,6 +69,31 @@ static class Input
         }
     }
 
+    const uint MOUSEEVENTF_WHEEL = 0x0800, MOUSEEVENTF_HWHEEL = 0x1000;
+
+    /** Turns the mouse wheel over (x, y), `notches` at a time (negative: up or left), and puts the mouse back. */
+    public static void Wheel(int x, int y, int notches, bool sideways)
+    {
+        Native.GetCursorPos(out var was);
+        try
+        {
+            SetCursorPos(x, y);
+            Thread.Sleep(30);
+            // Down and right are negative and positive in Windows' terms: a vertical wheel's positive is away from the person.
+            var delta = sideways ? notches * 120 : -notches * 120;
+            for (var left = Math.Abs(notches); left > 0; left -= 5)
+            {
+                var step = Math.Sign(delta) * 120 * Math.Min(5, left);
+                Send([new INPUT { type = INPUT_MOUSE, u = new InputUnion { mi = new MOUSEINPUT { dwFlags = sideways ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL, mouseData = unchecked((uint)step) } } }]);
+                Thread.Sleep(15);
+            }
+        }
+        finally
+        {
+            SetCursorPos(was.X, was.Y);
+        }
+    }
+
     /** Types text as characters, whatever the keyboard layout; a new line is Enter. */
     public static void Type(string text)
     {

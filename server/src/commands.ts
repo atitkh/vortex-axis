@@ -220,6 +220,9 @@ export const NODE_TOOLS: NodeTool[] = [
       "Actions: open (app by Start-menu name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n), " +
       "desktop (go next/previous), click (name, id or x,y), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s), " +
       "find (best 5 matches for a name), look (scope window, mouse for \"what's this\", screen for open windows), point/hide (own pointer), " +
+      "scroll (go up/down/left/right/top/bottom, pages; a name or id scrolls that list or page), " +
+      "wait (ms; or until name, or window, appears, gone:true until it goes, seconds up to 20: instead of guessing pauses), " +
+      "clipboard (read what was copied), paste (text, any length, into a field by name or the focus; prefer it to type for long text), " +
       "steps (up to 10 of these as objects; stops at the first failure), " +
       "screenshot (a small picture of the window, `id` to crop around an element, or scope screen; detail low/normal/high). " +
       "Acting answers carry `after` (window in front, `new` if it changed, focus and its value): trust it instead of looking again. " +
@@ -235,7 +238,7 @@ export const NODE_TOOLS: NodeTool[] = [
       properties: {
         action: {
           type: "string",
-          enum: ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "screenshot"],
+          enum: ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "screenshot", "scroll", "wait", "clipboard", "paste"],
           description: "Default look.",
         },
         name: { type: "string", description: "Element name as shown (click, point, find)." },
@@ -244,15 +247,18 @@ export const NODE_TOOLS: NodeTool[] = [
         x: { type: "number" },
         y: { type: "number" },
         button: { type: "string", enum: ["left", "right", "double"] },
-        text: { type: "string", description: "type: what to type (max 500). point: words beside the pointer." },
-        into: { type: "string", description: "type: field name." },
+        text: { type: "string", description: "type: what to type (max 500). paste: any length. point: words beside the pointer." },
+        into: { type: "string", description: "type, paste: field name." },
         keys: { type: "string" },
         app: { type: "string", description: "open: Start-menu name." },
         url: { type: "string", description: "open: http(s) address." },
-        window: { type: "string", description: "switch, window: app or title." },
+        window: { type: "string", description: "switch, window, wait: app or title." },
         do: { type: "string", enum: ["minimize", "maximize", "restore", "move"] },
         display: { type: "number", description: "window move: 1-based, as in monitors." },
-        go: { type: "string", enum: ["next", "previous"] },
+        go: { type: "string", enum: ["next", "previous", "up", "down", "left", "right", "top", "bottom"], description: "desktop: next/previous. scroll: the rest." },
+        pages: { type: "number", description: "scroll: 1-10, default 1." },
+        ms: { type: "number", description: "wait: a fixed pause, 50-3000." },
+        gone: { type: "boolean", description: "wait: until the name or window is gone." },
         steps: {
           type: "array",
           maxItems: 10,
@@ -262,7 +268,7 @@ export const NODE_TOOLS: NodeTool[] = [
         scope: { type: "string", enum: ["window", "mouse", "screen"] },
         ocr: { type: "boolean", description: "look: also read pixels (slower)." },
         detail: { type: "string", enum: ["low", "normal", "high"], description: "screenshot: default normal." },
-        seconds: { type: "number", description: "point: 1-60, default 6." },
+        seconds: { type: "number", description: "point: 1-60, default 6. wait: 1-20, default 10." },
         client: { type: "string", description: "Which computer, if several." },
       },
     },

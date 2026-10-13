@@ -52,11 +52,18 @@ public partial class App : System.Windows.Application
         System.Threading.ThreadPool.GetMinThreads(out var workers, out var io);
         System.Threading.ThreadPool.SetMinThreads(Math.Max(workers, 32), Math.Max(io, 16));
         single = new Mutex(true, "VortexAxisDesktop.single", out var first);
+        // Started by an update: the old app is on its way out, so wait for it rather than give up.
+        if (!first && e.Args.Contains("--updated"))
+        {
+            try { first = single.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (AbandonedMutexException) { first = true; }
+        }
         if (!first)
         {
             Shutdown();
             return;
         }
+        RemoveOldBuild();
         overlay = new Overlay();
         var reader = new ScreenReader();
         commands = new DesktopCommands(new WindowsDesktop(reader, overlay, () => pointerSize)) { Paused = saved.Paused };
@@ -107,7 +114,10 @@ public partial class App : System.Windows.Application
 
     void Connect(Pairing pairing)
     {
-        link = new AxisLink(pairing, DesktopIdentity.Create(Version)) { OnCommand = commands!.HandleAsync };
+        link = new AxisLink(pairing, DesktopIdentity.Create(Version))
+        {
+            OnCommand = (name, p, ct) => name == "update" ? UpdateAsync(pairing, p, ct) : commands!.HandleAsync(name, p, ct),
+        };
         link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
         link.StateChanged += (state, why) => Dispatcher.BeginInvoke(() =>
         {
@@ -122,6 +132,58 @@ public partial class App : System.Windows.Application
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
         });
         link.Start();
+    }
+
+    // --- updating -----------------------------------------------------------------------------
+
+    /**
+     * Axis's `update`: downloads the newer build next to this one and checks it, swaps the files (Windows lets a
+     * running program be renamed, not overwritten), answers, then starts the new one and quits. The new one waits
+     * for this one to go, and deletes the old file.
+     */
+    async Task<CommandAnswer> UpdateAsync(Pairing pairing, JsonElement p, CancellationToken ct)
+    {
+        try
+        {
+            var offer = AppUpdate.Read(p);
+            var exe = Environment.ProcessPath ?? throw new InvalidOperationException("this app does not know where it is");
+            if (!exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("only the published app updates itself");
+            await Dispatcher.InvokeAsync(() => Note($"Downloading version {offer.Version}"));
+            var fresh = exe + ".new";
+            await AppUpdate.DownloadAsync(pairing, offer, fresh, ct);
+            var old = exe + ".old";
+            if (System.IO.File.Exists(old)) System.IO.File.Delete(old);
+            System.IO.File.Move(exe, old);
+            try { System.IO.File.Move(fresh, exe); }
+            catch
+            {
+                System.IO.File.Move(old, exe);
+                throw;
+            }
+            await Dispatcher.InvokeAsync(() => Note($"Updated to {offer.Version}; restarting"));
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                await Task.Delay(1500);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--tray --updated") { UseShellExecute = false });
+                Quit();
+            });
+            return CommandAnswer.Done(new System.Text.Json.Nodes.JsonObject { ["version"] = offer.Version });
+        }
+        catch (Exception e)
+        {
+            await Dispatcher.InvokeAsync(() => Note($"⚠ Update failed: {e.Message}"));
+            return CommandAnswer.Fail($"update failed: {e.Message}");
+        }
+    }
+
+    /** The build an update replaced: in use until that app quit, so deleted on the next start. */
+    static void RemoveOldBuild()
+    {
+        try
+        {
+            if (Environment.ProcessPath is { } exe && System.IO.File.Exists(exe + ".old")) System.IO.File.Delete(exe + ".old");
+        }
+        catch { /* still held by the old app for a moment: next start */ }
     }
 
     // --- pausing ------------------------------------------------------------------------------
@@ -331,6 +393,20 @@ sealed class WindowsDesktop : IDesktop
 
     public async Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
     {
+        var (x, y) = await PrepareInputAsync(target, ct);
+        await ShowAt(x, y, $"Typing \"{(text.Length > 24 ? text[..23] + "…" : text)}\"", ct, 3 + text.Length / 60.0);
+        // Checked again right before the keys go: the pointer's moment is long enough for focus to wander.
+        if (target == null) await EnsureFrontAsync(ct);
+        await Uia.Run(() => Input.Type(text), 30000, "typing", ct);
+        IntendFront();
+    }
+
+    /**
+     * Before typing or pasting: the window the agent works in in front (when no field is named), the named
+     * field focused, and never a password field. Returns where to show the pointer.
+     */
+    async Task<(int X, int Y)> PrepareInputAsync(ScreenElement? target, CancellationToken ct)
+    {
         if (target == null) await EnsureFrontAsync(ct);
         var (x, y) = target != null ? (target.X + target.W / 2, target.Y + target.H / 2) : WindowMiddle();
         await Uia.Run(() =>
@@ -350,11 +426,7 @@ sealed class WindowsDesktop : IDesktop
                     (x, y) = ((int)(box.X + Math.Min(box.Width / 2, 120)), (int)(box.Y + Math.Min(box.Height / 2, 40)));
             }
         }, 3000, "finding where to type", ct);
-        await ShowAt(x, y, $"Typing \"{(text.Length > 24 ? text[..23] + "…" : text)}\"", ct, 3 + text.Length / 60.0);
-        // Checked again right before the keys go: the pointer's moment is long enough for focus to wander.
-        if (target == null) await EnsureFrontAsync(ct);
-        await Uia.Run(() => Input.Type(text), 30000, "typing", ct);
-        IntendFront();
+        return (x, y);
     }
 
     (int X, int Y) WindowMiddle()
@@ -492,6 +564,127 @@ sealed class WindowsDesktop : IDesktop
         using var bytes = new System.IO.MemoryStream();
         small.Save(bytes, jpeg, quality);
         return new Shot(bytes.ToArray(), w, h, area.X, area.Y, area.Width, area.Height, window);
+    }
+
+    public async Task<string> ScrollAsync(ScreenElement? target, string go, int pages, CancellationToken ct)
+    {
+        if (target == null) await EnsureFrontAsync(ct);
+        var (x, y) = target != null ? (target.X + target.W / 2, target.Y + target.H / 2) : WindowMiddle();
+        await ShowAt(x, y, $"Scroll {go}", ct, 2);
+        // The control itself first (no mouse involved): the target, or what holds it, if it can scroll.
+        if (target?.Ref is AutomationElement e)
+        {
+            try
+            {
+                if (await Uia.Run(() => ScrollByPattern(e, go, pages), 3000, "scrolling", ct)) return "scrolled";
+            }
+            catch (TimeoutException) { }
+        }
+        var sideways = go is "left" or "right";
+        var notches = go is "top" or "bottom" ? 200 : pages * 5;
+        if (go is "up" or "left" or "top") notches = -notches;
+        await Uia.Run(() => Input.Wheel(x, y, notches, sideways), 8000, "scrolling", ct);
+        return "wheel";
+    }
+
+    static bool ScrollByPattern(AutomationElement start, string go, int pages)
+    {
+        var e = start;
+        for (var i = 0; i < 6 && e != null && e != AutomationElement.RootElement; i++, e = TreeWalker.ControlViewWalker.GetParent(e))
+        {
+            if (!e.TryGetCurrentPattern(ScrollPattern.Pattern, out var found)) continue;
+            var scroll = (ScrollPattern)found;
+            var sideways = go is "left" or "right";
+            if (sideways ? !scroll.Current.HorizontallyScrollable : !scroll.Current.VerticallyScrollable) continue;
+            switch (go)
+            {
+                case "top": scroll.SetScrollPercent(ScrollPattern.NoScroll, 0); break;
+                case "bottom": scroll.SetScrollPercent(ScrollPattern.NoScroll, 100); break;
+                default:
+                    var amount = go is "up" or "left" ? ScrollAmount.LargeDecrement : ScrollAmount.LargeIncrement;
+                    for (var n = 0; n < pages; n++)
+                    {
+                        if (sideways) scroll.ScrollHorizontal(amount); else scroll.ScrollVertical(amount);
+                    }
+                    break;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public Task<WindowInfo?> FindWindowAsync(string query, CancellationToken ct) =>
+        Uia.Run<WindowInfo?>(() =>
+        {
+            try
+            {
+                var w = Windows.Find(query);
+                return Windows.Info(w.Handle, w.Title, w.App);
+            }
+            catch (InvalidOperationException) { return null; }
+        }, 3000, "listing windows", ct);
+
+    /** Formats password managers put on what they copy, asking others not to keep or read it. */
+    static readonly string[] PrivateFormats = ["ExcludeClipboardContentFromMonitorProcessing", "Clipboard Viewer Ignore"];
+
+    public Task<(string? Text, string? Why)> ReadClipboardAsync(CancellationToken ct) =>
+        Uia.Run<(string?, string?)>(() =>
+        {
+            var data = Retry(() => Forms.Clipboard.GetDataObject());
+            if (data == null) return (null, "the clipboard is empty");
+            if (PrivateFormats.Any(f => data.GetDataPresent(f))) return (null, "what is on the clipboard is marked private (a password manager put it there); not read");
+            var text = data.GetData(Forms.DataFormats.UnicodeText) as string ?? data.GetData(Forms.DataFormats.Text) as string;
+            if (string.IsNullOrEmpty(text))
+                return (null, data.GetDataPresent(Forms.DataFormats.Bitmap) ? "the clipboard holds a picture, not text" : data.GetDataPresent(Forms.DataFormats.FileDrop) ? "the clipboard holds files, not text" : "the clipboard has no text");
+            return (text, null);
+        }, 3000, "reading the clipboard", ct, ApartmentState.STA);
+
+    public async Task PasteAsync(ScreenElement? target, string text, CancellationToken ct)
+    {
+        var (x, y) = await PrepareInputAsync(target, ct);
+        await ShowAt(x, y, $"Pasting {text.Length} characters", ct);
+        if (target == null) await EnsureFrontAsync(ct);
+        // What the person had copied is kept, and put back once the paste has landed.
+        var saved = await Uia.Run(() =>
+        {
+            var before = Retry(() => Forms.Clipboard.GetDataObject());
+            var copy = new Forms.DataObject();
+            var any = false;
+            if (before != null)
+                foreach (var format in before.GetFormats(false))
+                {
+                    try
+                    {
+                        if (before.GetData(format, false) is { } value) { copy.SetData(format, false, value); any = true; }
+                    }
+                    catch { /* a format that will not hand itself over is left out */ }
+                }
+            var mine = new Forms.DataObject();
+            mine.SetData(Forms.DataFormats.UnicodeText, false, text);
+            // Kept out of Windows' clipboard history.
+            mine.SetData("ExcludeClipboardContentFromMonitorProcessing", false, new System.IO.MemoryStream(new byte[4]));
+            // Copied in (true): the thread doing this ends, and the clipboard must not depend on it.
+            Retry(() => { Forms.Clipboard.SetDataObject(mine, true); return true; });
+            return any ? copy : null;
+        }, 3000, "using the clipboard", ct, ApartmentState.STA);
+        await Uia.Run(() => Input.Press(KeyCombo.Parse("ctrl+v")), 3000, "pasting", ct);
+        await Task.Delay(400, ct);
+        await Uia.Run(() =>
+        {
+            if (saved != null) Retry(() => { Forms.Clipboard.SetDataObject(saved, true); return true; });
+            else Retry(() => { Forms.Clipboard.Clear(); return true; });
+        }, 3000, "putting the clipboard back", ct, ApartmentState.STA);
+        IntendFront();
+    }
+
+    /** The clipboard is shared, and another app may hold it for a moment. */
+    static T Retry<T>(Func<T> work)
+    {
+        for (var i = 0; ; i++)
+        {
+            try { return work(); }
+            catch (System.Runtime.InteropServices.ExternalException) when (i < 5) { Thread.Sleep(60); }
+        }
     }
 
     public async Task KeysAsync(KeyCombo combo, CancellationToken ct)

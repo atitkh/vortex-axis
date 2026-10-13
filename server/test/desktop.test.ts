@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { admin, connect, newPairedClient, useServer } from "./harness.js";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { newer } from "../src/desktopapp.js";
+import { admin, connect, ctx, newPairedClient, useServer } from "./harness.js";
 
 useServer();
 
@@ -127,5 +131,70 @@ describe("the desktop tool (experimental)", () => {
     await computer("Desk PC");
     await computer("Laptop");
     expect((await tryTool({ action: "look" })).body.error).toMatch(/several computers.*say which/);
+  });
+  it("scrolls, waits for things, reads the clipboard and pastes long text as data", async () => {
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const pc = await computer("Desk PC");
+    const answered = new Set<string>();
+    const answer = async (name: string, reply: Record<string, unknown>) => {
+      const asked = await pc.next("command", 0, (m) => m.name === name && !answered.has(m.id));
+      answered.add(asked.id);
+      pc.send({ t: "command.result", id: asked.id, ok: true, ...reply });
+      return asked;
+    };
+
+    const scrolling = tryTool({ action: "scroll", go: "bottom", name: "Results" });
+    expect((await answer("desktop.scroll", { payload: { scrolled: "bottom", how: "scrolled" } })).params).toEqual({ go: "bottom", pages: 1, name: "Results" });
+    expect((await scrolling).body.result).toMatchObject({ done: "scroll", how: "scrolled" });
+    expect((await tryTool({ action: "scroll", go: "sideways" })).body.error).toMatch(/up, down, left, right, top or bottom/);
+
+    const waiting = tryTool({ action: "wait", name: "Save", seconds: 99 });
+    expect((await answer("desktop.wait", { payload: { waited: 800 } })).params).toEqual({ name: "Save", seconds: 20 });
+    expect((await waiting).body.result).toMatchObject({ done: "wait", waited: 800 });
+    const going = tryTool({ action: "wait", window: "Installer", gone: true });
+    expect((await answer("desktop.wait", { payload: { waited: 10 } })).params).toEqual({ window: "Installer", gone: 1, seconds: 10 });
+    await going;
+
+    const reading = tryTool({ action: "clipboard" });
+    await answer("desktop.clipboard", { data: { clipboard: "copied" } });
+    expect((await reading).body.result).toEqual({ computer: "Desk PC", clipboard: "copied" });
+
+    const long = "x".repeat(5000);
+    const pasting = tryTool({ action: "paste", text: long, into: "Message" });
+    const paste = await answer("desktop.paste", { payload: { pasted: 5000 } });
+    expect(paste.params).toEqual({ name: "Message" });
+    expect(paste.data).toEqual({ text: long });
+    expect((await pasting).body.result).toMatchObject({ done: "paste", pasted: 5000 });
+    expect((await tryTool({ action: "paste", text: "y".repeat(20_001) })).body.error).toMatch(/at most 20000/);
+  });
+
+  it("tells a computer behind the hub's build to update, unless switched off, and serves it the build", async () => {
+    expect(newer("0.6.0", "0.5.10")).toBe(true);
+    expect(newer("0.5.10", "0.6.0")).toBe(false);
+    expect(newer("0.6.0", "0.6.0")).toBe(false);
+    const exe = Buffer.from("not really an exe");
+    mkdirSync(join(ctx.dataDir, "desktop"), { recursive: true });
+    writeFileSync(join(ctx.dataDir, "desktop", "VortexAxisDesktop.exe"), exe);
+    writeFileSync(join(ctx.dataDir, "desktop", "version.json"), JSON.stringify({ version: "9.0.0" }));
+
+    const identity = await newPairedClient({ capabilities: ["desktop"], type: "windows-desktop", name: "Old PC" });
+    const pc = await connect(identity, { capabilities: ["desktop"], type: "windows-desktop" });
+    const update = await pc.next("command", 0, (m) => m.name === "update");
+    const sha256 = createHash("sha256").update(exe).digest("hex");
+    expect(update.params).toEqual({ version: "9.0.0", size: exe.length, sha256, path: "/v1/desktop/app" });
+    pc.send({ t: "command.result", id: update.id, ok: true });
+
+    // The download: only with the computer's own token.
+    expect((await fetch(`${ctx.base}/v1/desktop/app`)).status).toBe(401);
+    const res = await fetch(`${ctx.base}/v1/desktop/app`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-sha256")).toBe(sha256);
+    expect(Buffer.from(await res.arrayBuffer()).equals(exe)).toBe(true);
+
+    // Switched off for a computer: not asked.
+    const other = await newPairedClient({ capabilities: ["desktop"], type: "windows-desktop", name: "Quiet PC" });
+    await admin("PATCH", `/admin/settings/device/${other.clientId}`, { values: { autoUpdate: 0 } });
+    const quiet = await connect(other, { capabilities: ["desktop"], type: "windows-desktop" });
+    await expect(quiet.next("command", 0, (m) => m.name === "update")).rejects.toThrow();
   });
 });

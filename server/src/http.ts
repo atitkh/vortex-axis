@@ -20,6 +20,7 @@ import type { Config } from "./config.js";
 import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
 import type { ToolAccess } from "./tools.js";
+import { DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
@@ -153,6 +154,8 @@ function stampWebFiles(files: Map<string, { type: string; body: Buffer }>): void
 }
 
 export interface HttpDeps {
+  /** The desktop app build computers update to. */
+  desktopApp?: DesktopApp;
   config: Config;
   store: Store;
   hub: Hub;
@@ -455,6 +458,19 @@ export function createHttpHandler(deps: HttpDeps) {
       if (!info) throw new HttpError(404, "there is no firmware for this client type");
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": info.size, "x-md5": info.md5 });
       createReadStream(firmware.path(info.type, info.version)).pipe(res);
+      return;
+    }
+
+    // A computer fetching the desktop app Axis told it to update to, with its own token.
+    if (method === "GET" && url.pathname === "/v1/desktop/app" && deps.desktopApp) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      if (client.type !== DESKTOP_TYPE) throw new HttpError(404, "the desktop app is for computers");
+      const build = deps.desktopApp.build();
+      if (!build) throw new HttpError(404, "the desktop app has not been built on this hub");
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": build.size, "x-sha256": build.sha256, "x-version": build.version });
+      createReadStream(deps.desktopApp.exe).pipe(res);
       return;
     }
 
@@ -917,6 +933,15 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {
         const { client, session } = requireOnline(parts[2]!);
+        if (client.type === DESKTOP_TYPE && deps.desktopApp) {
+          try {
+            const done = await deps.desktopApp.update(session);
+            activity?.note("admin", client.id, `${client.name} told to update from ${done.from} to ${done.to}`);
+            return sendJson(res, 202, { client: client.name, ...done });
+          } catch (error) {
+            throw new HttpError(409, `${client.name} did not update: ${(error as Error).message}`);
+          }
+        }
         const info = firmware.info(client.type);
         if (!info) throw new HttpError(404, `no firmware has been uploaded for ${client.type}`);
         let outcome;

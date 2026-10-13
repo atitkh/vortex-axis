@@ -4,6 +4,17 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.39.0 and desktop app 0.6.0 (2026-10-13)
+
+Owner picked four of the proposed desktop features; also kept portable so the same commands can come to a Mac app (new platform calls are on `IDesktop`, the logic in Core).
+
+- **Auto-update.** Axis serves its desktop build to paired computers (`GET /v1/desktop/app`, the computer's own token, `x-sha256`) and sends `update {version, size, sha256, path}` to a computer that connects with an older version (or is connected when a newer build lands; checked every 5 minutes), unless its new setting "Update automatically" (`autoUpdate`) is off. The admin page's Update button works for computers too. The app downloads next to itself, checks size and SHA-256, renames itself to `.old`, puts the new file in place, starts it (`--updated`: it waits for the old one to quit) and quits; the next start deletes `.old`. Download and checks are in Core (`AppUpdate`); the swap is the Windows app's. A computer offered a version and refusing is not asked again for that version.
+- **scroll** (`go` up/down/left/right/top/bottom, `pages` 1-10; a name or id scrolls that list or page): UI Automation's scroll on the element or what holds it, else the mouse wheel over it (or the window in front), the mouse put back.
+- **wait for**: `wait` with `name` (in the window in front) or `window`, `gone: true` for until it goes, `seconds` 1-20 (Axis waits that long plus 5 s); checks twice a second; not in time fails saying what is there.
+- **clipboard** reads copied text (up to 4000 characters back, `more` when longer); refuses what a password manager marked private; says so when it holds a picture or files. Under "Let agents read the screen".
+- **paste** puts any text up to 20,000 characters into a field by name or the focus via the clipboard and Ctrl+V, kept out of Windows' clipboard history, and puts the person's clipboard back afterwards. Its text travels as the command's data. Same rules as type (window brought back, never a password field). Also a step.
+- The update cannot reach a computer still on 0.5.0 or older (it has no `update`); install 0.6.0 by hand once.
+
 ## Board firmware 0.17.3 (2026-10-13)
 
 - A picture on the board stays through a follow-up: while Axis works out the spoken words and while the agent thinks, the picture keeps showing with the thinking glow around it, as it already did while listening. Before, the picture closed and the face came back as soon as the words were being worked out. A tap, a question with choices, a newer picture or the time running out still close it.

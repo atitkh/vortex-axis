@@ -83,6 +83,17 @@ public interface IDesktop
      * is out of it. Throws when a password field has the focus.
      */
     Task<Shot> ScreenshotAsync(string scope, ScreenElement? region, int maxSide, CancellationToken ct);
+    /**
+     * Scrolls `target` (a list, page or field; or what holds it), else the window in front, `go` up, down, left,
+     * right, top or bottom, `pages` at a time. Returns how: "scrolled" (the control did it) or "wheel".
+     */
+    Task<string> ScrollAsync(ScreenElement? target, string go, int pages, CancellationToken ct);
+    /** The open window best matching an app name or title, or null. Does not bring it forward. */
+    Task<WindowInfo?> FindWindowAsync(string query, CancellationToken ct);
+    /** The text on the clipboard, or null with why (empty, not text, or marked private by a password manager). */
+    Task<(string? Text, string? Why)> ReadClipboardAsync(CancellationToken ct);
+    /** Puts `text` into `target` (or the focus) by the clipboard and Ctrl+V, then puts the clipboard back. */
+    Task PasteAsync(ScreenElement? target, string text, CancellationToken ct);
 }
 
 /** A key with the modifiers held for it: "ctrl+shift+t", "enter", "alt+tab". */
@@ -276,11 +287,23 @@ public sealed class DesktopCommands
                 await desktop.HideAsync();
                 return CommandAnswer.Done();
             case "desktop.wait":
+                if (Str(p, "name") != null || Str(p, "window") != null) return await WaitForAsync(p, ct);
                 await Task.Delay(Math.Clamp(Int(p, "ms") ?? 500, 50, 3000), ct);
                 return CommandAnswer.Done();
+            case "desktop.clipboard":
+            {
+                if (!Toggle("allowLook", true)) return CommandAnswer.Fail("reading the screen is switched off for this computer");
+                var (text, why) = await desktop.ReadClipboardAsync(ct);
+                Did?.Invoke(text != null ? $"Read the clipboard: {text.Length} characters" : $"Clipboard: {why}");
+                if (text == null) return CommandAnswer.Done(data: new JsonObject { ["clipboard"] = null, ["why"] = why });
+                var data = new JsonObject { ["clipboard"] = Clip(text, MaxClipboard) };
+                if (text.Length > MaxClipboard) data["more"] = text.Length - MaxClipboard;
+                return CommandAnswer.Done(data: data);
+            }
             case "desktop.steps":
                 return await StepsAsync(p, ct);
-            case "desktop.click" or "desktop.type" or "desktop.keys" or "desktop.open" or "desktop.switch" or "desktop.window" or "desktop.desktop":
+            case "desktop.click" or "desktop.type" or "desktop.keys" or "desktop.open" or "desktop.switch" or "desktop.window" or "desktop.desktop"
+                or "desktop.scroll" or "desktop.paste":
                 return await ActAsync(name, p, ct);
             case "desktop.hello":
             {
@@ -322,7 +345,8 @@ public sealed class DesktopCommands
 
     /** Commands that change the screen: their answer says what is in front afterwards, so the agent need not look again. */
     static readonly HashSet<string> Changes =
-        ["desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps"];
+        ["desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps",
+         "desktop.scroll", "desktop.paste"];
     /** How long the screen gets to catch up before it is read again; an app being started takes longer. */
     const int AfterMs = 300, AfterOpenMs = 400;
 
@@ -363,7 +387,7 @@ public sealed class DesktopCommands
         && d.TryGetProperty("steps", out var s) && s.ValueKind == JsonValueKind.Array && s.EnumerateArray().Any(e => Str(e, "action") == action);
 
     /** What a step in `steps` may be. */
-    static readonly HashSet<string> StepActions = ["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find"];
+    static readonly HashSet<string> StepActions = ["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"];
     public const int MaxSteps = 10;
     /** A moment between steps, for the screen to catch up with the last one. */
     const int SettleMs = 150;
@@ -584,6 +608,34 @@ public sealed class DesktopCommands
                 Did?.Invoke($"{char.ToUpper(op[0])}{op[1..]}{(op == "move" ? $" to display {display}" : "")}: {Clip(w.Title, 60)}");
                 return CommandAnswer.Done(WindowPayload(w));
             }
+            case "desktop.scroll":
+            {
+                var go = Str(p, "go") ?? "down";
+                if (go is not ("up" or "down" or "left" or "right" or "top" or "bottom")) return CommandAnswer.Fail("scroll needs go: up, down, left, right, top or bottom");
+                var pages = Math.Clamp(Int(p, "pages") ?? 1, 1, 10);
+                var (target, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
+                var how = await desktop.ScrollAsync(target, go, pages, ct);
+                Did?.Invoke($"Scrolled {go}{(go is "top" or "bottom" ? "" : $" {pages} page{(pages == 1 ? "" : "s")}")}{(target != null ? $" in {Clip(target.Name, 40)}" : "")}");
+                var payload = new JsonObject { ["scrolled"] = go, ["how"] = how };
+                if (target != null) payload["in"] = Clip(target.Name, 200);
+                return CommandAnswer.Done(payload);
+            }
+            case "desktop.paste":
+            {
+                // Its text comes as the command's data (a direct call) or as the step's own text.
+                var text = Str(p, "text") ?? (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("data", out var d) ? Str(d, "text") : null) ?? "";
+                if (text.Length == 0) return CommandAnswer.Fail("paste needs text");
+                if (text.Length > MaxPasted) return CommandAnswer.Fail($"at most {MaxPasted} characters in one paste");
+                var (target, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
+                if (target?.Kind == "password") return CommandAnswer.Fail("the app never pastes into a password field");
+                await desktop.PasteAsync(target, text, ct);
+                Did?.Invoke($"Pasted {text.Length} characters{(target != null ? $" into {Clip(target.Name, 60)}" : "")}");
+                var payload = new JsonObject { ["pasted"] = text.Length };
+                if (target != null) payload["into"] = Clip(target.Name, 200);
+                return CommandAnswer.Done(payload);
+            }
             default:
             {
                 var go = Str(p, "go");
@@ -600,6 +652,45 @@ public sealed class DesktopCommands
 
     /** Most text one type sends. */
     public const int MaxTyped = 500;
+    /** Most text one paste sends, and most clipboard text read back. */
+    public const int MaxPasted = 20000, MaxClipboard = 4000;
+
+    /**
+     * Waits until an element called `name` is in the window in front, or a window called `window` is open
+     * (`gone`: until it is not), looking twice a second, for up to `seconds`. Not finding it in time is a failure
+     * that says what is there instead.
+     */
+    async Task<CommandAnswer> WaitForAsync(JsonElement p, CancellationToken ct)
+    {
+        var name = Str(p, "name");
+        var window = Str(p, "window");
+        var gone = Int(p, "gone") == 1 || Bool(p, "gone");
+        var seconds = Math.Clamp(Int(p, "seconds") ?? 10, 1, 20);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        string? lastWindow = null;
+        while (true)
+        {
+            bool there;
+            if (name != null)
+            {
+                var look = await FreshLookAsync(ct);
+                lastWindow = look.Window?.Title;
+                there = Match(look.Elements, name, Str(p, "kind")).Count > 0;
+            }
+            else there = await desktop.FindWindowAsync(window!, ct) != null;
+            if (there != gone)
+            {
+                Did?.Invoke($"Waited {started.ElapsedMilliseconds} ms for {(name != null ? $"\"{Clip(name, 40)}\"" : $"window \"{Clip(window!, 40)}\"")}{(gone ? " to go" : "")}");
+                return CommandAnswer.Done(new JsonObject { ["waited"] = started.ElapsedMilliseconds });
+            }
+            if (started.Elapsed.TotalSeconds >= seconds)
+            {
+                var what = name != null ? $"\"{name}\" {(gone ? "is still" : "did not appear")} in {lastWindow ?? "the window in front"}" : $"window \"{window}\" {(gone ? "is still open" : "did not open")}";
+                return CommandAnswer.Fail($"{what} after {seconds} s");
+            }
+            await Task.Delay(500, ct);
+        }
+    }
 
     static readonly HashSet<string> Actionable =
     [
@@ -690,6 +781,7 @@ public static class DesktopIdentity
             Setting("allowInput", "Let agents click and type", "toggle", "Desktop", "Off refuses clicks, typing and key presses; looking and pointing go on. The app never types into a password field or presses lock, sign-out, Task Manager or Alt+F4.", "1"),
             Setting("bubble", "Words beside the pointer", "toggle", "Desktop", "Show what the agent says next to its pointer.", "1"),
             Setting("allowScreenshot", "Let agents take screenshots", "toggle", "Desktop", "On, an agent may take a small picture of the window in front or the screen when reading its controls is not enough; the picture goes to the agent's model. Never while a password field has the focus.", "0"),
+            Setting("autoUpdate", "Update automatically", "toggle", "Desktop", "When a newer desktop app is on this hub, download it, check it and restart into it.", "1"),
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),
         ["actions"] = new JsonArray(

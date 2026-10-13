@@ -12,9 +12,13 @@ import type { Store } from "./store.js";
  * `desktop.point` with where it pointed. Ids hold until the next look.
  */
 
-const ACTIONS = ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait", "screenshot"] as const;
+const ACTIONS = ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait", "screenshot", "scroll", "clipboard", "paste"] as const;
 /** Most characters one type carries: a command's values are at most 512 characters. */
 export const MAX_TYPED = 500;
+/** Most characters one paste carries (sent as the command's data, not a value). */
+export const MAX_PASTED = 20_000;
+/** Longest a wait for something to appear or go may take. */
+const MAX_WAIT_S = 20;
 type Action = (typeof ACTIONS)[number];
 
 /** How long a computer gets to read its screen: reading a busy window's controls can take a while. */
@@ -139,7 +143,20 @@ export class Desktops {
       return { computer, ...data };
     }
 
-    const outcome = await this.hub.command(session, `desktop.${action}`, argsFor(action, params), action === "find" ? LOOK_TIMEOUT_MS : ACT_TIMEOUT_MS);
+    if (action === "clipboard") {
+      const outcome = await this.hub.command(session, "desktop.clipboard", {}, POINT_TIMEOUT_MS);
+      if (!outcome.ok) throw new Error(outcome.error || `${computer} could not read its clipboard`);
+      return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
+    }
+    const args = argsFor(action, params);
+    // A paste's text can be long: it travels as the command's data, not as one of its (short) values.
+    let extra: unknown;
+    if (action === "paste") {
+      extra = { text: args.text };
+      delete args.text;
+    }
+    const timeout = action === "find" ? LOOK_TIMEOUT_MS : action === "wait" && typeof args.seconds === "number" ? (args.seconds + 5) * 1000 : ACT_TIMEOUT_MS;
+    const outcome = await this.hub.command(session, `desktop.${action}`, args, timeout, extra);
     if (!outcome.ok) throw new Error(outcome.error || `${computer} could not ${action === "keys" ? "press that" : action}`);
     const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
     if (action === "point") return { computer, pointed: true, ...(outcome.payload ?? {}) };
@@ -156,9 +173,9 @@ export class Desktops {
 }
 
 /** Actions that change what is on the screen, held by the computer's allowInput switch. */
-const CHANGES = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "steps"]);
+const CHANGES = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "steps", "scroll", "paste"]);
 /** What a step in `steps` may be. */
-const STEP_ACTIONS = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find"]);
+const STEP_ACTIONS = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"]);
 const MAX_STEPS = 10;
 const STEPS_TIMEOUT_MS = 60_000;
 
@@ -258,8 +275,40 @@ function argsFor(action: Action, params: Record<string, unknown>): Record<string
       return args;
     }
     case "wait": {
+      // Until something is there (or gone): a name in the window in front, or a window. Else a fixed pause.
+      const which = text(params.window)?.slice(0, 200);
+      if (name || which) {
+        if (name) {
+          args.name = name;
+          if (kind) args.kind = kind;
+        } else args.window = which!;
+        if (params.gone === true) args.gone = 1;
+        args.seconds = Math.min(MAX_WAIT_S, Math.max(1, whole(params.seconds) ?? 10));
+        return args;
+      }
       const ms = whole(params.ms) ?? 500;
       args.ms = Math.min(3000, Math.max(50, ms));
+      return args;
+    }
+    case "scroll": {
+      const go = text(params.go) ?? "down";
+      if (!["up", "down", "left", "right", "top", "bottom"].includes(go)) throw new Error("scroll needs go: up, down, left, right, top or bottom");
+      args.go = go;
+      args.pages = Math.min(10, Math.max(1, whole(params.pages) ?? 1));
+      target();
+      return args;
+    }
+    case "paste": {
+      const words = typeof params.text === "string" ? params.text : "";
+      if (!words) throw new Error("paste needs text");
+      if (words.length > MAX_PASTED) throw new Error(`paste takes at most ${MAX_PASTED} characters`);
+      args.text = words;
+      const into = text(params.into)?.slice(0, 200) ?? name;
+      if (id !== undefined) args.id = id;
+      else if (into) {
+        args.name = into;
+        if (kind) args.kind = kind;
+      }
       return args;
     }
     default:

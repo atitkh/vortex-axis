@@ -18,7 +18,7 @@ static class Uia
 
     public static int Stuck => Volatile.Read(ref stuck);
 
-    public static Task<T> Run<T>(Func<T> work, int ms, string what, CancellationToken ct)
+    public static Task<T> Run<T>(Func<T> work, int ms, string what, CancellationToken ct, ApartmentState apartment = ApartmentState.MTA)
     {
         if (Stuck >= MaxStuck)
             return Task.FromException<T>(new TimeoutException($"Windows' screen reading is stuck ({Stuck} reads never came back; a window is not answering). Close or restart the frozen app, or restart VorteX Axis"));
@@ -30,7 +30,8 @@ static class Uia
             catch (Exception e) { done.TrySetException(e); }
             finally { if (Interlocked.Exchange(ref late, 2) == 1) Interlocked.Decrement(ref stuck); }
         }) { IsBackground = true, Name = $"uia {what}" };
-        thread.SetApartmentState(ApartmentState.MTA);
+        // The clipboard wants a single-threaded apartment; UI Automation is happiest in a multi-threaded one.
+        thread.SetApartmentState(apartment);
         thread.Start();
         _ = Deadline();
         return done.Task;
@@ -45,6 +46,6 @@ static class Uia
         }
     }
 
-    public static Task Run(Action work, int ms, string what, CancellationToken ct) =>
-        Run(() => { work(); return true; }, ms, what, ct);
+    public static Task Run(Action work, int ms, string what, CancellationToken ct, ApartmentState apartment = ApartmentState.MTA) =>
+        Run(() => { work(); return true; }, ms, what, ct, apartment);
 }

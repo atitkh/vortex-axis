@@ -69,5 +69,9 @@ sealed class FakeDesktop : IDesktop
         Console.WriteLine($"picture of {(region?.Name ?? scope)}, at most {maxSide}px");
         return Task.FromResult(new Shot([0xFF, 0xD8, 0xFF, 0xD9], 1024, 576, 0, -1080, 1920, 1080, new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040)));
     }
+    public Task<string> ScrollAsync(ScreenElement? target, string go, int pages, CancellationToken ct) { Console.WriteLine($"scroll {go} {pages}"); return Task.FromResult("wheel"); }
+    public Task<WindowInfo?> FindWindowAsync(string query, CancellationToken ct) => Task.FromResult<WindowInfo?>(query.Contains("Discord") ? new WindowInfo("Chat - Discord", "Discord", 0, 0, 10, 10) : null);
+    public Task<(string?, string?)> ReadClipboardAsync(CancellationToken ct) => Task.FromResult<(string?, string?)>(("copied text", null));
+    public Task PasteAsync(ScreenElement? target, string text, CancellationToken ct) { Console.WriteLine($"paste {text.Length}"); return Task.CompletedTask; }
     public Task DesktopAsync(bool next, CancellationToken ct) { Console.WriteLine($"desktop {(next ? "next" : "previous")}"); return Task.CompletedTask; }
 }
