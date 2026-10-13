@@ -22,6 +22,9 @@ import type { Services } from "../src/turns.js";
 export const ADMIN_TOKEN = "test-admin-token";
 
 /** Mutable handles for the server a test is running against. */
+/** How long a test waits for a message from the server. Tests that expect none wait this long too, so it stays short; a busy machine is covered by retries (vitest.config.ts). */
+const WAIT_MS = 3_000;
+
 export const ctx = {
   app: undefined as unknown as App,
   dataDir: "",
@@ -177,7 +180,7 @@ export class TestClient {
     from = 0,
     match: (m: Extract<ServerMessage, { t: T }>) => boolean = () => true,
   ): Promise<Extract<ServerMessage, { t: T }>> {
-    const deadline = Date.now() + 3_000;
+    const deadline = Date.now() + WAIT_MS;
     for (;;) {
       const found = this.received.slice(from).find((m) => m.t === t && match(m as Extract<ServerMessage, { t: T }>));
       if (found) return found as Extract<ServerMessage, { t: T }>;
@@ -196,7 +199,7 @@ export class TestClient {
   }
 
   async closed(): Promise<number> {
-    const deadline = Date.now() + 3_000;
+    const deadline = Date.now() + WAIT_MS;
     while (this.closeCode === undefined) {
       if (Date.now() > deadline) throw new Error("timed out waiting for close");
       await this.pause();

@@ -47,7 +47,7 @@ Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or 
 - On a board, a command handler runs on the other core: leave a request for the screen loop; never stamp times or touch drawing state from the handler.
 - The face has three copies that must stay in step with `docs/face.md`: `web/vortex.js`, the board's `vortex.cpp` and the desktop app's `Face.cs`. Icons are defined once in `web/icons.js`; `node scripts/gen-icons.mjs` writes the other two.
 - After changing what a tool can do, a long-lived agent conversation may go on describing the old tool until it is reset.
-- The full test suite fails here and there when the machine is busy (timeouts); run the failing files alone before believing them.
+- Tests start real servers and wait on sockets, so a busy machine makes them time out. `server/vitest.config.ts` gives them longer limits and a retry (two on CI, with two workers). A test that still fails is probably broken; run its file alone to be sure.
 
 **Getting ready to be public (owner's order, 2026-10-13):** done: scrub, security pass (`SECURITY.md`), Apache-2.0, releases built from a tag with firmware and the desktop app bundled, a README for strangers with a quick start from published images (`compose.release.yaml`), a Getting started list on the admin Overview. Left: mirror to GitHub (the images are only pushed there; `ghcr.io/atitkh/...` in `compose.release.yaml` and the README assumes that owner), Docker Hub later, a browser flasher for boards, signing the Windows app, confirmation for risky desktop actions and a per-app block list. Then: refine the Windows app so it can be ported to a Mac.
 
