@@ -51,6 +51,7 @@ sealed class ScreenReader
     {
         Native.GetCursorPos(out var mouse);
         var screen = System.Windows.Forms.SystemInformation.VirtualScreen;
+        var clock = Stopwatch.StartNew();
         (WindowInfo?, List<ScreenElement>, Rectangle?) got;
         try { got = await Uia.Run(() => Read(scope, mouse), (int)Patience.TotalMilliseconds, "reading the window", ct); }
         catch (TimeoutException) when (Uia.Stuck < 8)
@@ -59,6 +60,7 @@ sealed class ScreenReader
         }
         var (window, elements, area) = got;
 
+        var readMs = clock.ElapsedMilliseconds;
         string? ocrFailed = null;
         var named = elements.Count(e => e.Kind is not ("window" or "pane" or "group") && e.Name.Length > 0);
         var read = ocr == OcrMode.Always || (ocr == OcrMode.Auto && named < SparseBelow && scope != "screen");
@@ -79,7 +81,7 @@ sealed class ScreenReader
         var monitors = System.Windows.Forms.Screen.AllScreens
             .Select(m => new Display(m.Bounds.X, m.Bounds.Y, m.Bounds.Width, m.Bounds.Height, m.Primary)).ToList();
         return new LookResult(window, mouse.X, mouse.Y, elements, screen.Width, screen.Height, read && ocrFailed == null, screen.X, screen.Y, monitors)
-            { OcrFailed = ocrFailed };
+            { OcrFailed = ocrFailed, ReadMs = readMs, OcrMs = clock.ElapsedMilliseconds - readMs };
     }
 
     /** The window in front and the focused control: two small reads, for the answer after an action. */

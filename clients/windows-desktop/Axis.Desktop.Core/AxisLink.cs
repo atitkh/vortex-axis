@@ -194,7 +194,8 @@ public sealed class AxisLink : IAsyncDisposable
                         merged["data"] = JsonNode.Parse(extra.GetRawText());
                         parameters = JsonDocument.Parse(merged.ToJsonString()).RootElement.Clone();
                     }
-                    _ = Task.Run(() => AnswerAsync(id, name, parameters, ct), ct);
+                    var receivedAt = Environment.TickCount64;
+                    _ = Task.Run(() => AnswerAsync(id, name, parameters, ct, receivedAt), ct);
                     break;
                 case "error":
                     var code = root.GetProperty("code").GetString();
@@ -210,8 +211,13 @@ public sealed class AxisLink : IAsyncDisposable
     static string? CloseReason(ClientWebSocket ws) =>
         ws.CloseStatusDescription is { Length: > 0 } d && d.Contains("token", StringComparison.OrdinalIgnoreCase) ? $"Axis refused this computer: {d}. Pair it again." : null;
 
-    async Task AnswerAsync(string id, string name, JsonElement parameters, CancellationToken ct)
+    /** Something went wrong answering Axis that Axis itself will never hear about: said in the app instead. */
+    public event Action<string>? Trouble;
+
+    async Task AnswerAsync(string id, string name, JsonElement parameters, CancellationToken ct, long receivedAt)
     {
+        var started = Environment.TickCount64;
+        if (started - receivedAt > 1000) Trouble?.Invoke($"{name} waited {started - receivedAt} ms to start ({DesktopCommands.Busy()})");
         CommandAnswer answer;
         try
         {
@@ -222,11 +228,24 @@ public sealed class AxisLink : IAsyncDisposable
             // Some Windows errors carry no message; the kind of error is still worth knowing.
             answer = CommandAnswer.Fail(string.IsNullOrWhiteSpace(e.Message) ? $"{e.GetType().Name} (0x{e.HResult:X8})" : $"{e.Message} ({e.GetType().Name})");
         }
-        var reply = new JsonObject { ["t"] = "command.result", ["id"] = id, ["ok"] = answer.Ok };
-        if (answer.Payload != null) reply["payload"] = answer.Payload;
-        if (answer.Data != null) reply["data"] = answer.Data;
-        if (answer.Error != null) reply["error"] = answer.Error.Length > 256 ? answer.Error[..255] + "…" : answer.Error;
-        try { await SendAsync(reply, ct); } catch { /* the connection went; Axis gives up on it by itself */ }
+        try
+        {
+            var reply = new JsonObject { ["t"] = "command.result", ["id"] = id, ["ok"] = answer.Ok };
+            if (answer.Payload != null) reply["payload"] = answer.Payload;
+            if (answer.Data != null) reply["data"] = answer.Data;
+            if (answer.Error != null) reply["error"] = answer.Error.Length > 256 ? answer.Error[..255] + "…" : answer.Error;
+            var sending = Environment.TickCount64;
+            await SendAsync(reply, ct);
+            var sent = Environment.TickCount64;
+            // Axis waits 15 s for most commands; an answer near that is as good as lost, so the app says where the time went.
+            if (sent - receivedAt > 10000)
+                Trouble?.Invoke($"{name} answered after {sent - receivedAt} ms (work {sending - started}, sending {sent - sending}; {DesktopCommands.Busy()})");
+        }
+        catch (Exception e)
+        {
+            // Before 0.4.3 this was swallowed: an answer that never left looked like the computer not answering.
+            Trouble?.Invoke($"{name}: the answer could not be sent: {e.Message} ({e.GetType().Name})");
+        }
     }
 
     JsonObject DescribeMessage()

@@ -48,6 +48,9 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // A floor under the pool, so a few slow Windows calls cannot leave answers to Axis waiting for a thread.
+        System.Threading.ThreadPool.GetMinThreads(out var workers, out var io);
+        System.Threading.ThreadPool.SetMinThreads(Math.Max(workers, 32), Math.Max(io, 16));
         single = new Mutex(true, "VortexAxisDesktop.single", out var first);
         if (!first)
         {
@@ -105,6 +108,7 @@ public partial class App : System.Windows.Application
     void Connect(Pairing pairing)
     {
         link = new AxisLink(pairing, DesktopIdentity.Create(Version)) { OnCommand = commands!.HandleAsync };
+        link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
         link.StateChanged += (state, why) => Dispatcher.BeginInvoke(() =>
         {
             StateWhy = why;
@@ -144,7 +148,7 @@ public partial class App : System.Windows.Application
 
     void Note(string text)
     {
-        Recently.Insert(0, new Recent(DateTime.Now.ToString("HH:mm"), text));
+        Recently.Insert(0, new Recent(DateTime.Now.ToString("HH:mm:ss"), text));
         while (Recently.Count > 30) Recently.RemoveAt(Recently.Count - 1);
         Changed?.Invoke();
     }

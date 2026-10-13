@@ -33,6 +33,9 @@ public sealed record LookResult(WindowInfo? Window, int MouseX, int MouseY, IRea
 {
     /** Why reading the pixels was skipped, when it was wanted and did not work. */
     public string? OcrFailed { get; init; }
+    /** How long reading the controls and the pixels took, for the app's own list (finding where a look spends its time). */
+    public long ReadMs { get; init; }
+    public long OcrMs { get; init; }
 }
 
 /** What the computer itself does: read the screen, draw the pointer. The Windows app supplies it; the smoke test fakes it. */
@@ -196,11 +199,14 @@ public sealed class DesktopCommands
                 var scope = Str(p, "scope") ?? "window";
                 if (scope is not ("window" or "mouse" or "screen")) return CommandAnswer.Fail("scope must be window, mouse or screen");
                 var ocr = Bool(p, "ocr") ? OcrMode.Always : Toggle("autoOcr", true) ? OcrMode.Auto : OcrMode.Never;
+                var started = System.Diagnostics.Stopwatch.StartNew();
                 var look = await desktop.LookAsync(scope, ocr, ct);
                 var elements = Pick(look.Elements, look.MouseX, look.MouseY, MaxElements);
                 lock (gate) last = elements;
-                Did?.Invoke($"Looked at the {scope}: {elements.Count} things{(look.Ocr ? ", text read from the pixels" : "")}");
-                return CommandAnswer.Done(data: LookData(look, elements));
+                var data = LookData(look, elements);
+                Did?.Invoke($"Looked at the {scope}: {elements.Count} things{(look.Ocr ? ", text read from the pixels" : look.OcrFailed != null ? $", pixels skipped ({look.OcrFailed})" : "")} " +
+                    $"in {started.ElapsedMilliseconds} ms (controls {look.ReadMs}, pixels {look.OcrMs}; {Busy()})");
+                return CommandAnswer.Done(data: data);
             }
             case "desktop.find":
             {
@@ -252,6 +258,13 @@ public sealed class DesktopCommands
             default:
                 return CommandAnswer.Fail("not implemented on this device");
         }
+    }
+
+    /** The thread pool's state, for the app's list: a starved pool is what made 0.4.0 looks go unanswered. */
+    public static string Busy()
+    {
+        System.Threading.ThreadPool.GetAvailableThreads(out var free, out _);
+        return $"pool {System.Threading.ThreadPool.ThreadCount} threads, {System.Threading.ThreadPool.PendingWorkItemCount} waiting";
     }
 
     /** Axis waits 15 s for a look; past this the app answers anyway, so the agent hears why instead of a timeout. */

@@ -98,6 +98,8 @@ export class Hub implements TurnPort {
   private readonly log: (line: string) => void;
   private readonly pending = new Map<string, PendingCommand>();
   private commandCount = 0;
+  /** Commands that timed out recently (key → name and when sent), so an answer that comes too late is logged, not lost silently. */
+  private readonly late = new Map<string, { name: string; sentAt: number }>();
   private readonly connectListeners: Array<(session: Session) => void> = [];
   private readonly gestureListeners: Array<(session: Session, gesture: string) => void> = [];
   private readonly settingsListeners: Array<() => void> = [];
@@ -403,7 +405,14 @@ export class Hub implements TurnPort {
         return;
       case "command.result": {
         const wait = this.pending.get(`${session.client.id}:${message.id}`);
-        if (!wait) return;
+        if (!wait) {
+          const late = this.late.get(`${session.client.id}:${message.id}`);
+          if (late) {
+            this.late.delete(`${session.client.id}:${message.id}`);
+            console.warn(`client ${session.client.id} (${session.client.name}) answered "${late.name}" ${Date.now() - late.sentAt} ms after it was sent, too late (ok ${message.ok}${message.error ? `: ${message.error}` : ""})`);
+          }
+          return;
+        }
         this.pending.delete(`${session.client.id}:${message.id}`);
         clearTimeout(wait.timer);
         wait.resolve({ ok: message.ok, payload: message.payload, ...(message.data !== undefined ? { data: message.data } : {}), error: message.error });
@@ -426,8 +435,11 @@ export class Hub implements TurnPort {
     const id = `k${++this.commandCount}`;
     const key = `${session.client.id}:${id}`;
     return new Promise((resolve, reject) => {
+      const sentAt = Date.now();
       const timer = setTimeout(() => {
         this.pending.delete(key);
+        this.late.set(key, { name, sentAt });
+        if (this.late.size > 50) this.late.delete(this.late.keys().next().value!);
         reject(new Error(`${session.client.name} did not answer "${name}" in ${Math.round(timeoutMs / 1000)} s`));
       }, timeoutMs);
       this.pending.set(key, { resolve, timer });
