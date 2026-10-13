@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.7.5 (2026-10-13)
+
+- The face has no disc and no outline any more (owner: the black background with a coloured border looked odd): it sits on a soft dark pool that fades to nothing at its edge, and each dot gives off a little light of its own colour. Window 200 px, the figure in the middle 60 %.
+
 ## Desktop app 0.7.4 (2026-10-13)
 
 - **Vortex's face on the computer** (owner's layout: words at the top, the face at the bottom). The boards' face on a dark disc, 132 px, at the bottom centre of the main screen: it fades in for a voice turn (listening follows the microphone, thinking shows the tool icon Axis names, speaking pulses) and while an agent is using the computer (thinking, with the computer icon), and fades out 2.5 s after. Click-through, never takes the focus, out of the picture for captures. Tray: "Show Vortex's face" (on) and "Keep the face on screen (click it to talk)" (off): kept, it idles through the idle looks and a click is the talk key.

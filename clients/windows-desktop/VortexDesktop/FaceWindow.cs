@@ -8,14 +8,15 @@ using System.Windows.Threading;
 namespace Axis.Desktop.App;
 
 /**
- * Vortex's face on this computer: the one the boards draw (Core's `Face`), on a dark disc at the bottom
+ * Vortex's face on this computer: the one the boards draw (Core's `Face`), on a soft dark pool with faded edges at the bottom
  * centre of the main screen. It fades in for a voice turn and while an agent is using the computer, and
  * out a moment after; or stays, when asked to, and then a click on it talks. It never takes the focus
  * and steps out of the picture when the screen is captured.
  */
 sealed class FaceWindow : Window
 {
-    const double Side = 132;
+    /** The window: the figure fills the middle 60 %, the rest is the shadow fading out. */
+    const double Side = 200;
     readonly Face face = new();
     readonly Canvas canvas;
     readonly DispatcherTimer leave = new() { Interval = TimeSpan.FromSeconds(2.5) };
@@ -73,7 +74,7 @@ sealed class FaceWindow : Window
     {
         var area = SystemParameters.WorkArea;
         Left = area.Left + (area.Width - Side) / 2;
-        Top = area.Bottom - Side - 18;
+        Top = area.Bottom - Side + 6;
     }
 
     void FadeTo(double to)
@@ -151,7 +152,16 @@ sealed class FaceWindow : Window
     {
         readonly Face face;
         public double Dt;
-        static readonly Brush Disc = new SolidColorBrush(Color.FromArgb(0xEE, 0x0B, 0x0B, 0x10));
+        /** A soft dark pool behind the figure that fades to nothing at its edge: no outline, so it sits on any wallpaper or window. */
+        static readonly Brush Shade = Frozen(new RadialGradientBrush(new GradientStopCollection
+        {
+            new(Color.FromArgb(0xE6, 0x06, 0x06, 0x0A), 0.0),
+            new(Color.FromArgb(0xD0, 0x06, 0x06, 0x0A), 0.45),
+            new(Color.FromArgb(0x70, 0x06, 0x06, 0x0A), 0.72),
+            new(Color.FromArgb(0x00, 0x06, 0x06, 0x0A), 1.0),
+        }));
+
+        static Brush Frozen(Brush b) { b.Freeze(); return b; }
 
         public Canvas(Face face) => this.face = face;
 
@@ -160,13 +170,17 @@ sealed class FaceWindow : Window
             var (dots, core, icon) = face.Frame(Dt);
             Dt = 0;
             var half = ActualWidth / 2;
-            // The disc's edge takes the core's colour, as the pills' edges take their state's.
-            var edge = core is { } c0 ? Color.FromArgb(0x90, B(c0.R), B(c0.G), B(c0.B)) : Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF);
-            g.DrawEllipse(Disc, new Pen(new SolidColorBrush(edge), 1), new Point(half, half), half - 1, half - 1);
-            // The figure sits inside the disc with a little room.
-            var scale = (ActualWidth - 16) / Face.Size;
-            g.PushTransform(new TranslateTransform(8, 8));
+            g.DrawEllipse(Shade, null, new Point(half, half), half, half);
+            // The figure in the middle of the pool, with room round it for the fade.
+            var inset = ActualWidth * 0.2;
+            var scale = (ActualWidth - inset * 2) / Face.Size;
+            g.PushTransform(new TranslateTransform(inset, inset));
             g.PushTransform(new ScaleTransform(scale, scale));
+            // Each dot gives off a little light of its own colour, as on the boards' panels, where overlapping dots add up.
+            foreach (var d in dots)
+                g.DrawEllipse(new SolidColorBrush(Color.FromArgb(0x26, B(d.R), B(d.G), B(d.B))), null, new Point(d.X, d.Y), d.Radius * 2.4, d.Radius * 2.4);
+            if (core is { } glow)
+                g.DrawEllipse(new SolidColorBrush(Color.FromArgb(0x30, B(glow.R), B(glow.G), B(glow.B))), null, new Point(glow.X, glow.Y), glow.Radius * 2.6, glow.Radius * 2.6);
             foreach (var d in dots)
                 g.DrawEllipse(new SolidColorBrush(Color.FromRgb(B(d.R), B(d.G), B(d.B))), null, new Point(d.X, d.Y), d.Radius, d.Radius);
             if (core is { } c)
