@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash a VorteX Axis board</title>
+<!-- The installer button (ESP Web Tools, Apache-2.0): flashes over USB from the browser, nothing to install. -->
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #050507; color: #e9eaf0; font: 16px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 48px 22px 64px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 34px 0 8px; }
+  p, li { color: #b9bbc8; }
+  .lead { color: #e9eaf0; margin: 0 0 26px; }
+  ol { padding-left: 22px; }
+  li { margin: 6px 0; }
+  code { background: #14151c; border: 1px solid #262833; border-radius: 4px; padding: 1px 5px; font-size: 14px; color: #e9eaf0; }
+  .box { background: #0d0e14; border: 1px solid #262833; border-radius: 14px; padding: 20px 22px; margin: 22px 0; }
+  .box strong { color: #e9eaf0; }
+  button[slot="activate"] { font: inherit; font-weight: 600; color: #050507; background: #8cf2ff; border: 0; border-radius: 999px; padding: 11px 26px; cursor: pointer; }
+  button[slot="activate"]:hover { background: #b5f7ff; }
+  .note { font-size: 14px; }
+  .warn { color: #ffb86b; }
+  a { color: #8cf2ff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Flash a VorteX Axis board</h1>
+  <p class="lead">Puts the VorteX Axis firmware on a new board over USB, from this page. You do this once: after that the board updates itself over Wi-Fi from your Axis.</p>
+
+  <div class="box">
+    <p><strong id="what">Waveshare ESP32-S3-Touch-AMOLED-1.8</strong><br><span class="note" id="version">firmware</span></p>
+    <esp-web-install-button id="install" manifest="manifest.json">
+      <button slot="activate">Connect and install</button>
+      <span slot="unsupported" class="warn">This browser cannot reach USB devices. Use Chrome or Edge on a computer (not a phone).</span>
+      <span slot="not-allowed" class="warn">This page has to be opened over https (or from localhost) to reach USB devices.</span>
+    </esp-web-install-button>
+  </div>
+
+  <h2>Before you press it</h2>
+  <ol>
+    <li>Use <strong>Chrome or Edge on a computer</strong>. Firefox, Safari and phones cannot do this.</li>
+    <li>Plug the board in with a USB-C cable that carries <strong>data</strong>. Many cables that come with chargers only carry power; if no port shows up, try another cable.</li>
+    <li>Press <strong>Connect and install</strong> and choose the port named like <code>USB JTAG/serial debug unit</code>.</li>
+    <li>If the board is not found, or the install stalls at the start: hold the board's <strong>BOOT</strong> button, plug it in (or tap RESET) while holding, let go, and try again.</li>
+  </ol>
+  <p class="note">You are asked whether to erase the board first. Say yes for a board that ran something else; say no to keep a VorteX Axis board's Wi-Fi and pairing. Installing takes about a minute.</p>
+
+  <h2>After it restarts</h2>
+  <ol>
+    <li>The board shows a network name like <code>VorteX-Axis-XXXX</code>. Join it from your phone; a setup page opens (or go to <code>http://192.168.4.1</code>).</li>
+    <li>Pick your Wi-Fi and enter its password.</li>
+    <li>On your Axis admin page, open <strong>Add a device</strong>, make a pairing code and copy the <strong>setup string</strong> into the same form.</li>
+    <li>The board joins, pairs, and shows its face. Say "Hey Vortex", or tap the screen.</li>
+  </ol>
+
+  <p class="note">No Axis yet? Start with the <a id="repo" href="https://github.com/atitkh/vortex-axis#quick-start">quick start</a>. Prefer the command line? The same firmware is on the project's releases page, with PlatformIO instructions in <code>docs/hardware.md</code>.</p>
+</main>
+<script>
+  // Say which version this page installs, from the manifest it will use.
+  fetch("manifest.json").then((r) => r.json()).then((m) => {
+    document.getElementById("version").textContent = `firmware ${m.version}`;
+  }).catch(() => {
+    document.getElementById("version").textContent = "No firmware has been published to this page yet.";
+    document.getElementById("install").hidden = true;
+  });
+</script>
+</body>
+</html>

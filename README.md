@@ -57,7 +57,7 @@ To speak from a browser, it needs `https` or `localhost` (browsers allow the mic
 | Device | What it is | How it joins |
 | --- | --- | --- |
 | Web page | Any browser or phone; installs as an app, with notifications | Open Axis's address, enter a pairing code |
-| Board | Waveshare ESP32-S3-Touch-AMOLED-1.8: face, microphone, speaker, wake word | Flash once by cable ([firmware/README.md](firmware/README.md)), then set up from your phone; updates over Wi-Fi from the admin page |
+| Board | Waveshare ESP32-S3-Touch-AMOLED-1.8: face, microphone, speaker, wake word | Flash once from the browser or by cable ([docs/hardware.md](docs/hardware.md)), then set up from your phone; updates over Wi-Fi from the admin page |
 | Computer | Windows app (experimental): talk key, speakers, and the agent's hands on the screen | Download from the admin page's **Add a device**, enter a pairing code; it updates itself |
 
 A release image comes with the board firmware and the Windows app inside it, so a new hub can update boards and offer the app straight away. Making your own device: [docs/client-guide.md](docs/client-guide.md) is the contract, `protocol/` the message definitions.
@@ -65,7 +65,9 @@ A release image comes with the board firmware and the Windows app inside it, so 
 ## Where to read more
 
 - [docs/setup.md](docs/setup.md): addresses and HTTPS, agents and MCP, backups, speech, pairing with OpenClaw, the admin API, developing.
+- [docs/hardware.md](docs/hardware.md): the board, the computer app, a phone, and making your own device.
 - [SECURITY.md](SECURITY.md): what protects what, and what does not.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and sending a change.
 - [docs/design.md](docs/design.md): how it works and why.
 - [docs/face.md](docs/face.md): the face, to the pixel.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.

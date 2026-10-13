@@ -2,7 +2,7 @@
 
 VorteX Axis sits between an AI agent and the devices around a person: microphones, speakers, screens and, with the desktop app, a computer an agent can read and act on. This page says what protects what, what you have to do yourself, and what is not protected. It was written from a review of the code on 2026-10-13 (Axis 0.40.2, desktop app 0.7.7, board firmware 0.18.2).
 
-Report a problem privately to the maintainer rather than in a public issue.
+Report a problem privately rather than in a public issue: on GitHub, the repository's **Security** tab, **Report a vulnerability**. Say what you found, how to see it, and which version.
 
 ## The three doors
 

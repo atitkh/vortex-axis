@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.41.2 (2026-10-13)
+
+More of what a stranger needs.
+
+- **A browser flasher for boards** (`flasher/`): a page that puts the firmware on a new board over USB from Chrome or Edge, with ESP Web Tools; no PlatformIO. `scripts/make-flasher.mjs` puts the page, a build's factory image and the manifest together; the release workflow publishes it to GitHub Pages. Checked here that the page loads and its install button comes alive; flashing a board from it has not been tried.
+- **`docs/hardware.md`:** the board (what it is, first install three ways, setting up, using it, its limits), the Windows app, a phone or browser, and where to start for another device.
+- **`CONTRIBUTING.md`** and issue forms for a bug and an idea. `SECURITY.md` says how to report a problem privately.
+- Tests: longer limits and a retry, and fewer at once on CI. The suite timed out on a busy runner (40 of 148 runs on the project's runner had failed that way).
+
 ## 0.41.1 (2026-10-13)
 
 Set-up for somebody who has never seen the project.
