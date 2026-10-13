@@ -894,12 +894,15 @@ void loop() {
         const bool speaking = speaker::playing() || state.turn == axis::Turn::Speaking;
         // The time on show runs from the end of the speech, so a long answer does not use it up.
         if (speaking) pictureUntil = max(pictureUntil, millis() + PICTURE_MS);
-        const bool spoke = state.turn == axis::Turn::Transcribing;
+        // A follow-up keeps the picture: listening, working out the words and thinking all show as the glow
+        // around it (before 0.17.3 the picture closed once the words were being worked out). A newer picture
+        // replaces it; a tap, a question with choices or the time running out closes it.
         const bool asked = state.link == axis::Link::Online && state.choiceCount > 0;
-        if ((int32_t)(millis() - pictureUntil) < 0 && g != touch::Gesture::Tap && !spoke && !asked && !edgesUntil) {
+        if ((int32_t)(millis() - pictureUntil) < 0 && g != touch::Gesture::Tap && !asked && !edgesUntil) {
+            const bool working = state.turn == axis::Turn::Transcribing || state.turn == axis::Turn::Thinking;
             const glow::State doing = client.listening() ? glow::State::Listening
                                       : speaking ? glow::State::Speaking
-                                      : state.turn == axis::Turn::Thinking ? glow::State::Thinking
+                                      : working ? glow::State::Thinking
                                       : glow::State::None;
             const float level = doing == glow::State::Listening ? mic::level() : doing == glow::State::Speaking ? speaker::level() : -1.0f;
             glow::update(pictureFrame, doing, level);

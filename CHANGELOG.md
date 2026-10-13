@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.17.3 (2026-10-13)
+
+- A picture on the board stays through a follow-up: while Axis works out the spoken words and while the agent thinks, the picture keeps showing with the thinking glow around it, as it already did while listening. Before, the picture closed and the face came back as soon as the words were being worked out. A tap, a question with choices, a newer picture or the time running out still close it.
+
 ## 0.38.0 and desktop app 0.5.0 (2026-10-12)
 
 Screenshots for agents, as a last resort (owner's design: for understanding only; the agent still acts by name or id, never by coordinates read off a picture).
