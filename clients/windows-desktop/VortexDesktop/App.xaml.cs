@@ -153,7 +153,11 @@ public partial class App : System.Windows.Application
         if (saved.Voice)
         {
             voice = new Voice(link, voiceIo);
-            pill ??= new VoicePill();
+            if (pill == null)
+            {
+                pill = new VoicePill { Below = () => controlPill?.Room ?? 0 };
+                if (controlPill != null) controlPill.Moved += () => pill.Replace();
+            }
             voice.Changed += () => Dispatcher.BeginInvoke(() => { if (voice != null) pill.Show(voice); });
         }
         else voice = null;

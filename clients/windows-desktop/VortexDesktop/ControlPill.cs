@@ -23,6 +23,10 @@ sealed class ControlPill : Window
     readonly TextBlock doing = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xA8, 0xB4)), FontSize = 12, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 300 };
     readonly DispatcherTimer away = new() { Interval = Linger };
     bool wanted;
+    /** It came or went: what sits under it moves. */
+    public event Action? Moved;
+    /** The room it takes at the top of the screen, 0 when hidden. */
+    public double Room => IsVisible ? ActualHeight + 6 : 0;
 
     public ControlPill()
     {
@@ -54,6 +58,7 @@ sealed class ControlPill : Window
             Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, style | Native.WS_EX_TRANSPARENT | Native.WS_EX_LAYERED | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
         };
         SizeChanged += (_, _) => Place();
+        IsVisibleChanged += (_, _) => Moved?.Invoke();
         dot.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0.35, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
         away.Tick += (_, _) =>
         {

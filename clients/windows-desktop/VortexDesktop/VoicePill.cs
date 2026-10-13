@@ -8,16 +8,17 @@ using System.Windows.Threading;
 namespace Axis.Desktop.App;
 
 /**
- * A small pill at the bottom of the main screen while talking from this computer: a dot in the face's colour
+ * A small pill at the top of the main screen (the look of the "using this computer" pill, and under it when both show) while talking from this computer: a dot in the face's colour
  * for listening, thinking or speaking (it swells with the voice while listening), what was heard and the reply.
  * Click-through, never takes the focus, and fades a few seconds after the answer.
  */
 sealed class VoicePill : Window
 {
-    readonly Border dot = new() { Width = 12, Height = 12, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 12, 0) };
-    readonly TextBlock status = new() { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 13 };
+    readonly Border dot = new() { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 10, 0) };
+    readonly TextBlock status = new() { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 12 };
     readonly TextBlock heard = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xA8, 0xB4)), FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 36, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly TextBlock reply = new() { Foreground = Brushes.White, FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxHeight = 92, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly TextBlock reply = new() { Foreground = Brushes.White, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 86, TextTrimming = TextTrimming.CharacterEllipsis };
+    Border frame = null!;
     readonly DispatcherTimer linger = new() { Interval = TimeSpan.FromSeconds(6) };
 
     public VoicePill()
@@ -29,8 +30,9 @@ sealed class VoicePill : Window
         ShowInTaskbar = false;
         ShowActivated = false;
         ResizeMode = ResizeMode.NoResize;
-        SizeToContent = SizeToContent.Height;
-        Width = 460;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        MaxWidth = 460;
+        MinWidth = 150;
         var text = new StackPanel();
         text.Children.Add(status);
         text.Children.Add(heard);
@@ -39,15 +41,16 @@ sealed class VoicePill : Window
         DockPanel.SetDock(dot, Dock.Left);
         row.Children.Add(dot);
         row.Children.Add(text);
-        Content = new Border
+        // The same look as the "using this computer" pill: near-black, a thin edge in the state's colour.
+        frame = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(0xEE, 0x0B, 0x0B, 0x10)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(18),
-            Padding = new Thickness(16, 10, 18, 12),
+            CornerRadius = new CornerRadius(15),
+            Padding = new Thickness(14, 7, 16, 8),
             Child = row,
         };
+        Content = frame;
         SourceInitialized += (_, _) =>
         {
             var hwnd = new WindowInteropHelper(this).Handle;
@@ -62,11 +65,20 @@ sealed class VoicePill : Window
         };
     }
 
+    /** How far down from the top of the screen: under the "using this computer" pill when that is showing. */
+    public Func<double> Below { get; set; } = () => 0;
+
     void Place()
     {
         var area = SystemParameters.WorkArea;
         Left = area.Left + (area.Width - ActualWidth) / 2;
-        Top = area.Bottom - ActualHeight - 24;
+        Top = area.Top + 10 + Below();
+    }
+
+    /** Puts it where it belongs again, when the pill above comes or goes. */
+    public void Replace()
+    {
+        if (IsVisible) Place();
     }
 
     /** Shows what the voice part is doing; called on the UI thread. */
@@ -83,6 +95,7 @@ sealed class VoicePill : Window
         };
         status.Text = words;
         dot.Background = new SolidColorBrush(colour);
+        frame.BorderBrush = new SolidColorBrush(Color.FromArgb(0x90, colour.R, colour.G, colour.B));
         var grow = voice.Mode == VoiceMode.Listening ? 1 + voice.Level * 0.8 : 1;
         dot.RenderTransform = new ScaleTransform(grow, grow, 6, 6);
         heard.Text = voice.Heard;
@@ -96,6 +109,7 @@ sealed class VoicePill : Window
             {
                 status.Text = "Question: press Ctrl+Alt+Space to answer";
                 dot.Background = new SolidColorBrush(Color.FromRgb(0x33, 0x80, 0xFF));
+                frame.BorderBrush = new SolidColorBrush(Color.FromArgb(0x90, 0x33, 0x80, 0xFF));
             }
             heard.Text = voice.Question;
             heard.Visibility = Visibility.Visible;
