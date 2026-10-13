@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.7.1 (2026-10-13)
+
+- The same as 0.7.0 as described below. A first, unfinished 0.7.0 build (no `screen` capability, so no transcript, reply text or questions in the pill) sat in the data folder for a few minutes during development and the owner's computer updated itself to it; a new number makes it update again. `scripts/build-desktop.sh` publishes at once to every computer with auto-update: bump the version only when a build is meant to go out, and build experiments elsewhere.
+
 ## 0.40.0, desktop app 0.7.0 and board firmware 0.18.0 (2026-10-13)
 
 - **The computer as a voice device.** Ctrl+Alt+Space talks from the PC: a press listens until a pause (1.2 s), a hold listens until let go, a press while the agent thinks or speaks stops it; answers play on the PC's speakers and are reported (started, finished, stopped) like a board's. A pill at the bottom of the main screen shows listening (a dot that swells with the voice), what was heard, the reply, and questions with their choices (answered with the same key). The app then says `mic`, `speaker` and `screen`, so the agent's turns are marked as coming from the computer and Axis can speak there. Tray: "Talk from this computer" (on by default; off goes back to a computer only, and reconnects). The protocol and timing are in Core (`Voice`), the platform supplies `IVoiceIo` (Windows: NAudio.Core + NAudio.WinMM 2.2.1, MIT, the first audio dependency). Checked against a throwaway Axis with the real speech services: a recorded sentence went up, came back as "What time is it right now", and an announcement was played and reported heard. Not run on Windows.
