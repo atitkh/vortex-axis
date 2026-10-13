@@ -59,7 +59,7 @@ const app = await startApp(
     AXIS_PORT: "0",
     AXIS_DATA_DIR: dataDir,
     AXIS_BACKUP_DIR: backupDir,
-    AXIS_ADMIN_TOKEN: "browser-check",
+    AXIS_ADMIN_TOKEN: "browser-check-admin-token-0123",
     AXIS_STT_URL: process.env.STT || `${stub}/v1/audio/transcriptions`,
     AXIS_TTS_URL: process.env.TTS || `${stub}/v1/audio/speech`,
     AXIS_HEALTH_INTERVAL_MS: "2000",
@@ -172,9 +172,9 @@ try {
   const admin = await openPage(`${base}/admin`);
   await admin.run(`${byId("token")}.value = 'wrong'; ${byId("signin-form")}.requestSubmit()`);
   step("wrong admin token", await admin.until(`${byId("signin-error")}.textContent`, "sign-in error"));
-  await admin.run(`${byId("token")}.value = 'browser-check'; ${byId("remember")}.checked = true; ${byId("signin-form")}.requestSubmit()`);
+  await admin.run(`${byId("token")}.value = 'browser-check-admin-token-0123'; ${byId("remember")}.checked = true; ${byId("signin-form")}.requestSubmit()`);
   await admin.until(`!${byId("app")}.classList.contains('hidden') && document.querySelectorAll('#summary .stat').length === 4`, "the admin page");
-  step("token remembered on this device", await admin.run(`localStorage.getItem('axis-admin-token') === 'browser-check' && sessionStorage.getItem('axis-admin-token') === null`));
+  step("token remembered on this device", await admin.run(`localStorage.getItem('axis-admin-token') === 'browser-check-admin-token-0123' && sessionStorage.getItem('axis-admin-token') === null`));
   step("summary", await admin.until(`(t => /agent=good/.test(t) && t)(${pills("#summary")})`, "upstream health"));
   step("gateway links", await admin.run(pills("#gw-pills")));
   step("commands listed", await admin.run(`${byId("gw-commands")}.textContent`));
@@ -345,7 +345,7 @@ try {
   // A field edited where it is shown: the history length, saved from its own card.
   await admin.run(`(i => { i.value = '5'; i.dispatchEvent(new Event('input', { bubbles: true })); i.closest('.integration').querySelector('button.primary').click(); })(document.querySelector('.integration input[name="activityDays"]'))`);
   step("integration setting saved", await admin.until(`(t => /saved/.test(t) && t)(${byId("toast")}.textContent)`, "the save"));
-  const hubSaved = await fetch(`${base}/admin/integrations`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  const hubSaved = await fetch(`${base}/admin/integrations`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
   if (hubSaved.settings.activityDays !== 5) throw new Error(`activityDays was saved as ${hubSaved.settings.activityDays}`);
   // Agent tools: a token made on the page lets an MCP client in; a tool switched off there is gone for it.
   {
@@ -412,7 +412,7 @@ try {
   step("activity turns", await admin.until(`document.querySelectorAll('#activity-turns tbody tr').length >= 2 && [...document.querySelectorAll('#activity-turns tbody tr')].map(r => r.children[2].textContent + ':' + r.children[3].textContent.trim()).join(', ')`, "the turns on the activity page"));
   step("activity chart drawn", await admin.until(`document.querySelector('#chart-turns svg') && 'yes'`, "the turns chart"));
   // The words of a turn must never reach the activity log: not on the page, not from the API.
-  const wordsKept = await admin.run(`fetch('/admin/activity?hours=24', { headers: { authorization: 'Bearer browser-check' } })
+  const wordsKept = await admin.run(`fetch('/admin/activity?hours=24', { headers: { authorization: 'Bearer browser-check-admin-token-0123' } })
     .then(r => r.text()).then(t => /what time is it|nine o'clock/.test(t + document.getElementById('activity-turns').textContent + document.getElementById('activity-events').textContent))`);
   step("no words stored", !wordsKept);
   if (wordsKept) throw new Error("what was said turned up in the activity log");
@@ -477,7 +477,7 @@ try {
   // Every page at a phone's width: nothing may stick out past the screen except inside a box that scrolls.
   {
     await admin.phone(true);
-    const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+    const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
     const pages = ["overview", "live", "tools", "clients", `clients/${known.clients[0].id}`, "type/web", "settings", "pair", "openclaw", "agent", "speech", "firmware", "wakewords", "face", "integrations"];
     const wide = [];
     for (const page of pages) {
@@ -524,11 +524,11 @@ try {
   // Switching an idle look off saves it for every device, and the tile dims.
   await admin.run(`document.querySelector('.face-cell[data-look="curl"] input').click()`);
   step("idle look off", await admin.until(`document.querySelector('.face-cell[data-look="curl"]').classList.contains('off') && ${byId("face-note")}.textContent`, "the look to be switched off"));
-  const shared = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  const shared = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
   if (shared.values.idleLooksOff !== "curl") throw new Error(`idleLooksOff was saved as ${JSON.stringify(shared.values.idleLooksOff)}`);
   // Tool icons: one tile per kind, shown large when chosen, and the style saved for every device.
   await admin.run(`document.querySelector('.face-tile[data-look="icon:home"]').click()`);
-  step("tool icons", await admin.until(`${byId("face-name")}.textContent === 'home (tool icon)' && document.querySelectorAll('#face-icons .face-tile').length === 12 && document.querySelector('#face-icon-style button.on')?.dataset.style === 'dots' && '12 kinds, home chosen, shown as dots'`, "the tool icons"));
+  step("tool icons", await admin.until(`${byId("face-name")}.textContent === 'home (tool icon)' && document.querySelectorAll('#face-icons .face-tile').length === 13 && document.querySelector('#face-icon-style button.on')?.dataset.style === 'dots' && '13 kinds, home chosen, shown as dots'`, "the tool icons"));
   // Something is really drawn in the middle of the large face: with the icon made of dots, the core is gone and the house's roof is lit.
   // The faces only move while their page is the one in front.
   await admin.front();
@@ -536,11 +536,11 @@ try {
   // Fewer dots in the shape: saved for every device, and the rest stand off in a ring, so the centre stays dark.
   await admin.run(`(() => { const s = ${byId("face-icon-dots")}; s.value = '36'; s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   step("tool icon dots", await admin.until(`/36 of 78/.test(${byId("face-icon-dots-note")}.textContent) && /saved/.test(${byId("face-icons-note")}.textContent) && ${byId("face-icon-dots-note")}.textContent`, "the number of dots to be saved"));
-  const tuned = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  const tuned = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
   if (tuned.values.toolIconDots !== 36) throw new Error(`toolIconDots was saved as ${JSON.stringify(tuned.values.toolIconDots)}`);
   await admin.run(`document.querySelector('#face-icon-style button[data-style="line"]').click()`);
   step("tool icon style", await admin.until(`document.querySelector('#face-icon-style button.on')?.dataset.style === 'line' && ${byId("face-icons-note")}.textContent`, "the style to be saved"));
-  const styled = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check" } }).then((r) => r.json());
+  const styled = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
   if (styled.values.toolIcons !== "line") throw new Error(`toolIcons was saved as ${JSON.stringify(styled.values.toolIcons)}`);
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");

@@ -784,3 +784,15 @@ pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radi
 #live-tasks:has(table), #live-calls:has(table), #live-wakes:has(table) { border: 1px solid var(--line); background: var(--surface); }
 #live-tasks table, #live-calls table, #live-wakes table { border: none; }
 #live-tasks th, #live-calls th, #live-wakes th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: 0 1px 0 var(--line); }
+
+/* A new hub's first steps, on the Overview until done or put away. */
+#getting-started { background: var(--surface); border: 1px solid var(--line-strong); margin: 0 0 18px; padding: 12px 14px 4px; }
+.started-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.started-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.started-head .sub { flex: 1; }
+.started { list-style: none; margin: 0; padding: 0; }
+.started li { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); }
+.started li .stat { min-width: 52px; }
+.started li p { margin: 3px 0 0; }
+.started li.done strong { font-weight: 500; color: var(--muted, inherit); }
+.started-other { margin-left: 12px; font-size: 13px; }

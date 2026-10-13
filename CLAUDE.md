@@ -12,7 +12,7 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or two: what runs, what is unproven, what is broken, what is next. What changed in each version goes in `CHANGELOG.md` (newest first); how something was built or tried goes in `docs/design.md`. The notes that used to be here are in `docs/status-history.md`.
 
-**Versions:** Axis 0.41.0, board firmware 0.18.2, desktop app 0.7.7, protocol 1. Licence Apache-2.0 (`LICENSE`, `NOTICE`). Releases: a tag `vX.Y.Z` matching `package.json` runs `.github/workflows/release.yml` (firmware, desktop app, image with both in `bundled/`); the repository is on a private Gitea for now (its runner builds the release, results readable in Gitea's database) and will be mirrored to GitHub. `SECURITY.md` says what protects what; change it with any change to auth, tokens, exposure or the desktop app's limits. One number for the server and its web pages (top-level `package.json`); firmware and the desktop app count their own.
+**Versions:** Axis 0.41.1, board firmware 0.18.2, desktop app 0.7.7, protocol 1. Licence Apache-2.0 (`LICENSE`, `NOTICE`). Releases: a tag `vX.Y.Z` matching `package.json` runs `.github/workflows/release.yml` (firmware, desktop app, image with both in `bundled/`); the repository is on a private Gitea for now (its runner builds the release, results readable in Gitea's database) and will be mirrored to GitHub. `SECURITY.md` says what protects what; change it with any change to auth, tokens, exposure or the desktop app's limits. One number for the server and its web pages (top-level `package.json`); firmware and the desktop app count their own.
 
 **Running now:** see `CLAUDE.local.md`. That file is NOT in the repository (it is in `.gitignore`): it holds what is particular to one installation, such as host names, addresses, the public name, device names and which agent answers. If you are working on the installation this checkout belongs to, read it and keep it current; never write such details in this file or anywhere else that is committed. In general terms: Axis runs in Docker on port 8440 with its data folder on a local disk, backs itself up hourly to a mounted folder, is reached from outside under a public name through a tunnel with `/admin` kept to the local network, and serves two Waveshare boards, a few browser clients and one Windows computer through an OpenClaw gateway.
 
@@ -49,7 +49,7 @@ Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or 
 - After changing what a tool can do, a long-lived agent conversation may go on describing the old tool until it is reset.
 - The full test suite fails here and there when the machine is busy (timeouts); run the failing files alone before believing them.
 
-**Next, as the owner has said:** refine the Windows app so it can be ported to a Mac; before the project is made public, confirmation for risky desktop actions and a per-app block list, then a README for strangers, one-command setup and a security pass.
+**Getting ready to be public (owner's order, 2026-10-13):** done: scrub, security pass (`SECURITY.md`), Apache-2.0, releases built from a tag with firmware and the desktop app bundled, a README for strangers with a quick start from published images (`compose.release.yaml`), a Getting started list on the admin Overview. Left: mirror to GitHub (the images are only pushed there; `ghcr.io/atitkh/...` in `compose.release.yaml` and the README assumes that owner), Docker Hub later, a browser flasher for boards, signing the Windows app, confirmation for risky desktop actions and a per-app block list. Then: refine the Windows app so it can be ported to a Mac.
 
 ## Working alongside other agents
 
@@ -75,7 +75,7 @@ More than one agent works on this repository, in separate sessions that share no
 - Name things `vortex-axis`, never plain `axis`, in hostnames, containers and Home Assistant entities. Plain `axis` collides with Axis Communications cameras and Home Assistant's `axis` integration.
 - Gateway commands are named `vortex.axis.*` and the tools agents see `vortex_axis_*`. A bare `axis.` prefix could collide with someone else's plugin.
 - No host-specific values in code. Addresses come from environment variables.
-- Version 1 scope is in the README. Do not build the "later" items without being asked.
+- Do not build what `README.md`'s Status or this file's "Not built" list names as not there yet without being asked.
 
 ## Stack
 

@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.41.1 (2026-10-13)
+
+Set-up for somebody who has never seen the project.
+
+- **README** rewritten for strangers: what Axis is, what you get, a quick start from the published images, the devices, where to read more. What it held about running and operating Axis is in `docs/setup.md`, unchanged.
+- **`compose.release.yaml`:** Axis and its speech services from published images, nothing to build (`compose.yaml` still builds from the repository). The release workflow also pushes the speech image, on GitHub.
+- **Getting started** on the admin page's Overview: speech working, an agent that answers (OpenClaw or a chat endpoint, with a link to the other), a first device, a first turn; each step links to the page that does it. It goes when all four are done, or when it is put away.
+- `scripts/browser-check.mjs` uses an admin token long enough for 0.40.2's rule, and counts thirteen tool icons.
+
 ## 0.41.0 (2026-10-13)
 
 The first release built by the release workflow: the project is free software under the Apache License 2.0, and one version tag now builds everything a person needs.

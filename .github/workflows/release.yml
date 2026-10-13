@@ -99,6 +99,14 @@ jobs:
             docker rmi vortex-axis:release-check > /dev/null
           fi
 
+      # The speech services' image (recognition, synthesis, voiceprints). Built only where it is pushed: it is
+      # large, and changes rarely.
+      - name: Speech image
+        if: env.ON_GITHUB == 'true'
+        run: |
+          image="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')-speech"
+          docker buildx build --platform linux/amd64,linux/arm64 -t "$image:${{ steps.v.outputs.axis }}" -t "$image:latest" --push speech
+
       - name: Release notes
         run: |
           # The changelog's newest section.

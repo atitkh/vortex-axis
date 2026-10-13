@@ -2525,6 +2525,81 @@ function eventList(events, limit) {
 }
 
 /** Things to look at now, worst first. Each links to where it is fixed. */
+/**
+ * A new hub's first steps, on the Overview until they are all done or the person puts the list away:
+ * speech working, an agent that answers, a first device, a first turn. Each links to the page that does it.
+ */
+const STARTED_KEY = "axis-admin-started";
+function renderGettingStarted(data) {
+  const box = $("getting-started");
+  // Nothing to judge by yet, or it was put away.
+  if (!lastStatus || !lastConfig || localStorage.getItem(STARTED_KEY)) return void (box.hidden = true);
+  const up = lastStatus.upstream ?? {};
+  const usesGateway = lastConfig.agent.backend !== "openai";
+  const devices = lastClients.length;
+  const turns = data?.turns?.count ?? (data ? 0 : undefined);
+  const steps = [
+    {
+      done: up.stt === "up" && up.tts === "up",
+      title: "Speech is working",
+      help: up.stt === "up" && up.tts === "up" ? "Recognition and synthesis both answer." : "Check the speech services and press Test. The ones that come with Axis fetch their models on first start, which takes a few minutes.",
+      href: "#speech", action: "Speech",
+    },
+    {
+      done: up.openclaw === "up",
+      title: "An agent answers",
+      help: up.openclaw === "up" ? (usesGateway ? "Connected to the OpenClaw gateway." : "The chat endpoint answers.")
+        : "Pair with an OpenClaw gateway, or point Axis at any OpenAI-style chat endpoint (a local model works).",
+      href: usesGateway ? "#openclaw" : "#agent", action: usesGateway ? "OpenClaw" : "Agent",
+      other: usesGateway ? { href: "#agent", action: "Use a chat endpoint instead" } : { href: "#openclaw", action: "Use OpenClaw instead" },
+    },
+    {
+      done: devices > 0,
+      title: "A first device",
+      help: devices ? `${devices} paired.` : "Make a pairing code, then open this hub's address without /admin in a browser and enter it: that browser is your first device. Boards and computers pair the same way.",
+      href: "#pair", action: "Add a device",
+    },
+    {
+      done: turns !== undefined && turns > 0,
+      title: "Say something",
+      help: turns ? "It has answered." : "Type or speak on the device you paired. The Live page shows each step of the turn as it happens.",
+      href: "#live", action: "Live",
+    },
+  ];
+  const left = steps.filter((s) => !s.done).length;
+  // All done on a hub that has been in use: no need to say so. Done just now: say it once, with a way to close.
+  if (!left && (turns ?? 0) > 3) {
+    localStorage.setItem(STARTED_KEY, "1");
+    return void (box.hidden = true);
+  }
+  box.hidden = false;
+  box.replaceChildren(
+    h("div", { class: "started-head" },
+      h("h3", {}, left ? "Getting started" : "All set"),
+      h("span", { class: "sub" }, left ? `${steps.length - left} of ${steps.length} done` : "Axis is ready to use."),
+      h("button", {
+        type: "button", class: "small",
+        onclick: () => {
+          localStorage.setItem(STARTED_KEY, "1");
+          box.hidden = true;
+        },
+      }, left ? "Hide" : "Close"),
+    ),
+    h("ol", { class: "started" },
+      ...steps.map((s) =>
+        h("li", { class: s.done ? "done" : "" },
+          h("span", { class: `stat ${s.done ? "good" : ""}` }, s.done ? "done" : "to do"),
+          h("div", {},
+            h("strong", {}, s.title),
+            h("p", { class: "sub" }, s.help),
+            s.done ? "" : h("p", {}, h("a", { class: "button small", href: s.href }, s.action), s.other ? h("a", { class: "started-other", href: s.other.href }, s.other.action) : ""),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 function attentionItems(data) {
   const items = [];
   const add = (level, text, href) => items.push({ level, text, href });
@@ -2759,6 +2834,8 @@ function renderOverview(withHistory = true) {
       ? items.map((i) => h("li", { class: i.level }, h("span", { class: `stat ${i.level}` }, i.level === "bad" ? "problem" : "check"), " ", h("a", { href: i.href }, i.text)))
       : [h("li", { class: "ok" }, h("span", { class: "stat good" }, "all good"), " Nothing needs attention.")]),
   );
+
+  renderGettingStarted(data);
 
   for (const b of $("activity-range").querySelectorAll("button")) b.classList.toggle("on", Number(b.dataset.hours) === activityRange);
   const span = activityRange === 24 ? "24 hours" : activityRange === 72 ? "3 days" : "7 days";
