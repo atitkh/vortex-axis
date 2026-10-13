@@ -1610,6 +1610,7 @@ const GLOW_STATES = [
   { key: "done", label: "Done flash", rgb: [0.34, 1, 0.4], hz: 0 },
   { key: "timer", label: "Timer", rgb: [1, 0.16, 0.1], hz: 0 },
   { key: "find", label: "Find", rgb: [1, 1, 1], hz: 2.5 },
+  { key: "hands", label: "Computer in use", rgb: [1, 0.32, 0.62], hz: 1.4 },
   { key: "listening", label: "Listening", rgb: [0.15, 1, 0.55], hz: 1.2 },
   { key: "thinking", label: "Thinking", rgb: [0.62, 0.4, 1], hz: 0.9 },
   { key: "speaking", label: "Speaking", rgb: [0.55, 0.95, 1], hz: 2.4 },
@@ -2602,7 +2603,8 @@ function renderNow() {
   const notified = lastClients.filter((c) => c.notified);
   const tasks = now?.tasks ?? [];
   const attached = now?.attached;
-  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length && !tasks.length && !attached)) {
+  const computers = now?.computers ?? [];
+  if (!now || (!now.timers.length && !now.clients.length && !kept.length && !notified.length && !tasks.length && !attached && !computers.length)) {
     return box.replaceChildren(h("p", { class: "empty" }, "Nothing is running right now: no agent tasks, no timers, no questions, no conversations, no messages or notifications waiting."));
   }
   const device = (id, name) => h("a", { href: `#clients/${encodeURIComponent(id)}` }, name);
@@ -2628,6 +2630,16 @@ function renderNow() {
           ),
         ]
       : []),
+    // An agent at a computer: looking, clicking, typing. The boards near it glow while it is.
+    ...computers.map((c) =>
+      h("tr", {},
+        h("td", {}, "Computer in use"),
+        h("td", {}, device(c.clientId, c.computer)),
+        h("td", {}, `An agent is using it. Last: ${c.last}`),
+        h("td", { class: "num" }, `for ${countdown(now.at - c.since)}`),
+        h("td", {}, ""),
+      ),
+    ),
     // Long work an agent has reported on: the same line the screens show.
     ...tasks.map((t) =>
       h("tr", {},

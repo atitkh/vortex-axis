@@ -21,6 +21,7 @@ import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
 import type { ToolAccess } from "./tools.js";
 import { DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
+import type { Desktops } from "./desktop.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
@@ -156,6 +157,8 @@ function stampWebFiles(files: Map<string, { type: string; body: Buffer }>): void
 export interface HttpDeps {
   /** The desktop app build computers update to. */
   desktopApp?: DesktopApp;
+  /** The computers, for which ones an agent is using. */
+  desktops?: Desktops;
   config: Config;
   store: Store;
   hub: Hub;
@@ -663,7 +666,7 @@ export function createHttpHandler(deps: HttpDeps) {
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "glow") {
         const { client, session } = requireOnline(parts[2]!);
         const body = (await readJson(req)) as { kind?: unknown; corner?: unknown };
-        const kinds = ["waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking"];
+        const kinds = ["waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"];
         if (typeof body.kind !== "string" || !kinds.includes(body.kind)) throw new HttpError(400, `kind must be one of ${kinds.join(", ")}`);
         const corner = Number(body.corner);
         if (!Number.isInteger(corner) || corner < 12 || corner > 120) throw new HttpError(400, "corner must be a whole number from 12 to 120");
@@ -1144,6 +1147,8 @@ export function createHttpHandler(deps: HttpDeps) {
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.
           tasks: deps.progress?.list() ?? [],
+          // Computers an agent is using right now (looking, clicking, typing), with the last thing it did.
+          computers: deps.desktops?.inUse() ?? [],
           // The conversation the devices are heard in, when a person pointed them away from the usual one.
           attached: deps.attachment?.current() ?? null,
           // The same work once it is over, kept as long as the rest of the activity.

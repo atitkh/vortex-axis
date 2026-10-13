@@ -9,7 +9,7 @@
 
 namespace glow {
 
-enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find };
+enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find, Hands };
 
 /** A part of the screen the glow leaves alone (the face, which draws itself). Empty when w is 0. */
 struct Rect {
@@ -22,7 +22,8 @@ struct Rect {
  * sets the strength, 0 to 1 (a voice, or a flash fading out), or below 0 to breathe at the state's pace.
  * Draws about 20 times a second (10 over the face) while there is a state, and once more to take the glow
  * away. Waiting is amber (something needs the person), Done is green (a task finished), Timer is red,
- * Question is blue (a question waits elsewhere) and Find is a quick white pulse (somebody looking for the device).
+ * Question is blue (a question waits elsewhere), Find is a quick white pulse (somebody looking for the device)
+ * and Hands is rose (an agent is using a computer nearby).
  * `sweep` is how much of the way round the screen is lit, 0 to 1, clockwise from the top middle: a
  * timer's last seconds, running out.
  */

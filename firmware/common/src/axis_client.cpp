@@ -1309,6 +1309,11 @@ struct Client::Impl {
             });
             handled = true;
         }
+        else if (!strcmp(name, "desktop.busy")) {
+            const bool on = (int)(doc["params"]["on"] | 0) != 0;
+            update([&](Snapshot &s) { s.desktopBusy = on; });
+            handled = true;
+        }
         else if (!strcmp(name, "ask.waiting")) {
             // Axis keeps the questions. This is only so a screen can say one is waiting somewhere.
             const uint8_t elsewhere = (uint8_t)constrain((int)(doc["params"]["elsewhere"] | 0), 0, 255);

@@ -774,7 +774,11 @@ public static class DesktopIdentity
 {
     public const string Type = "windows-desktop";
 
-    public static ClientIdentity Create(string version) => new(Type, version, ["desktop"], new JsonObject
+    /**
+     * With `voice`, also a microphone, speakers and a screen (the app's pill, which shows what was heard,
+     * the reply and questions): the computer is talked to like a board.
+     */
+    public static ClientIdentity Create(string version, bool voice = false) => new(Type, version, voice ? ["desktop", "mic", "speaker", "screen"] : ["desktop"], new JsonObject
     {
         ["settings"] = new JsonArray(
             Setting("allowLook", "Let agents read the screen", "toggle", "Desktop", "Off refuses every look. The person at the computer can also pause the app from its window or tray.", "1"),

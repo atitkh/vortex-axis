@@ -197,4 +197,22 @@ describe("the desktop tool (experimental)", () => {
     const quiet = await connect(other, { capabilities: ["desktop"], type: "windows-desktop" });
     await expect(quiet.next("command", 0, (m) => m.name === "update")).rejects.toThrow();
   });
+  it("tells the screens near a computer while an agent is using it, and lists it on the admin page", async () => {
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const boardId = await newPairedClient({ capabilities: ["screen", "speaker", "mic"], type: "waveshare-amoled-1.8", name: "Desk board" });
+    const board = await connect(boardId, { capabilities: ["screen", "speaker", "mic"], type: "waveshare-amoled-1.8" });
+    await board.next("status");
+    const pc = await computer("Desk PC");
+    const pressing = tryTool({ action: "keys", keys: "ctrl+s" });
+    const asked = await pc.next("command", 0, (m) => m.name === "desktop.keys");
+    const busy = await board.next("command", 0, (m) => m.name === "desktop.busy");
+    expect(busy.params).toEqual({ on: 1, computer: "Desk PC" });
+    board.send({ t: "command.result", id: busy.id, ok: true });
+    // The computer itself is not told: it knows.
+    await expect(pc.next("command", 0, (m) => m.name === "desktop.busy")).rejects.toThrow();
+    pc.send({ t: "command.result", id: asked.id, ok: true, payload: { pressed: "ctrl+s" } });
+    await pressing;
+    const now = (await admin("GET", "/admin/now")).body;
+    expect(now.computers).toEqual([expect.objectContaining({ computer: "Desk PC", last: "keys ctrl+s" })]);
+  });
 });

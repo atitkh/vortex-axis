@@ -30,11 +30,79 @@ const ACT_TIMEOUT_MS = 15_000;
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const whole = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.round(value) : undefined);
 
+/** A computer an agent is using: since when, the last thing it did there and when. */
+export interface InUse {
+  clientId: string;
+  computer: string;
+  since: number;
+  lastAt: number;
+  last: string;
+}
+
+/** How long after its last call an agent still counts as using a computer. */
+const IN_USE_MS = 8000;
+
 export class Desktops {
+  private readonly using = new Map<string, InUse & { timer?: NodeJS.Timeout }>();
+  /** The screens told the agent is at a computer, so they are told again when it stops. */
+  private readonly told = new Set<string>();
+
   constructor(
     private readonly hub: Hub,
     private readonly store: Store,
-  ) {}
+    private readonly now: () => number = Date.now,
+  ) {
+    // A screen that comes back while an agent is at a computer is told straight away.
+    hub.onConnect((session) => {
+      this.told.delete(session.client.id);
+      if (this.using.size) this.tellScreens();
+    });
+  }
+
+  /** The computers an agent is using right now, for the admin page. */
+  inUse(): InUse[] {
+    return [...this.using.values()].map(({ timer: _timer, ...use }) => use);
+  }
+
+  /** Notes a call on a computer: it is in use until IN_USE_MS after the last one. */
+  private touch(session: Session, action: string, params: Record<string, unknown>): void {
+    const at = this.now();
+    const id = session.client.id;
+    const was = this.using.get(id);
+    const use = was ?? { clientId: id, computer: session.client.name, since: at, lastAt: at, last: "" };
+    use.lastAt = at;
+    use.last = describe(action, params);
+    if (use.timer) clearTimeout(use.timer);
+    use.timer = setTimeout(() => {
+      this.using.delete(id);
+      this.tellScreens();
+    }, IN_USE_MS);
+    use.timer.unref();
+    this.using.set(id, use);
+    if (!was) this.tellScreens();
+  }
+
+  /**
+   * Tells the screens near a computer in use (its location; every screen when it has none) to glow, and
+   * those that were told to stop once no agent is at a computer near them.
+   */
+  private tellScreens(): void {
+    const places = [...this.using.values()].map((use) => {
+      const session = this.hub.session(use.clientId);
+      return session ? String(this.hub.settings(session).location ?? "").toLowerCase() : "";
+    });
+    for (const session of this.hub.sessions()) {
+      if (!session.client.capabilities.includes("screen") || session.client.capabilities.includes("desktop")) continue;
+      const here = String(this.hub.settings(session).location ?? "").toLowerCase();
+      const on = places.some((place) => !place || place === here);
+      if (on === this.told.has(session.client.id)) continue;
+      if (on) this.told.add(session.client.id);
+      else this.told.delete(session.client.id);
+      const computer = on ? this.inUse()[0]?.computer ?? "" : "";
+      // A client that does not know the command says so; nothing to do about that.
+      this.hub.command(session, "desktop.busy", { on: on ? 1 : 0, computer }, 3000).catch(() => undefined);
+    }
+  }
 
   /** The computers online. */
   online(): Session[] {
@@ -82,6 +150,16 @@ export class Desktops {
     const action = (text(params.action) ?? "look") as Action;
     if (!ACTIONS.includes(action)) throw new Error(`action must be one of ${ACTIONS.join(", ")}`);
     const session = this.pick(text(params.client), text(params.location));
+    this.touch(session, action, params);
+    try {
+      return await this.carryOut(session, action, params);
+    } finally {
+      // A long call (steps, a wait) counts from its end, not its start.
+      if (this.using.has(session.client.id)) this.touch(session, action, params);
+    }
+  }
+
+  private async carryOut(session: Session, action: Action, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     const computer = session.client.name;
 
     if (action === "look") {
@@ -170,6 +248,13 @@ export class Desktops {
       throw new Error(`clicking and typing are switched off for ${session.client.name} on the VorteX Axis admin page`);
     }
   }
+}
+
+/** A few words on what an agent just did on a computer, for the admin page. */
+function describe(action: string, params: Record<string, unknown>): string {
+  const what = text(params.name) ?? text(params.into) ?? text(params.app) ?? text(params.url) ?? text(params.window) ?? text(params.keys) ?? text(params.go);
+  const said = action === "steps" && Array.isArray(params.steps) ? `${params.steps.length} steps` : what ? `${action} ${what}` : action;
+  return said.length > 80 ? `${said.slice(0, 79)}…` : said;
 }
 
 /** Actions that change what is on the screen, held by the computer's allowInput switch. */

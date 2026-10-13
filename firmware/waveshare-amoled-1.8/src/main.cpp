@@ -44,6 +44,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"maxSpeechMs", "Longest sentence", "number", "Listening", nullptr, "20000", 3000, 60000, "ms", nullptr},
     {"glowCorner", "Glow corner curve", "number", "Screen", "How round the edge glow turns the corners. Raise it until the corners show as a smooth curve.", "56", 12, 120, "pixels", nullptr},
     {"timerGlow", "Timer countdown glow", "toggle", "Screen", "In a timer's last ten seconds, a red glow runs round the screen's edges and shrinks as the time runs out, beating once a second.", "1", 0, 0, nullptr, nullptr},
+    {"handsGlow", "Computer in use glow", "toggle", "Screen", "A rose glow along the edges while an agent is using a computer near this device (looking, clicking, typing).", "1", 0, 0, nullptr, nullptr},
     {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, a blue one while a question waits for you on another device, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
@@ -771,13 +772,14 @@ void setup() {
             return true;
         }
         if (!strcmp(name, "glow.show")) {
-            static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking"};
+            static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
             static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
-                                                 glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking};
+                                                 glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking,
+                                                 glow::State::Hands};
             const char *kind = params["kind"] | "";
             GlowRequest request = {glow::State::None, (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
                                    (int)(params["corner"] | (int)client.settingInt("glowCorner", 56))};
-            for (int i = 0; i < 8; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
+            for (int i = 0; i < 9; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
             if (request.kind == glow::State::None) return false;
             portENTER_CRITICAL(&requestLock);
             glowRequest = request;
@@ -1057,6 +1059,10 @@ void loop() {
             sweep = timerLeft / (float)TIMER_GLOW_MS;
             const float beat = (timerLeft % 1000) / 1000.0f;  // 1 on each whole second, fading to 0
             level = beat * beat;
+        } else if (state.desktopBusy && !askShown && client.settingInt("handsGlow", 1) != 0 &&
+                   (calm || state.turn == axis::Turn::Thinking)) {
+            // An agent at a computer nearby: rose, also around the thinking face of the turn that set it going.
+            notice = glow::State::Hands;
         } else if (calm && client.settingInt("notifyGlow", 1) != 0) {
             if (doneFlashUntil && (int32_t)(started - doneFlashUntil) < 0) {
                 notice = glow::State::Done;

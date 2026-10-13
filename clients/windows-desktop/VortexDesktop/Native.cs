@@ -33,6 +33,7 @@ static class Native
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
     [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);

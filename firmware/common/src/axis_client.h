@@ -16,7 +16,7 @@
 #define AXIS_PROTOCOL_VERSION 1
 
 /** Firmware version, without a leading "v". Reported to Axis on connect. */
-#define AXIS_FIRMWARE_VERSION "0.17.3"
+#define AXIS_FIRMWARE_VERSION "0.18.0"
 
 namespace axis {
 
@@ -133,6 +133,8 @@ struct Snapshot {
     uint8_t taskChimes = 0;
     /** Questions waiting for the person that this device is not showing: on another device, or on none any more. */
     uint8_t asksElsewhere = 0;
+    /** An agent is using a computer near this device (Axis's desktop.busy). */
+    bool desktopBusy = false;
 };
 
 /**

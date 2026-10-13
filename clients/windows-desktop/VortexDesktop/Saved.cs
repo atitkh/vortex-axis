@@ -19,6 +19,8 @@ public sealed class Saved
     public string? Name { get; set; }
     public string? TokenProtected { get; set; }
     public bool Paused { get; set; }
+    /** Talking from this computer (its microphone and speakers as an Axis device). On unless switched off. */
+    public bool Voice { get; set; } = true;
 
     static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VorteX Axis");
     static string FilePath => Path.Combine(Folder, "desktop.json");

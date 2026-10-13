@@ -52,6 +52,12 @@ public sealed class AxisLink : IAsyncDisposable
     public event Action<IReadOnlyDictionary<string, JsonElement>>? SettingsChanged;
     /** Carries out a command from Axis. Unset, every command is answered "not implemented". */
     public Func<string, JsonElement, CancellationToken, Task<CommandAnswer>>? OnCommand { get; set; }
+    /** Every message from Axis this class does not handle itself (turns, speech, replies), as it came. */
+    public event Action<string, JsonElement>? Message;
+    /** Audio from Axis: the binary frames between a speak.start and its speak.end. */
+    public event Action<byte[]>? Audio;
+    /** How much speech this client can hold ahead of playing it; set when it has a speaker. */
+    public int AudioBufferMs { get; init; }
 
     public LinkState State { get; private set; } = LinkState.Stopped;
     public AxisAddress Address { get; }
@@ -146,7 +152,7 @@ public sealed class AxisLink : IAsyncDisposable
             connectCt.CancelAfter(TimeSpan.FromSeconds(15));
             await ws.ConnectAsync(Address.Socket, connectCt.Token);
         }
-        await SendAsync(new JsonObject
+        var hello = new JsonObject
         {
             ["t"] = "hello",
             ["protocol"] = Protocol,
@@ -156,9 +162,11 @@ public sealed class AxisLink : IAsyncDisposable
             ["version"] = identity.Version,
             ["capabilities"] = new JsonArray(identity.Capabilities.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()),
             ["settingsVersion"] = settingsVersion,
-            // Big enough for anything Axis might send; this client takes no audio.
+            // Big enough for anything Axis might send.
             ["maxFrameBytes"] = 65536,
-        }, ct);
+        };
+        if (AudioBufferMs > 0) hello["audioBufferMs"] = AudioBufferMs;
+        await SendAsync(hello, ct);
 
         var buffer = new byte[64 * 1024];
         using var message = new MemoryStream();
@@ -172,7 +180,11 @@ public sealed class AxisLink : IAsyncDisposable
                 if (result.MessageType == WebSocketMessageType.Close) return CloseReason(ws);
                 message.Write(buffer, 0, result.Count);
             } while (!result.EndOfMessage);
-            if (result.MessageType != WebSocketMessageType.Text) continue;  // audio: none is ever asked for
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                Audio?.Invoke(message.ToArray());
+                continue;
+            }
 
             using var doc = JsonDocument.Parse(message.ToArray());
             var root = doc.RootElement;
@@ -202,6 +214,9 @@ public sealed class AxisLink : IAsyncDisposable
                     }
                     var receivedAt = Environment.TickCount64;
                     _ = Task.Run(() => AnswerAsync(id, name, parameters, ct, receivedAt), ct);
+                    break;
+                case "turn" or "transcript" or "reply.text" or "speak.start" or "speak.end" or "stop" or "ask" or "ask.end" or "status":
+                    Message?.Invoke(root.GetProperty("t").GetString()!, root.Clone());
                     break;
                 case "error":
                     var code = root.GetProperty("code").GetString();
@@ -262,6 +277,24 @@ public sealed class AxisLink : IAsyncDisposable
         d.TryAdd("actions", new JsonArray());
         d.TryAdd("links", new JsonArray());
         return d;
+    }
+
+    /** Sends a message, for the voice part; false when not connected. */
+    public async Task<bool> TrySendAsync(JsonObject message)
+    {
+        try { await SendAsync(message, CancellationToken.None); return true; }
+        catch { return false; }
+    }
+
+    /** Sends a frame of microphone audio. */
+    public async Task<bool> TrySendAudioAsync(ReadOnlyMemory<byte> pcm)
+    {
+        var ws = socket;
+        if (ws == null || ws.State != WebSocketState.Open) return false;
+        await sendLock.WaitAsync();
+        try { await ws.SendAsync(pcm, WebSocketMessageType.Binary, true, CancellationToken.None); return true; }
+        catch { return false; }
+        finally { sendLock.Release(); }
     }
 
     async Task SendAsync(JsonObject message, CancellationToken ct)

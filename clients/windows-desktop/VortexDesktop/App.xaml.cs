@@ -26,7 +26,11 @@ public partial class App : System.Windows.Application
     public static string Version { get; } =
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
 
-    const int HotkeyId = 0xA515;
+    const int HotkeyId = 0xA515, TalkKeyId = 0xA516;
+    Voice? voice;
+    VoicePill? pill;
+    readonly VoiceIo voiceIo = new();
+    Forms.ToolStripMenuItem? voiceItem;
     Mutex? single;
     Saved saved = Saved.Load();
     AxisLink? link;
@@ -96,7 +100,7 @@ public partial class App : System.Windows.Application
     public async Task PairAsync(string address, string code, string name)
     {
         var where = AxisAddress.Parse(address);
-        var pairing = await AxisLink.PairAsync(where, where.Code ?? code, name, DesktopIdentity.Create(Version));
+        var pairing = await AxisLink.PairAsync(where, where.Code ?? code, name, DesktopIdentity.Create(Version, saved.Voice));
         saved.Pairing = pairing;
         saved.Store();
         Connect(pairing);
@@ -114,8 +118,9 @@ public partial class App : System.Windows.Application
 
     void Connect(Pairing pairing)
     {
-        link = new AxisLink(pairing, DesktopIdentity.Create(Version))
+        link = new AxisLink(pairing, DesktopIdentity.Create(Version, saved.Voice))
         {
+            AudioBufferMs = saved.Voice ? 8000 : 0,
             OnCommand = (name, p, ct) => name == "update" ? UpdateAsync(pairing, p, ct) : commands!.HandleAsync(name, p, ct),
         };
         link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
@@ -131,7 +136,31 @@ public partial class App : System.Windows.Application
             commands!.UseSettings(values);
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
         });
+        if (saved.Voice)
+        {
+            voice = new Voice(link, voiceIo);
+            pill ??= new VoicePill();
+            voice.Changed += () => Dispatcher.BeginInvoke(() => { if (voice != null) pill.Show(voice); });
+        }
+        else voice = null;
         link.Start();
+    }
+
+    /** Talking from this computer on or off: the hub hears of it on the next connection, so it reconnects now. */
+    public async Task SetVoiceAsync(bool on)
+    {
+        saved.Voice = on;
+        saved.Store();
+        if (voiceItem != null) voiceItem.Checked = on;
+        voice?.Interrupt();
+        voice = null;
+        pill?.Hide();
+        if (link != null && saved.Pairing is { } pairing)
+        {
+            await link.StopAsync();
+            Connect(pairing);
+        }
+        Note(on ? "Talking from this computer: on (Ctrl+Alt+Space)" : "Talking from this computer: off");
     }
 
     // --- updating -----------------------------------------------------------------------------
@@ -225,6 +254,8 @@ public partial class App : System.Windows.Application
         pauseItem = new Forms.ToolStripMenuItem("Pause", null, (_, _) => SetPaused(!Paused));
         menu.Items.Add(pauseItem);
         menu.Items.Add("Show the pointer", null, (_, _) => ShowPointer());
+        voiceItem = new Forms.ToolStripMenuItem("Talk from this computer (Ctrl+Alt+Space)", null, (_, _) => _ = SetVoiceAsync(!saved.Voice)) { Checked = saved.Voice };
+        menu.Items.Add(voiceItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => Quit());
         tray = new Forms.NotifyIcon { Icon = new System.Drawing.Icon(icon), Text = "VorteX Axis", ContextMenuStrip = menu, Visible = true };
@@ -247,6 +278,30 @@ public partial class App : System.Windows.Application
         tray.Text = $"VorteX Axis: {state}";
     }
 
+    /** After the talk key: still down after a moment makes it a hold, which ends when Space comes up. */
+    void WatchTalkKey()
+    {
+        var pressed = DateTime.UtcNow;
+        var held = false;
+        var watch = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+        watch.Tick += (_, _) =>
+        {
+            var down = (Native.GetAsyncKeyState(0x20) & 0x8000) != 0;
+            if (down)
+            {
+                if (!held && DateTime.UtcNow - pressed > TimeSpan.FromMilliseconds(350))
+                {
+                    held = true;
+                    voice?.Hold();
+                }
+                return;
+            }
+            watch.Stop();
+            if (held) voice?.Release();
+        };
+        watch.Start();
+    }
+
     public void OpenWindow()
     {
         if (window == null) return;
@@ -260,8 +315,20 @@ public partial class App : System.Windows.Application
         var hwnd = new WindowInteropHelper(window!).EnsureHandle();
         // Ctrl+Alt+S: pause or resume, from anywhere.
         Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x53);
+        // Ctrl+Alt+Space: talk. A press listens until a pause; held, it listens until let go; while the
+        // agent thinks or speaks, it stops it.
+        if (!Native.RegisterHotKey(hwnd, TalkKeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x20))
+            Note("⚠ Ctrl+Alt+Space is taken by another app; talking from this computer has no key");
         HwndSource.FromHwnd(hwnd)!.AddHook((IntPtr h, int msg, IntPtr w, IntPtr l, ref bool handled) =>
         {
+            if (msg == Native.WM_HOTKEY && w.ToInt32() == TalkKeyId)
+            {
+                handled = true;
+                if (voice == null || Paused || State != LinkState.Online) return IntPtr.Zero;
+                voice.Press();
+                WatchTalkKey();
+                return IntPtr.Zero;
+            }
             if (msg == Native.WM_HOTKEY && w.ToInt32() == HotkeyId)
             {
                 SetPaused(!Paused);

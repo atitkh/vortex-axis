@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.40.0, desktop app 0.7.0 and board firmware 0.18.0 (2026-10-13)
+
+- **The computer as a voice device.** Ctrl+Alt+Space talks from the PC: a press listens until a pause (1.2 s), a hold listens until let go, a press while the agent thinks or speaks stops it; answers play on the PC's speakers and are reported (started, finished, stopped) like a board's. A pill at the bottom of the main screen shows listening (a dot that swells with the voice), what was heard, the reply, and questions with their choices (answered with the same key). The app then says `mic`, `speaker` and `screen`, so the agent's turns are marked as coming from the computer and Axis can speak there. Tray: "Talk from this computer" (on by default; off goes back to a computer only, and reconnects). The protocol and timing are in Core (`Voice`), the platform supplies `IVoiceIo` (Windows: NAudio.Core + NAudio.WinMM 2.2.1, MIT, the first audio dependency). Checked against a throwaway Axis with the real speech services: a recorded sentence went up, came back as "What time is it right now", and an announcement was played and reported heard. Not run on Windows.
+- **Boards show when an agent is using a computer.** Axis counts a computer as in use from an agent's desktop call until 8 s after its last; the screens in its location (every screen when it has none) are told `desktop.busy {on, computer}`. Boards (firmware 0.18.0) glow rose along the edges while idle or thinking, setting "Computer in use glow" (`handsGlow`); the glow preview has it as "Computer in use". The admin page's Now table lists "Computer in use" with the last thing the agent did.
+
 ## 0.39.0 and desktop app 0.6.0 (2026-10-13)
 
 Owner picked four of the proposed desktop features; also kept portable so the same commands can come to a Mac app (new platform calls are on `IDesktop`, the logic in Core).
