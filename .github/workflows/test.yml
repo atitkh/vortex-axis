@@ -7,7 +7,8 @@ on:
 
 jobs:
   test:
-    runs-on: linux
+    # Gitea's runner here is labelled linux; GitHub's hosted ones ubuntu-latest.
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'linux' }}
     steps:
       - uses: actions/checkout@v4
 

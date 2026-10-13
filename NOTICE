@@ -1,0 +1,21 @@
+VorteX Axis
+Copyright 2026 Atit Kharel
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository includes, unchanged except where their PATCHES.md says:
+
+- firmware/lib/ESP_TF: TensorFlow Lite Micro (Copyright The TensorFlow Authors)
+  and esp-nn (Copyright Espressif Systems), both under the Apache License 2.0.
+- firmware/lib/microfrontend: the TensorFlow Lite Micro audio frontend
+  (Copyright The TensorFlow Authors), Apache License 2.0.
+
+Builds also use, fetched at build time under their own licences:
+
+- Server: ws (MIT), pngjs (MIT), jpeg-js (BSD-3-Clause).
+- Board firmware: GFX Library for Arduino (no single licence file; see its
+  repository, parts derived from Adafruit GFX, BSD), JPEGDEC (Apache License 2.0),
+  the Arduino core for the ESP32 (LGPL-2.1).
+- Desktop app: NAudio (MIT), System.Security.Cryptography.ProtectedData (MIT).
+- Speech services: sherpa-onnx (Apache License 2.0) and the models they fetch
+  on first start, each under its own licence.

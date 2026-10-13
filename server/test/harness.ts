@@ -61,6 +61,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     homeAssistant: undefined,
     webDir: fileURLToPath(new URL("../../web", import.meta.url)),
+    bundledDir: undefined,
     ...overrides,
   };
 }

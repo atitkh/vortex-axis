@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.41.0 (2026-10-13)
+
+The first release built by the release workflow: the project is free software under the Apache License 2.0, and one version tag now builds everything a person needs.
+
+- **Licence:** Apache-2.0 (`LICENSE`), with `NOTICE` naming what the repository includes from others and what builds fetch.
+- **Releases:** a tag `vX.Y.Z` (it must match `package.json`) runs `.github/workflows/release.yml`: the board firmware (an image for updates over Wi-Fi and a factory image for a first flash by cable), the Windows desktop app, and the Axis image with both inside it. On GitHub the image goes to `ghcr.io` for amd64 and arm64 and the files to the release; on a Gitea runner the image is built and checked, and the files go to the release. The test workflow moved beside it to `.github/workflows/` (one place for both); it chooses its runner the same way.
+- **A fresh Axis comes with firmware and the desktop app.** A release image carries them in `bundled/`. At start, Axis puts the bundled firmware on the shelf when it is newer than every build of its type there (boards are still only updated when somebody presses Update); the desktop app offered and auto-updated is the newer of the image's and one built on the hub (`scripts/build-desktop.sh`). `AXIS_BUNDLED_DIR` points elsewhere.
+
 ## 0.40.2 and desktop app 0.7.7 (2026-10-13)
 
 First part of getting ready to be public: a scrub and a security review (`SECURITY.md`, new).

@@ -474,7 +474,7 @@ export function createHttpHandler(deps: HttpDeps) {
       const build = deps.desktopApp.build();
       if (!build) throw new HttpError(404, "the desktop app has not been built on this hub");
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": build.size, "x-sha256": build.sha256, "x-version": build.version });
-      createReadStream(deps.desktopApp.exe).pipe(res);
+      createReadStream(build.file).pipe(res);
       return;
     }
 
@@ -802,30 +802,21 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       // Firmware: the last few builds kept per client type, one of them current, sent to devices over Wi-Fi.
       // The Windows desktop app (experimental), kept in the data folder by scripts/build-desktop.sh.
+      // The Windows desktop app (experimental): built on this hub by scripts/build-desktop.sh, or the one the image came with.
       if (parts[1] === "desktop" && method === "GET") {
-        const folder = join(config.dataDir, "desktop");
-        const exe = join(folder, "VortexAxisDesktop.exe");
+        const build = deps.desktopApp?.build();
         if (parts.length === 2) {
-          try {
-            const info = JSON.parse(readFileSync(join(folder, "version.json"), "utf8")) as { version?: string; builtAt?: string };
-            return sendJson(res, 200, { available: true, size: statSync(exe).size, version: info.version ?? null, builtAt: info.builtAt ?? null });
-          } catch {
-            return sendJson(res, 200, { available: false });
-          }
+          if (!build) return sendJson(res, 200, { available: false });
+          return sendJson(res, 200, { available: true, size: build.size, version: build.version, builtAt: build.builtAt ?? null });
         }
         if (parts.length === 3 && parts[2] === "app") {
-          let size: number;
-          try {
-            size = statSync(exe).size;
-          } catch {
-            throw new HttpError(404, "the desktop app has not been built on this hub");
-          }
+          if (!build) throw new HttpError(404, "the desktop app has not been built on this hub");
           res.writeHead(200, {
             "content-type": "application/vnd.microsoft.portable-executable",
-            "content-length": size,
+            "content-length": build.size,
             "content-disposition": 'attachment; filename="VortexAxisDesktop.exe"',
           });
-          createReadStream(exe).pipe(res);
+          createReadStream(build.file).pipe(res);
           return;
         }
       }

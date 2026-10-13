@@ -11,8 +11,11 @@ RUN npm run build
 
 # Runtime stage: production dependencies and compiled output only.
 FROM node:24-alpine
-# Which commit this was built from, shown beside the version. Set by `npm run deploy`.
+# Which commit this was built from, shown beside the version. Set by `npm run deploy` and the release workflow.
 ARG AXIS_COMMIT=""
+LABEL org.opencontainers.image.title="VorteX Axis" \
+      org.opencontainers.image.description="A device gateway for AI agents: one agent, reachable from every device around you." \
+      org.opencontainers.image.licenses="Apache-2.0"
 ENV NODE_ENV=production \
     AXIS_COMMIT=$AXIS_COMMIT \
     AXIS_HOST=0.0.0.0 \
@@ -26,6 +29,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/protocol/dist protocol/dist
 COPY --from=build /app/server/dist server/dist
 COPY web web
+# Board firmware and the Windows desktop app, when this is a release image (empty otherwise): a fresh hub
+# can update boards and offer the app from the start (server/src/bundled.ts, desktopapp.ts).
+COPY bundled bundled
 RUN mkdir -p /data /backup && chown node:node /data /backup
 USER node
 VOLUME /data

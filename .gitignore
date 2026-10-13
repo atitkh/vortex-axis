@@ -31,3 +31,7 @@ CLAUDE.local.md
 # local speech models
 models/
 __pycache__/
+
+# Filled by the release workflow before the image is built (see bundled/.keep).
+bundled/*
+!bundled/.keep

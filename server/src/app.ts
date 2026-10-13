@@ -1,4 +1,6 @@
 import { DesktopApp } from "./desktopapp.js";
+import { FirmwareStore } from "./firmware.js";
+import { importBundledFirmware } from "./bundled.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
@@ -172,7 +174,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     activity,
     log,
   });
-  const desktopApp = new DesktopApp(config.dataDir, hub, log);
+  const desktopApp = new DesktopApp(config.dataDir, hub, log, config.bundledDir);
+  // Firmware a release image came with, onto the shelves (only when newer than what is there).
+  importBundledFirmware(config.bundledDir, new FirmwareStore(config.dataDir), log);
   const desktops = new Desktops(hub, store);
   const timers = new Timers({ store, hub, activity, log });
   const wakeWords = new WakeWordStore(config.dataDir);

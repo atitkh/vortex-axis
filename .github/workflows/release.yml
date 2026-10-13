@@ -1,0 +1,133 @@
+name: release
+
+# A version tag (v0.41.0) builds everything a person needs: the board firmware, the Windows desktop app and
+# the Axis image with both inside it, and puts them on a release. Runs on GitHub, and on a Gitea runner with
+# the label "linux" (there the image is built and checked but not pushed; the release gets the files).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'linux' }}
+    env:
+      ON_GITHUB: ${{ github.server_url == 'https://github.com' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions
+        id: v
+        run: |
+          axis=$(node -p "require('./package.json').version")
+          firmware=$(sed -n 's/#define AXIS_FIRMWARE_VERSION "\(.*\)"/\1/p' firmware/common/src/axis_client.h)
+          desktop=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' clients/windows-desktop/Directory.Build.props)
+          echo "axis=$axis" >> "$GITHUB_OUTPUT"
+          echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
+          echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
+          echo "Axis $axis, board firmware $firmware, desktop app $desktop"
+          # A tag has to name the version it is: v plus the top-level package.json's.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$axis" ]; then
+            echo "the tag ${GITHUB_REF_NAME} is not v$axis (package.json)"; exit 1
+          fi
+
+      # Board firmware (PlatformIO), for each board type in firmware/.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Board firmware
+        run: |
+          pip install --quiet platformio==6.1.19
+          mkdir -p out bundled/firmware
+          echo "[" > bundled/firmware/manifest.json
+          first=1
+          for board in firmware/waveshare-amoled-1.8; do
+            type=$(basename "$board")
+            pio run -d "$board"
+            build=$(ls -d "$board"/.pio/build/*/ | head -1)
+            # For updates over Wi-Fi: the application image. For a board's first flash: the factory image.
+            cp "$build/firmware.bin" "bundled/firmware/$type.bin"
+            cp "$build/firmware.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}.bin"
+            cp "$build/firmware.factory.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}-factory.bin"
+            [ $first = 1 ] || echo "," >> bundled/firmware/manifest.json
+            first=0
+            printf '{"type":"%s","version":"%s","file":"%s.bin"}' "$type" "${{ steps.v.outputs.firmware }}" "$type" >> bundled/firmware/manifest.json
+          done
+          echo "]" >> bundled/firmware/manifest.json
+          cat bundled/firmware/manifest.json
+
+      # The Windows desktop app: one self-contained exe, built on Linux (it only runs on Windows).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Windows desktop app
+        run: |
+          dotnet publish clients/windows-desktop/VortexDesktop -c Release -r win-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -o .out/win-x64 -nologo -v q
+          mkdir -p bundled/desktop
+          cp .out/win-x64/VortexAxisDesktop.exe bundled/desktop/
+          printf '{"version":"%s","builtAt":"%s"}\n' "${{ steps.v.outputs.desktop }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > bundled/desktop/version.json
+          cp .out/win-x64/VortexAxisDesktop.exe "out/VortexAxisDesktop-${{ steps.v.outputs.desktop }}.exe"
+
+      # The Axis image, with the firmware and the app in it.
+      - uses: docker/setup-qemu-action@v3
+        if: env.ON_GITHUB == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: env.ON_GITHUB == 'true'
+      - uses: docker/login-action@v3
+        if: env.ON_GITHUB == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Axis image
+        run: |
+          image="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          tags="-t $image:${{ steps.v.outputs.axis }} -t $image:latest"
+          if [ "$ON_GITHUB" = "true" ]; then
+            # amd64 and arm64 (a Raspberry Pi or an Apple Silicon Mac can run it too), pushed.
+            docker buildx build --platform linux/amd64,linux/arm64 --build-arg AXIS_COMMIT="${GITHUB_SHA::7}" $tags --push .
+          else
+            # Here only built, to prove the image builds with everything in it.
+            docker build --build-arg AXIS_COMMIT="${GITHUB_SHA::7}" -t vortex-axis:release-check .
+            docker run --rm --entrypoint sh vortex-axis:release-check -c 'ls -la bundled/firmware bundled/desktop && cat bundled/firmware/manifest.json'
+            docker rmi vortex-axis:release-check > /dev/null
+          fi
+
+      - name: Release notes
+        run: |
+          # The changelog's newest section.
+          awk 'NR>1 && /^## /{n++} n==1{print} n>1{exit}' CHANGELOG.md | sed '1{/^## /d}' > out/notes.md
+          {
+            echo ""
+            echo "Axis ${{ steps.v.outputs.axis }}, board firmware ${{ steps.v.outputs.firmware }}, desktop app ${{ steps.v.outputs.desktop }}."
+            echo "Image: \`ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]'):${{ steps.v.outputs.axis }}\` (the firmware and the desktop app are inside it)."
+          } >> out/notes.md
+          ls -la out
+
+      - name: Release on GitHub
+        if: env.ON_GITHUB == 'true' && github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: out/notes.md
+          files: |
+            out/*.bin
+            out/*.exe
+
+      - name: Release on Gitea
+        if: env.ON_GITHUB != 'true' && github.ref_type == 'tag'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          api="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+          body=$(python3 -c 'import json,sys;print(json.dumps({"tag_name":sys.argv[1],"name":sys.argv[1],"body":open("out/notes.md").read()}))' "${GITHUB_REF_NAME}")
+          id=$(curl -sf -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" -d "$body" "$api/releases" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          for f in out/*.bin out/*.exe; do
+            curl -sf -X POST -H "Authorization: token $TOKEN" -F "attachment=@$f" "$api/releases/$id/assets?name=$(basename "$f")" > /dev/null
+            echo "attached $(basename "$f")"
+          done

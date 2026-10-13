@@ -10,7 +10,11 @@ export interface DesktopBuild {
   version: string;
   size: number;
   sha256: string;
+  /** Where computers fetch it, on Axis. */
   path: string;
+  /** The program file on this machine. */
+  file: string;
+  builtAt?: string;
 }
 
 /** "0.5.1" > "0.5.0"; anything that is not numbers compares as older, so it never blocks an update. */
@@ -30,7 +34,7 @@ export function newer(a: string, b: string): boolean {
  * is told to update itself unless its "Update automatically" setting is off.
  */
 export class DesktopApp {
-  private cached: { key: string; build: DesktopBuild } | undefined;
+  private readonly cached = new Map<string, { key: string; build: DesktopBuild }>();
   /** Version last offered to each computer, so a computer that refuses is not asked again every minute. */
   private offered = new Map<string, string>();
 
@@ -38,23 +42,49 @@ export class DesktopApp {
     private readonly dataDir: string,
     private readonly hub: Hub,
     private readonly log: (line: string) => void = (line) => console.log(line),
+    /** Where a release image keeps the build it came with (`bundled/desktop`). */
+    private readonly bundledDir?: string,
   ) {}
 
-  get exe(): string {
-    return join(this.dataDir, "desktop", "VortexAxisDesktop.exe");
+  /** The folders a build may be in: one built on this hub (scripts/build-desktop.sh), and the one the image came with. */
+  private folders(): string[] {
+    return [join(this.dataDir, "desktop"), ...(this.bundledDir ? [join(this.bundledDir, "desktop")] : [])];
   }
 
-  /** The current build, or undefined when none has been built on this hub. */
+  /** The program file of the current build. */
+  get exe(): string {
+    return this.build()?.file ?? join(this.dataDir, "desktop", "VortexAxisDesktop.exe");
+  }
+
+  /** The current build: the newer of the hub's own and the image's, or undefined when there is neither. */
   build(): DesktopBuild | undefined {
+    let best: DesktopBuild | undefined;
+    for (const folder of this.folders()) {
+      const found = this.read(folder);
+      if (found && (!best || newer(found.version, best.version))) best = found;
+    }
+    return best;
+  }
+
+  private read(folder: string): DesktopBuild | undefined {
     try {
-      const stat = statSync(this.exe);
-      const key = `${stat.size}:${stat.mtimeMs}`;
-      if (this.cached?.key === key) return this.cached.build;
-      const info = JSON.parse(readFileSync(join(this.dataDir, "desktop", "version.json"), "utf8")) as { version?: unknown };
+      const file = join(folder, "VortexAxisDesktop.exe");
+      const stat = statSync(file);
+      const key = `${file}:${stat.size}:${stat.mtimeMs}`;
+      const known = this.cached.get(folder);
+      if (known?.key === key) return known.build;
+      const info = JSON.parse(readFileSync(join(folder, "version.json"), "utf8")) as { version?: unknown; builtAt?: unknown };
       if (typeof info.version !== "string") return undefined;
-      const sha256 = createHash("sha256").update(readFileSync(this.exe)).digest("hex");
-      const build = { version: info.version, size: stat.size, sha256, path: "/v1/desktop/app" };
-      this.cached = { key, build };
+      const sha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
+      const build: DesktopBuild = {
+        version: info.version,
+        size: stat.size,
+        sha256,
+        path: "/v1/desktop/app",
+        file,
+        ...(typeof info.builtAt === "string" ? { builtAt: info.builtAt } : {}),
+      };
+      this.cached.set(folder, { key, build });
       return build;
     } catch {
       return undefined;
