@@ -122,6 +122,12 @@ export class Hub implements TurnPort {
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
       live: options.live,
       voices: options.voices,
+      chime: async (session) => {
+        if (!this.store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) return;
+        const chimed = await this.command(session, "chime", undefined, 3000).catch(() => undefined);
+        // Speech that starts while the chime is still sounding cuts it off.
+        if (chimed?.ok) await new Promise((resolve) => setTimeout(resolve, 900));
+      },
       wakeSeen: (seen) => {
         const session = this.online.get(seen.clientId);
         const wake = { ...seen, at: this.now(), word: String((session && this.settings(session).wakeWord) || "built-in") };

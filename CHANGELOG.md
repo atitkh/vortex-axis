@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.42.3 (2026-10-13)
+
+- **A task's spoken answer starts with the chime**, the way a timer does, on a device that has one: Axis plays it, gives it a moment, then says "About <title>: ...". Only when there is something to say: a task that answers `NO_REPLY` stays silent and does not chime, and a device without a chime action or a speaker just shows or says the answer as before.
+
 ## 0.42.2 (2026-10-13)
 
 - **A task's answer says what it is about.** It opened cold, some minutes after it was asked for. It now begins "About <the task's label, or the start of what was asked>:", as the answer of a run handed over to the background does, in speech and on the screen. A task with nothing to tell still says nothing.

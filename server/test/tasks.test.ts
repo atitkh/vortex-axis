@@ -125,6 +125,27 @@ describe("a timer that does something", () => {
     expect(asked.at(-1)).toContain("allowed this task to click and type");
   });
 
+  it("chimes before a task's spoken answer on a device with a chime, and not before a silent one", async () => {
+    const desk = await device("Desk", ["screen", "speaker", "mic"]);
+    desk.send({ t: "describe", settings: [], actions: [{ name: "chime", label: "Chime" }], links: [] });
+    for (let i = 0; i < 40 && !(ctx.app as any).store.getSchema("board"); i++) await new Promise((r) => setTimeout(r, 25));
+
+    answer = ["NO_REPLY"];
+    await invoke("vortex.axis.timer", { action: "set", seconds: 1, label: "quiet", then: "Say something only if the build failed.", client: "Desk" });
+    await desk.next("reply.text", 0, (m) => m.final && m.turnId.startsWith("task-"));
+    expect(desk.received.some((m: any) => m.t === "command" && m.name === "chime")).toBe(false);
+
+    answer = ["The build passed."];
+    const from = desk.received.length;
+    await invoke("vortex.axis.timer", { action: "set", seconds: 1, label: "build", then: "Check the build and say so.", client: "Desk" });
+    const command = await desk.next("command", from, (m) => m.name === "chime");
+    // Nothing is spoken until the chime has played.
+    expect(desk.received.slice(from).some((m: any) => m.t === "speak.start")).toBe(false);
+    desk.send({ t: "command.result", id: command.id, ok: true, payload: { played: true } });
+    await hearOut(desk, from);
+    expect(spoken.join(" ")).toBe("About build: The build passed.");
+  });
+
   it("says nothing at all when the agent has nothing to tell, and names an unlabelled task by what was asked", async () => {
     const desk = await device("Desk", ["screen", "speaker", "mic"]);
     answer = ["NO_REPLY"];

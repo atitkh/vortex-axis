@@ -51,6 +51,8 @@ export interface TurnOptions {
   wakeIgnored?: (clientId: string, text: string) => void;
   /** Told about every wake word a device reports, with what came of it. */
   wakeSeen?: (wake: Pick<WakeRecord, "clientId" | "score" | "level" | "outcome">) => void;
+  /** Plays the device's chime, if it has one, and gives it time to sound. Opens a task's spoken answer. */
+  chime?: (session: Session) => Promise<void>;
   /** Shown each turn as it goes, for somebody watching on the admin page. */
   live?: Live | undefined;
   /** Tells voices apart, when switched on: whose voice a spoken turn is in, and where a guest's goes. */
@@ -1092,6 +1094,16 @@ export class TurnManager {
         }
         put(piece);
       };
+      // A task's answer that is going to be spoken starts with the device's chime, the way a timer does.
+      let chimed = !about || !speaker || !this.options.chime;
+      const release = async () => {
+        if (!held.length) return;
+        if (!chimed) {
+          chimed = true;
+          await this.options.chime!(session).catch(() => undefined);
+        }
+        while (held.length) emit(held.shift()!);
+      };
 
       // An agent reply that turns out to be "NO_REPLY" must not be spoken, so nothing goes out
       // while the text so far could still become one. Said words are never held back.
@@ -1149,13 +1161,14 @@ export class TurnManager {
         full += delta;
         for (const piece of splitter.pushPieces(delta)) held.push(piece);
         if (fromAgent && mayBeSilent(full)) continue;
-        while (held.length) emit(held.shift()!);
+        await release();
+        if (signal.aborted) return "interrupted";
       }
       const rest = splitter.flushPiece();
       if (rest) held.push(rest);
       const silent = fromAgent && isSilent(full);
       if (silent) record.outcome = "silent";
-      if (!silent) while (held.length) emit(held.shift()!);
+      if (!silent) await release();
       // Everything queued has been spoken (or the turn was stopped) once this returns.
       await queue?.finish();
       if (signal.aborted) return "interrupted";
