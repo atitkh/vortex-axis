@@ -4,7 +4,9 @@
 //   AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 [--update]
 //
 // Build first (`pio run` in firmware/<type>). AXIS_URL defaults to http://127.0.0.1:8440.
-import { readFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,7 +37,11 @@ const saved = await call("POST", `/admin/firmware/${encodeURIComponent(type)}?ve
 console.log(`uploaded ${saved.type} ${saved.version}, ${saved.size} bytes, md5 ${saved.md5}`);
 // The factory image too, so the hub's flasher page (/flash) can put this version on a new board.
 try {
-  const factory = readFileSync(join(buildDir, env.name, "firmware.factory.bin"));
+  // Not PlatformIO's file as it is: its header has the wrong flash size (see scripts/factory-image.mjs).
+  const made = join(tmpdir(), `axis-factory-${process.pid}.bin`);
+  execFileSync(process.execPath, [join(root, "scripts", "factory-image.mjs"), join(root, "firmware", type), made], { stdio: "inherit" });
+  const factory = readFileSync(made);
+  rmSync(made, { force: true });
   await call("POST", `/admin/firmware/${encodeURIComponent(type)}?version=${encodeURIComponent(version)}&part=factory`, factory);
   console.log(`uploaded its factory image, ${factory.length} bytes`);
 } catch (error) {

@@ -27,7 +27,7 @@ A new board needs the firmware put on it once, by cable. After that it updates f
 
 ```bash
 pip install esptool
-esptool.py --chip esp32s3 write_flash 0x0 firmware-waveshare-amoled-1.8-<version>-factory.bin
+esptool.py --chip esp32s3 write_flash --flash_size 16MB 0x0 firmware-waveshare-amoled-1.8-<version>-factory.bin
 ```
 
 **From source.** With [PlatformIO](https://platformio.org/install/cli), in `firmware/waveshare-amoled-1.8`: `pio run --target upload`. See [firmware/README.md](../firmware/README.md) for the serial port on Linux and everything else about the firmware.

@@ -44,7 +44,7 @@ jobs:
           python-version: "3.12"
       - name: Board firmware
         run: |
-          pip install --quiet platformio==6.1.19
+          pip install --quiet platformio==6.1.19 esptool
           mkdir -p out bundled/firmware
           echo "[" > bundled/firmware/manifest.json
           first=1
@@ -54,9 +54,10 @@ jobs:
             build=$(ls -d "$board"/.pio/build/*/ | head -1)
             # For updates over Wi-Fi: the application image. For a board's first flash: the factory image.
             cp "$build/firmware.bin" "bundled/firmware/$type.bin"
-            cp "$build/firmware.factory.bin" "bundled/firmware/$type.factory.bin"
+            # The factory image with its header set for this board's flash size (scripts/factory-image.mjs says why).
+            node scripts/factory-image.mjs "$board" "bundled/firmware/$type.factory.bin"
             cp "$build/firmware.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}.bin"
-            cp "$build/firmware.factory.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}-factory.bin"
+            cp "bundled/firmware/$type.factory.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}-factory.bin"
             [ $first = 1 ] || echo "," >> bundled/firmware/manifest.json
             first=0
             printf '{"type":"%s","version":"%s","file":"%s.bin","factory":"%s.factory.bin"}' "$type" "${{ steps.v.outputs.firmware }}" "$type" "$type" >> bundled/firmware/manifest.json

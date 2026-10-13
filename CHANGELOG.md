@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.42.1 (2026-10-13)
+
+- **A board flashed from the flasher page did not start** (owner's first try: "partition 3 invalid ... exceeds flash chip size 0x800000", over and over). PlatformIO's factory image says in its header that the flash is 8 MB, the generic board definition's size, while this board is built for 16 MB; a cable upload corrects the header on the way, a browser flasher writes the file as it is. `scripts/factory-image.mjs` now makes the factory image with esptool, with the size from the board's `platformio.ini` and the checksum renewed, and checks the result; the flasher folder, `push-firmware.mjs` and the release workflow all use it. A board left in that state is fine: flash it again from the page (hold BOOT while plugging in if it is not found).
+
 ## 0.42.0 (2026-10-13)
 
 **Timers that do something** (owner: "check on it in 20 minutes" set a timer that only reminded him).

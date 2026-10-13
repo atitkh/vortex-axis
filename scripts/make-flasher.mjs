@@ -1,6 +1,7 @@
 // Puts together the browser flasher: the page, a board's factory image and the manifest ESP Web Tools reads.
 //   node scripts/make-flasher.mjs <board folder, built> <output folder>
 // The board must have been built (pio run) so that its factory image exists.
+import { execFileSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +32,8 @@ if (!existsSync(join(tools, "install-button.js"))) {
   process.exit(1);
 }
 cpSync(tools, join(out, "esp-web-tools"), { recursive: true });
-copyFileSync(join(builds, env, "firmware.factory.bin"), join(out, "firmware-factory.bin"));
+// Not PlatformIO's file as it is: its header has the wrong flash size (see scripts/factory-image.mjs).
+execFileSync(process.execPath, [join(root, "scripts", "factory-image.mjs"), board, join(out, "firmware-factory.bin")], { stdio: "inherit" });
 writeFileSync(
   join(out, "manifest.json"),
   JSON.stringify(
