@@ -54,8 +54,34 @@ sealed class VoiceIo : IVoiceIo
                 DiscardOnBufferOverflow = true,
             };
             output = new WaveOutEvent { DesiredLatency = 150 };
-            output.Init(buffer);
+            output.Init(new Meter(buffer, this));
             output.Play();
+        }
+    }
+
+    /** How loud what is being played is just now, 0 to 1 (it reaches the ear a little later: the device's own buffer). */
+    public double PlayLevel { get; private set; }
+
+    /** Passes the speech through to the device and measures it on the way, a buffer at a time. */
+    sealed class Meter(IWaveProvider source, VoiceIo owner) : IWaveProvider
+    {
+        public WaveFormat WaveFormat => source.WaveFormat;
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            var read = source.Read(buffer, offset, count);
+            double energy = 0;
+            var samples = read / 2;
+            for (var i = 0; i < samples; i++)
+            {
+                var x = BitConverter.ToInt16(buffer, offset + i * 2) / 32768.0;
+                energy += x * x;
+            }
+            var rms = samples > 0 ? Math.Sqrt(energy / samples) : 0;
+            // Square root: ordinary speech fills most of the range. It rises at once and falls a little slower.
+            var level = Math.Min(1, Math.Sqrt(rms / 0.22));
+            owner.PlayLevel = level > owner.PlayLevel ? level : owner.PlayLevel * 0.6 + level * 0.4;
+            return read;
         }
     }
 
@@ -103,6 +129,7 @@ sealed class VoiceIo : IVoiceIo
     bool StopPlaybackLocked()
     {
         var was = output != null;
+        PlayLevel = 0;
         try { output?.Stop(); } catch { }
         output?.Dispose();
         output = null;

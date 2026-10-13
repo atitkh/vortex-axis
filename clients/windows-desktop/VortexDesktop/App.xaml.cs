@@ -81,6 +81,7 @@ public partial class App : System.Windows.Application
         });
         controlPill = new ControlPill();
         faceWindow = new FaceWindow();
+        faceWindow.Loudness = () => voice?.Loudness ?? -1;
         faceWindow.Clicked += () => { if (voice != null && !Paused && State == LinkState.Online) voice.Press(); };
         controlPill.Moved += ShowFace;
         faceWindow.Keep(saved.KeepFace && saved.ShowFace);
@@ -189,7 +190,7 @@ public partial class App : System.Windows.Application
         if (voiceItem != null) voiceItem.Checked = on;
         voice?.Interrupt();
         voice = null;
-        pill?.Hide();
+        pill?.Dismiss();
         if (link != null && saved.Pairing is { } pairing)
         {
             await link.StopAsync();

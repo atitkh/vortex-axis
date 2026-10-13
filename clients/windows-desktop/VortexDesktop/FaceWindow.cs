@@ -24,6 +24,10 @@ sealed class FaceWindow : Window
     bool wanted, keep, shown;
     TimeSpan last;
 
+    /** The loudness to follow each frame (the person's voice or the agent's), or below 0 for none. */
+    public Func<double>? Loudness { get; set; }
+    bool voiced;
+
     /** A click on the face, when it is kept on screen. */
     public event Action? Clicked;
 
@@ -57,6 +61,8 @@ sealed class FaceWindow : Window
             if (at == last) return;
             canvas.Dt = last == TimeSpan.Zero ? 0 : (at - last).TotalSeconds;
             last = at;
+            // Every frame, not only when the voice part reports: the agent's voice changes faster than its state.
+            face.Level = voiced ? Loudness?.Invoke() ?? -1 : -1;
             canvas.InvalidateVisual();
         };
     }
@@ -114,7 +120,7 @@ sealed class FaceWindow : Window
             _ => agentHere ? "thinking" : "idle",
         };
         face.SetMode(name);
-        face.Level = mode == VoiceMode.Listening ? level : -1;
+        voiced = mode is VoiceMode.Listening or VoiceMode.Speaking;
         face.SetDoing(name == "thinking" ? (agentHere ? "computer" : doing) : null);
         wanted = name != "idle";
         Update();

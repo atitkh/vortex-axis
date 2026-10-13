@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.7.6 (2026-10-13)
+
+- **The face follows the agent's voice.** While it speaks, the figure swells with what is coming out of the speakers (`IVoiceIo.PlayLevel`, measured as the audio is handed to the device; `Voice.Loudness`), as it follows the microphone while listening. It only pulsed on its own before.
+- **The pills at the top** share one look (`Pill`): a dark surface a little lighter at the top, a soft shadow, an edge with a hint of the moment's colour, a dot that glows in it, and they fade in and out instead of popping. The voice pill: the word for the moment in its colour, what was heard in quotes and italics, a hairline, then the reply a size larger. The "using this computer" pill: a hairline between the title and the last thing done.
+- `CLAUDE.md`'s Status section cut back to the current state; what it held is in `docs/status-history.md`.
+
 ## Desktop app 0.7.5 (2026-10-13)
 
 - The face has no disc and no outline any more (owner: the black background with a coloured border looked odd): it sits on a soft dark pool that fades to nothing at its edge, and each dot gives off a little light of its own colour. Window 200 px, the figure in the middle 60 %.

@@ -16,6 +16,8 @@ public interface IVoiceIo
     void PlayEnd(Action finished);
     /** Stops at once and drops what is left. True when something was playing. */
     bool StopPlayback();
+    /** How loud what is coming out of the speakers is just now, 0 to 1, for the face. */
+    double PlayLevel { get; }
 }
 
 /** What the voice part is doing, for the app to show. */
@@ -58,6 +60,8 @@ public sealed class Voice
     string? askId;
     /** While thinking: the kind of work the agent has picked up (a tool icon's name) or why it is held up, if Axis said. */
     public string? Doing { get; private set; }
+    /** The loudness to show just now, 0 to 1: the person's voice while listening, the agent's while it speaks; -1 otherwise. */
+    public double Loudness => Mode == VoiceMode.Listening ? Level : Mode == VoiceMode.Speaking ? io.PlayLevel : -1;
     /** The microphone's level just now, 0 to 1, for a meter. */
     public double Level { get; private set; }
     /** Anything shown changed. */
