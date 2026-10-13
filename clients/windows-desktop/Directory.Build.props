@@ -1,7 +1,9 @@
 <Project>
   <PropertyGroup>
     <!-- The desktop app's own version, counted apart from Axis's and the boards'. -->
-    <Version>0.4.3</Version>
+    <Version>0.4.4</Version>
+    <!-- As the published app runs: no reflection-based JSON. Everywhere, so a smoke or test build fails the same way (0.4.0 looks broke only in the published app). -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>

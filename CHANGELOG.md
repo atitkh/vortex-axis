@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.4.4 (2026-10-12)
+
+**The real cause of unanswered looks, since 0.4.0.** 0.4.3's new warning on the owner's PC said it: "the answer could not be sent: JsonSerializerOptions instance must specify a TypeInfoResolver". 0.4.0 made a look's elements plain strings and added them with `JsonArray.Add<string>`, which wraps them in a way that needs reflection-based JSON; the published app has that switched off, so turning the answer into text threw, and the old code swallowed the error. `find` built its list with explicit `JsonNode` casts and kept working. The look took 189 ms on Notepad; nothing was slow.
+
+- Elements are added as `JsonNode`. Reproduced with the real Core and reflection off (look failed, find fine), and fixed (both answer).
+- Every build of the desktop projects now has reflection-based JSON off (`Directory.Build.props`), as the published app does, so the smoke console and test harnesses fail the same way.
+- The thread-pool explanation given for 0.4.1 was a guess and was wrong about looks; 0.4.1-0.4.3's deadlines on Windows calls, the OCR deadline, the 12 s fallback and the send-failure warnings stay as hardening.
+
 ## 0.37.3 and desktop app 0.4.3 (2026-10-12)
 
 On 0.4.2 a look at Notepad showed "Looked at the window: 85 things" in the app, yet Axis heard nothing in 15 s; not even the 12 s fallback answer arrived. The same look answer, built by the real Core from a fake Notepad, is 3.5 KB and passes Axis's protocol check, so the answer is being held up or lost on the PC. Instrumented instead of guessed:

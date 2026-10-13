@@ -609,7 +609,8 @@ public sealed class DesktopCommands
                 best = (long)e.W * e.H;
                 under = i + 1;
             }
-            list.Add(Line(e, i + 1));
+            // As a JsonNode: a plain string goes through JsonArray.Add<T>, which needs reflection the published app does not have (0.4.0-0.4.3 looks never answered).
+            list.Add((JsonNode?)Line(e, i + 1));
         }
         // Boxes as "x,y wxh", the same form as the element lines.
         var data = new JsonObject
