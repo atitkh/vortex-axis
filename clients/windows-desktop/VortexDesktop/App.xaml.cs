@@ -444,6 +444,56 @@ sealed class WindowsDesktop : IDesktop
         intended = IntPtr.Zero;
     }
 
+    public async Task<Shot> ScreenshotAsync(string scope, ScreenElement? region, int maxSide, CancellationToken ct)
+    {
+        // Never a picture of a password being typed: checked first, and refused when it cannot be checked.
+        bool password;
+        try { password = await Uia.Run(() => AutomationElement.FocusedElement?.Current.IsPassword == true, 1500, "checking for a password field", ct); }
+        catch (TimeoutException) { throw new InvalidOperationException("could not check whether a password field has the focus, so no picture was taken"); }
+        if (password) throw new InvalidOperationException("a password field has the focus; the app never takes a picture then");
+
+        var desktopArea = Forms.SystemInformation.VirtualScreen;
+        var window = ScreenReader.Foreground();
+        System.Drawing.Rectangle area;
+        if (region != null)
+        {
+            // The element and a margin around it, so its label and neighbours show.
+            var pad = Math.Max(24, Math.Min(region.W, region.H) / 2);
+            area = System.Drawing.Rectangle.Inflate(new System.Drawing.Rectangle(region.X, region.Y, region.W, region.H), pad, pad);
+        }
+        else if (scope == "screen" || window == null) area = desktopArea;
+        else area = new System.Drawing.Rectangle(window.X, window.Y, window.W, window.H);
+        area = System.Drawing.Rectangle.Intersect(area, desktopArea);
+        if (area.Width < 8 || area.Height < 8) throw new InvalidOperationException("there is nothing on screen there to take a picture of");
+
+        // The pointer steps out of the picture, and the screen gets a frame to repaint without it.
+        var hidden = overlay.Dispatcher.InvokeAsync(overlay.HideNow).Task;
+        await Task.WhenAny(hidden, Task.Delay(500, ct));
+        await Task.Delay(60, ct);
+        return await Task.Run(() => Capture(area, maxSide, window), ct);
+    }
+
+    static Shot Capture(System.Drawing.Rectangle area, int maxSide, WindowInfo? window)
+    {
+        using var full = new System.Drawing.Bitmap(area.Width, area.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        using (var g = System.Drawing.Graphics.FromImage(full)) g.CopyFromScreen(area.Location, System.Drawing.Point.Empty, area.Size);
+        var scale = Math.Min(1.0, (double)maxSide / Math.Max(area.Width, area.Height));
+        var (w, h) = (Math.Max(1, (int)Math.Round(area.Width * scale)), Math.Max(1, (int)Math.Round(area.Height * scale)));
+        using var small = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        using (var g = System.Drawing.Graphics.FromImage(small))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(full, 0, 0, w, h);
+        }
+        var jpeg = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
+        using var quality = new System.Drawing.Imaging.EncoderParameters(1);
+        quality.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 72L);
+        using var bytes = new System.IO.MemoryStream();
+        small.Save(bytes, jpeg, quality);
+        return new Shot(bytes.ToArray(), w, h, area.X, area.Y, area.Width, area.Height, window);
+    }
+
     public async Task KeysAsync(KeyCombo combo, CancellationToken ct)
     {
         await EnsureFrontAsync(ct);

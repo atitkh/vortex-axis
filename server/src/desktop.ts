@@ -12,7 +12,7 @@ import type { Store } from "./store.js";
  * `desktop.point` with where it pointed. Ids hold until the next look.
  */
 
-const ACTIONS = ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait"] as const;
+const ACTIONS = ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait", "screenshot"] as const;
 /** Most characters one type carries: a command's values are at most 512 characters. */
 export const MAX_TYPED = 500;
 type Action = (typeof ACTIONS)[number];
@@ -86,6 +86,27 @@ export class Desktops {
       const outcome = await this.hub.command(session, "desktop.look", { scope, ocr: params.ocr === true }, LOOK_TIMEOUT_MS);
       if (!outcome.ok) throw new Error(outcome.error || `${computer} could not read its screen, and did not say why`);
       return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
+    }
+
+    if (action === "screenshot") {
+      const allowed = this.hub.settings(session).allowScreenshot;
+      if (!(allowed === 1 || allowed === true || allowed === "1")) {
+        throw new Error(`screenshots are switched off for ${computer}; the person can switch them on on the VorteX Axis admin page. Use look or find instead`);
+      }
+      const scope = text(params.scope) ?? "window";
+      if (!["window", "screen"].includes(scope)) throw new Error("screenshot scope must be window or screen");
+      const detail = text(params.detail) ?? "normal";
+      if (!["low", "normal", "high"].includes(detail)) throw new Error("detail must be low, normal or high");
+      const args: Record<string, string | number> = { scope, detail };
+      const id = whole(params.id);
+      if (id !== undefined) args.id = id;
+      const outcome = await this.hub.command(session, "desktop.screenshot", args, LOOK_TIMEOUT_MS);
+      if (!outcome.ok) throw new Error(outcome.error || `${computer} could not take a picture, and did not say why`);
+      const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
+      const image = data.image as { data?: unknown; mimeType?: unknown } | undefined;
+      if (typeof image?.data !== "string" || typeof image.mimeType !== "string") throw new Error(`${computer} sent no picture`);
+      // `image` is lifted out by the MCP door into an image block; the rest is the text beside it.
+      return { computer, ...data };
     }
 
     if (action === "hide") {

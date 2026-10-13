@@ -21,6 +21,12 @@ public sealed record WindowInfo(string Title, string App, int X, int Y, int W, i
 /** One display, in screen pixels. With several, the ones left of or above the main one have negative coordinates. */
 public sealed record Display(int X, int Y, int W, int H, bool Primary);
 
+/**
+ * A picture of part of the screen, already shrunk and encoded: `Area` is what it shows in screen pixels,
+ * `W` x `H` its own size.
+ */
+public sealed record Shot(byte[] Jpeg, int W, int H, int X, int Y, int AreaW, int AreaH, WindowInfo? Window);
+
 /** The window in front and what has the focus, read cheaply after an action instead of a whole look. */
 public sealed record ScreenState(WindowInfo? Window, ScreenElement? Focus);
 
@@ -71,6 +77,12 @@ public interface IDesktop
     Task DesktopAsync(bool next, CancellationToken ct);
     /** The window in front and the focused control, without reading the rest of the window. */
     Task<ScreenState> StateAsync(CancellationToken ct);
+    /**
+     * A picture of the window in front (`scope` window), the whole desktop (screen), or `region` (an element
+     * from the last look, with a margin), shrunk so its longer side is at most `maxSide`. The app's own pointer
+     * is out of it. Throws when a password field has the focus.
+     */
+    Task<Shot> ScreenshotAsync(string scope, ScreenElement? region, int maxSide, CancellationToken ct);
 }
 
 /** A key with the modifiers held for it: "ctrl+shift+t", "enter", "alt+tab". */
@@ -172,7 +184,7 @@ public sealed class DesktopCommands
     {
         try
         {
-            if (name is "desktop.look" or "desktop.find") return await WithinAsync(RunAsync(name, p, ct), ReadDeadlineMs, name);
+            if (name is "desktop.look" or "desktop.find" or "desktop.screenshot") return await WithinAsync(RunAsync(name, p, ct), ReadDeadlineMs, name);
             if (!Changes.Contains(name)) return await RunAsync(name, p, ct);
             var before = await StateOrNullAsync(ct);
             var answer = await RunAsync(name, p, ct);
@@ -218,6 +230,29 @@ public sealed class DesktopCommands
                 var list = new JsonArray(found.Select(m => (JsonNode?)Line(look.Elements[m.Index], m.Index + 1)).ToArray());
                 var data = new JsonObject { ["matches"] = list };
                 if (look.Window is { } w) data["window"] = $"{Clip(w.Title, 200)} ({w.App})";
+                return CommandAnswer.Done(data: data);
+            }
+            case "desktop.screenshot":
+            {
+                if (!Toggle("allowScreenshot", false)) return CommandAnswer.Fail("screenshots are switched off for this computer (admin page, the computer's settings)");
+                var scope = Str(p, "scope") ?? "window";
+                if (scope is not ("window" or "screen")) return CommandAnswer.Fail("scope must be window or screen");
+                ScreenElement? region = null;
+                if (Int(p, "id") is int id)
+                {
+                    lock (gate) region = id >= 1 && id <= last.Count ? last[id - 1] : null;
+                    if (region == null) return CommandAnswer.Fail($"no element {id} in the last look; look or find again");
+                }
+                var detail = Str(p, "detail") ?? "normal";
+                if (!ShotSides.TryGetValue(detail, out var side)) return CommandAnswer.Fail("detail must be low, normal or high");
+                var shot = await desktop.ScreenshotAsync(scope, region, side, ct);
+                Did?.Invoke($"Took a {shot.W}x{shot.H} picture of {(region != null ? Clip(region.Name, 40) : scope == "screen" ? "the screen" : shot.Window?.Title is { } t ? Clip(t, 40) : "the window")}");
+                var data = new JsonObject
+                {
+                    ["image"] = new JsonObject { ["data"] = Convert.ToBase64String(shot.Jpeg), ["mimeType"] = "image/jpeg" },
+                    ["picture"] = $"{shot.W}x{shot.H} of {shot.X},{shot.Y} {shot.AreaW}x{shot.AreaH}",
+                };
+                if (shot.Window is { } w) data["window"] = $"{Clip(w.Title, 200)} ({w.App})";
                 return CommandAnswer.Done(data: data);
             }
             case "desktop.point":
@@ -266,6 +301,12 @@ public sealed class DesktopCommands
         System.Threading.ThreadPool.GetAvailableThreads(out var free, out _);
         return $"pool {System.Threading.ThreadPool.ThreadCount} threads, {System.Threading.ThreadPool.PendingWorkItemCount} waiting";
     }
+
+    /**
+     * Longest side of a picture, by `detail`. A model reads about w*h/750 tokens from one, so normal (1024) on a
+     * 16:9 window is about 800; low suits "what is this window showing", high small text (or use an id to crop).
+     */
+    static readonly Dictionary<string, int> ShotSides = new() { ["low"] = 640, ["normal"] = 1024, ["high"] = 1568 };
 
     /** Axis waits 15 s for a look; past this the app answers anyway, so the agent hears why instead of a timeout. */
     const int ReadDeadlineMs = 12000;
@@ -648,6 +689,7 @@ public static class DesktopIdentity
             Setting("allowLook", "Let agents read the screen", "toggle", "Desktop", "Off refuses every look. The person at the computer can also pause the app from its window or tray.", "1"),
             Setting("allowInput", "Let agents click and type", "toggle", "Desktop", "Off refuses clicks, typing and key presses; looking and pointing go on. The app never types into a password field or presses lock, sign-out, Task Manager or Alt+F4.", "1"),
             Setting("bubble", "Words beside the pointer", "toggle", "Desktop", "Show what the agent says next to its pointer.", "1"),
+            Setting("allowScreenshot", "Let agents take screenshots", "toggle", "Desktop", "On, an agent may take a small picture of the window in front or the screen when reading its controls is not enough; the picture goes to the agent's model. Never while a password field has the focus.", "0"),
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),
         ["actions"] = new JsonArray(

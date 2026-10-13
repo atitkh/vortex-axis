@@ -78,6 +78,18 @@ export function createMcpHandler(deps: McpDeps) {
         const given = (typeof params.arguments === "object" && params.arguments !== null ? params.arguments : {}) as Record<string, unknown>;
         try {
           const result = await deps.invoke(tool.command, given, via);
+          // A picture (the desktop tool's screenshot) goes to the model as an image block, not as base64 text.
+          const { image, ...rest } = (typeof result === "object" && result !== null ? result : {}) as { image?: { data?: unknown; mimeType?: unknown } } & Record<string, unknown>;
+          if (typeof image?.data === "string" && typeof image.mimeType === "string") {
+            return ok({
+              content: [
+                { type: "image", data: image.data, mimeType: image.mimeType },
+                { type: "text", text: JSON.stringify(rest) },
+              ],
+              structuredContent: rest,
+              isError: false,
+            });
+          }
           return ok({ content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result, isError: false });
         } catch (error) {
           // A tool that could not do what was asked is a result the agent should read, not a protocol error.

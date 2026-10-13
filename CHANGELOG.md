@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.38.0 and desktop app 0.5.0 (2026-10-12)
+
+Screenshots for agents, as a last resort (owner's design: for understanding only; the agent still acts by name or id, never by coordinates read off a picture).
+
+- **`vortex_axis_desktop` action `screenshot`:** the window in front (default), `id` to crop around an element from the last look or find (with a margin), or `scope: screen`; `detail` low/normal/high = longest side 640/1024/1568 px (a 16:9 window at normal is about 800 tokens). JPEG quality 72, the app's pointer hidden for the capture, refused while a password field has the focus (and when that cannot be checked).
+- **Off by default, per computer:** setting "Let agents take screenshots" (`allowScreenshot`), checked by Axis and by the app.
+- **An image to the model:** the MCP door lifts `image` out of a result into an MCP image block beside the text; `structuredContent` has no picture. The Live page keeps "[picture]", not the picture.
+- **Description:** use only when absolutely necessary (look/find cannot tell: games, 3D/Unity/WebGL, canvases, images, charts; something visual to check; or the person asks to have their screen seen), then act through find/click/type.
+
 ## Desktop app 0.4.5 (2026-10-12; replaces 0.4.4, which was never installed)
 
 **The real cause of unanswered looks, since 0.4.0.** 0.4.3's new warning on the owner's PC said it: "the answer could not be sent: JsonSerializerOptions instance must specify a TypeInfoResolver". 0.4.0 made a look's elements plain strings and added them with `JsonArray.Add<string>`, which wraps them so that writing them needs a type resolver; AxisLink writes every message with its own options object, made by hand without one, so turning a look's answer into text threw, and the old code swallowed the error. `find` built its list with explicit `JsonNode` casts and kept working. The look itself took 189 ms on Notepad; nothing was slow.

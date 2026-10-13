@@ -78,7 +78,8 @@ const KEEP_CALLS = 40;
 const MAX_CALL_TEXT = 2000;
 
 const cut = (value: unknown) => {
-  const text = JSON.stringify(value ?? null);
+  // A screenshot's picture is not kept: only that there was one.
+  const text = JSON.stringify(value ?? null, (key, v) => (key === "image" && typeof v === "object" && v !== null ? "[picture]" : v));
   return text.length > MAX_CALL_TEXT ? `${text.slice(0, MAX_CALL_TEXT)}…` : text;
 };
 

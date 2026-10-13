@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInvokeHandler, NODE_TOOLS } from "../src/commands.js";
 import type { TextToSpeech } from "../src/speech.js";
-import { ADMIN_TOKEN, admin, ctx, ready, restart, useServer } from "./harness.js";
+import { ADMIN_TOKEN, admin, connect, ctx, newPairedClient, ready, restart, useServer } from "./harness.js";
 
 const tts: TextToSpeech = {
   format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
@@ -311,6 +311,33 @@ describe("progress on the screens", () => {
     await rpc(token, "tools/call", { name: "vortex_axis_progress", arguments: { title: "Build", note: "tests", done: 2, total: 4 } });
     const { client } = await ready(["screen"], { name: "Late" });
     expect((await client.next("command", 0, (m) => m.name === "progress.show")).params).toMatchObject({ title: "Build", done: 2, total: 4, count: 1 });
+  });
+  it("gives a screenshot to the model as an image block, only when switched on for the computer, and keeps no picture", async () => {
+    const token = await newToken();
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const identity = await newPairedClient({ capabilities: ["desktop"], type: "windows-desktop", name: "Desk PC" });
+    const pc = await connect(identity, { capabilities: ["desktop"], type: "windows-desktop" });
+    await pc.next("status");
+    const call = (args: Record<string, unknown>) => rpc(token, "tools/call", { name: "vortex_axis_desktop", arguments: { action: "screenshot", ...args } });
+
+    // Off unless the person switched it on: refused by Axis, the computer never asked.
+    expect((await call({})).body.result).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/screenshots are switched off for Desk PC/) }] });
+    const { body } = await admin("GET", "/admin/clients");
+    await admin("PATCH", `/admin/settings/device/${body.clients.find((c: any) => c.name === "Desk PC").id}`, { values: { allowScreenshot: 1 } });
+    expect((await call({ detail: "huge" })).body.result.content[0].text).toMatch(/low, normal or high/);
+
+    const taking = call({ id: 4, detail: "low" });
+    const asked = await pc.next("command", 0, (m) => m.name === "desktop.screenshot");
+    expect(asked.params).toEqual({ scope: "window", detail: "low", id: 4 });
+    pc.send({ t: "command.result", id: asked.id, ok: true, data: { image: { data: "/9j/AA==", mimeType: "image/jpeg" }, picture: "640x360 of 0,0 1920x1080", window: "Unity (Unity)" } });
+    const result = (await taking).body.result;
+    expect(result.isError).toBe(false);
+    expect(result.content[0]).toEqual({ type: "image", data: "/9j/AA==", mimeType: "image/jpeg" });
+    expect(JSON.parse(result.content[1].text)).toEqual({ computer: "Desk PC", picture: "640x360 of 0,0 1920x1080", window: "Unity (Unity)" });
+    expect(result.structuredContent).not.toHaveProperty("image");
+    const shot = ctx.app.live.calls().find((c: any) => c.tool === "vortex_axis_desktop" && c.outcome !== "refused" && String(c.result).includes("picture"));
+    expect(String(shot?.result)).toContain('"image":"[picture]"');
+    expect(String(shot?.result)).not.toContain("/9j/AA==");
   });
 });
 
