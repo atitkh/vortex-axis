@@ -17,7 +17,8 @@ namespace Axis.Desktop.App;
 public partial class Overlay : Window
 {
     const double TipX = 410, TipY = 210;
-    const double GlideMs = 320;
+    /** How long the pointer takes to glide to a new spot (0.9.0: 320 ms; the app waits for it before acting). */
+    public const double GlideMs = 220;
 
     IntPtr hwnd;
     readonly DispatcherTimer glide = new() { Interval = TimeSpan.FromMilliseconds(15) };
@@ -42,14 +43,15 @@ public partial class Overlay : Window
 
     double Scale => hwnd == IntPtr.Zero ? 1 : Native.GetDpiForWindow(hwnd) / 96.0;
 
-    /** Shows the pointer with its tip at physical screen pixel (x, y). */
-    public void PointAt(int x, int y, string? words, double seconds, double size)
+    /** Shows the pointer with its tip at physical screen pixel (x, y). True when it glides there, false when it appears on the spot. */
+    public bool PointAt(int x, int y, string? words, double seconds, double size)
     {
         ArrowScale.ScaleX = ArrowScale.ScaleY = Math.Clamp(size, 24, 120) / 30.0;
         Words.Text = words ?? "";
         Bubble.Visibility = string.IsNullOrWhiteSpace(words) ? Visibility.Collapsed : Visibility.Visible;
         to = (x, y);
-        if (!IsVisible || !placed)
+        var glides = IsVisible && placed;
+        if (!glides)
         {
             // From nowhere: appear on the spot.
             from = now = to;
@@ -69,6 +71,7 @@ public partial class Overlay : Window
         linger.Stop();
         linger.Interval = TimeSpan.FromSeconds(seconds);
         linger.Start();
+        return glides;
     }
 
     public Task HideAsync()

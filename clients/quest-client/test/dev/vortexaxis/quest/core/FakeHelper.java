@@ -37,6 +37,12 @@ final class FakeHelper implements AutoCloseable {
     }
 
     final List<String> calls = Collections.synchronizedList(new ArrayList<>());
+    /** Every op the helper was asked, in order ("dump", "front", "focus", "tap", ...). */
+    final List<String> ops = Collections.synchronizedList(new ArrayList<>());
+    /** The package `front` says is in front; null: the screen's own. Changed by `fronts` after so many `front` calls. */
+    volatile String front;
+    volatile String frontLater;
+    volatile int frontAfter = -1;
     volatile String version;
     volatile N root;
     /** An op that never answers while set (the helper hangs). */
@@ -142,6 +148,8 @@ final class FakeHelper implements AutoCloseable {
             else {
                 String l = line.toString("UTF-8");
                 line.reset();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"op\":\"(\\w+)\"").matcher(l);
+                if (m.find()) ops.add(m.group(1));
                 String h = hangOn;
                 if (h != null && l.contains("\"op\":\"" + h + "\"")) {
                     try { Thread.sleep(60_000); } catch (InterruptedException e) { throw new IOException("stopped"); }
@@ -251,6 +259,11 @@ final class FakeHelper implements AutoCloseable {
             return List.of(Json.obj("id", 1, "title", "Store", "package", root.d.pkg, "display", 0, "active", true, "focused", true));
         }
         @Override public N root(Integer windowId, boolean compressed, int idleMs) { return root; }
+        @Override public String[] front() {
+            if (frontAfter == 0 && frontLater != null) front = frontLater;
+            if (frontAfter >= 0) frontAfter--;
+            return new String[] {front != null ? front : root.d.pkg, "Store"};
+        }
         @Override public HelperRouter.NodeData read(N n) { return n.d; }
         @Override public int childCount(N n) { return n.kids.size(); }
         @Override public N child(N n, int i) { return n.kids.get(i); }
@@ -281,6 +294,15 @@ final class FakeHelper implements AutoCloseable {
             calls.add("screenshot " + maxSide + (crop == null ? "" : " crop"));
             PanelCommands.Shot s = new T.JvmPictures().shrink(T.png(), maxSide, crop);
             return new Object[] {s.jpeg, s.w, s.h};
+        }
+    }
+
+    /** The ops since the last call, and forgets them. */
+    List<String> takeOps() {
+        synchronized (ops) {
+            List<String> out = new ArrayList<>(ops);
+            ops.clear();
+            return out;
         }
     }
 

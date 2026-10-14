@@ -63,7 +63,15 @@ public final class PanelCommands implements AxisLink.Handler {
     /** Reading the dump's file back: a local file of a few hundred kilobytes at most. */
     static final int READ_MS = 4_000;
     static final int ACT_MS = 8_000;
-    static final int AFTER_MS = 300, AFTER_OPEN_MS = 1200;
+    /** Through the shell, an action's `after` is read this long after it. */
+    static final int AFTER_MS = 300;
+    /** With the fast engine, the panel is let settle instead: until no accessibility event for QUIET_MS, AFTER_MAX_MS at most. */
+    static final int QUIET_MS = 100, AFTER_MAX_MS = 400;
+    /** `open` waits for what it started to come to the front, looking every OPEN_STEP_MS (through the shell OPEN_SHELL_STEP_MS), OPEN_MS at most. */
+    static final int OPEN_MS = 2000, OPEN_STEP_MS = 100, OPEN_SHELL_STEP_MS = 250;
+    /** A package in front read this recently (by a look or the last action) still stands for `before`. */
+    static final int FRONT_FRESH_MS = 1000;
+    static final String BROWSER = "com.oculus.browser";
     static final int SETTLE_MS = 150;
     /** How long a command waits for the one before it to finish. */
     static final int BUSY_MS = 10_000;
@@ -89,6 +97,13 @@ public final class PanelCommands implements AxisLink.Handler {
     int dumpMs = DUMP_MS;
     /** Sleeps between actions; replaced in tests. */
     Sleeper sleeper = ms -> Thread.sleep(ms);
+    /** QUIET_MS, shortened in tests (the wait happens in the helper, not through `sleeper`). */
+    int quietMs = QUIET_MS;
+    /** The package last seen in front, and when. */
+    private String lastFront;
+    private long lastFrontAt;
+    /** In front before the action under way, and what an `open` saw come to the front (null: it did not see it). */
+    private String beforeFront, arrived;
 
     interface Sleeper { void sleep(long ms) throws InterruptedException; }
 
@@ -163,7 +178,9 @@ public final class PanelCommands implements AxisLink.Handler {
             AxisLink.Answer answer;
             if (!CHANGES.contains(name)) answer = run(name, p);
             else {
-                String before = foreground();
+                String before = before();
+                beforeFront = before;
+                arrived = null;
                 answer = withAfter(run(name, p), name, p, before);
             }
             ok = answer.ok;
@@ -388,6 +405,7 @@ public final class PanelCommands implements AxisLink.Handler {
         synchronized (this) {
             lastPanel = panel;
             lastPanelAt = System.currentTimeMillis();
+            if (!panel.pkg.isEmpty()) { lastFront = panel.pkg; lastFrontAt = lastPanelAt; }
         }
         return panel;
     }
@@ -456,13 +474,17 @@ public final class PanelCommands implements AxisLink.Handler {
         return panel;
     }
 
+    /** Told with every look: the panel, and how to spend less time (one line, at most 200 characters). */
+    static final String DEVICE_HINT = "Quest panel: coordinates are the panel's; one panel is seen at a time. Actions answer with after: no need to look again to check. "
+            + "To wait, use wait with a name (returns once it shows), not ms";
+
     static Map<String, Object> lookData(Panel panel, List<Panel.Element> elements) {
         List<Object> lines = new ArrayList<>();
         for (int i = 0; i < elements.size(); i++) lines.add(elements.get(i).line(i + 1));
         Map<String, Object> data = Json.obj(
                 "screen", "0,0 " + panel.width + "x" + panel.height,
                 "window", panel.window() + " 0,0 " + panel.width + "x" + panel.height,
-                "device", "Quest panel: coordinates are the panel's; one panel is seen at a time");
+                "device", DEVICE_HINT);
         data.put("elements", lines);
         if (panel.elements.size() > elements.size()) data.put("more", panel.elements.size() - elements.size());
         return data;
@@ -641,9 +663,11 @@ public final class PanelCommands implements AxisLink.Handler {
                 if (t.element != null) {
                     if (t.element.password || t.element.kind.equals("password")) return AxisLink.Answer.fail("the app never types into a password field");
                 } else {
-                    // Typing blind into whatever has the focus: it must not be a password field.
-                    Panel now = dump();
-                    if (now.passwordFocused) return AxisLink.Answer.fail("the app never types into a password field (one has the focus)");
+                    // Typing blind into whatever has the focus: it must not be a password field. Asked of the fast
+                    // engine cheaply; when it cannot say, the whole panel is read as before.
+                    Boolean pw = fastPasswordFocused();
+                    if (pw == null) pw = dump().passwordFocused;
+                    if (pw) return AxisLink.Answer.fail("the app never types into a password field (one has the focus)");
                 }
                 String typedFast = fastType(t.element, text);
                 if (typedFast != null) return AxisLink.Answer.fail(typedFast);
@@ -706,7 +730,7 @@ public final class PanelCommands implements AxisLink.Handler {
         }
     }
 
-    private AxisLink.Answer open(Map<String, Object> p) throws IOException {
+    private AxisLink.Answer open(Map<String, Object> p) throws IOException, InterruptedException {
         String url = Json.str(p, "url"), app = Json.str(p, "app");
         if ((url == null) == (app == null)) return AxisLink.Answer.fail("open needs app or url");
         if (url != null) {
@@ -716,12 +740,14 @@ public final class PanelCommands implements AxisLink.Handler {
                 return AxisLink.Answer.fail(e.getMessage());
             }
             checkQuiet(adb.shell("am start -a android.intent.action.VIEW -d " + Shell.quote(url), ACT_MS));
+            awaitFront(BROWSER, true);
             did("Opened " + clip(url, 60));
             return AxisLink.Answer.done(Json.obj("opened", clip(url, 200)));
         }
         String q = norm(app);
         if (q.equals("settings")) {
             checkQuiet(adb.shell("am start -a android.settings.SETTINGS", ACT_MS));
+            awaitFront(null, true);
             did("Opened Settings");
             return AxisLink.Answer.done(Json.obj("opened", "Settings"));
         }
@@ -736,8 +762,30 @@ public final class PanelCommands implements AxisLink.Handler {
         if (!Shell.isPackage(best[1])) return AxisLink.Answer.fail("\"" + best[1] + "\" is not a package name this will start");
         String out = adb.shell("monkey -p " + best[1] + " -c android.intent.category.LAUNCHER 1", ACT_MS);
         if (out.contains("No activities found") || out.contains("monkey aborted")) return AxisLink.Answer.fail(best[0] + " (" + best[1] + ") has nothing to start");
+        awaitFront(best[1], false);
         did("Opened " + clip(best[0], 60));
         return AxisLink.Answer.done(Json.obj("opened", clip(best[0], 120) + " (" + best[1] + ")"));
+    }
+
+    /**
+     * Waits for what was just started to come to the front: `pkg`, or with `loose` (an address may open in another
+     * app than the Browser) any other package than was in front before, looking every OPEN_STEP_MS with the fast engine and OPEN_SHELL_STEP_MS through the shell,
+     * OPEN_MS at most. What it saw is the answer's `after`; when it did not come, `after` is read as for any action.
+     */
+    private void awaitFront(String pkg, boolean loose) throws InterruptedException {
+        long end = System.currentTimeMillis() + OPEN_MS;
+        String was = beforeFront;
+        for (int waited = 0; waited < OPEN_MS && System.currentTimeMillis() < end; ) {
+            boolean quick = fast();
+            int step = quick ? OPEN_STEP_MS : OPEN_SHELL_STEP_MS;
+            sleeper.sleep(step);
+            waited += step;
+            String now = quick ? fastFront(0) : foreground();
+            if (now != null && (now.equals(pkg) || (loose && was != null && !now.equals(was)))) {
+                arrived = now;
+                return;
+            }
+        }
     }
 
     /** Apps to start: from Android with their labels when the app gave a list, else the packages adb lists. */
@@ -889,6 +937,20 @@ public final class PanelCommands implements AxisLink.Handler {
             log.line("click: the fast engine could not (" + f.getMessage() + "); through the shell");
             return false;
         }
+    }
+
+    /** Whether a password field has the input focus, from the fast engine's `focus` (no dump); null when it cannot tell. */
+    private Boolean fastPasswordFocused() {
+        if (!fast()) return null;
+        try {
+            Map<String, Object> r = helper.call("focus", Json.obj(), ACT_MS);
+            return Json.isTrue(r, "found") && Json.isTrue(r, "password");
+        } catch (Helper.Lost l) {
+            lost(l);
+        } catch (IOException e) {
+            log.line("type: the fast engine could not tell what has the focus (" + e.getMessage() + "); reading the panel");
+        }
+        return null;
     }
 
     /** Set by fastType when it typed everything. */
@@ -1155,12 +1217,53 @@ public final class PanelCommands implements AxisLink.Handler {
         return null;
     }
 
+    /**
+     * The package in front from the fast engine, after letting the panel settle for up to `idleMs` (0: at once), or
+     * null when it is not running or cannot tell. One call; no shell.
+     */
+    private String fastFront(int idleMs) {
+        if (!fast()) return null;
+        try {
+            Map<String, Object> r = helper.call("front", Json.obj("idleMs", idleMs, "quietMs", quietMs), ACT_MS);
+            String pkg = Json.str(r, "package");
+            if (pkg == null || pkg.isEmpty()) return null;
+            synchronized (this) {
+                lastFront = pkg;
+                lastFrontAt = System.currentTimeMillis();
+            }
+            return pkg;
+        } catch (Helper.Lost l) {
+            lost(l);
+        } catch (IOException e) {
+            log.line("front: the fast engine could not tell (" + e.getMessage() + ")");
+        }
+        return null;
+    }
+
+    /**
+     * The package in front before an action. With the fast engine: what a look or the last action saw within
+     * FRONT_FRESH_MS, else one `front` call; through the shell, `dumpsys window` as before.
+     */
+    private String before() {
+        if (!fast()) return foreground();
+        synchronized (this) {
+            if (lastFront != null && System.currentTimeMillis() - lastFrontAt < FRONT_FRESH_MS) return lastFront;
+        }
+        String pkg = fastFront(0);
+        return pkg != null || fast() ? pkg : foreground();
+    }
+
     /** Adds `after` to an action's answer: the panel in front afterwards, with `new` when it changed. */
     private AxisLink.Answer withAfter(AxisLink.Answer answer, String name, Map<String, Object> p, String before) throws InterruptedException {
         if (!answer.ok && !"desktop.steps".equals(name)) return answer;
-        boolean opened = name.equals("desktop.open") || (name.equals("desktop.steps") && stepsInclude(p, "open"));
-        sleeper.sleep(opened ? AFTER_OPEN_MS : AFTER_MS);
-        String now = foreground();
+        // An open has waited for its app to come to the front already; anything else is read once the panel is
+        // still (fast engine), else after AFTER_MS through the shell.
+        String now = name.equals("desktop.open") ? arrived : null;
+        if (now == null) now = fastFront(AFTER_MAX_MS);
+        if (now == null) {
+            sleeper.sleep(AFTER_MS);
+            now = foreground();
+        }
         if (now == null) return answer;
         Map<String, Object> after = Json.obj("window", Panel.appName(now) + " (" + now + ")");
         if (before != null && !before.equals(now)) after.put("new", true);
@@ -1168,14 +1271,6 @@ public final class PanelCommands implements AxisLink.Handler {
         data = data == null ? new LinkedHashMap<>() : new LinkedHashMap<>(data);
         data.put("after", after);
         return answer.withData(data);
-    }
-
-    private static boolean stepsInclude(Map<String, Object> p, String action) {
-        Map<String, Object> d = Json.map(p.get("data"));
-        List<Object> steps = d == null ? null : Json.list(d.get("steps"));
-        if (steps == null) return false;
-        for (Object o : steps) if (action.equals(Json.str(Json.map(o), "action"))) return true;
-        return false;
     }
 
     // ---- small things ----------------------------------------------------------

@@ -90,6 +90,123 @@ public class HelperTest {
         Map<String, Object> cut = r.handle("{\"id\":10,\"op\":\"dump\",\"maxNodes\":5}");
         check(Json.isTrue(cut, "truncated") && Integer.valueOf(5).equals(Json.integer(cut, "nodes")), "maxNodes cuts a dump short and says so");
         fh.take();
+
+        Map<String, Object> front = r.handle("{\"id\":11,\"op\":\"front\"}");
+        check(Json.isTrue(front, "ok") && "com.oculus.store".equals(front.get("package")) && "Store".equals(front.get("title")), "front: the active window's package and title: " + front);
+        equal(Json.integer(front, "generation"), -1, "and -1 for a screen that cannot count its events");
+        fh.setScreen(plain);
+        Map<String, Object> focus = r.handle("{\"id\":12,\"op\":\"focus\"}");
+        check(Json.isTrue(focus, "ok") && !Json.isTrue(focus, "found"), "focus: nothing has it on the plain panel: " + focus);
+        fh.setScreen(CommandsTest.focusPassword0(plain));
+        focus = r.handle("{\"id\":13,\"op\":\"focus\"}");
+        check(Json.isTrue(focus, "found") && Json.isTrue(focus, "password") && Json.isTrue(focus, "editable") && Json.integer(focus, "handle") != null, "focus: a password field has it: " + focus);
+        check(!Json.write(focus).contains("••"), "and its text is not said");
+        fh.setScreen(plain);
+
+        System.out.println("[router] front waits for the screen to settle, by its count of events");
+        long[] events = {0};
+        long[] busyUntil = {0};
+        HelperRouter<FakeHelper.N> counting = new HelperRouter<>(new HelperRouter.Device<FakeHelper.N>() {
+            final FakeHelper.Screen s = fh.new Screen();
+            @Override public List<Map<String, Object>> windows() { return s.windows(); }
+            @Override public FakeHelper.N root(Integer w, boolean c, int i) { return s.root(w, c, i); }
+            @Override public HelperRouter.NodeData read(FakeHelper.N n) { return s.read(n); }
+            @Override public int childCount(FakeHelper.N n) { return s.childCount(n); }
+            @Override public FakeHelper.N child(FakeHelper.N n, int i) { return s.child(n, i); }
+            @Override public boolean refresh(FakeHelper.N n) { return true; }
+            @Override public boolean click(FakeHelper.N n) { return true; }
+            @Override public boolean longClick(FakeHelper.N n) { return true; }
+            @Override public boolean focus(FakeHelper.N n) { return true; }
+            @Override public boolean setText(FakeHelper.N n, String t, int c) { return true; }
+            @Override public boolean scroll(FakeHelper.N n, boolean f) { return true; }
+            @Override public FakeHelper.N focusedInput() { return null; }
+            @Override public void tap(int x, int y) {}
+            @Override public void longPress(int x, int y) {}
+            @Override public void swipe(int a, int b, int c, int d, int ms) {}
+            @Override public void key(int code, boolean c, boolean a, boolean sh) {}
+            @Override public void back() {}
+            @Override public Object[] screenshot(int m, int[] c) { return null; }
+            // An event every few milliseconds while the panel is "moving".
+            @Override public long generation() { return System.currentTimeMillis() < busyUntil[0] ? ++events[0] : events[0]; }
+        }, V);
+        long t0 = System.currentTimeMillis();
+        counting.handle("{\"id\":1,\"op\":\"front\",\"idleMs\":400,\"quietMs\":50}");
+        long still = System.currentTimeMillis() - t0;
+        check(still >= 45 && still < 200, "a still panel: answered after one quiet spell (" + still + " ms)");
+        busyUntil[0] = System.currentTimeMillis() + 150;
+        t0 = System.currentTimeMillis();
+        counting.handle("{\"id\":2,\"op\":\"front\",\"idleMs\":400,\"quietMs\":50}");
+        long moving = System.currentTimeMillis() - t0;
+        check(moving >= 190 && moving < 380, "a panel moving for 150 ms: answered once it was quiet for 50 ms (" + moving + " ms)");
+        busyUntil[0] = System.currentTimeMillis() + 5000;
+        t0 = System.currentTimeMillis();
+        counting.handle("{\"id\":3,\"op\":\"front\",\"idleMs\":400,\"quietMs\":50}");
+        long never = System.currentTimeMillis() - t0;
+        check(never >= 395 && never < 600, "a panel that never settles: answered at idleMs (" + never + " ms)");
+        t0 = System.currentTimeMillis();
+        counting.handle("{\"id\":4,\"op\":\"front\"}");
+        check(System.currentTimeMillis() - t0 < 30, "front without idleMs answers at once");
+        busyUntil[0] = 0;
+    }
+
+    /** What an action costs with the fast engine: helper ops, and no shell call at all. */
+    static void speed() throws Exception {
+        System.out.println("[engine] speed: one front call for after, no dumpsys window, no dump for blind typing");
+        fh.setScreen(plain);
+        run("desktop.look");
+        fh.takeOps();
+        fh.take();
+        adbd.take();
+        AxisLink.Answer a = run("desktop.click", "x", 10, "y", 20);
+        equal(fh.takeOps(), Arrays.asList("tap", "front"), "click just after a look: the tap and one front (before is the look's)");
+        equal(dumpsys(), 0L, "no dumpsys window, nothing through the shell");
+        check("Store (com.oculus.store)".equals(Json.map(data(a).get("after")).get("window")) && Json.map(data(a).get("after")).get("new") == null, "after: the same panel");
+        run("desktop.keys", "keys", "enter");
+        equal(fh.takeOps(), Arrays.asList("key", "front"), "keys straight after: one front");
+        Thread.sleep(PanelCommands.FRONT_FRESH_MS + 100);
+        run("desktop.keys", "keys", "tab");
+        equal(fh.takeOps(), Arrays.asList("front", "key", "front"), "keys after a while: front before, front after");
+        a = run("desktop.click", "name", "Beyond Sandbox");
+        equal(fh.takeOps(), Arrays.asList("dump", "click", "front"), "click by name: the dump, the press, one front");
+        a = run("desktop.type", "text", "hello", "name", "Search");
+        equal(fh.takeOps(), Arrays.asList("dump", "setText", "front"), "type by name: the dump, the text, one front");
+        a = run("desktop.type", "text", "ok");
+        check(a.ok, "blind typing into the field that has the focus: " + a.error);
+        equal(fh.takeOps(), Arrays.asList("focus", "setText", "front"), "blind typing: the cheap focus check, no dump");
+        fh.setScreen(CommandsTest.focusPassword0(plain));
+        a = run("desktop.type", "text", "hunter2");
+        check(!a.ok && a.error.contains("password field (one has the focus)"), "blind typing refused on a focused password field: " + a.error);
+        equal(fh.takeOps(), Arrays.asList("focus"), "told by focus alone: no dump, nothing typed");
+        check(fh.take().stream().noneMatch(c -> c.contains("hunter2")), "the password text never reached the helper");
+        fh.setScreen(plain);
+        check(adbd.take().stream().noneMatch(c -> c.startsWith("dumpsys") || c.contains("uiautomator") || c.startsWith("input")), "none of it through the shell");
+
+        System.out.println("[engine] open: polls the front until the app is there");
+        Thread.sleep(PanelCommands.FRONT_FRESH_MS + 100);
+        fh.frontLater = "com.example.chess";
+        fh.frontAfter = 3;
+        long t0 = System.currentTimeMillis();
+        a = run("desktop.open", "app", "chess");
+        check(a.ok, "opened: " + a.error);
+        equal(fh.takeOps(), Arrays.asList("front", "front", "front", "front"), "front before, then polled until the app came (the third poll), and that is after");
+        Map<String, Object> after = Json.map(data(a).get("after"));
+        check(String.valueOf(after.get("window")).contains("com.example.chess") && Json.isTrue(after, "new"), "after names the opened app, new: " + after);
+        List<String> sent = adbd.take();
+        check(sent.stream().noneMatch(c -> c.startsWith("dumpsys")) && sent.stream().anyMatch(c -> c.startsWith("monkey -p com.example.chess")), "monkey, and no dumpsys window: " + sent);
+        System.out.println("  (open took " + (System.currentTimeMillis() - t0) + " ms here, with sleeps cut to 20 ms)");
+        fh.frontLater = null;
+        fh.frontAfter = -1;
+        a = run("desktop.open", "app", "chess");
+        List<String> ops = fh.takeOps();
+        equal(ops, Arrays.asList("front"), "the app already in front: found at the first poll (before from the last front)");
+        fh.front = "com.oculus.store";
+        a = run("desktop.open", "app", "chess");
+        ops = fh.takeOps();
+        long fronts = ops.stream().filter("front"::equals).count();
+        equal(fronts, (long) (PanelCommands.OPEN_MS / PanelCommands.OPEN_STEP_MS) + 1, "an app that never comes forward: polled for OPEN_MS, then after read once more (" + ops.size() + " ops)");
+        check(a.ok && String.valueOf(Json.map(data(a).get("after")).get("window")).contains("com.oculus.store"), "and still answered, with the panel in front");
+        fh.front = null;
+        adbd.take();
     }
 
     static final class Host implements Helper.Host {
@@ -123,6 +240,9 @@ public class HelperTest {
         for (String c : adbd.take()) if (!c.startsWith("dumpsys window")) out.add(c);
         return out;
     }
+
+    /** How many `dumpsys window` reads adbd was asked since the last take (and forgets every command). */
+    static long dumpsys() { return adbd.take().stream().filter(c -> c.startsWith("dumpsys window")).count(); }
 
     static void engine() throws Exception {
         System.out.println("[engine] install and start through the app's adb");
@@ -177,7 +297,7 @@ public class HelperTest {
         List<String> did = fh.take();
         check(did.size() == 1 && did.get(0).startsWith("click "), "the helper pressed the tile by its handle: " + did);
         check(shell().stream().noneMatch(c -> c.startsWith("input")), "the shell got no input tap");
-        check("Store (com.oculus.store)".equals(Json.map(data(a).get("after")).get("window")), "after: still read from dumpsys");
+        check("Store (com.oculus.store)".equals(Json.map(data(a).get("after")).get("window")), "after: from the fast engine's front");
 
         run("desktop.look");
         fh.take();
@@ -244,6 +364,8 @@ public class HelperTest {
         cmds.useSettings(Json.obj());
         shell();
 
+        speed();
+
         System.out.println("[engine] a helper that hangs: the look comes from uiautomator, the helper is stopped and started again");
         fh.hangOn = "dump";
         cmds.dumpMs = 1500;
@@ -266,11 +388,15 @@ public class HelperTest {
         Thread.sleep(150);
         a = run("desktop.click", "x", 10, "y", 20);
         check(a.ok, "the click still worked: " + a.error);
-        check(shell().contains("input tap 10 20"), "through the shell this time");
+        List<String> raw = adbd.take();
+        check(raw.contains("input tap 10 20"), "through the shell this time");
+        check(raw.stream().anyMatch(c -> c.startsWith("dumpsys window")), "after read with dumpsys window, as before the fast engine");
         check(fh.take().isEmpty(), "not through the dead helper");
         equal(helper.state(), Helper.State.BASIC, "Basic");
         a = run("desktop.click", "x", 11, "y", 21);
-        check(shell().contains("input tap 11 21"), "and the next too, without trying the helper again (no loop)");
+        raw = adbd.take();
+        check(raw.contains("input tap 11 21"), "and the next too, without trying the helper again (no loop)");
+        equal(raw.stream().filter(c -> c.startsWith("dumpsys window")).count(), 2L, "before and after from dumpsys window: the shell's way, unchanged");
         Thread.sleep(300);
         helper.tick();
         equal(helper.state(), Helper.State.FAST, "back after the next check");

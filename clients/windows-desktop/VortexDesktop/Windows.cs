@@ -136,12 +136,38 @@ static class Windows
         Thread.Sleep(120);
     }
 
-    /** Start-menu apps by name, with the id that starts each (shell:AppsFolder). Read once and kept a few minutes. */
-    static (DateTime At, List<(string Name, string Id)> Apps) apps = (DateTime.MinValue, new());
+    /**
+     * Start-menu apps by name, with the id that starts each (shell:AppsFolder). Read once; after a few minutes the
+     * list kept is still used while a fresh one is read on a thread of its own, so an open does not wait for the
+     * shell (reading it takes seconds on a busy computer). An app installed meanwhile is there from the next open.
+     */
+    sealed record AppList(DateTime At, List<(string Name, string Id)> Apps);
+    // A reference, so a list read on the other thread is swapped in whole.
+    static volatile AppList apps = new(DateTime.MinValue, new());
+    static int refreshing;
 
     static List<(string Name, string Id)> Apps()
     {
-        if (DateTime.UtcNow - apps.At < TimeSpan.FromMinutes(5) && apps.Apps.Count > 0) return apps.Apps;
+        var kept = apps;
+        if (kept.Apps.Count > 0)
+        {
+            if (DateTime.UtcNow - kept.At >= TimeSpan.FromMinutes(5) && Interlocked.Exchange(ref refreshing, 1) == 0)
+            {
+                var t = new Thread(() =>
+                {
+                    try { ReadApps(); } catch (Exception) { /* the next open tries again */ }
+                    finally { Interlocked.Exchange(ref refreshing, 0); }
+                }) { IsBackground = true, Name = "start-menu-apps" };
+                t.SetApartmentState(ApartmentState.MTA);
+                t.Start();
+            }
+            return kept.Apps;
+        }
+        return ReadApps();
+    }
+
+    static List<(string Name, string Id)> ReadApps()
+    {
         var list = new List<(string, string)>();
         var shellType = Type.GetTypeFromProgID("Shell.Application") ?? throw new InvalidOperationException("the Windows shell is not available");
         dynamic shell = Activator.CreateInstance(shellType)!;
@@ -156,16 +182,19 @@ static class Windows
             }
         }
         finally { Marshal.FinalReleaseComObject(shell); }
-        apps = (DateTime.UtcNow, list);
+        apps = new AppList(DateTime.UtcNow, list);
         return list;
     }
 
     /** Starts the Start-menu app best matching `query`. Returns its name. */
     public static string Launch(string query)
     {
-        var all = Apps();
-        var best = all.Select(a => (a, score: Fuzzy.Score(a.Name, query))).Where(t => t.score > 0)
-            .OrderByDescending(t => t.score).ThenBy(t => t.a.Name.Length).FirstOrDefault();
+        static ((string Name, string Id) a, int score) Best(List<(string Name, string Id)> all, string query) =>
+            all.Select(a => (a, score: Fuzzy.Score(a.Name, query))).Where(t => t.score > 0)
+                .OrderByDescending(t => t.score).ThenBy(t => t.a.Name.Length).FirstOrDefault();
+        var best = Best(Apps(), query);
+        // Not in the list kept: perhaps installed since it was read, so read again before saying no.
+        if (best.score == 0 && DateTime.UtcNow - apps.At > TimeSpan.FromSeconds(30)) best = Best(ReadApps(), query);
         if (best.score == 0) throw new InvalidOperationException($"no Start-menu app is called \"{query}\"");
         Process.Start(new ProcessStartInfo("explorer.exe", $"shell:AppsFolder\\{best.a.Id}") { UseShellExecute = false });
         return best.a.Name;

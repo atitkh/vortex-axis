@@ -536,6 +536,8 @@ sealed class WindowsDesktop : IDesktop
     static readonly TimeSpan IntendedFor = TimeSpan.FromSeconds(90);
     /** Longest an app gets to show its window after open. */
     const int OpenPatienceMs = 8000;
+    /** How long an open waits for a new window when the app it started already has the one in front. */
+    const int SameAppMs = 1500;
 
     public WindowsDesktop(ScreenReader reader, Overlay overlay, Func<double> size) => (this.reader, this.overlay, this.size) = (reader, overlay, size);
 
@@ -592,16 +594,22 @@ sealed class WindowsDesktop : IDesktop
 
     public Task HideAsync() => overlay.Dispatcher.InvokeAsync(overlay.HideAsync).Task.Unwrap();
 
-    /** Shows the pointer where it is about to act, and gives it time to glide there so the person can follow. */
+    /**
+     * Shows the pointer where it is about to act, and gives it time to get there so the person can follow: its
+     * glide and a moment more, or a short moment when it appears on the spot (0.9.0 waited 450 ms every time).
+     */
     async Task ShowAt(int x, int y, string words, CancellationToken ct, double seconds = 3)
     {
-        await overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, words, seconds, size()));
-        await Task.Delay(450, ct);
+        var glides = await overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x, y, words, seconds, size()));
+        await Task.Delay(glides ? (int)Overlay.GlideMs + 30 : 100, ct);
     }
 
-    /** The pointer on a window's title bar: where a person looks for "this one". */
+    /**
+     * The pointer on a window's title bar: where a person looks for "this one". Nothing waits for it: it only
+     * says which window an open, switch or window command left in front, after the fact.
+     */
     Task ShowOnWindow(WindowInfo w, string words, CancellationToken ct) =>
-        ShowAt(w.X + w.W / 2, w.Y + Math.Min(60, Math.Max(w.H / 2, 1)), words, ct);
+        overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(w.X + w.W / 2, w.Y + Math.Min(60, Math.Max(w.H / 2, 1)), words, 3, size())).Task;
 
     public async Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
     {
@@ -706,7 +714,8 @@ sealed class WindowsDesktop : IDesktop
         // and not into whatever had the focus before.
         var opened = await WaitForWindowAsync(before, front, url != null ? null : name, ct);
         if (opened == null) return (name, null);
-        await Uia.Run(() => Windows.Focus(opened.Handle), 3000, "bringing the window forward", ct);
+        if (Native.GetForegroundWindow() != opened.Handle)
+            await Uia.Run(() => Windows.Focus(opened.Handle), 3000, "bringing the window forward", ct);
         Intend(opened.Handle);
         var info = Windows.Info(opened.Handle, opened.Title, opened.App);
         await ShowOnWindow(info, $"Opened {(name.Length > 30 ? name[..29] + "…" : name)}", ct);
@@ -716,23 +725,25 @@ sealed class WindowsDesktop : IDesktop
     /**
      * The window an open produced: a new window, else (apps that reuse theirs, a browser opening a tab) the
      * window in front once it changed, else an open window matching the app's name. Null if nothing showed.
+     * Returns as soon as one is seen (a listed window has a title already; 0.9.0 waited 250 ms more for it to
+     * settle). An app whose window was in front already and stays the only one is taken after SameAppMs instead
+     * of the whole OpenPatienceMs.
      */
     static async Task<Windows.Open?> WaitForWindowAsync(HashSet<IntPtr> before, IntPtr front, string? app, CancellationToken ct)
     {
-        var until = DateTime.UtcNow.AddMilliseconds(OpenPatienceMs);
+        var started = DateTime.UtcNow;
+        var until = started.AddMilliseconds(OpenPatienceMs);
         while (DateTime.UtcNow < until)
         {
-            await Task.Delay(150, ct);
+            await Task.Delay(100, ct);
             var now = Windows.List();
             var fresh = now.FirstOrDefault(w => !before.Contains(w.Handle));
-            if (fresh != null)
-            {
-                // A window gets its real title a moment after it appears.
-                await Task.Delay(250, ct);
-                return Windows.List().FirstOrDefault(w => w.Handle == fresh.Handle) ?? fresh;
-            }
+            if (fresh != null) return fresh;
             var f = Native.GetForegroundWindow();
-            if (f != front && now.FirstOrDefault(w => w.Handle == f) is { } changed) return changed;
+            if (now.FirstOrDefault(w => w.Handle == f) is not { } inFront) continue;
+            if (f != front) return inFront;
+            if (app != null && DateTime.UtcNow - started > TimeSpan.FromMilliseconds(SameAppMs)
+                && Math.Max(Fuzzy.Score(inFront.App, app), Fuzzy.Score(inFront.Title, app)) > 0) return inFront;
         }
         if (app == null) return null;
         try { return Windows.Find(app); } catch (InvalidOperationException) { return null; }

@@ -48,6 +48,20 @@ public final class HelperRouter<N> {
         void back() throws Exception;
         /** {jpeg bytes, width, height} of the screen (`crop` {x, y, w, h} or null) no larger than maxSide, or null when it cannot. */
         Object[] screenshot(int maxSide, int[] crop) throws Exception;
+
+        /** {package, title} of the active window, cheaply (no tree read); "" for what it cannot tell. */
+        default String[] front() throws Exception {
+            for (Map<String, Object> w : windows()) {
+                if (Json.isTrue(w, "active")) return new String[] {String.valueOf(w.getOrDefault("package", "")), String.valueOf(w.getOrDefault("title", ""))};
+            }
+            return new String[] {"", ""};
+        }
+
+        /** How many accessibility events the helper has seen since it started, or -1 when it cannot count them. */
+        default long generation() { return -1; }
+
+        /** Waits until nothing has happened on the screen for quietMs, or maxMs at most (UiAutomation.waitForIdle). */
+        default void waitForIdle(int quietMs, int maxMs) throws Exception {}
     }
 
     /** An answer that is a refusal or a failure, with its code. */
@@ -98,6 +112,22 @@ public final class HelperRouter<N> {
                 return Json.obj("version", version, "wire", HelperProtocol.WIRE);
             case "windows":
                 return Json.obj("windows", new ArrayList<Object>(device.windows()));
+            case "front": {
+                int idleMs = Math.max(0, Math.min(2000, num(r, "idleMs", 0)));
+                if (idleMs > 0) settle(Math.max(1, Math.min(idleMs, num(r, "quietMs", 100))), idleMs);
+                String[] f = device.front();
+                return Json.obj("package", f[0], "title", f[1], "generation", device.generation());
+            }
+            case "focus": {
+                // What has the input focus, without reading the tree: enough to keep typing out of a password field.
+                N n = device.focusedInput();
+                if (n == null) return Json.obj("found", false);
+                NodeData d = device.read(n);
+                int handle = nextHandle++;
+                handles.put(handle, n);
+                String name = !d.password && !d.text.isEmpty() && !d.showingHint ? d.text : !d.desc.isEmpty() ? d.desc : d.hint;
+                return Json.obj("found", true, "password", d.password, "editable", d.editable, "name", name, "handle", handle);
+            }
             case "dump":
                 return dump(Json.integer(r, "window"), Json.isTrue(r, "compressed"), num(r, "maxNodes", MAX_NODES), num(r, "idleMs", 0));
             case "click": case "longClick": {
@@ -147,6 +177,29 @@ public final class HelperRouter<N> {
             }
             default:
                 throw new IllegalArgumentException("unknown op " + op);
+        }
+    }
+
+    /**
+     * Waits for the screen to settle after an action: until no accessibility event for quietMs, counted from now (an
+     * action's first events may come a moment after it), or maxMs at most. Without a count of events, the device's
+     * own wait for idle.
+     */
+    private void settle(int quietMs, int maxMs) throws Exception {
+        long seen = device.generation();
+        if (seen < 0) {
+            device.waitForIdle(quietMs, maxMs);
+            return;
+        }
+        long start = System.nanoTime() / 1_000_000, changed = start;
+        while (true) {
+            long now = System.nanoTime() / 1_000_000, g = device.generation();
+            if (g != seen) {
+                seen = g;
+                changed = now;
+            }
+            if (now - changed >= quietMs || now - start >= maxMs) return;
+            Thread.sleep(Math.max(1, Math.min(10, quietMs - (now - changed))));
         }
     }
 

@@ -27,8 +27,42 @@ import dev.vortexaxis.quest.core.Json;
 final class Screen implements HelperRouter.Device<AccessibilityNodeInfo> {
     private final UiAutomation ui;
     private boolean compressed;
+    /** Accessibility events seen, for HelperRouter's wait for the screen to settle; told only when `counting`. */
+    private final java.util.concurrent.atomic.AtomicLong events = new java.util.concurrent.atomic.AtomicLong();
+    private volatile boolean counting;
 
-    Screen(UiAutomation ui) { this.ui = ui; }
+    Screen(UiAutomation ui) {
+        this.ui = ui;
+        try {
+            // UiAutomation's own waitForIdle keeps its own time of the last event; this listener only counts.
+            ui.setOnAccessibilityEventListener(e -> events.incrementAndGet());
+            counting = true;
+        } catch (RuntimeException e) {
+            Helper.note("no event count (" + e + "); waitForIdle instead");
+        }
+    }
+
+    @Override public String[] front() {
+        AccessibilityNodeInfo root = ui.getRootInActiveWindow();
+        String title = "";
+        for (AccessibilityWindowInfo w : ui.getWindows()) {
+            if (w.isActive()) {
+                title = s(w.getTitle());
+                break;
+            }
+        }
+        return new String[] {root == null ? "" : s(root.getPackageName()), title};
+    }
+
+    @Override public long generation() { return counting ? events.get() : -1; }
+
+    @Override public void waitForIdle(int quietMs, int maxMs) {
+        try {
+            ui.waitForIdle(quietMs, maxMs);
+        } catch (java.util.concurrent.TimeoutException ignored) {
+            // Still moving: read it as it is.
+        }
+    }
 
     @Override public List<Map<String, Object>> windows() {
         List<Map<String, Object>> out = new ArrayList<>();

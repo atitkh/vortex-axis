@@ -21,7 +21,7 @@ It works through the headset's own adb: the app connects to `127.0.0.1:5555` on 
 | `point`, `hide` | Accepted and noted, so an agent does not fail; nothing is drawn in phase 1. |
 | `switch`, `window`, `desktop`, `clipboard`, `paste` | Refused with "not available on a Quest" and what to do instead. |
 
-Acting answers carry `after` (the app in front, `new` when it changed), read cheaply from `dumpsys window`.
+Acting answers carry `after` (the app in front, `new` when it changed). With the fast engine it is one call to the helper (`front`), made once the panel has had no accessibility event for 100 ms (400 ms at most); without it, `dumpsys window` 300 ms after the action. `open` waits for the app it started to come to the front (looking every 100 ms with the fast engine, every 250 ms without, 2 s at most) instead of a fixed 1.2 s. Before typing blind into the focus, the fast engine is asked what has the focus (`focus`) instead of reading the whole panel. A look's `device` line tells agents to trust `after` and to wait for a name rather than for a number of milliseconds.
 
 The answers have the same shapes whichever engine did the work. The guards are the Windows app's: Pause in the app (or its notification) refuses everything; Axis's per-device switches (read, tap and type, screenshots) are checked by Axis and again by the app; every adb call and every call to the helper has a deadline (a dump gives up after 10 s, before Axis's 15 s, and says so); one command at a time; and Axis's own rule that a task running with nobody watching is look-only applies here as to any computer.
 

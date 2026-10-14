@@ -13,7 +13,9 @@ import java.util.Map;
  * `{"id": 7, "ok": false, "code": "stale", "error": "words"}`. One request at a time on a connection.
  *
  * Ops: `ping` (version), `dump` (window, compressed, maxNodes, idleMs: the tree as Panel.fromHelper reads it),
- * `windows`, `click`/`longClick` (handle), `setText` (handle or focus, text), `scroll` (handle, forward),
+ * `windows`, `front` (idleMs, quietMs: the active window's package and title, and a count of accessibility events,
+ * after waiting for the screen to settle; 0.3.3), `focus` (what has the input focus: password, editable, name,
+ * handle; 0.3.3), `click`/`longClick` (handle), `setText` (handle or focus, text), `scroll` (handle, forward),
  * `tap`/`longPress` (x, y), `swipe` (x1, y1, x2, y2, ms), `key` (code, ctrl, alt, shift), `back`,
  * `screenshot` (maxSide, crop) answering a base64 JPEG. Handles are valid until the next dump.
  */

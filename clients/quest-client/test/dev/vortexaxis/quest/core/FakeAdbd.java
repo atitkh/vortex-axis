@@ -37,12 +37,13 @@ final class FakeAdbd implements AutoCloseable {
     volatile int connections;
     final List<byte[]> publicKeys = Collections.synchronizedList(new ArrayList<>());
     private volatile boolean closed;
+    private final Thread acceptor;
 
     FakeAdbd() throws IOException {
         server = new ServerSocket(0, 5, InetAddress.getByName("127.0.0.1"));
-        Thread t = new Thread(this::serve, "fake-adbd");
-        t.setDaemon(true);
-        t.start();
+        acceptor = new Thread(this::serve, "fake-adbd");
+        acceptor.setDaemon(true);
+        acceptor.start();
     }
 
     int port() { return server.getLocalPort(); }
@@ -59,12 +60,23 @@ final class FakeAdbd implements AutoCloseable {
     @Override public void close() throws IOException {
         closed = true;
         server.close();
+        // The JDK closes a listening socket for good only once the thread in accept() has woken; until then (on a busy
+        // machine, a while) a client could still connect, and a test of "adb is not there" found it there.
+        try {
+            acceptor.join(5000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void serve() {
         while (!closed) {
             try {
                 Socket s = server.accept();
+                if (closed) {
+                    s.close();
+                    return;
+                }
                 connections++;
                 Thread t = new Thread(() -> {
                     try (Socket c = s) {

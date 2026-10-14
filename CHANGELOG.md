@@ -4,6 +4,25 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.3 (experimental) (2026-10-14)
+
+Quicker actions, from timings on the owner's headset (a click took about 490 ms, typing about 1 s, open about 1.8 s).
+
+- **`after` from the fast engine.** An action's `before` and `after` were two `dumpsys window` calls through adb (100 to 150 ms each) and a fixed 300 ms wait. With the fast engine running they are one call to the helper, `front` (the active window's package and title), made as soon as the panel is still: no accessibility event for 100 ms, 400 ms at most (the helper counts events with UiAutomation's listener; without one, `waitForIdle`). `before` is what the last look or action saw when that was under a second ago. Without the fast engine nothing changed.
+- **`open` waits for the app**, not a fixed 1.2 s: it looks at what is in front every 100 ms (through the shell every 250 ms) until the started app (or, for an address or Settings, anything new) is there, 2 s at most, and that is `after`.
+- **Typing blind into the focus** asks the helper what has the focus (`focus`: password, editable, name, handle) instead of reading the whole panel; still refused when a password field has it, and when the helper cannot tell, the panel is read as before.
+- **A look's `device` line** says actions answer with `after` (no need to look again) and to wait for a name, not a number of milliseconds.
+- Tests: UpdateTest's "adb not there" failed now and then on a busy machine: the pretend adbd still took a connection after it was closed (the JDK closes a listening socket only once the thread in `accept()` wakes). It now waits for that thread and drops anything accepted after closing.
+- versionCode 6 (helper too). Axis is unchanged.
+
+## Desktop app 0.9.1 (2026-10-14)
+
+Quicker actions, from timings on the owner's computer (a click took about 1.1 s, opening an app 4 to 8.6 s).
+
+- **The pointer waits less.** It waited 450 ms before every click, type, scroll and key press; now its glide (220 ms, was 320) and 30 ms more, or 100 ms when it appears on the spot. After open, switch and window it is shown without waiting at all.
+- **Open returns as soon as the window is there**: polled every 100 ms (was 150), without the extra 250 ms for its title, and without bringing it forward when it is in front already. An app whose window was in front before and stays the only one is taken after 1.5 s instead of 8 s (likely the 8.6 s seen). The list of Start-menu apps is read again in the background when it is old, so an open no longer waits for the shell to list them (an app not in the list kept is looked for in a fresh one).
+- Guards unchanged (password fields, Pause, deadlines). Not run on Windows by its author.
+
 ## Quest panel client 0.3.2 (experimental) (2026-10-14)
 
 - **The fast engine's helper connects to the app now.** From the owner's headset log: the helper installed and started, and the app got "Connection refused" while it was still starting and then **"Permission denied"**: the headset's SELinux policy does not let an app connect to the abstract local socket the helper had made. The helper now listens on `127.0.0.1` at a port the app picks per start and the app proves it holds a secret (a challenge each way, an HMAC; the secret is never sent), see `HelperProtocol` and `HandshakeTest`. The helper's package now declares INTERNET (Android requires it for any socket, loopback included).

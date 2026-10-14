@@ -280,6 +280,30 @@ public class CommandsTest {
         a = run("desktop.open", "app", "x", "url", "https://example.org");
         check(!a.ok, "app and url together refused");
         acted();
+
+        System.out.println("[open] waits for the app to come forward, looking every 250 ms through the shell");
+        List<Long> slept = new ArrayList<>();
+        PanelCommands.Sleeper was = cmds.sleeper;
+        cmds.sleeper = ms -> { slept.add(ms); Thread.sleep(Math.min(ms, 20)); };
+        int[] polls = {0};
+        adbd.answer = cmd -> {
+            if (cmd.startsWith("monkey")) polls[0] = 0;
+            if (cmd.startsWith("dumpsys window") && ++polls[0] >= 3) focus[0] = "com.example.chess";
+            return T.headset(xml, focus).apply(cmd);
+        };
+        a = run("desktop.open", "app", "chess");
+        List<String> polled = adbd.take();
+        equal(polled.stream().filter(c -> c.startsWith("dumpsys window")).count(), 4L, "dumpsys window before, then until the app was in front (the third look), which is after");
+        equal(slept, Arrays.asList(250L, 250L, 250L), "250 ms between looks, and no fixed wait after (0.3.2 slept 1200 ms)");
+        Map<String, Object> after = Json.map(data(a).get("after"));
+        check(String.valueOf(after.get("window")).contains("com.example.chess") && Json.isTrue(after, "new"), "after: the app, new: " + after);
+        focus[0] = "com.oculus.store";
+        adbd.answer = T.headset(xml, focus);
+        slept.clear();
+        run("desktop.click", "x", 5, "y", 5);
+        equal(slept, Arrays.asList((long) PanelCommands.AFTER_MS), "a click through the shell: after read AFTER_MS later, as before");
+        cmds.sleeper = was;
+        acted();
     }
 
     static void unsupported() {
