@@ -95,6 +95,34 @@ describe("progress cards of an OpenClaw gateway", () => {
     expect(w.told.at(-1)).toMatchObject({ state: "running" });
   });
 
+  it("takes a session waiting for its subagents for at work, and says how many are running", async () => {
+    const w = world();
+    const key = "agent:main:discord:channel:3";
+    const kids = ["agent:coder:subagent:a", "agent:coder:subagent:b", "agent:coder:subagent:c"];
+    w.sessions.set(key, { label: "Axis", classification: "channel", hasActiveRun: false, childSessions: kids });
+    for (const k of kids) w.sessions.set(k, { label: k, classification: "subagent", isBackground: true, hasActiveRun: k !== kids[2] });
+    w.cards.set(key, steps("completed", "in_progress", "pending"));
+    await w.change(key);
+    // The turn is over with steps left, but two of three subagents are running: not "needs you".
+    expect(w.told.at(-1)).toMatchObject({ state: "running", note: "2/3 agents running · Step 2" });
+
+    w.sessions.get(kids[0]!)!.hasActiveRun = false;
+    w.sessions.get(kids[1]!)!.hasActiveRun = false;
+    await w.poll();
+    // All finished and the agent has not come back: now it is the person's move, and the count stays.
+    expect(w.told.at(-1)).toMatchObject({ state: "blocked", note: "3/3 agents done · Step 2" });
+
+    // A subagent reported by the session itself (the flag) counts as at work even when its row is not listed.
+    w.sessions.set(key, { label: "Axis", classification: "channel", hasActiveRun: false, hasActiveSubagentRun: true });
+    await w.poll();
+    expect(w.told.at(-1)).toMatchObject({ state: "running", note: "Step 2" });
+
+    // The card finished: no count, as before.
+    w.cards.set(key, steps("completed", "completed", "completed"));
+    await w.change(key);
+    expect(w.told.at(-1)).toMatchObject({ state: "done", note: "" });
+  });
+
   it("leaves out scheduled jobs, cards already finished, and everything when switched off", async () => {
     const w = world();
     w.sessions.set("agent:main:cron:1", { label: "Automation: sync", classification: "cron", isBackground: true, hasActiveRun: true });

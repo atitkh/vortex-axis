@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.44.1 (2026-10-14)
+
+- **An agent waiting for its subagents no longer shows as "needs you".** The progress cards Axis mirrors from an OpenClaw gateway counted a session with steps left and no run of its own as waiting for the person. A session that has started subagents still running is at work now, and its task says so in the note: "2/3 agents running · <step>". When they have all finished and the agent has not come back, the task is the person's move as before, and the note keeps the count ("3/3 agents done · <step>"). It reads the session list Axis already polls for open tasks (`childSessions`, each child's `hasActiveRun`, and the session's `hasActiveSubagentRun`); nothing new is asked of the gateway.
+
 ## Quest panel client 0.3.0 (experimental) (2026-10-14)
 
 - **Type `meta-quest`** (was `quest-panels`); shown as "Meta Quest" on the admin page. Needs Axis 0.44.0, which takes either. The update route and command are unchanged, so a headset on 0.2.0 updates to this as before.

@@ -23,7 +23,11 @@ export interface CardSource {
 interface SessionInfo {
   title: string;
   scheduled: boolean;
+  /** Somebody is at work in it: its own run, or subagents it started that are still running. */
   active: boolean;
+  /** Subagents it started, and how many of them are running now (only those the session list showed). */
+  children: number;
+  running: number;
 }
 
 interface Mirrored {
@@ -125,7 +129,11 @@ export class CardMirror {
       // A question or an approval it is waiting on says so itself, and says what.
       const asking = done ? undefined : this.options.waitingOn?.(sessionKey);
       const state = done ? "done" : asking || (session && !session.active) ? "blocked" : "running";
-      const told = JSON.stringify([steps, state, session?.title, asking]);
+      // While subagents run, the note says so ("1/3 agents running"); when they are done it keeps the count ("3/3 agents done").
+      const agents = !done && !asking && session && session.children > 0
+        ? session.running > 0 ? `${session.running}/${session.children} agents running` : `${session.children}/${session.children} agents done`
+        : "";
+      const told = JSON.stringify([steps, state, session?.title, asking, agents]);
       const before = this.shown.get(id);
       if (before?.told === told) return;
       // A card left finished from an earlier piece of work is not news when Axis first hears of it.
@@ -134,7 +142,7 @@ export class CardMirror {
       this.options.progress.update({
         id,
         title: session?.title ?? "Agent",
-        note: done ? "" : (asking ?? current?.step ?? "").slice(0, 80),
+        note: done ? "" : (asking ?? [agents, current?.step].filter(Boolean).join(" · ")).slice(0, 80),
         steps: steps.slice(0, 12),
         state,
       });
@@ -147,13 +155,17 @@ export class CardMirror {
   private async learn(): Promise<void> {
     const reply = await this.options.source.call("sessions.list", { limit: 200 });
     const list: any[] = Array.isArray(reply?.sessions) ? reply.sessions : [];
+    const rows = list.filter((s) => typeof s?.key === "string");
+    // A subagent's own row says whether it is running; a child the list does not show counts as started, not running.
+    const runningNow = new Set(rows.filter((s) => s.hasActiveRun === true).map((s) => s.key as string));
     this.sessions = new Map(
-      list
-        .filter((s) => typeof s?.key === "string")
-        .map((s): [string, SessionInfo] => [
-          s.key as string,
-          { title: titleFor(s), scheduled: s.classification === "cron" || s.isBackground === true, active: s.hasActiveRun === true },
-        ]),
+      rows.map((s): [string, SessionInfo] => {
+        const kids: string[] = Array.isArray(s.childSessions) ? s.childSessions.filter((k: unknown) => typeof k === "string") : [];
+        const running = kids.filter((k) => runningNow.has(k)).length;
+        // A session waiting for its subagents is at work, not waiting for the person.
+        const active = s.hasActiveRun === true || s.hasActiveSubagentRun === true || running > 0;
+        return [s.key as string, { title: titleFor(s), scheduled: s.classification === "cron" || s.isBackground === true, active, children: kids.length, running }];
+      }),
     );
   }
 
