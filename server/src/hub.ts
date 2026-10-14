@@ -354,6 +354,7 @@ export class Hub implements TurnPort {
       return undefined;
     }
 
+    // The stored record's type wins: a hello's type is not used (a device not yet updated may give an old name, clienttypes.ts).
     this.store.recordHello(known.id, { version: hello.version, capabilities: hello.capabilities });
     const client = this.store.getClient(known.id)!;
 

@@ -46,12 +46,14 @@ public final class Panel {
         public final boolean focused, enabled, scrollable, password;
         final String scrollsWay;
         final String own, details;
+        /** The fast engine's handle for the node this came from, valid until its next dump; -1 from a uiautomator dump. */
+        public final int handle;
 
         Element(String kind, String name, String value, int[] box, boolean focused, boolean enabled, boolean scrollable, boolean password, String scrollsWay) {
-            this(kind, name, "", value, box, focused, enabled, scrollable, password, scrollsWay);
+            this(kind, name, "", value, box, focused, enabled, scrollable, password, scrollsWay, -1);
         }
 
-        Element(String kind, String own, String details, String value, int[] box, boolean focused, boolean enabled, boolean scrollable, boolean password, String scrollsWay) {
+        Element(String kind, String own, String details, String value, int[] box, boolean focused, boolean enabled, boolean scrollable, boolean password, String scrollsWay, int handle) {
             this.kind = kind;
             this.own = own;
             this.details = details;
@@ -66,6 +68,7 @@ public final class Panel {
             this.scrollable = scrollable;
             this.password = password;
             this.scrollsWay = scrollsWay;
+            this.handle = handle;
         }
 
         public int cx() { return x + w / 2; }
@@ -142,6 +145,8 @@ public final class Panel {
         /** The box as seen on the panel, for the reading order. */
         int[] seen = box;
         boolean clickable, longClickable, scrollable, enabled = true, focused, checkable, checked, selected, password;
+        /** The fast engine's handle for it; -1 from a uiautomator dump. */
+        int handle = -1;
         final List<Node> children = new ArrayList<>();
     }
 
@@ -202,6 +207,69 @@ public final class Panel {
         } catch (Exception e) {
             throw new IllegalArgumentException("the panel's description could not be read: " + e.getMessage(), e);
         }
+        return build(root, count[0], width, height);
+    }
+
+    /**
+     * The panel from the fast engine's dump (HelperProtocol: one object per node, the XML's attribute names as keys,
+     * `bounds` as [l, t, r, b], `children`, `handle`). It becomes the same tree a uiautomator dump does, and is tidied
+     * by the same code.
+     */
+    public static Panel fromHelper(Map<String, Object> dump) {
+        return fromHelper(dump, WIDTH, HEIGHT);
+    }
+
+    public static Panel fromHelper(Map<String, Object> dump, int width, int height) {
+        Node root = new Node();
+        int[] count = {0};
+        List<Object> roots = Json.list(dump.get("roots"));
+        if (roots == null) throw new IllegalArgumentException("the fast engine's dump has no roots");
+        for (Object o : roots) {
+            Map<String, Object> m = Json.map(o);
+            if (m != null) root.children.add(node(m, count, 0));
+        }
+        return build(root, count[0], width, height);
+    }
+
+    private static Node node(Map<String, Object> m, int[] count, int depth) {
+        if (depth > 200) throw new IllegalArgumentException("the fast engine's dump is nested too deeply");
+        count[0]++;
+        Node n = new Node();
+        n.cls = text(m, "class");
+        n.pkg = text(m, "package");
+        n.text = clean(text(m, "text"));
+        n.desc = clean(text(m, "content-desc"));
+        n.hint = clean(text(m, "hint"));
+        n.resId = text(m, "resource-id");
+        List<Object> b = Json.list(m.get("bounds"));
+        if (b != null && b.size() == 4 && b.get(0) instanceof Number && b.get(1) instanceof Number && b.get(2) instanceof Number && b.get(3) instanceof Number)
+            n.box = new int[] {((Number) b.get(0)).intValue(), ((Number) b.get(1)).intValue(), ((Number) b.get(2)).intValue(), ((Number) b.get(3)).intValue()};
+        n.clickable = Json.isTrue(m, "clickable");
+        n.longClickable = Json.isTrue(m, "long-clickable");
+        n.scrollable = Json.isTrue(m, "scrollable");
+        n.enabled = !Boolean.FALSE.equals(m.get("enabled"));
+        n.focused = Json.isTrue(m, "focused");
+        n.checkable = Json.isTrue(m, "checkable");
+        n.checked = Json.isTrue(m, "checked");
+        n.selected = Json.isTrue(m, "selected");
+        n.password = Json.isTrue(m, "password");
+        Integer h = Json.integer(m, "handle");
+        n.handle = h == null ? -1 : h;
+        List<Object> kids = Json.list(m.get("children"));
+        if (kids != null) for (Object o : kids) {
+            Map<String, Object> k = Json.map(o);
+            if (k != null) n.children.add(node(k, count, depth + 1));
+        }
+        return n;
+    }
+
+    private static String text(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        return v instanceof String ? (String) v : "";
+    }
+
+    /** The one way from a node tree (either source) to a panel: walked, tidied and finished. */
+    private static Panel build(Node root, int nodes, int width, int height) {
         Builder b = new Builder(width, height);
         Item top = new Item();
         for (Node n : b.visual(root.children)) b.walk(n, new ArrayList<>(), false, top.kids);
@@ -210,7 +278,7 @@ public final class Panel {
         flatten(top.kids, flat);
         String pkg = "";
         for (Node n : root.children) if (!n.pkg.isEmpty()) { pkg = n.pkg; break; }
-        return new Panel(pkg, width, height, Builder.finish(flat), count[0], b.passwordFocused);
+        return new Panel(pkg, width, height, Builder.finish(flat), nodes, b.passwordFocused);
     }
 
     private static void trySet(SAXParserFactory f, String feature, boolean on) {
@@ -236,6 +304,7 @@ public final class Panel {
     static final class Item {
         String kind = "", name = "", value, way, details = "";
         int[] box = {0, 0, 0, 0};
+        int handle = -1;
         boolean focused, enabled = true, scrollable, password, acts, checkable, edit;
         final List<Item> kids = new ArrayList<>();
 
@@ -322,6 +391,7 @@ public final class Panel {
             item.acts = acts;
             item.checkable = n.checkable;
             item.edit = edit;
+            item.handle = n.handle;
             into.add(item);
             List<String> now = new ArrayList<>(said);
             if (!label.isEmpty()) now.add(label);
@@ -472,7 +542,7 @@ public final class Panel {
             for (int i = 0; i < n; i++) {
                 if (drop[i]) continue;
                 Item e = flat.get(i);
-                out.add(new Element(e.kind, e.name, e.details, e.value, e.box, e.focused, e.enabled, e.scrollable, e.password, e.way));
+                out.add(new Element(e.kind, e.name, e.details, e.value, e.box, e.focused, e.enabled, e.scrollable, e.password, e.way, e.handle));
             }
             return out;
         }

@@ -185,9 +185,9 @@ public final class SelfUpdate {
      * read, then the app started again when it worked.
      */
     static String installCommand(int delaySeconds) {
-        String script = "trap \"\" HUP; sleep " + delaySeconds + "; pm install -r " + STAGED + " > " + RESULT + " 2>&1; "
+        String script = "sleep " + delaySeconds + "; pm install -r " + STAGED + " > " + RESULT + " 2>&1; "
                 + "if grep -q Success " + RESULT + "; then am start -n " + ACTIVITY + " --ez " + UPDATED_EXTRA + " true; fi; rm -f " + STAGED;
-        return "nohup sh -c " + Shell.quote(script) + " </dev/null >/dev/null 2>&1 & echo started";
+        return Shell.detached(script, "started");
     }
 
     /** Reads the install's output while the app lives: only a failed install leaves it running to read it. */

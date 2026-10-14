@@ -5,6 +5,8 @@
 
     <!-- To list the apps an agent may open by name (package visibility, Android 11 and later). -->
     <queries>
+        <!-- The fast engine's helper, carried inside this app and installed by it: its uid and key are checked. -->
+        <package android:name="dev.vortexaxis.quest.helper" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

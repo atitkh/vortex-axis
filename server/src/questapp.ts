@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { newer } from "./desktopapp.js";
 import type { Hub, Session } from "./hub.js";
 
-/** The client type of the Quest panel client, as it introduces itself. */
-export const QUEST_TYPE = "quest-panels";
+/** The client type of the Quest panel client, as it introduces itself (0.2.0 and before said `quest-panels`: clienttypes.ts). */
+export const QUEST_TYPE = "meta-quest";
 
 export interface QuestBuild {
   version: string;

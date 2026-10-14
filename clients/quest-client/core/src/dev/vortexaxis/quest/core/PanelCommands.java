@@ -48,6 +48,12 @@ public final class PanelCommands implements AxisLink.Handler {
 
     public interface Diary { void did(String what); }
 
+    /** Told when a command starts and ends, for the app's Live view and notification. */
+    public interface Doing {
+        void started(String what);
+        void finished(String what, long ms, boolean ok);
+    }
+
     public static final int MAX_ELEMENTS = 250;
     public static final int MAX_TYPED = 500;
     public static final int MAX_STEPS = 10;
@@ -69,6 +75,11 @@ public final class PanelCommands implements AxisLink.Handler {
     private volatile Apps apps;
     private volatile Diary diary = what -> {};
     private volatile SelfUpdate updater;
+    private volatile Helper helper;
+    private volatile Doing doing = new Doing() {
+        @Override public void started(String what) {}
+        @Override public void finished(String what, long ms, boolean ok) {}
+    };
     private final ReentrantLock gate = new ReentrantLock();
     private volatile Map<String, Object> settings = new LinkedHashMap<>();
     private List<Panel.Element> last = Collections.emptyList();
@@ -94,6 +105,29 @@ public final class PanelCommands implements AxisLink.Handler {
     public void setApps(Apps a) { apps = a; }
     public void setDiary(Diary d) { diary = d == null ? what -> {} : d; }
     public void setUpdater(SelfUpdate u) { updater = u; }
+    public void setHelper(Helper h) { helper = h; }
+    public void setDoing(Doing d) { if (d != null) doing = d; }
+
+    /** True when this call should try the fast engine first. */
+    private boolean fast() {
+        Helper h = helper;
+        return h != null && h.usable();
+    }
+
+    /** The fast engine did not answer: it is restarted later, and this call goes on through the shell. Said once per outage. */
+    private void lost(Helper.Lost e) {
+        Helper h = helper;
+        if (h != null) h.lost(AxisLink.describe(e));
+    }
+
+    /**
+     * An action the fast engine was asked to do and did not answer: it may have been done, so it is not done again
+     * through the shell (a second tap could undo the first).
+     */
+    private IOException unsure(String what, Helper.Lost e) {
+        lost(e);
+        return new IOException("the fast engine did not answer while " + what + ", so it may or may not have happened; look again before trying again");
+    }
     public void useSettings(Map<String, Object> values) { settings = values == null ? new LinkedHashMap<>() : values; }
 
     private void did(String what) {
@@ -118,19 +152,57 @@ public final class PanelCommands implements AxisLink.Handler {
             return u == null ? AxisLink.Answer.fail("not implemented on this device") : u.handle(p, gate);
         }
         boolean locked = false;
+        String what = null;
+        long started = System.currentTimeMillis();
+        boolean ok = false;
         try {
             locked = gate.tryLock(BUSY_MS, TimeUnit.MILLISECONDS);
             if (!locked) return AxisLink.Answer.fail("the headset is still busy with the last command; try again in a moment");
-            if (!CHANGES.contains(name)) return run(name, p);
-            String before = foreground();
-            AxisLink.Answer answer = run(name, p);
-            return withAfter(answer, name, p, before);
+            what = name.startsWith("desktop.") && !paused ? doingWords(name, p) : null;
+            if (what != null) try { doing.started(what); } catch (RuntimeException ignored) {}
+            AxisLink.Answer answer;
+            if (!CHANGES.contains(name)) answer = run(name, p);
+            else {
+                String before = foreground();
+                answer = withAfter(run(name, p), name, p, before);
+            }
+            ok = answer.ok;
+            return answer;
         } catch (Exception e) {
             String why = AxisLink.describe(e);
             did(name + " failed: " + why);
             return AxisLink.Answer.fail(why);
         } finally {
             if (locked) gate.unlock();
+            if (what != null) try { doing.finished(what, System.currentTimeMillis() - started, ok); } catch (RuntimeException ignored) {}
+        }
+    }
+
+    /** What a command is doing, in words for the person in the headset: "Tapping "Elixir"", "Typing 11 characters". */
+    String doingWords(String name, Map<String, Object> p) {
+        String target = Json.str(p, "name") != null ? "\"" + clip(Json.str(p, "name"), 40) + "\""
+                : Json.integer(p, "id") != null ? "element " + Json.integer(p, "id")
+                : Json.integer(p, "x") != null && Json.integer(p, "y") != null ? Json.integer(p, "x") + ", " + Json.integer(p, "y") : null;
+        Panel seen;
+        synchronized (this) { seen = lastPanel; }
+        String panel = seen != null && !seen.pkg.isEmpty() ? Panel.appName(seen.pkg) : "the panel";
+        switch (name) {
+            case "desktop.look": return "Looking at " + panel;
+            case "desktop.find": return "Looking for " + (target != null ? target : "something") + " on " + panel;
+            case "desktop.click": return "Tapping " + (target != null ? target : "the panel");
+            case "desktop.type": {
+                Object t = p.get("text");
+                int n = t instanceof String ? ((String) t).length() : 0;
+                return "Typing " + n + " character" + (n == 1 ? "" : "s");
+            }
+            case "desktop.keys": return "Pressing " + clip(or(Json.str(p, "keys"), "a key"), 30);
+            case "desktop.scroll": return "Scrolling " + or(Json.str(p, "go"), "down");
+            case "desktop.open": return "Opening " + clip(or(Json.str(p, "app"), or(Json.str(p, "url"), "an app")), 40);
+            case "desktop.screenshot": return "Taking a picture of " + panel;
+            case "desktop.wait": return Json.str(p, "name") != null ? "Waiting for " + target : "Waiting";
+            case "desktop.steps": return "Running steps";
+            case "desktop.hello": return "Checked from the admin page";
+            default: return null;
         }
     }
 
@@ -226,10 +298,11 @@ public final class PanelCommands implements AxisLink.Handler {
                 }
                 did("Checked from the admin page: adb " + ("ready".equals(adbSays) ? "ready" : "not ready"));
                 return AxisLink.Answer.done(Json.obj(
-                        "platform", "quest-panels",
+                        "platform", QuestIdentity.TYPE,
                         "version", version,
                         "adb", clip(adbSays, 200),
                         "panel", Panel.WIDTH + "x" + Panel.HEIGHT,
+                        "engine", engineWord(),
                         "unsupported", "switch, window, desktop, clipboard, paste; point is noted but not drawn"));
             }
             default:
@@ -241,11 +314,18 @@ public final class PanelCommands implements AxisLink.Handler {
 
     /** Where the time of one look went, for the app's Test button and the diagnostics. */
     public static final class Timing {
+        /** The look came from the fast engine (its dump), not uiautomator. */
+        public final boolean fast;
         public final boolean compressed;
         public final long connectMs, dumpMs, readMs, parseMs, totalMs;
         public final int nodes, kept, bytes;
 
         Timing(boolean compressed, long connectMs, long dumpMs, long readMs, long parseMs, long totalMs, int nodes, int kept, int bytes) {
+            this(false, compressed, connectMs, dumpMs, readMs, parseMs, totalMs, nodes, kept, bytes);
+        }
+
+        Timing(boolean fast, boolean compressed, long connectMs, long dumpMs, long readMs, long parseMs, long totalMs, int nodes, int kept, int bytes) {
+            this.fast = fast;
             this.compressed = compressed;
             this.connectMs = connectMs;
             this.dumpMs = dumpMs;
@@ -259,6 +339,7 @@ public final class PanelCommands implements AxisLink.Handler {
 
         /** "294 nodes, 25 kept; dump 4100 ms, read 80 ms, parse 40 ms, total 4230 ms" (adb connect first when there was one). */
         @Override public String toString() {
+            if (fast) return nodes + " nodes, " + kept + " kept; fast dump " + dumpMs + " ms, parse " + parseMs + " ms, total " + totalMs + " ms";
             return nodes + " nodes, " + kept + " kept; " + (connectMs > 0 ? "adb connect " + connectMs + " ms, " : "")
                     + "dump " + dumpMs + " ms, read " + readMs + " ms, parse " + parseMs + " ms, total " + totalMs + " ms";
         }
@@ -277,6 +358,44 @@ public final class PanelCommands implements AxisLink.Handler {
     }
 
     Panel dump(boolean compressed) throws IOException, InterruptedException {
+        if (fast()) {
+            try {
+                return fastDump();
+            } catch (Helper.Lost e) {
+                lost(e);
+            } catch (Helper.Failed e) {
+                log.line("look: the fast engine could not read the panel (" + e.getMessage() + "); with uiautomator this once");
+            }
+        }
+        return shellDump(compressed);
+    }
+
+    /** The panel from the fast engine: one call, parsed into the same tree a uiautomator dump gives. */
+    private Panel fastDump() throws IOException {
+        long started = System.currentTimeMillis();
+        Map<String, Object> got = helper.call("dump", Json.obj("maxNodes", HelperRouter.MAX_NODES, "idleMs", FAST_IDLE_MS), dumpMs);
+        long t = System.currentTimeMillis();
+        Panel panel;
+        try {
+            panel = Panel.fromHelper(got);
+        } catch (IllegalArgumentException e) {
+            throw new Helper.Failed(HelperProtocol.FAILED, e.getMessage());
+        }
+        long now = System.currentTimeMillis();
+        Timing timing = new Timing(true, false, 0, t - started, 0, now - t, now - started, panel.nodes, panel.elements.size(), 0);
+        lastTiming = timing;
+        log.line("look: fast dump of " + panel.window() + ": " + timing);
+        synchronized (this) {
+            lastPanel = panel;
+            lastPanelAt = System.currentTimeMillis();
+        }
+        return panel;
+    }
+
+    /** How long the fast engine lets the panel settle before reading it (uiautomator waits for idle too, much longer). */
+    static final int FAST_IDLE_MS = 300;
+
+    Panel shellDump(boolean compressed) throws IOException, InterruptedException {
         IOException last = null;
         for (int attempt = 0; attempt < 2; attempt++) {
             long started = System.currentTimeMillis();
@@ -493,7 +612,7 @@ public final class PanelCommands implements AxisLink.Handler {
                     case "right": command = "input swipe " + x + " " + y + " " + x + " " + y + " 800"; how = "long press"; said = "Long-pressed"; break;
                     default: return AxisLink.Answer.fail("button must be left, right or double, not " + button);
                 }
-                checkQuiet(adb.shell(command, ACT_MS));
+                if (!fastClick(t.element, x, y, button)) checkQuiet(adb.shell(command, ACT_MS));
                 did(said + " " + (t.element != null ? "\"" + clip(t.element.name, 60) + "\"" : x + ", " + y));
                 Map<String, Object> payload = Json.obj("x", x, "y", y, "how", how);
                 if (t.element != null) payload.put("name", clip(t.element.name, 200));
@@ -504,25 +623,39 @@ public final class PanelCommands implements AxisLink.Handler {
                 String text = raw instanceof String ? (String) raw : "";
                 if (text.isEmpty()) return AxisLink.Answer.fail("type needs text");
                 if (text.length() > MAX_TYPED) return AxisLink.Answer.fail("at most " + MAX_TYPED + " characters at a time");
-                List<String> commands;
+                // The shell types plain ASCII only; the fast engine any text. Control characters, never.
+                List<String> commands = null;
+                String shellCannot = null;
                 try {
                     commands = Shell.typeCommands(text);
                 } catch (IllegalArgumentException e) {
-                    return AxisLink.Answer.fail(e.getMessage());
+                    shellCannot = e.getMessage();
+                }
+                if (shellCannot != null && !fast()) return AxisLink.Answer.fail(shellCannot);
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if ((c < 0x20 && c != '\n' && c != '\t' && c != '\r') || c == 0x7f) return AxisLink.Answer.fail("the text has a control character, which cannot be typed");
                 }
                 Target t = target(p);
                 if (t.fail != null) return AxisLink.Answer.fail(t.fail);
                 if (t.element != null) {
                     if (t.element.password || t.element.kind.equals("password")) return AxisLink.Answer.fail("the app never types into a password field");
-                    // Tapping the field gives it the focus.
-                    checkQuiet(adb.shell("input tap " + t.element.cx() + " " + t.element.cy(), ACT_MS));
-                    sleeper.sleep(AFTER_MS);
                 } else {
                     // Typing blind into whatever has the focus: it must not be a password field.
                     Panel now = dump();
                     if (now.passwordFocused) return AxisLink.Answer.fail("the app never types into a password field (one has the focus)");
                 }
-                checkQuiet(adb.shell(String.join(" && ", commands), 15_000));
+                String typedFast = fastType(t.element, text);
+                if (typedFast != null) return AxisLink.Answer.fail(typedFast);
+                if (!typedFastDone) {
+                    if (shellCannot != null) return AxisLink.Answer.fail(shellCannot);
+                    if (t.element != null) {
+                        // Tapping the field gives it the focus.
+                        checkQuiet(adb.shell("input tap " + t.element.cx() + " " + t.element.cy(), ACT_MS));
+                        sleeper.sleep(AFTER_MS);
+                    }
+                    checkQuiet(adb.shell(String.join(" && ", commands), 15_000));
+                }
                 did("Typed " + text.length() + " characters" + (t.element != null ? " into \"" + clip(t.element.name, 60) + "\"" : ""));
                 Map<String, Object> payload = Json.obj("typed", text.length());
                 if (t.element != null) payload.put("into", clip(t.element.name, 200));
@@ -537,6 +670,10 @@ public final class PanelCommands implements AxisLink.Handler {
                     return AxisLink.Answer.fail(r.getMessage());
                 } catch (IllegalArgumentException e) {
                     return AxisLink.Answer.fail(e.getMessage());
+                }
+                if (fastKey(combo)) {
+                    did("Pressed " + combo);
+                    return AxisLink.Answer.done(Json.obj("pressed", combo.toString()));
                 }
                 String out = adb.shell(combo.command(), ACT_MS);
                 if (combo.combination() && looksLikeError(out))
@@ -661,13 +798,17 @@ public final class PanelCommands implements AxisLink.Handler {
         }
         boolean far = go.equals("top") || go.equals("bottom");
         int times = far ? 8 : pages;
-        String one = "input swipe " + fromX + " " + fromY + " " + toX + " " + toY + " " + (far ? 120 : 400);
-        List<String> all = new ArrayList<>();
-        for (int i = 0; i < times; i++) all.add(one);
-        checkQuiet(adb.shell(String.join(" && ", all), 15_000));
+        String how = fastScroll(box, go.equals("down") || go.equals("bottom") || go.equals("right"), times, new int[] {fromX, fromY, toX, toY, far ? 120 : 400});
+        if (how == null) {
+            String one = "input swipe " + fromX + " " + fromY + " " + toX + " " + toY + " " + (far ? 120 : 400);
+            List<String> all = new ArrayList<>();
+            for (int i = 0; i < times; i++) all.add(one);
+            checkQuiet(adb.shell(String.join(" && ", all), 15_000));
+            how = "swipe";
+        }
         String in = t.element != null ? t.element.name : box != null ? box.name : null;
         did("Scrolled " + go + (far ? "" : " " + pages + " page" + (pages == 1 ? "" : "s")) + (in != null && !in.isEmpty() ? " in " + clip(in, 40) : ""));
-        Map<String, Object> payload = Json.obj("scrolled", go, "how", "swipe");
+        Map<String, Object> payload = Json.obj("scrolled", go, "how", how);
         if (in != null && !in.isEmpty()) payload.put("in", clip(in, 200));
         return AxisLink.Answer.done(payload);
     }
@@ -691,6 +832,23 @@ public final class PanelCommands implements AxisLink.Handler {
         synchronized (this) { panel = System.currentTimeMillis() - lastPanelAt < 3000 ? lastPanel : null; }
         if (panel == null) panel = dump();
         if (panel.passwordFocused) return AxisLink.Answer.fail("no screenshot while a password field has the focus");
+        int[] crop = null;
+        if (region != null) {
+            int m = 40;
+            crop = new int[] {Math.max(0, region.x - m), Math.max(0, region.y - m), region.w + 2 * m, region.h + 2 * m};
+        }
+        Shot shot = fastShot(side, crop);
+        if (shot == null) shot = shellShot(pics, side, crop);
+        did("Took a " + shot.w + "x" + shot.h + " picture of " + (region != null ? clip(region.name, 40) : Panel.appName(panel.pkg)));
+        Map<String, Object> data = Json.obj(
+                "image", Json.obj("data", Base64.getEncoder().encodeToString(shot.jpeg), "mimeType", "image/jpeg"),
+                "picture", shot.w + "x" + shot.h + (crop != null ? " of " + crop[0] + "," + crop[1] + " " + crop[2] + "x" + crop[3] : " of the panel"),
+                "window", panel.window());
+        return AxisLink.Answer.data(data);
+    }
+
+    /** screencap through the shell, shrunk by the app. */
+    private Shot shellShot(Pictures pics, int side, int[] crop) throws IOException {
         byte[] png;
         try {
             png = adb.shellBytes("screencap -p", dumpMs);
@@ -698,18 +856,197 @@ public final class PanelCommands implements AxisLink.Handler {
             throw new IOException("the picture took longer than " + seconds(dumpMs) + " s; try again");
         }
         if (png.length < 8 || (png[0] & 0xff) != 0x89 || png[1] != 'P') throw new IOException("screencap did not give a picture" + (png.length < 200 ? ": " + clip(new String(png, java.nio.charset.StandardCharsets.UTF_8).trim(), 120) : ""));
-        int[] crop = null;
-        if (region != null) {
-            int m = 40;
-            crop = new int[] {Math.max(0, region.x - m), Math.max(0, region.y - m), region.w + 2 * m, region.h + 2 * m};
+        return pics.shrink(png, side, crop);
+    }
+
+    // ---- the fast engine's ways, each falling back to the shell -----------------
+
+    /** Taps, double-taps or long-presses through the fast engine: by the element's handle when it has one. False: do it through the shell. */
+    private boolean fastClick(Panel.Element e, int x, int y, String button) throws IOException {
+        if (!fast()) return false;
+        try {
+            boolean byHandle = e != null && e.handle >= 0 && !button.equals("double");
+            if (byHandle) {
+                try {
+                    helper.call(button.equals("right") ? "longClick" : "click", Json.obj("handle", e.handle), ACT_MS);
+                    return true;
+                } catch (Helper.Failed f) {
+                    if (!HelperProtocol.STALE.equals(f.code)) throw f;
+                    // Gone since the look: where it was is still where the agent meant.
+                }
+            }
+            if (button.equals("right")) helper.call("longPress", Json.obj("x", x, "y", y), ACT_MS);
+            else {
+                helper.call("tap", Json.obj("x", x, "y", y), ACT_MS);
+                if (button.equals("double")) helper.call("tap", Json.obj("x", x, "y", y), ACT_MS);
+            }
+            return true;
+        } catch (Helper.Lost l) {
+            if (l.sent) throw unsure("tapping", l);
+            lost(l);
+            return false;
+        } catch (Helper.Failed f) {
+            log.line("click: the fast engine could not (" + f.getMessage() + "); through the shell");
+            return false;
         }
-        Shot shot = pics.shrink(png, side, crop);
-        did("Took a " + shot.w + "x" + shot.h + " picture of " + (region != null ? clip(region.name, 40) : Panel.appName(panel.pkg)));
-        Map<String, Object> data = Json.obj(
-                "image", Json.obj("data", Base64.getEncoder().encodeToString(shot.jpeg), "mimeType", "image/jpeg"),
-                "picture", shot.w + "x" + shot.h + (crop != null ? " of " + crop[0] + "," + crop[1] + " " + crop[2] + "x" + crop[3] : " of the panel"),
-                "window", panel.window());
-        return AxisLink.Answer.data(data);
+    }
+
+    /** Set by fastType when it typed everything. */
+    private boolean typedFastDone;
+
+    /**
+     * Types through the fast engine (any text): into the element by its handle, else into the focus; a newline is
+     * Enter and a tab is Tab, as through the shell. Sets typedFastDone when it typed; returns a refusal for the agent,
+     * or null. When it could not start, the shell types instead (plain ASCII only).
+     */
+    private String fastType(Panel.Element e, String text) throws IOException {
+        typedFastDone = false;
+        if (!fast()) return null;
+        boolean begun = false;
+        try {
+            StringBuilder part = new StringBuilder();
+            boolean first = true;
+            for (int i = 0; i <= text.length(); i++) {
+                char c = i < text.length() ? text.charAt(i) : '\n';
+                if (c == '\r') continue;
+                if (c != '\n' && c != '\t') {
+                    part.append(c);
+                    continue;
+                }
+                if (part.length() > 0) {
+                    Map<String, Object> req = Json.obj("text", part.toString());
+                    // The field by its handle the first time; then where the focus is (Enter may have moved it).
+                    if (first && e != null && e.handle >= 0) req.put("handle", e.handle);
+                    else if (first && e != null) {
+                        helper.call("tap", Json.obj("x", e.cx(), "y", e.cy()), ACT_MS);
+                        sleeper.sleep(AFTER_MS);
+                    }
+                    try {
+                        helper.call("setText", req, 15_000);
+                    } catch (Helper.Failed f) {
+                        if (!begun && HelperProtocol.STALE.equals(f.code) && e != null) {
+                            helper.call("tap", Json.obj("x", e.cx(), "y", e.cy()), ACT_MS);
+                            sleeper.sleep(AFTER_MS);
+                            helper.call("setText", Json.obj("text", part.toString()), 15_000);
+                        } else throw f;
+                    }
+                    begun = true;
+                    first = false;
+                    part.setLength(0);
+                } else if (first && e != null && i < text.length()) {
+                    // A newline first: the field gets the focus before the key.
+                    if (e.handle >= 0) helper.call("click", Json.obj("handle", e.handle), ACT_MS);
+                    else helper.call("tap", Json.obj("x", e.cx(), "y", e.cy()), ACT_MS);
+                    first = false;
+                }
+                if (i < text.length()) {
+                    helper.call("key", Json.obj("code", c == '\n' ? Keys.ENTER : Keys.TAB), ACT_MS);
+                    begun = true;
+                }
+            }
+            typedFastDone = true;
+            return null;
+        } catch (Helper.Failed f) {
+            if (HelperProtocol.PASSWORD.equals(f.code)) return "the app never types into a password field" + (e == null ? " (one has the focus)" : "");
+            if (begun) throw new IOException("typing stopped part way: " + f.getMessage() + "; look before typing again");
+            log.line("type: the fast engine could not (" + f.getMessage() + "); through the shell");
+            return null;
+        } catch (Helper.Lost l) {
+            if (l.sent || begun) throw unsure("typing", l);
+            lost(l);
+            return null;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while typing");
+        }
+    }
+
+    /** A key through the fast engine: Back as the system's Back, others injected with their modifiers (no keycombination needed). False: through the shell. */
+    private boolean fastKey(Keys combo) throws IOException {
+        if (!fast()) return false;
+        try {
+            if (combo.code == 4 && !combo.combination()) helper.call("back", Json.obj(), ACT_MS);
+            else helper.call("key", Json.obj("code", combo.code, "ctrl", combo.ctrl, "alt", combo.alt, "shift", combo.shift), ACT_MS);
+            return true;
+        } catch (Helper.Lost l) {
+            if (l.sent) throw unsure("pressing " + combo, l);
+            lost(l);
+            return false;
+        } catch (Helper.Failed f) {
+            log.line("keys: the fast engine could not (" + f.getMessage() + "); through the shell");
+            return false;
+        }
+    }
+
+    /**
+     * Scrolls through the fast engine: the list's own scrolling by its handle ("scroll"), page by page until it will
+     * go no further, else the same swipes the shell would make ("swipe"). Null: through the shell.
+     */
+    private String fastScroll(Panel.Element box, boolean forward, int times, int[] swipe) throws IOException {
+        if (!fast()) return null;
+        boolean begun = false;
+        try {
+            if (box != null && box.handle >= 0 && box.scrollable) {
+                try {
+                    for (int i = 0; i < times; i++) {
+                        Map<String, Object> r = helper.call("scroll", Json.obj("handle", box.handle, "forward", forward), ACT_MS);
+                        begun = true;
+                        if (!Json.isTrue(r, "moved")) break;
+                        if (i + 1 < times) sleeper.sleep(SETTLE_MS);
+                    }
+                    if (begun) return "scroll";
+                } catch (Helper.Failed f) {
+                    if (begun) return "scroll";
+                    // Stale, or a list that does not take scrolling from accessibility: swipe as a person would.
+                }
+            }
+            for (int i = 0; i < times; i++) {
+                helper.call("swipe", Json.obj("x1", swipe[0], "y1", swipe[1], "x2", swipe[2], "y2", swipe[3], "ms", swipe[4]), ACT_MS);
+                begun = true;
+            }
+            return "swipe";
+        } catch (Helper.Lost l) {
+            if (l.sent || begun) throw unsure("scrolling", l);
+            lost(l);
+            return null;
+        } catch (Helper.Failed f) {
+            if (begun) return "swipe";
+            log.line("scroll: the fast engine could not (" + f.getMessage() + "); through the shell");
+            return null;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while scrolling");
+        }
+    }
+
+    /** A picture through the fast engine (UiAutomation's screenshot), or null to take it with screencap. */
+    private Shot fastShot(int side, int[] crop) {
+        if (!fast()) return null;
+        try {
+            Map<String, Object> r = helper.call("screenshot", Json.obj("maxSide", side, "crop", crop == null ? null : Arrays.asList((Object) crop[0], crop[1], crop[2], crop[3])), dumpMs);
+            byte[] jpeg = Base64.getDecoder().decode(String.valueOf(r.get("jpeg")));
+            Integer w = Json.integer(r, "w"), h = Json.integer(r, "h");
+            if (jpeg.length < 4 || (jpeg[0] & 0xff) != 0xff || (jpeg[1] & 0xff) != 0xd8 || w == null || h == null) throw new Helper.Failed(HelperProtocol.FAILED, "not a JPEG");
+            return new Shot(jpeg, w, h);
+        } catch (Helper.Lost l) {
+            lost(l);
+            return null;
+        } catch (IOException | IllegalArgumentException e) {
+            log.line("screenshot: the fast engine could not (" + e.getMessage() + "); with screencap");
+            return null;
+        }
+    }
+
+    /** The engine in a word, for the admin page's Check and the diagnostics. */
+    String engineWord() {
+        Helper h = helper;
+        if (h == null) return "uiautomator";
+        switch (h.state()) {
+            case FAST: return "fast";
+            case STARTING: return "starting (uiautomator meanwhile)";
+            case OFF: return "uiautomator (fast engine off)";
+            default: return "uiautomator (fast engine not available: " + clip(h.detail(), 80) + ")";
+        }
     }
 
     private static final Map<String, Integer> SHOT_SIDES = new LinkedHashMap<>();
@@ -846,35 +1183,59 @@ public final class PanelCommands implements AxisLink.Handler {
     /** The panel last read, for the app's Test button. */
     public synchronized Panel lastPanel() { return lastPanel; }
 
-    /** What the Test button found: the panel, and the timing of a plain dump and of a compressed one. */
+    /** What the Test button found: the panel, the fast engine's timing when it ran, and a plain and a compressed uiautomator dump. */
     public static final class TestResult {
         public final Panel panel;
         public final Timing plain, compressed;
         /** Why the compressed dump failed, if it did. */
         public final String compressedFailed;
+        /** The fast engine's dump, or null when it was not running; why not, or why it failed. */
+        public final Timing fast;
+        public final String fastNote;
 
-        TestResult(Panel panel, Timing plain, Timing compressed, String compressedFailed) {
+        TestResult(Panel panel, Timing plain, Timing compressed, String compressedFailed, Timing fast, String fastNote) {
             this.panel = panel;
             this.plain = plain;
             this.compressed = compressed;
             this.compressedFailed = compressedFailed;
+            this.fast = fast;
+            this.fastNote = fastNote;
         }
     }
 
     /**
-     * Reads the panel for the app's own Test button (not an agent's command; still one at a time):
-     * once as uiautomator does by default and once with --compressed, so the person can choose.
-     * The look agents get afterwards is the one the "Faster looks" switch says.
+     * Reads the panel for the app's own Test button (not an agent's command; still one at a time): with the fast
+     * engine when it runs, then as uiautomator does by default and with --compressed, so the person can compare.
+     * uiautomator cannot read while the helper holds the screen, so the helper is stopped for the uiautomator reads
+     * and started again afterwards. The look agents get afterwards is the engine's, else what "Faster looks" says.
      */
     public TestResult test() throws Exception {
         if (!gate.tryLock(BUSY_MS, TimeUnit.MILLISECONDS)) throw new IOException("busy with an agent's command");
+        Helper h = helper;
+        boolean restart = false;
         try {
-            Panel panel = dump(false);
+            Timing quick = null;
+            String quickNote;
+            if (fast()) {
+                try {
+                    fastDump();
+                    quick = lastTiming;
+                    quickNote = null;
+                } catch (Helper.Lost e) {
+                    lost(e);
+                    quickNote = "did not answer: " + e.getMessage();
+                } catch (IOException e) {
+                    quickNote = "failed: " + e.getMessage();
+                }
+                h.pause("stopped for Test's uiautomator reads");
+                restart = true;
+            } else quickNote = h == null ? "not in this build" : "not running (" + engineWord() + ")";
+            Panel panel = shellDump(false);
             Timing plain = lastTiming;
             Timing small = null;
             String failed = null;
             try {
-                dump(true);
+                shellDump(true);
                 small = lastTiming;
             } catch (IOException e) {
                 failed = AxisLink.describe(e);
@@ -882,10 +1243,12 @@ public final class PanelCommands implements AxisLink.Handler {
             synchronized (this) {
                 lastPanel = panel;
             }
-            lastTiming = compressed && small != null ? small : plain;
-            return new TestResult(panel, plain, small, failed);
+            lastTiming = quick != null ? quick : compressed && small != null ? small : plain;
+            return new TestResult(panel, plain, small, failed, quick, quickNote);
         } finally {
             gate.unlock();
+            // Back to the fast engine at once, not at the next check.
+            if (restart) h.tick();
         }
     }
 

@@ -1113,9 +1113,12 @@ function typesInUse() {
   return [...types.values()].sort((a, b) => a.type.localeCompare(b.type));
 }
 
-/** The name a person gave a client type, or the firmware's own identifier when they gave none. */
+/** Names for client types that have one before a person gives their own. */
+const TYPE_NAMES = { "meta-quest": "Meta Quest" };
+
+/** The name a person gave a client type, or a known type's name, or the firmware's own identifier. */
 function typeName(type) {
-  return lastTypes[type]?.label || type;
+  return lastTypes[type]?.label || TYPE_NAMES[type] || type;
 }
 
 function renderNavTypes() {
@@ -1443,7 +1446,7 @@ function renderDevice() {
       h("span", { class: "sub" }, ` · version ${client.version} `),
       (() => {
         // Firmware for a board; for a Quest headset, the app build scripts/build-quest-client.sh put on this hub.
-        const held = client.type === "quest-panels" ? (lastQuest?.available ? lastQuest : undefined) : lastFirmware.find((f) => f.type === client.type);
+        const held = client.type === "meta-quest" ? (lastQuest?.available ? lastQuest : undefined) : lastFirmware.find((f) => f.type === client.type);
         if (!held || held.version === client.version || !client.online) return null;
         return h("button", {
           type: "button",

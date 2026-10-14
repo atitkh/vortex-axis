@@ -66,7 +66,8 @@ public final class AxisService extends Service {
         return new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_note)
                 .setContentTitle("VorteX Axis: " + state)
-                .setContentText(hub.client.linkState() == AxisLink.State.ONLINE ? "Agents can use this headset's panels" : "Open the app for details")
+                // What it is doing now ("Tapping "Elixir"…", "Idle"), as the window's Live tab says it.
+                .setContentText(hub.client.linkState() == AxisLink.State.ONLINE ? (paused ? "Agents are refused" : hub.client.doing().line()) : "Open the app for details")
                 .setOngoing(true)
                 .setContentIntent(PendingIntent.getActivity(this, 0, open, f))
                 .addAction(new Notification.Action.Builder(null, paused ? "Resume" : "Pause", PendingIntent.getService(this, 1, toggle, f)).build())

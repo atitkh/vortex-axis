@@ -56,6 +56,15 @@ public final class Shell {
         part.setLength(0);
     }
 
+    /**
+     * `script` run apart from the adb stream that starts it, so it goes on when the stream closes or the app that
+     * sent it ends: nohup, hang-ups ignored, every stream redirected, in the background. Prints `said` at once.
+     * SelfUpdate starts its install this way, Helper the fast engine.
+     */
+    public static String detached(String script, String said) {
+        return "nohup sh -c " + quote("trap \"\" HUP; " + script) + " </dev/null >/dev/null 2>&1 & echo " + said;
+    }
+
     /** An http(s) address safe to hand to `am start -d`, or an exception saying why not. */
     public static String checkUrl(String url) {
         if (url.length() > 500) throw new IllegalArgumentException("the address is longer than 500 characters");

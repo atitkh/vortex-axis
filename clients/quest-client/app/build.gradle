@@ -12,13 +12,15 @@ android {
         // Kept at 32 on purpose: a sideloaded app, fewer newer background and foreground-service rules.
         targetSdk 32
         // versionCode goes up with every build that goes out: an update from Axis never installs an older one.
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
     }
 
     sourceSets {
         // All the logic is plain Java in ../core (no android.*), compiled into the app as it is and tested on a JVM.
         main.java.srcDirs += '../core/src'
+        // The helper APK, built first and carried as assets/helper.apk (the app installs it through adb).
+        main.assets.srcDirs += layout.buildDirectory.dir('generated/helper-assets').get().asFile
     }
 
     compileOptions {
@@ -34,3 +36,13 @@ android {
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }
+
+// The fast engine's helper is built with the app and carried inside it, so scripts/build-quest-client.sh needs
+// nothing more. Both are signed with the same debug key.
+def embedHelper = tasks.register('embedHelper', Copy) {
+    dependsOn ':helper:assembleDebug'
+    from(project(':helper').layout.buildDirectory.file('outputs/apk/debug/helper-debug.apk'))
+    into(layout.buildDirectory.dir('generated/helper-assets'))
+    rename { 'helper.apk' }
+}
+tasks.named('preBuild') { dependsOn embedHelper }

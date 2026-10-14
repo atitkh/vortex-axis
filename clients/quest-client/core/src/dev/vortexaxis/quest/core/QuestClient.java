@@ -18,6 +18,32 @@ public final class QuestClient {
         default void link(AxisLink.State state, String why) {}
         default void adb(AdbLink.State state, String detail) {}
         default void recent() {}
+        default void engine(Helper.State state, String detail) {}
+        /** A command started or ended: `doing()` has changed. */
+        default void doing() {}
+    }
+
+    /** What the app is doing now and what it did last, for the Live view and the notification. */
+    public static final class Doing {
+        /** The command in hand in words ("Tapping "Elixir""), or null when idle. */
+        public final String now;
+        public final long since;
+        /** The last command that ended, when, how long it took and whether it worked; null before the first. */
+        public final String last;
+        public final long lastAt, lastMs;
+        public final boolean lastOk;
+
+        Doing(String now, long since, String last, long lastAt, long lastMs, boolean lastOk) {
+            this.now = now;
+            this.since = since;
+            this.last = last;
+            this.lastAt = lastAt;
+            this.lastMs = lastMs;
+            this.lastOk = lastOk;
+        }
+
+        /** "Tapping "Elixir"…" while busy, else "Idle". */
+        public String line() { return now != null ? now + "…" : "Idle"; }
     }
 
     static final int RECENT = 30;
@@ -27,6 +53,9 @@ public final class QuestClient {
     public final PanelCommands commands;
     /** Axis's `update`: give it a Host to let the app update itself. */
     public final SelfUpdate update;
+    /** The fast engine: give it a Host and a Channel (the app does) and call tick() every few seconds. */
+    public final Helper helper;
+    private volatile Doing doing = new Doing(null, 0, null, 0, 0, true);
     private final Sockets sockets;
     private final String version;
     private volatile AxisLink link;
@@ -44,6 +73,22 @@ public final class QuestClient {
         this.update = new SelfUpdate(adb, log, version);
         update.setDiary(this::remember);
         commands.setUpdater(update);
+        this.helper = new Helper(adb, log, version);
+        helper.setDiary(this::remember);
+        helper.setListener((s, d) -> listener.engine(s, d));
+        commands.setHelper(helper);
+        commands.setDoing(new PanelCommands.Doing() {
+            @Override public void started(String what) {
+                Doing d = doing;
+                doing = new Doing(what, System.currentTimeMillis(), d.last, d.lastAt, d.lastMs, d.lastOk);
+                try { listener.doing(); } catch (RuntimeException ignored) {}
+            }
+
+            @Override public void finished(String what, long ms, boolean ok) {
+                doing = new Doing(null, 0, what, System.currentTimeMillis(), ms, ok);
+                try { listener.doing(); } catch (RuntimeException ignored) {}
+            }
+        });
         adb.setListener((s, d) -> listener.adb(s, d));
     }
 
@@ -87,6 +132,8 @@ public final class QuestClient {
 
     public boolean paused() { return commands.paused; }
 
+    public Doing doing() { return doing; }
+
     /** Puts a line in Recently (the app's own notes, such as "Updated to 0.2.1"). */
     public void remember(String what) {
         synchronized (recent) {
@@ -110,11 +157,13 @@ public final class QuestClient {
         sb.append("Axis: ").append(linkState()).append(l != null ? " at " + l.pairing().address + " as " + l.pairing().name : "").append('\n');
         sb.append("adb: ").append(adb.state()).append(adb.detail().isEmpty() ? "" : " (" + adb.detail() + ")").append('\n');
         sb.append("Paused: ").append(paused()).append('\n');
-        sb.append("Faster looks (--compressed): ").append(commands.compressed ? "on" : "off").append('\n');
+        sb.append("Engine: ").append(commands.engineWord()).append(helper.enabled() ? "" : " (Use fast engine is off)").append('\n');
+        sb.append("Fast engine: ").append(helper.state()).append(helper.detail().isEmpty() ? "" : " (" + helper.detail() + ")").append('\n');
+        sb.append("Faster looks (--compressed, uiautomator only): ").append(commands.compressed ? "on" : "off").append('\n');
         Panel p = commands.lastPanel();
         if (p != null) sb.append("Last panel: ").append(p.window()).append(", ").append(p.nodes).append(" nodes, ").append(p.elements.size()).append(" kept\n");
         PanelCommands.Timing t = commands.lastTiming();
-        if (t != null) sb.append("Last look").append(t.compressed ? " (compressed)" : "").append(": ").append(t).append(", ").append(t.bytes).append(" bytes\n");
+        if (t != null) sb.append("Last look").append(t.fast ? " (fast engine)" : t.compressed ? " (compressed)" : "").append(": ").append(t).append(t.fast ? "" : ", " + t.bytes + " bytes").append('\n');
         sb.append("\nRecently:\n");
         for (String r : recent()) sb.append("  ").append(r).append('\n');
         sb.append("\nLog:\n").append(log.recentText());

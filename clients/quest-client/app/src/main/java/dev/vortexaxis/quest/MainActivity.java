@@ -15,19 +15,29 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
 import dev.vortexaxis.quest.core.AdbLink;
 import dev.vortexaxis.quest.core.AxisAddress;
 import dev.vortexaxis.quest.core.AxisLink;
+import dev.vortexaxis.quest.core.Helper;
+import dev.vortexaxis.quest.core.QuestClient;
 
 /**
- * The app's one window: Pair when there is no pairing, else the state of the two links, Pause,
- * Set up, Test, Recently and the diagnostics. Drawn in code, in the Windows app's colours, large
- * enough to read and hit in a headset.
+ * The app's one window: Pair when there is no pairing, else two tabs. Live: what the app is doing
+ * now in big words, the states as coloured dots, the last actions and a large Pause. Status: the
+ * two links, the engine, Pause, Set up, Test, Recently and the diagnostics. Drawn in code, in the
+ * Windows app's colours, large enough to read and hit in a headset. Nothing is drawn over other
+ * panels (a 2D app cannot).
  */
 public final class MainActivity extends Activity {
     static final int BG = 0xFF000000, TEXT = 0xFFE9E9E6, DIM = 0xFF8D8C86, LINE = 0xFF262624, ACCENT = 0xFF6FD4EF,
@@ -37,10 +47,16 @@ public final class MainActivity extends Activity {
     private final Runnable refresh = this::render;
     private boolean showingMain;
     // Main screen parts, refreshed in place.
-    private TextView pill, who, adbState, adbDetail, testResult, recent;
-    private Switch pause, faster;
+    private TextView pill, who, adbState, adbDetail, testResult, recent, engineState;
+    private Switch pause, faster, fastEngine;
     private Button allow;
     private View help;
+    // The Live tab.
+    private static boolean onLive = true;
+    private View liveView, statusView;
+    private Button liveTab, statusTab, livePause;
+    private TextView liveNow, liveLast, liveDots, liveActions;
+    private final SimpleDateFormat clock = new SimpleDateFormat("HH:mm:ss", Locale.ROOT);
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -136,7 +152,56 @@ public final class MainActivity extends Activity {
         col.addView(head);
         who = text("", 20, DIM);
         col.addView(who);
+        LinearLayout tabs = row();
+        liveTab = button("Live", false);
+        statusTab = button("Status", false);
+        tabs.addView(liveTab);
+        tabs.addView(statusTab);
+        col.addView(tabs);
+        liveTab.setOnClickListener(v -> { onLive = true; render(); });
+        statusTab.setOnClickListener(v -> { onLive = false; render(); });
+        FrameLayout pages = new FrameLayout(this);
+        liveView = liveScreen();
+        statusView = statusScreen();
+        pages.addView(liveView);
+        pages.addView(statusView);
+        col.addView(pages);
+        col.addView(footer());
+        return scroll(col);
+    }
 
+    /** Live: what is happening now, readable from across the room, and the big Pause. */
+    private View liveScreen() {
+        LinearLayout col = column0();
+        LinearLayout now = column0();
+        now.addView(label("Now"));
+        liveNow = text("", 40, TEXT);
+        liveNow.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        now.addView(liveNow);
+        liveLast = text("", 22, DIM);
+        now.addView(liveLast);
+        col.addView(card(now));
+        liveDots = text("", 24, TEXT);
+        col.addView(card(liveDots));
+        LinearLayout acts = column0();
+        acts.addView(label("Last actions"));
+        liveActions = text("", 22, TEXT);
+        acts.addView(liveActions);
+        col.addView(card(acts));
+        livePause = button("Pause", true);
+        livePause.setTextSize(TypedValue.COMPLEX_UNIT_SP, 32);
+        livePause.setMinHeight(dp(110));
+        livePause.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        livePause.setOnClickListener(v -> hub.setPaused(!hub.client.paused()));
+        LinearLayout pad = column0();
+        pad.setPadding(0, dp(18), 0, 0);
+        pad.addView(livePause);
+        col.addView(pad);
+        return col;
+    }
+
+    private View statusScreen() {
+        LinearLayout col = column0();
         LinearLayout pauseRow = row();
         TextView pl = text("Pause: agents are refused while paused", 22, TEXT);
         pauseRow.addView(pl, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -172,13 +237,25 @@ public final class MainActivity extends Activity {
         faster.setOnCheckedChangeListener((b, on) -> { if (on != hub.fasterLooks()) hub.setFasterLooks(on); });
         fastRow.addView(faster);
         adbCard.addView(fastRow);
+        adbCard.addView(label("Engine"));
+        engineState = text("", 22, TEXT);
+        adbCard.addView(engineState);
+        LinearLayout engineRow = row();
+        TextView el = text("Use fast engine: a helper the app installs and starts through adb reads and acts on the panel directly, much quicker than uiautomator. Off, or while it is not running, uiautomator and input are used.", 18, TEXT);
+        engineRow.addView(el, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        fastEngine = new Switch(this);
+        fastEngine.setScaleX(1.4f);
+        fastEngine.setScaleY(1.4f);
+        fastEngine.setOnCheckedChangeListener((b, on) -> { if (on != hub.fastEngine()) hub.setFastEngine(on); });
+        engineRow.addView(fastEngine);
+        adbCard.addView(engineRow);
         help = text(SET_UP, 19, TEXT);
         help.setVisibility(View.GONE);
         adbCard.addView(help);
         setUp.setOnClickListener(v -> help.setVisibility(help.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
         allow.setOnClickListener(v -> hub.setUpAdb());
         test.setOnClickListener(v -> {
-            say(testResult, "Reading the panel in front, normally and compressed…", DIM);
+            say(testResult, "Reading the panel in front: with the fast engine, then with uiautomator normally and compressed…", DIM);
             hub.work.execute(() -> {
                 String r = hub.test();
                 runOnUiThread(() -> say(testResult, r, r.startsWith("Failed") ? BAD : TEXT));
@@ -207,8 +284,7 @@ public final class MainActivity extends Activity {
                 .setNegativeButton("Keep", null)
                 .show());
         col.addView(bottom);
-        col.addView(footer());
-        return scroll(col);
+        return col;
     }
 
     static final String SET_UP =
@@ -238,6 +314,15 @@ public final class MainActivity extends Activity {
         who.setText(p.name + " at " + p.address + why);
         if (pause.isChecked() != paused) pause.setChecked(paused);
         if (faster.isChecked() != hub.fasterLooks()) faster.setChecked(hub.fasterLooks());
+        if (fastEngine.isChecked() != hub.fastEngine()) fastEngine.setChecked(hub.fastEngine());
+        Helper.State e = hub.client.helper.state();
+        engineState.setText(engineWord(e) + (hub.client.helper.detail().isEmpty() ? "" : "  ·  " + hub.client.helper.detail()));
+        engineState.setTextColor(engineColour(e));
+        liveView.setVisibility(onLive ? View.VISIBLE : View.GONE);
+        statusView.setVisibility(onLive ? View.GONE : View.VISIBLE);
+        liveTab.setTextColor(onLive ? ACCENT : DIM);
+        statusTab.setTextColor(onLive ? DIM : ACCENT);
+        renderLive(paused, s, hub.client.adb.state(), e);
 
         AdbLink.State a = hub.client.adb.state();
         adbState.setText(adbWord(a));
@@ -250,6 +335,46 @@ public final class MainActivity extends Activity {
         recent.setText(sb.length() == 0 ? "Nothing yet." : sb.toString().trim());
         if (s == AxisLink.State.REFUSED) who.setTextColor(BAD);
         else who.setTextColor(DIM);
+    }
+
+    private void renderLive(boolean paused, AxisLink.State s, AdbLink.State a, Helper.State e) {
+        QuestClient.Doing d = hub.client.doing();
+        liveNow.setText(paused ? "Paused: agents are refused" : d.line());
+        liveNow.setTextColor(paused ? WARN : d.now != null ? ACCENT : TEXT);
+        liveLast.setText(d.last == null ? "Nothing done yet." : "Last: " + d.last + (d.lastOk ? "" : " (failed)") + " at " + clock.format(new Date(d.lastAt)) + ", took " + d.lastMs + " ms");
+        liveLast.setTextColor(d.last != null && !d.lastOk ? BAD : DIM);
+        android.text.SpannableStringBuilder dots = new android.text.SpannableStringBuilder();
+        dot(dots, "Axis", paused ? "Paused" : linkWord(s), paused ? WARN : s == AxisLink.State.ONLINE ? GOOD : s == AxisLink.State.REFUSED ? BAD : s == AxisLink.State.CONNECTING ? WARN : DIM);
+        dot(dots, "adb", adbWord(a), a == AdbLink.State.READY ? GOOD : a == AdbLink.State.NEEDS_ALLOW ? WARN : a == AdbLink.State.NOT_SET_UP ? BAD : DIM);
+        dot(dots, "Engine", engineWord(e), engineColour(e));
+        liveDots.setText(dots);
+        List<String> recent = hub.client.recent();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < recent.size() && i < 8; i++) sb.append(recent.get(i)).append('\n');
+        liveActions.setText(sb.length() == 0 ? "Nothing yet." : sb.toString().trim());
+        livePause.setText(paused ? "Resume" : "Pause");
+        livePause.setBackground(round(paused ? GOOD : WARN, 14));
+    }
+
+    private static void dot(android.text.SpannableStringBuilder sb, String what, String word, int colour) {
+        if (sb.length() > 0) sb.append("     ");
+        int at = sb.length();
+        sb.append("\u25CF ");
+        sb.setSpan(new android.text.style.ForegroundColorSpan(colour), at, sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.append(what).append(": ").append(word);
+    }
+
+    static String engineWord(Helper.State e) {
+        switch (e) {
+            case FAST: return "Fast (helper)";
+            case STARTING: return "Starting";
+            case OFF: return "Basic (switched off)";
+            default: return "Basic (uiautomator)";
+        }
+    }
+
+    static int engineColour(Helper.State e) {
+        return e == Helper.State.FAST ? GOOD : e == Helper.State.STARTING ? WARN : DIM;
     }
 
     static String linkWord(AxisLink.State s) {

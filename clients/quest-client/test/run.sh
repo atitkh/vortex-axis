@@ -1,6 +1,6 @@
 #!/bin/sh
 # The core's JVM tests, run in the build image (JDK 17) from clients/quest-client:
-#   sh test/run.sh unit                          AdbClientTest, UnitTest, CommandsTest, UpdateTest (fakes only)
+#   sh test/run.sh unit                          AdbClientTest, UnitTest, CommandsTest, UpdateTest, HelperTest (fakes only)
 #   sh test/run.sh e2e <axis url> <admin token>  E2eTest against a running Axis, with the JDK's WebSocket,
 #                                                then again with OkHttp when its jars are in the Gradle cache
 set -e
@@ -26,6 +26,7 @@ case "$1" in
     run dev.vortexaxis.quest.core.UnitTest
     run dev.vortexaxis.quest.core.CommandsTest
     run dev.vortexaxis.quest.core.UpdateTest
+    run dev.vortexaxis.quest.core.HelperTest
     ;;
   e2e)
     run dev.vortexaxis.quest.core.E2eTest "$2" "$3" jdk

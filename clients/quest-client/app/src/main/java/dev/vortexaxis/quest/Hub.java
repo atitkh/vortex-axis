@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import dev.vortexaxis.quest.core.AdbLink;
 import dev.vortexaxis.quest.core.AxisAddress;
 import dev.vortexaxis.quest.core.AxisLink;
+import dev.vortexaxis.quest.core.Helper;
 import dev.vortexaxis.quest.core.PanelCommands;
 import dev.vortexaxis.quest.core.QuestClient;
 import dev.vortexaxis.quest.core.RollingLog;
@@ -49,6 +50,8 @@ final class Hub {
     /** Slow work started from the window (pairing, Set up, Test), off the main thread. */
     final ExecutorService work = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService checks = Executors.newSingleThreadScheduledExecutor();
+    /** The fast engine's checks: its own thread, since installing the helper can take a while. */
+    private final ScheduledExecutorService engine = Executors.newSingleThreadScheduledExecutor();
     volatile String linkWhy = "";
 
     private Hub(Context app) {
@@ -66,6 +69,9 @@ final class Hub {
         client.commands.paused = prefs.getBoolean("paused", false);
         client.commands.compressed = prefs.getBoolean("fasterLooks", false);
         client.update.setHost(new Updates());
+        client.helper.setHost(new AndroidParts.HelperApk(app));
+        client.helper.setChannel(new AndroidParts.HelperSocket(app));
+        client.helper.setEnabled(prefs.getBoolean("fastEngine", true));
         afterUpdate();
         client.setListener(new QuestClient.Listener() {
             @Override public void link(AxisLink.State state, String why) {
@@ -74,6 +80,8 @@ final class Hub {
             }
             @Override public void adb(AdbLink.State state, String detail) { changed(); }
             @Override public void recent() { changed(); }
+            @Override public void engine(Helper.State state, String detail) { changed(); }
+            @Override public void doing() { changed(); }
         });
         // adb comes and goes (`adb tcpip` lasts until the headset restarts): looked at quietly once a minute, never raising the Allow dialog.
         checks.scheduleWithFixedDelay(() -> {
@@ -81,6 +89,14 @@ final class Hub {
                 try { client.adb.connect(0); } catch (Exception ignored) {}
             }
         }, 2, 60, TimeUnit.SECONDS);
+        // The fast engine: installed, started, pinged and started again when it stops, every ten seconds, while paired.
+        engine.scheduleWithFixedDelay(() -> {
+            try {
+                if (prefs.contains("clientId")) client.helper.tick();
+            } catch (RuntimeException e) {
+                log.line("engine: check failed: " + e);
+            }
+        }, 3, 10, TimeUnit.SECONDS);
     }
 
     void watch(Runnable r) { watchers.add(r); }
@@ -121,6 +137,7 @@ final class Hub {
 
     void forget() {
         client.stop();
+        engine.execute(client.helper::shutdown);
         prefs.edit().remove("address").remove("clientId").remove("token").apply();
         log.line("pairing: forgotten");
         changed();
@@ -166,15 +183,30 @@ final class Hub {
         changed();
     }
 
-    /** The Test button: the panel read both ways, with where the time went, so the person can choose. */
+    boolean fastEngine() { return client.helper.enabled(); }
+
+    /** "Use fast engine": on by default. Off stops the helper (off the main thread: it uses adb). */
+    void setFastEngine(boolean on) {
+        prefs.edit().putBoolean("fastEngine", on).apply();
+        log.line("fast engine " + (on ? "on" : "off"));
+        engine.execute(() -> {
+            client.helper.setEnabled(on);
+            if (on) client.helper.tick();
+            changed();
+        });
+    }
+
+    /** The Test button: the panel read with the fast engine and both uiautomator ways, with where the time went. */
     String test() {
         long t0 = System.currentTimeMillis();
         try {
             PanelCommands.TestResult r = client.commands.test();
             StringBuilder sb = new StringBuilder(r.panel.window()).append('\n');
+            sb.append("Fast engine: ").append(r.fast != null ? r.fast.toString() : r.fastNote).append('\n');
             sb.append("Normal: ").append(r.plain).append('\n');
             sb.append("Faster (--compressed): ").append(r.compressed != null ? r.compressed.toString() : "failed: " + r.compressedFailed).append('\n');
-            sb.append(fasterLooks() ? "Faster looks is on: agents get the compressed dump." : "Faster looks is off: agents get the normal dump.");
+            if (r.fast != null) sb.append("Agents' looks use the fast engine; uiautomator only when it is not answering.");
+            else sb.append(fasterLooks() ? "Faster looks is on: agents get the compressed dump." : "Faster looks is off: agents get the normal dump.");
             log.line("test: " + sb.toString().replace('\n', ' '));
             return sb.toString();
         } catch (Exception e) {

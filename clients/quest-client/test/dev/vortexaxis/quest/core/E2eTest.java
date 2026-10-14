@@ -75,12 +75,12 @@ public class E2eTest {
         waitFor(() -> quest.linkState() == AxisLink.State.ONLINE, 10_000, "online");
         check(true, "the socket is up: hello, welcome, describe");
         Map<String, Object> me = client(pairing.clientId);
-        equal(me.get("type"), "quest-panels", "Axis lists it as quest-panels");
+        equal(me.get("type"), "meta-quest", "Axis lists it as meta-quest");
         equal(me.get("version"), QuestIdentity.VERSION, "with its version");
         check(Json.list(me.get("capabilities")).equals(Arrays.asList("desktop")), "claiming only the desktop capability: " + me.get("capabilities"));
         equal(me.get("online"), true, "online on the admin page");
         Map<String, Object> types = Json.map(call("GET", "/admin/clients", admin, null, 200).get("types"));
-        String schema = Json.write(types.get("quest-panels"));
+        String schema = Json.write(types.get("meta-quest"));
         check(schema.contains("allowLook") && schema.contains("allowScreenshot") && schema.contains("autoUpdate") && schema.contains("desktop.hello"), "its settings and the Check action reached the admin page");
 
         System.out.println("[update] Axis offers the newer build in its data folder (put there by the script)");
@@ -98,6 +98,29 @@ public class E2eTest {
         Map<String, Object> pushed = call("POST", "/admin/clients/" + pairing.clientId + "/update", admin, null, 202);
         equal(pushed.get("from") + " -> " + pushed.get("to"), QuestIdentity.VERSION + " -> " + newVersion, "the admin page's Update works for a headset too");
         adbd.take();
+
+        System.out.println("[legacy] a headset still on 0.2.0, which says quest-panels");
+        AxisLink.Identity legacy = new AxisLink.Identity("quest-panels", "0.2.0", Arrays.asList("desktop"), QuestIdentity.create("0.2.0").describe);
+        Map<String, Object> oldCode = call("POST", "/admin/pairing-codes", admin, null, 201);
+        AxisLink.Pairing old = AxisLink.pair(AxisAddress.parse(base), (String) oldCode.get("code"), "Old app " + which, legacy);
+        List<String> oldHeard = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        AxisLink oldLink = new AxisLink(old, legacy, sockets, log);
+        oldLink.setHandler((n, p) -> {
+            oldHeard.add(n);
+            return n.equals("update") ? AxisLink.Answer.done(Json.obj("version", p.get("version"))) : AxisLink.Answer.fail("not in this pretend 0.2.0");
+        });
+        oldLink.start();
+        waitFor(() -> oldLink.state() == AxisLink.State.ONLINE, 10_000, "the old app online");
+        Map<String, Object> oldMe = client(old.clientId);
+        equal(oldMe.get("type") + " " + oldMe.get("version"), "meta-quest 0.2.0", "paired and connected with the old type: Axis keeps it as meta-quest");
+        waitFor(() -> oldHeard.contains("update"), 15_000, "the update offered to the old app");
+        check(true, "Axis offered it the update, as to any headset behind");
+        HttpResponse<byte[]> oldGot = http.send(HttpRequest.newBuilder(URI.create(base + "/v1/quest/app")).header("authorization", "Bearer " + old.token)
+                .header("x-axis-client", old.clientId).timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofByteArray());
+        equal(oldGot.statusCode(), 200, "and it can fetch it through the unchanged /v1/quest/app");
+        equal(UpdateTest.hex(java.security.MessageDigest.getInstance("SHA-256").digest(oldGot.body())), build.get("sha256"), "the same build");
+        oldLink.stop();
+        call("DELETE", "/admin/clients/" + old.clientId, admin, null, 200);
 
         System.out.println("[agent] the desktop tool through POST /mcp");
         call("PATCH", "/admin/mcp/tools", admin, Json.obj("vortex_axis_desktop", true), 200);
@@ -201,9 +224,54 @@ public class E2eTest {
         adbd.slowFor = null;
         check(Json.list(tool(Json.obj("action", "look")).get("elements")).size() == 17, "the next look works on a new adb connection");
 
+        System.out.println("[fast engine] the same tool calls through the pretend helper");
+        FakeHelper fh = new FakeHelper(QuestIdentity.VERSION, plain);
+        adbd.answer = fh.adbd(T.headset(xml, focus));
+        quest.helper.setHost(new HelperTest.Host("PK pretend helper for the e2e"));
+        quest.helper.setChannel(fh.channel());
+        quest.helper.retryFirstMs = 200;
+        quest.helper.tick();
+        equal(quest.helper.state(), Helper.State.FAST, "installed and started through the pretend adbd: Fast");
+        adbd.take();
+        fh.take();
+        equal(Json.list(tool(Json.obj("action", "look")).get("elements")).get(7), "8 listitem 24,170 300x240 Beyond Sandbox — Free", "look: the same line, from the helper's dump");
+        check(adbd.take().stream().noneMatch(c -> c.contains("uiautomator")), "no uiautomator dump on the headset");
+        click = tool(Json.obj("action", "click", "name", "Beyond Sandbox"));
+        equal(click.get("how") + " " + click.get("x") + "," + click.get("y"), "tap 174,290", "click by name: the same answer");
+        List<String> helped = fh.take();
+        check(helped.size() == 1 && helped.get(0).startsWith("click "), "the helper pressed it by its handle: " + helped);
+        check(adbd.take().stream().noneMatch(c -> c.startsWith("input")), "and the shell got no input tap");
+        type = tool(Json.obj("action", "type", "into", "Search", "text", "héllo wörld"));
+        equal(type.get("typed"), 11L, "type: 11 characters, not plain ASCII");
+        check(fh.take().contains("setText search_input = héllo wörld @11"), "through setText");
+        check(adbd.take().stream().noneMatch(c -> c.startsWith("input")), "no input text");
+        tool(Json.obj("action", "look"));
+        fh.take();
+        equal(tool(Json.obj("action", "scroll", "go", "down")).get("how"), "scroll", "scroll: the list's own scrolling");
+        equal(fh.take(), Arrays.asList("scroll forward"), "one page forward");
+        call("PATCH", "/admin/settings/device/" + pairing.clientId, admin, Json.obj("values", Json.obj("allowScreenshot", 1)), 200);
+        Thread.sleep(300);
+        shot = mcp("tools/call", Json.obj("name", "vortex_axis_desktop", "arguments", Json.obj("action", "screenshot", "detail", "low")));
+        check(Json.write(shot).contains("image/jpeg") && Json.write(shot).contains("640x400"), "screenshot through the helper");
+        check(fh.take().contains("screenshot 640") && adbd.take().stream().noneMatch(c -> c.startsWith("screencap")), "UiAutomation's picture, no screencap");
+
+        System.out.println("[fast engine] the helper dies mid-session");
+        fh.die();
+        Thread.sleep(150);
+        check(Json.list(tool(Json.obj("action", "look")).get("elements")).size() == 17, "the next look still answers");
+        check(adbd.take().stream().anyMatch(c -> c.contains("uiautomator dump")), "through uiautomator");
+        equal(quest.helper.state(), Helper.State.BASIC, "the engine says Basic");
+        Thread.sleep(300);
+        quest.helper.tick();
+        equal(quest.helper.state(), Helper.State.FAST, "started again at the next check");
+        tool(Json.obj("action", "click", "x", 10, "y", 20));
+        equal(fh.take(), Arrays.asList("tap 10,20"), "and used again");
+        check(adbd.take().stream().noneMatch(c -> c.startsWith("input")), "with no shell input");
+        quest.helper.shutdown();
+
         System.out.println("[admin page]");
         Map<String, Object> hello = call("POST", "/admin/clients/" + pairing.clientId + "/commands/desktop.hello", admin, null, 200);
-        check(Boolean.TRUE.equals(hello.get("ok")) && "quest-panels".equals(Json.map(hello.get("payload")).get("platform")), "Check the headset: " + hello.get("payload"));
+        check(Boolean.TRUE.equals(hello.get("ok")) && "meta-quest".equals(Json.map(hello.get("payload")).get("platform")), "Check the headset: " + hello.get("payload"));
         Map<String, Object> update = call("POST", "/admin/clients/" + pairing.clientId + "/update", admin, null, 202);
         equal(update.get("to"), newVersion, "Update from the admin page again: accepted (" + update + ")");
 

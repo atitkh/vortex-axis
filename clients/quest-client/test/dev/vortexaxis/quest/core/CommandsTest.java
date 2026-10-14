@@ -200,6 +200,10 @@ public class CommandsTest {
     }
 
     static String focusPassword() {
+        return focusPassword0(plain);
+    }
+
+    static String focusPassword0(String plain) {
         return plain.replace("content-desc=\"Password\" checkable=\"false\" checked=\"false\" clickable=\"true\" enabled=\"true\" focusable=\"true\" focused=\"false\"",
                 "content-desc=\"Password\" checkable=\"false\" checked=\"false\" clickable=\"true\" enabled=\"true\" focusable=\"true\" focused=\"true\"");
     }
@@ -289,7 +293,7 @@ public class CommandsTest {
         check(p.ok && Boolean.FALSE.equals(p.payload.get("shown")), "point is accepted and noted (not drawn)");
         check(run("desktop.hide").ok, "hide is accepted");
         AxisLink.Answer h = run("desktop.hello");
-        check(h.ok && "quest-panels".equals(h.payload.get("platform")) && "ready".equals(h.payload.get("adb")), "hello says what it is and that adb is ready: " + h.payload);
+        check(h.ok && "meta-quest".equals(h.payload.get("platform")) && "ready".equals(h.payload.get("adb")), "hello says what it is and that adb is ready: " + h.payload);
         check(run("desktop.reboot").error.contains("not implemented"), "an unknown command");
         acted();
     }

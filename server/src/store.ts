@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, backup } from "node:sqlite";
 import type { Capability, Scalar, ScalarMap } from "@vortex-axis/protocol";
+import { RENAMED_TYPES, currentType } from "./clienttypes.js";
 import type { ClientSchema } from "./schema.js";
 import {
   hashSecret,
@@ -368,6 +369,7 @@ export class Store {
     }
     this.db.exec("PRAGMA foreign_keys = ON");
     this.migrate();
+    this.renameTypes(RENAMED_TYPES);
   }
 
   close(): void {
@@ -392,6 +394,35 @@ export class Store {
         throw error;
       }
     }
+  }
+
+  /**
+   * Moves what is kept under a client type's old name to its new one (clienttypes.ts): the clients, the type layer
+   * of settings, what the type described (`schema:`) and the name a person gave it (`type_label:`). Runs every time
+   * the store opens and does nothing when there is nothing under an old name. When both names have a row, the new
+   * name's wins and the old one is dropped. Returns how many rows moved.
+   */
+  renameTypes(renamed: Readonly<Record<string, string>>): number {
+    let moved = 0;
+    for (const [from, to] of Object.entries(renamed)) {
+      this.db.exec("BEGIN");
+      try {
+        moved += Number(this.db.prepare("UPDATE clients SET type = ? WHERE type = ?").run(to, from).changes);
+        moved += Number(
+          this.db.prepare("UPDATE OR IGNORE settings SET scope_id = ? WHERE scope = 'type' AND scope_id = ?").run(to, from).changes,
+        );
+        this.db.prepare("DELETE FROM settings WHERE scope = 'type' AND scope_id = ?").run(from);
+        for (const prefix of ["schema:", "type_label:"]) {
+          moved += Number(this.db.prepare("UPDATE OR IGNORE meta SET key = ? WHERE key = ?").run(prefix + to, prefix + from).changes);
+          this.db.prepare("DELETE FROM meta WHERE key = ?").run(prefix + from);
+        }
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+    return moved;
   }
 
   // --- pairing ------------------------------------------------------------
@@ -432,12 +463,14 @@ export class Store {
 
     const id = newClientId();
     const token = newToken();
-    const name = this.uniqueName(input.name?.trim() || input.type);
+    // A device that has not updated may give its type's old name.
+    const type = currentType(input.type);
+    const name = this.uniqueName(input.name?.trim() || type);
     this.db
       .prepare(
         "INSERT INTO clients (id, name, type, capabilities, version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(id, name, input.type, JSON.stringify(input.capabilities), input.version, hashSecret(token), now);
+      .run(id, name, type, JSON.stringify(input.capabilities), input.version, hashSecret(token), now);
     return { client: this.getClient(id)!, token };
   }
 

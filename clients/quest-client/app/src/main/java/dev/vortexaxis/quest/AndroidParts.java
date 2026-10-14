@@ -7,18 +7,29 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.LocalSocket;
+import android.net.LocalSocketAddress;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 
 import dev.vortexaxis.quest.core.AdbLink;
+import dev.vortexaxis.quest.core.Helper;
+import dev.vortexaxis.quest.core.HelperProtocol;
 import dev.vortexaxis.quest.core.PanelCommands;
 
-/** The few things the core asks of Android: pictures, the app list, and somewhere safe for the adb key. */
+/** The few things the core asks of Android: pictures, the app list, somewhere safe for the adb key, and the fast engine's helper. */
 final class AndroidParts {
     private AndroidParts() {}
 
@@ -87,6 +98,102 @@ final class AndroidParts {
         }
 
         @Override public void forget() { prefs.edit().clear().apply(); }
+    }
+
+    /** The helper APK this app carries (assets/helper.apk): its SHA-256, and a copy the shell user can read for `pm install`. */
+    static final class HelperApk implements Helper.Host {
+        static final String ASSET = "helper.apk";
+        private final Context context;
+        private volatile String sha;
+        private volatile boolean looked;
+
+        HelperApk(Context context) { this.context = context.getApplicationContext(); }
+
+        @Override public synchronized String sha256() {
+            if (!looked) {
+                looked = true;
+                try (InputStream in = context.getAssets().open(ASSET)) {
+                    sha = hash(in);
+                } catch (IOException e) {
+                    sha = null;
+                }
+            }
+            return sha;
+        }
+
+        @Override public synchronized File apk() throws IOException {
+            String want = sha256();
+            if (want == null) return null;
+            File base = context.getExternalFilesDir(null);
+            if (base == null) throw new IOException("the app's files folder is not there");
+            File dir = new File(base, "helper");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("could not make " + dir.getPath());
+            File f = new File(dir, ASSET);
+            if (f.exists()) {
+                try (InputStream in = new FileInputStream(f)) {
+                    if (want.equals(hash(in))) return f;
+                }
+            }
+            try (InputStream in = context.getAssets().open(ASSET); OutputStream out = new FileOutputStream(f)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            return f;
+        }
+
+        @Override public int uid() { return android.os.Process.myUid(); }
+
+        private static String hash(InputStream in) throws IOException {
+            try {
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+                StringBuilder sb = new StringBuilder();
+                for (byte x : md.digest()) sb.append(String.format("%02x", x & 0xff));
+                return sb.toString();
+            } catch (NoSuchAlgorithmException e) {
+                throw new IOException("no SHA-256 here");
+            }
+        }
+    }
+
+    /**
+     * The helper's abstract local socket. Only the helper package, signed with this app's key, is talked to: the
+     * peer's uid is checked against the helper's, so an app that took the socket's name first gets nothing (typed
+     * text included). The helper checks this app's uid the same way.
+     */
+    static final class HelperSocket implements Helper.Channel {
+        private final Context context;
+
+        HelperSocket(Context context) { this.context = context.getApplicationContext(); }
+
+        @Override public Helper.Conn open() throws IOException {
+            PackageManager pm = context.getPackageManager();
+            int helperUid;
+            try {
+                helperUid = pm.getPackageUid(HelperProtocol.PACKAGE, 0);
+            } catch (PackageManager.NameNotFoundException e) {
+                throw new IOException("the helper is not installed");
+            }
+            if (pm.checkSignatures(context.getPackageName(), HelperProtocol.PACKAGE) != PackageManager.SIGNATURE_MATCH)
+                throw new IOException("the helper installed is signed with another key");
+            LocalSocket s = new LocalSocket();
+            try {
+                s.connect(new LocalSocketAddress(HelperProtocol.SOCKET, LocalSocketAddress.Namespace.ABSTRACT));
+                int peer = s.getPeerCredentials().getUid();
+                if (peer != helperUid) throw new IOException("something else (uid " + peer + ") answers on the helper's socket");
+            } catch (IOException e) {
+                s.close();
+                throw e;
+            }
+            return new Helper.Conn() {
+                @Override public InputStream in() throws IOException { return s.getInputStream(); }
+                @Override public OutputStream out() throws IOException { return s.getOutputStream(); }
+                @Override public void close() throws IOException { s.close(); }
+            };
+        }
     }
 
     static String utf8(byte[] b) { return new String(b, StandardCharsets.UTF_8); }
