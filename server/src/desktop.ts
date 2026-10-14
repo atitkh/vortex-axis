@@ -19,6 +19,12 @@ export const MAX_TYPED = 500;
 export const MAX_PASTED = 20_000;
 /** Longest a wait for something to appear or go may take. */
 const MAX_WAIT_S = 20;
+/**
+ * Longest a fixed pause (wait with ms) may be. Agents reached for the old 3 s after every open and click, which
+ * was over half the time of a task; acting answers already say what is in front, and a wait for a name returns the
+ * moment it appears.
+ */
+const MAX_FIXED_WAIT_MS = 1000;
 type Action = (typeof ACTIONS)[number];
 
 /** How long a computer gets to read its screen: reading a busy window's controls can take a while. */
@@ -257,7 +263,12 @@ export class Desktops {
     if (!outcome.ok) throw new Error(outcome.error || `${computer} could not ${action === "keys" ? "press that" : action}`);
     const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
     if (action === "point") return { computer, pointed: true, ...(outcome.payload ?? {}) };
-    return { computer, done: action, ...(outcome.payload ?? {}), ...data };
+    const result: Record<string, unknown> = { computer, done: action, ...(outcome.payload ?? {}), ...data };
+    // A pause by number is almost never what an agent needs: tell it, in the answer it is reading.
+    if (action === "wait" && typeof args.ms === "number") {
+      result.hint = `paused ${args.ms} ms (at most ${MAX_FIXED_WAIT_MS}). Not needed after open or click: their answers say what is in front. To wait for something, use wait with name or window (returns when it appears), or find`;
+    }
+    return result;
   }
 
   /** Clicking, typing and everything else that changes the screen: refused here when switched off for the computer. */
@@ -393,7 +404,7 @@ function argsFor(action: Action, params: Record<string, unknown>): Record<string
         return args;
       }
       const ms = whole(params.ms) ?? 500;
-      args.ms = Math.min(3000, Math.max(50, ms));
+      args.ms = Math.min(MAX_FIXED_WAIT_MS, Math.max(50, ms));
       return args;
     }
     case "scroll": {

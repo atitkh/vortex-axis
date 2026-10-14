@@ -287,7 +287,15 @@ public final class PanelCommands implements AxisLink.Handler {
             case "desktop.wait": {
                 if (Json.str(p, "name") != null || Json.str(p, "window") != null) return waitFor(p);
                 Integer ms = Json.integer(p, "ms");
-                sleeper.sleep(clamp(ms == null ? 500 : ms, 50, 3000));
+                int pause = clamp(ms == null ? 500 : ms, 50, 1000);
+                // With the fast engine a pause ends once the panel has been quiet a moment: a little, then as long as
+                // it is still changing, up to the time asked. Without it (or when it cannot tell) the whole time passes.
+                int first = Math.min(pause, 150);
+                sleeper.sleep(first);
+                if (pause > first) {
+                    if (fastFront(pause - first) != null) return AxisLink.Answer.done(Json.obj("settled", true));
+                    sleeper.sleep(pause - first);
+                }
                 return AxisLink.Answer.done();
             }
             case "desktop.steps":

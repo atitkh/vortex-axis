@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## 0.44.2 and Quest panel client 0.3.4 (2026-10-14)
+
+- **Agents were pausing three seconds after every open and click** (two `wait ms=3000` calls were over half the time of one task on the owner's PC). A fixed pause (`wait` with `ms`) is now cut to at most 1000 ms, its answer carries a `hint` ("paused N ms ... not needed after open or click ... use wait with name or window, or find"), and the desktop tool's description and `ms` field say to prefer waiting for a name and that acting answers already say what is in front.
+- **Quest 0.3.4:** with the fast engine, a fixed pause ends as soon as the panel has been quiet a moment (at least 150 ms, at most the time asked, answered `settled`); without it the whole time passes as before. versionCode 7 (helper too).
+
 ## Quest panel client 0.3.3 (experimental) (2026-10-14)
 
 Quicker actions, from timings on the owner's headset (a click took about 490 ms, typing about 1 s, open about 1.8 s).

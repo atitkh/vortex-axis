@@ -228,7 +228,7 @@ export const NODE_TOOLS: NodeTool[] = [
       "desktop (go next/previous), click (name, id or x,y), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s), " +
       "find (best 5 matches for a name), look (scope window, mouse for \"what's this\", screen for open windows), point/hide (own pointer), " +
       "scroll (go up/down/left/right/top/bottom, pages; a name or id scrolls that list or page), " +
-      "wait (ms; or until name, or window, appears, gone:true until it goes, seconds up to 20: instead of guessing pauses), " +
+      "wait (until name, or window, appears, gone:true until it goes, seconds up to 20; a fixed ms 50-1000 only as a last resort: after open/click the answer already says what is in front, so do not pause), " +
       "clipboard (read what was copied), paste (text, any length, into a field by name or the focus; prefer it to type for long text), " +
       "steps (up to 10 of these as objects; stops at the first failure), " +
       "screenshot (a small picture of the window, `id` to crop around an element, or scope screen; detail low/normal/high). " +
@@ -264,7 +264,7 @@ export const NODE_TOOLS: NodeTool[] = [
         display: { type: "number", description: "window move: 1-based, as in monitors." },
         go: { type: "string", enum: ["next", "previous", "up", "down", "left", "right", "top", "bottom"], description: "desktop: next/previous. scroll: the rest." },
         pages: { type: "number", description: "scroll: 1-10, default 1." },
-        ms: { type: "number", description: "wait: a fixed pause, 50-3000." },
+        ms: { type: "number", description: "wait: a fixed pause, 50-1000, rarely needed; prefer wait with name." },
         gone: { type: "boolean", description: "wait: until the name or window is gone." },
         steps: {
           type: "array",

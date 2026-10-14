@@ -207,6 +207,15 @@ public class HelperTest {
         check(a.ok && String.valueOf(Json.map(data(a).get("after")).get("window")).contains("com.oculus.store"), "and still answered, with the panel in front");
         fh.front = null;
         adbd.take();
+
+        // A fixed pause with the fast engine ends when the panel is quiet: one front call, not the whole time.
+        fh.takeOps();
+        a = run("desktop.wait", "ms", 900);
+        equal(fh.takeOps(), Arrays.asList("front"), "a fixed pause: one front call that returns when the panel is quiet");
+        check(a.ok && a.payload != null && Boolean.TRUE.equals(a.payload.get("settled")), "and says it settled");
+        a = run("desktop.wait", "ms", 3000);
+        check(a.ok && fh.takeOps().size() == 1, "a long one is cut to a second and works the same way");
+        adbd.take();
     }
 
     static final class Host implements Helper.Host {

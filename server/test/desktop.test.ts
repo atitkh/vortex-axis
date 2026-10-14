@@ -155,6 +155,14 @@ describe("the desktop tool (experimental)", () => {
     expect((await answer("desktop.wait", { payload: { waited: 10 } })).params).toEqual({ window: "Installer", gone: 1, seconds: 10 });
     await going;
 
+    // A fixed pause is cut to a second and the answer says not to bother; waits for a name carry no such note.
+    const pausing = tryTool({ action: "wait", ms: 3000 });
+    expect((await answer("desktop.wait", { payload: {} })).params).toEqual({ ms: 1000 });
+    const paused = (await pausing).body.result as Record<string, unknown>;
+    expect(paused).toMatchObject({ done: "wait" });
+    expect(String(paused.hint)).toMatch(/paused 1000 ms.*wait with name/);
+    expect(((await waiting).body.result as Record<string, unknown>).hint).toBeUndefined();
+
     const reading = tryTool({ action: "clipboard" });
     await answer("desktop.clipboard", { data: { clipboard: "copied" } });
     expect((await reading).body.result).toEqual({ computer: "Desk PC", clipboard: "copied" });
