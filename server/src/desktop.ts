@@ -47,16 +47,23 @@ export interface InUse {
 
 /** How long after its last call an agent still counts as using a computer. */
 const IN_USE_MS = 8000;
+/** A screen that did not take "desktop.busy" is asked again this many times before Axis leaves it until the next change. */
+const MAX_DELIVERY_TRIES = 5;
 
 export class Desktops {
   private readonly using = new Map<string, InUse & { timer?: NodeJS.Timeout }>();
   /** The screens told the agent is at a computer, so they are told again when it stops. */
   private readonly told = new Set<string>();
+  /** Failed deliveries to a screen in a row, so a screen that never answers is not asked for ever. */
+  private readonly failures = new Map<string, number>();
+  private retry: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly hub: Hub,
     private readonly store: Store,
     private readonly now: () => number = Date.now,
+    /** How long a screen gets to take "desktop.busy", and how long before a failed one is tried again. */
+    private readonly timing: { deliverMs?: number; retryMs?: number } = {},
   ) {
     // A screen that comes back while an agent is at a computer is told straight away.
     hub.onConnect((session) => {
@@ -124,9 +131,31 @@ export class Desktops {
       if (on) this.told.add(session.client.id);
       else this.told.delete(session.client.id);
       const computer = on ? this.inUse()[0]?.computer ?? "" : "";
-      // A client that does not know the command says so; nothing to do about that.
-      this.hub.command(session, "desktop.busy", { on: on ? 1 : 0, computer }, 3000).catch(() => undefined);
+      const id = session.client.id;
+      // A client that does not know the command says so (an answer, not a failure); nothing to do about that.
+      this.hub
+        .command(session, "desktop.busy", { on: on ? 1 : 0, computer }, this.timing.deliverMs ?? 3000)
+        .then(() => this.failures.delete(id))
+        .catch(() => {
+          // The screen did not take it (busy with a conversation, or its link blinked). It must not be left glowing,
+          // or left without, for good: forget that it was told, unless something newer has been sent since, and try again.
+          if (this.told.has(id) !== on) return;
+          if (on) this.told.delete(id);
+          else this.told.add(id);
+          const n = (this.failures.get(id) ?? 0) + 1;
+          this.failures.set(id, n);
+          if (n <= MAX_DELIVERY_TRIES) this.tellAgainSoon();
+        });
     }
+  }
+
+  private tellAgainSoon(): void {
+    if (this.retry) return;
+    this.retry = setTimeout(() => {
+      this.retry = undefined;
+      this.tellScreens();
+    }, this.timing.retryMs ?? 3000);
+    this.retry.unref();
   }
 
   /** The computers online. */
