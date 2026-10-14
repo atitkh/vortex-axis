@@ -41,10 +41,21 @@ public final class Helper {
     public interface Conn extends Closeable {
         InputStream in() throws IOException;
         OutputStream out() throws IOException;
+
+        /** Called once the handshake is over: reads may wait as long as a call's own deadline says. */
+        default void relax() throws IOException {}
     }
 
-    /** How to reach the helper: a LocalSocket on the headset, TCP to a pretend helper in tests. */
-    public interface Channel { Conn open() throws IOException; }
+    /** How to reach the helper: loopback TCP on the headset (and to a pretend helper in tests). */
+    public interface Channel {
+        Conn open() throws IOException;
+
+        /** Before each start: the port the new helper will listen on and the secret both ends prove they hold. Tests ignore it. */
+        default void prepare(int port, String secret) {}
+
+        /** The secret to prove on each new connection, or null for none (a pretend helper in tests). */
+        default String secret() { return null; }
+    }
 
     /** What only the Android side knows. */
     public interface Host {
@@ -83,7 +94,8 @@ public final class Helper {
     static final String LOG = "/data/local/tmp/vortex-axis-helper.log";
     static final int PING_MS = 3000, INSTALL_MS = 60_000;
     /** How long a start may take before the helper's socket answers. */
-    int startMs = 8000;
+    /** How long a started helper gets to answer: a fresh process connecting UiAutomation took most of 8 s on a Quest. */
+    int startMs = 25_000;
     /** Waits before trying again after a failure: doubled each time, from the first to the last. */
     long retryFirstMs = 10_000, retryMaxMs = 5 * 60_000;
 
@@ -207,7 +219,11 @@ public final class Helper {
             if (installIfNeeded(h)) set(State.STARTING, "installed; starting");
             else set(State.STARTING, "starting");
             lastConnectError = "";
-            String said = adb.shell(startCommand(h.uid()), 10_000);
+            // A new port and secret for every start: only the helper this app has just started can answer them.
+            int port = 20_000 + new java.security.SecureRandom().nextInt(40_000);
+            String secret = HelperProtocol.nonce();
+            ch.prepare(port, secret);
+            String said = adb.shell(startCommand(h.uid(), port, secret), 10_000);
             if (!said.contains("helper-started")) throw new IOException("the start was not taken: " + firstLine(said));
             long end = System.currentTimeMillis() + startMs;
             String v = null;
@@ -341,13 +357,18 @@ public final class Helper {
     }
 
     /** Stops any helper that runs, then starts it detached (SelfUpdate's way), answering only `uid`, its words kept in LOG. */
-    static String startCommand(int uid) {
+    static String startCommand(int uid, int port, String secret) {
         return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; "
-                + Shell.detached("am instrument -w -e uid " + uid + " " + HelperProtocol.INSTRUMENTATION + " > " + LOG + " 2>&1", "helper-started");
+                + Shell.detached("am instrument -w -e uid " + uid + " -e port " + port + " -e secret " + secret + " "
+                        + HelperProtocol.INSTRUMENTATION + " > " + LOG + " 2>&1", "helper-started");
     }
 
-    /** The helper writes how far it got here, and any crash (Helper.STATUS in the helper's own code). */
-    static final String STATUS = "/data/local/tmp/vortex-axis-helper.status";
+    /**
+     * The helper writes how far it got here, and any crash. Its process runs as the helper app's own uid (only the
+     * UiAutomation connection is the shell's), so it can write its own external files folder and not /data/local/tmp,
+     * which 0.3.1 tried: the file was never written, and "it wrote no status" meant nothing.
+     */
+    static final String STATUS = "/sdcard/Android/data/" + HelperProtocol.PACKAGE + "/files/status.txt";
     /** Why the last connection to the helper's socket failed (empty: none yet), for the message when it never answers. */
     private volatile String lastConnectError = "";
 
@@ -371,6 +392,16 @@ public final class Helper {
     private void openConn(Channel ch) throws IOException {
         closeConn();
         Conn c = ch.open();
+        String secret = ch.secret();
+        if (secret != null) {
+            try {
+                HelperProtocol.clientHandshake(c.in(), c.out(), secret);
+                c.relax();
+            } catch (IOException e) {
+                try { c.close(); } catch (IOException ignored) {}
+                throw e;
+            }
+        }
         BlockingQueue<Object> q = new LinkedBlockingQueue<>();
         InputStream in = new BufferedInputStream(c.in(), 64 * 1024);
         Thread reader = new Thread(() -> {

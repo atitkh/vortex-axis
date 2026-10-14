@@ -27,6 +27,7 @@ case "$1" in
     run dev.vortexaxis.quest.core.CommandsTest
     run dev.vortexaxis.quest.core.UpdateTest
     run dev.vortexaxis.quest.core.HelperTest
+    run dev.vortexaxis.quest.core.HandshakeTest
     ;;
   e2e)
     run dev.vortexaxis.quest.core.E2eTest "$2" "$3" jdk

@@ -7,8 +7,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.net.LocalSocket;
-import android.net.LocalSocketAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -160,30 +160,43 @@ final class AndroidParts {
     }
 
     /**
-     * The helper's abstract local socket. Only the helper package, signed with this app's key, is talked to: the
-     * peer's uid is checked against the helper's, so an app that took the socket's name first gets nothing (typed
-     * text included). The helper checks this app's uid the same way.
+     * The helper's loopback port. 0.3.0 used an abstract local socket and the headset's SELinux policy refused the
+     * connection ("Permission denied"), so it is TCP on 127.0.0.1 now. Any app on the headset can connect to such a
+     * port, so what is on the other end proves it holds the secret this app gave the helper when it started it
+     * (HelperProtocol.clientHandshake, nothing secret is sent); the helper does the same to this app. The helper's
+     * package must also be installed and signed with this app's key.
      */
     static final class HelperSocket implements Helper.Channel {
         private final Context context;
+        private volatile int port;
+        private volatile String secret;
 
         HelperSocket(Context context) { this.context = context.getApplicationContext(); }
 
+        @Override public void prepare(int port, String secret) {
+            this.port = port;
+            this.secret = secret;
+        }
+
+        @Override public String secret() { return secret; }
+
         @Override public Helper.Conn open() throws IOException {
             PackageManager pm = context.getPackageManager();
-            int helperUid;
             try {
-                helperUid = pm.getPackageUid(HelperProtocol.PACKAGE, 0);
+                pm.getPackageUid(HelperProtocol.PACKAGE, 0);
             } catch (PackageManager.NameNotFoundException e) {
                 throw new IOException("the helper is not installed");
             }
             if (pm.checkSignatures(context.getPackageName(), HelperProtocol.PACKAGE) != PackageManager.SIGNATURE_MATCH)
                 throw new IOException("the helper installed is signed with another key");
-            LocalSocket s = new LocalSocket();
+            int p = port;
+            if (p == 0 || secret == null) throw new IOException("the helper has not been started by this app yet");
+            Socket s = new Socket();
             try {
-                s.connect(new LocalSocketAddress(HelperProtocol.SOCKET, LocalSocketAddress.Namespace.ABSTRACT));
-                int peer = s.getPeerCredentials().getUid();
-                if (peer != helperUid) throw new IOException("something else (uid " + peer + ") answers on the helper's socket");
+                s.connect(new InetSocketAddress("127.0.0.1", p), 1000);
+                s.setTcpNoDelay(true);
+                // The handshake gets a few seconds; calls set their own deadlines after.
+                s.setSoTimeout(3000);
             } catch (IOException e) {
                 s.close();
                 throw e;
@@ -192,6 +205,7 @@ final class AndroidParts {
                 @Override public InputStream in() throws IOException { return s.getInputStream(); }
                 @Override public OutputStream out() throws IOException { return s.getOutputStream(); }
                 @Override public void close() throws IOException { s.close(); }
+                @Override public void relax() throws IOException { s.setSoTimeout(0); }
             };
         }
     }

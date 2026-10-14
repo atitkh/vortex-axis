@@ -17,6 +17,18 @@ public final class HelperServer {
     public interface Seen { void now(); }
 
     public static void serve(InputStream rawIn, OutputStream rawOut, HelperRouter<?> router, Seen seen) throws IOException {
+        serve(rawIn, rawOut, router, seen, null, null);
+    }
+
+    /**
+     * With a secret, the app must prove it holds it (HelperProtocol.serverHandshake) before anything is answered;
+     * `proved` is called once it has.
+     */
+    public static void serve(InputStream rawIn, OutputStream rawOut, HelperRouter<?> router, Seen seen, String secret, Runnable proved) throws IOException {
+        if (secret != null) {
+            if (!HelperProtocol.serverHandshake(rawIn, rawOut, secret)) return;
+            if (proved != null) proved.run();
+        }
         InputStream in = new BufferedInputStream(rawIn, 64 * 1024);
         OutputStream out = new BufferedOutputStream(rawOut, 64 * 1024);
         while (true) {

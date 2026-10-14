@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.2 (experimental) (2026-10-14)
+
+- **The fast engine's helper connects to the app now.** From the owner's headset log: the helper installed and started, and the app got "Connection refused" while it was still starting and then **"Permission denied"**: the headset's SELinux policy does not let an app connect to the abstract local socket the helper had made. The helper now listens on `127.0.0.1` at a port the app picks per start and the app proves it holds a secret (a challenge each way, an HMAC; the secret is never sent), see `HelperProtocol` and `HandshakeTest`. The helper's package now declares INTERNET (Android requires it for any socket, loopback included).
+- **A started helper gets 25 s to answer, not 8.** Connecting its UiAutomation took most of 8 s on the headset; the app killed it and started it again, so it never got further.
+- **The status trail works.** 0.3.1 wrote it to /data/local/tmp, which the helper's process (the helper package's own uid, not the shell's) cannot write: "it wrote no status" was our own bug. It goes to the helper's external files folder (`/sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt`), which the app reads over adb.
+- versionCode 5 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.1 (experimental) (2026-10-14)
 
 - **Updates from Axis now install.** On the owner's headset the update command arrived and said "Updating", and nothing was installed: the install was started detached from the app's adb stream (`nohup ... &`) and never ran, and nothing said so. The app now runs `pm install -r` in its own adb stream a few seconds after answering, waits for it, and says what pm said if it fails (Recently, the log, the admin page's answer). When it works Android replaces the app and starts it again through a new `UpdatedReceiver` (ACTION_MY_PACKAGE_REPLACED, which may start the foreground service). The 0.3.0 on a headset still has the old way: install 0.3.1 once by hand (`adb install -r`), and updates from Axis are the new way after that.

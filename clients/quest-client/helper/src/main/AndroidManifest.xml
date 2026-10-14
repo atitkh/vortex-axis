@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No window, no service, no permission: it only answers the VorteX Axis app (checked by uid) while the shell
-         user keeps it running with `am instrument -w`. Its target is itself, so starting it stops nothing else. -->
+    <!-- No window and no service. INTERNET only because Android refuses any socket to a package without it, even one
+         bound to 127.0.0.1: the helper listens there for the VorteX Axis app and answers it alone (an app that proves
+         it holds the secret it was started with). Its target is itself, so starting it stops nothing else. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The only app it answers: its uid and signing key are checked. -->
     <queries>
         <package android:name="dev.vortexaxis.quest" />

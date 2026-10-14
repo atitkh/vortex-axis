@@ -23,7 +23,7 @@ public final class HelperProtocol {
     /** The helper's package; its instrumentation targets this same package (`am instrument` force-stops its target). */
     public static final String PACKAGE = "dev.vortexaxis.quest.helper";
     public static final String INSTRUMENTATION = PACKAGE + "/.Helper";
-    /** The abstract-namespace socket the helper listens on. Who may talk on it is checked by uid at both ends. */
+    /** 0.3.0 listened on this abstract-namespace socket; the headset refuses an app that connects to it. Kept for the record. */
     public static final String SOCKET = "dev.vortexaxis.quest.helper.v1";
     /** The wire's own number: changed only when the app and the helper must talk differently. */
     public static final int WIRE = 1;
@@ -50,6 +50,76 @@ public final class HelperProtocol {
             if (line.size() >= MAX_LINE) throw new IOException("a line longer than " + MAX_LINE + " bytes");
             line.write(c);
         }
+    }
+
+    // ---- proving both ends know the secret -------------------------------------------------------------
+    //
+    // The helper listens on a loopback TCP port (the abstract local socket 0.3.0 used is refused to an app by the
+    // headset's SELinux policy: "Permission denied"), and any app on the headset can connect to such a port. So
+    // before a line of the protocol, each end proves it holds a secret the app passed to the helper on its start
+    // command, without ever sending it: a challenge each way, answered with an HMAC. An app that got to the port
+    // first learns nothing it could use, and one that connects to the helper gets nothing answered.
+    //   app -> helper: hello <app nonce>
+    //   helper -> app: ok <helper nonce> <hmac(secret, "S" + app nonce + helper nonce)>
+    //   app -> helper: auth <hmac(secret, "C" + app nonce + helper nonce)>
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    /** 16 random bytes as hex, for a nonce or a secret. */
+    public static String nonce() {
+        byte[] b = new byte[16];
+        RANDOM.nextBytes(b);
+        return hex(b);
+    }
+
+    static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+        return sb.toString();
+    }
+
+    static String mac(String secret, String data) {
+        try {
+            javax.crypto.Mac m = javax.crypto.Mac.getInstance("HmacSHA256");
+            m.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return hex(m.doFinal(data.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static boolean same(String a, String b) {
+        return java.security.MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String[] words(String line, String first, int count) {
+        if (line == null) return null;
+        String[] w = line.trim().split(" ");
+        return w.length == count && w[0].equals(first) && w[1].matches("[0-9a-f]{32}") ? w : null;
+    }
+
+    /** The app's side, on a fresh connection. Throws when the other end does not know the secret. */
+    public static void clientHandshake(InputStream in, OutputStream out, String secret) throws IOException {
+        String mine = nonce();
+        out.write(("hello " + mine + "\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        String[] ok = words(readLine(in), "ok", 3);
+        if (ok == null || !same(ok[2], mac(secret, "S" + mine + ok[1])))
+            throw new IOException("whatever answers on the helper's port does not know the secret");
+        out.write(("auth " + mac(secret, "C" + mine + ok[1]) + "\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    /** The helper's side. False (and nothing useful said) when the app does not know the secret. */
+    public static boolean serverHandshake(InputStream in, OutputStream out, String secret) throws IOException {
+        String[] hello = words(readLine(in), "hello", 2);
+        if (hello == null) return false;
+        String mine = nonce();
+        out.write(("ok " + mine + " " + mac(secret, "S" + hello[1] + mine) + "\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        String line = readLine(in);
+        String[] auth = line == null ? null : line.trim().split(" ");
+        return auth != null && auth.length == 2 && auth[0].equals("auth") && same(auth[1], mac(secret, "C" + hello[1] + mine));
     }
 
     /**

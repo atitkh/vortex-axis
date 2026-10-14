@@ -5,26 +5,32 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.pm.PackageManager;
-import android.net.LocalServerSocket;
-import android.net.LocalSocket;
 import android.os.Bundle;
 import android.util.Log;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 import dev.vortexaxis.quest.core.HelperProtocol;
 import dev.vortexaxis.quest.core.HelperRouter;
 import dev.vortexaxis.quest.core.HelperServer;
 
 /**
- * The fast engine's helper. Started by the VorteX Axis app through the headset's adb, as the shell user:
- * `am instrument -w -e uid <the app's uid> dev.vortexaxis.quest.helper/.Helper`. That is what gives it a UiAutomation
- * connection; started any other way it has none and ends at once. It listens on an abstract local socket and
- * answers only a peer whose uid is the app's (as the package manager says, and as the start said) when the app is
- * signed with the helper's key. It does nothing on its own, and ends when the app has not been heard for ten minutes.
+ * The fast engine's helper. Started by the VorteX Axis app through the headset's adb:
+ * `am instrument -w -e uid <the app's uid> -e port <port> -e secret <secret> dev.vortexaxis.quest.helper/.Helper`.
+ * That is what gives it a UiAutomation connection (the shell's, lent to the instrumentation); started any other
+ * way it has none and ends at once. The process itself runs as this package's own uid, not the shell's.
+ *
+ * It listens on 127.0.0.1 at the given port and answers only a peer that proves it holds the secret
+ * (HelperProtocol's handshake; the secret never crosses the connection). It does nothing on its own, and ends when
+ * the app has not been heard for ten minutes. How far it got, and any crash, is written to status.txt in its own
+ * external files folder, which the app reads over adb when it does not answer.
  *
  * Thin on purpose: the rules, the wire and the handle table are HelperRouter and HelperServer (plain Java, tested on
- * a JVM); this file and Screen only connect them to Android. None of it has run on a headset by its author.
+ * a JVM); this file and Screen only connect them to Android.
  */
 public final class Helper extends Instrumentation {
     static final String TAG = "VortexAxisHelper";
@@ -32,13 +38,13 @@ public final class Helper extends Instrumentation {
     static final long IDLE_MS = 10 * 60_000;
     private Bundle args;
     private volatile long seen = System.currentTimeMillis();
-    private volatile LocalServerSocket server;
-
-    /** Where the helper writes how far it got (the shell user can write there; the app reads it when the helper does not answer). */
-    static final String STATUS = "/data/local/tmp/vortex-axis-helper.status";
+    private volatile ServerSocket server;
+    private static volatile File status;
 
     static void note(String line) {
-        try (java.io.FileWriter w = new java.io.FileWriter(STATUS, true)) {
+        File f = status;
+        if (f == null) return;
+        try (java.io.FileWriter w = new java.io.FileWriter(f, true)) {
             w.write(new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(new java.util.Date()) + " " + line + "\n");
         } catch (IOException ignored) {
             // Nowhere to say it.
@@ -46,8 +52,15 @@ public final class Helper extends Instrumentation {
     }
 
     @Override public void onCreate(Bundle arguments) {
-        // A fresh trail for this start, and any crash written into it before the process goes.
-        new java.io.File(STATUS).delete();
+        try {
+            File dir = getTargetContext().getExternalFilesDir(null);
+            if (dir != null) {
+                status = new File(dir, "status.txt");
+                status.delete();
+            }
+        } catch (RuntimeException ignored) {
+            // No trail then; the rest goes on.
+        }
         final Thread.UncaughtExceptionHandler before = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
             note("CRASH in " + thread.getName() + ": " + Log.getStackTraceString(error).replace('\n', ' '));
@@ -79,7 +92,11 @@ public final class Helper extends Instrumentation {
         if (given == null || Integer.parseInt(given.trim()) != app) throw new SecurityException("not started for the VorteX Axis app");
         if (pm.checkSignatures(APP, getContext().getPackageName()) != PackageManager.SIGNATURE_MATCH)
             throw new SecurityException("the VorteX Axis app is not signed with this helper's key");
-        note("checks passed (app uid " + app + ")");
+        String portText = args.getString("port");
+        String secret = args.getString("secret");
+        if (portText == null || secret == null || !secret.matches("[0-9a-f]{32}")) throw new SecurityException("started without a port and a secret");
+        int port = Integer.parseInt(portText.trim());
+        note("checks passed (app uid " + app + ", port " + port + ")");
         UiAutomation ui = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         if (ui == null) throw new IllegalStateException("no UiAutomation (start it with am instrument from the shell)");
         note("UiAutomation connected");
@@ -90,10 +107,12 @@ public final class Helper extends Instrumentation {
         note("service info set");
         String version = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0).versionName;
         HelperRouter<android.view.accessibility.AccessibilityNodeInfo> router = new HelperRouter<>(new Screen(ui), version);
-        LocalServerSocket ss = new LocalServerSocket(HelperProtocol.SOCKET);
+        // Loopback only: nothing off the headset can reach it. Another app on the headset can connect, and gets
+        // nothing answered without the secret.
+        ServerSocket ss = new ServerSocket(port, 4, InetAddress.getByName("127.0.0.1"));
         server = ss;
-        note("listening on @" + HelperProtocol.SOCKET + ", version " + version);
-        Log.i(TAG, "listening for uid " + app + ", version " + version);
+        note("listening on 127.0.0.1:" + port + ", version " + version);
+        Log.i(TAG, "listening on port " + port + ", version " + version);
         Thread watch = new Thread(() -> {
             while (server != null) {
                 try { Thread.sleep(30_000); } catch (InterruptedException e) { return; }
@@ -111,26 +130,25 @@ public final class Helper extends Instrumentation {
         watch.setDaemon(true);
         watch.start();
         while (server != null) {
-            LocalSocket s;
+            Socket s;
             try {
                 s = ss.accept();
             } catch (IOException e) {
                 if (server == null) return;
                 throw e;
             }
-            if (s.getPeerCredentials().getUid() != app) {
-                Log.w(TAG, "refused a connection from uid " + s.getPeerCredentials().getUid());
-                note("refused a connection from uid " + s.getPeerCredentials().getUid());
-                s.close();
-                continue;
-            }
-            note("accepted the app");
-            seen = System.currentTimeMillis();
+            s.setTcpNoDelay(true);
+            // A peer that never says anything is let go, so it cannot hold the helper's attention.
+            s.setSoTimeout(5_000);
             Thread t = new Thread(() -> {
-                try (LocalSocket c = s) {
-                    HelperServer.serve(c.getInputStream(), c.getOutputStream(), router, () -> seen = System.currentTimeMillis());
+                try (Socket c = s) {
+                    HelperServer.serve(c.getInputStream(), c.getOutputStream(), router, () -> seen = System.currentTimeMillis(), secret, () -> {
+                        try { c.setSoTimeout(0); } catch (IOException ignored) {}
+                        note("the app is connected");
+                        seen = System.currentTimeMillis();
+                    });
                 } catch (IOException ignored) {
-                    // The app hung up.
+                    // The app hung up, or never proved the secret in time.
                 }
             }, "helper-conn");
             t.setDaemon(true);
@@ -139,7 +157,7 @@ public final class Helper extends Instrumentation {
     }
 
     private void close() {
-        LocalServerSocket ss = server;
+        ServerSocket ss = server;
         server = null;
         if (ss != null) try { ss.close(); } catch (IOException ignored) {}
     }
