@@ -27,6 +27,19 @@ public partial class App : System.Windows.Application
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
 
     const int HotkeyId = 0xA515, TalkKeyId = 0xA516;
+
+    /** Talk keys to choose from: modifiers and the virtual key Windows knows it by. */
+    public static readonly (string Id, string Label, uint Mods, int Vk)[] TalkKeys =
+    [
+        ("ctrl+alt+space", "Ctrl+Alt+Space", Native.MOD_CONTROL | Native.MOD_ALT, 0x20),
+        ("ctrl+shift+space", "Ctrl+Shift+Space", Native.MOD_CONTROL | Native.MOD_SHIFT, 0x20),
+        ("ctrl+alt+v", "Ctrl+Alt+V", Native.MOD_CONTROL | Native.MOD_ALT, 0x56),
+        ("ctrl+alt+t", "Ctrl+Alt+T", Native.MOD_CONTROL | Native.MOD_ALT, 0x54),
+        ("f9", "F9", 0, 0x78),
+        ("pause", "Pause/Break", 0, 0x13),
+    ];
+    IntPtr hotkeyWindow;
+    int talkVk = 0x20;
     Voice? voice;
     VoicePill? pill;
     ControlPill? controlPill;
@@ -84,7 +97,10 @@ public partial class App : System.Windows.Application
         faceWindow.Loudness = () => voice?.Loudness ?? -1;
         faceWindow.Clicked += () => { if (voice != null && !Paused && State == LinkState.Online) voice.Press(); };
         controlPill.Moved += ShowFace;
+        faceWindow.Look(saved.FaceSize, saved.FacePlace);
         faceWindow.Keep(saved.KeepFace && saved.ShowFace);
+        voiceIo.InputDevice = saved.MicDevice;
+        voiceIo.OutputDevice = saved.SpeakerDevice;
         BuildTray();
         window = new MainWindow();
         // Started with Windows: straight to the tray. Otherwise the window shows.
@@ -196,7 +212,7 @@ public partial class App : System.Windows.Application
             await link.StopAsync();
             Connect(pairing);
         }
-        Note(on ? "Talking from this computer: on (Ctrl+Alt+Space)" : "Talking from this computer: off");
+        Note(on ? $"Talking from this computer: on ({TalkKeyLabel})" : "Talking from this computer: off");
     }
 
     // --- updating -----------------------------------------------------------------------------
@@ -290,17 +306,7 @@ public partial class App : System.Windows.Application
         pauseItem = new Forms.ToolStripMenuItem("Pause", null, (_, _) => SetPaused(!Paused));
         menu.Items.Add(pauseItem);
         menu.Items.Add("Show the pointer", null, (_, _) => ShowPointer());
-        var controlItem = new Forms.ToolStripMenuItem("Show when an agent is using this computer") { Checked = saved.ShowControl, CheckOnClick = true };
-        controlItem.CheckedChanged += (_, _) => { saved.ShowControl = controlItem.Checked; saved.Store(); };
-        menu.Items.Add(controlItem);
-        var faceItem = new Forms.ToolStripMenuItem("Show Vortex's face") { Checked = saved.ShowFace, CheckOnClick = true };
-        var keepItem = new Forms.ToolStripMenuItem("Keep the face on screen (click it to talk)") { Checked = saved.KeepFace, CheckOnClick = true };
-        faceItem.CheckedChanged += (_, _) => { saved.ShowFace = faceItem.Checked; saved.Store(); faceWindow?.Keep(saved.KeepFace && saved.ShowFace); ShowFace(); };
-        keepItem.CheckedChanged += (_, _) => { saved.KeepFace = keepItem.Checked; saved.Store(); faceWindow?.Keep(saved.KeepFace && saved.ShowFace); };
-        menu.Items.Add(faceItem);
-        menu.Items.Add(keepItem);
-        voiceItem = new Forms.ToolStripMenuItem("Talk from this computer (Ctrl+Alt+Space)", null, (_, _) => _ = SetVoiceAsync(!saved.Voice)) { Checked = saved.Voice };
-        menu.Items.Add(voiceItem);
+        menu.Items.Add("Settings", null, (_, _) => { OpenWindow(); window?.ShowSettings(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => Quit());
         tray = new Forms.NotifyIcon { Icon = new System.Drawing.Icon(icon), Text = "VorteX Axis", ContextMenuStrip = menu, Visible = true };
@@ -331,7 +337,7 @@ public partial class App : System.Windows.Application
         var watch = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
         watch.Tick += (_, _) =>
         {
-            var down = (Native.GetAsyncKeyState(0x20) & 0x8000) != 0;
+            var down = (Native.GetAsyncKeyState(talkVk) & 0x8000) != 0;
             if (down)
             {
                 if (!held && DateTime.UtcNow - pressed > TimeSpan.FromMilliseconds(350))
@@ -355,15 +361,66 @@ public partial class App : System.Windows.Application
         window.Activate();
     }
 
+    /** Registers the chosen talk key in place of the one before. */
+    void ApplyTalkKey()
+    {
+        if (hotkeyWindow == IntPtr.Zero) return;
+        Native.UnregisterHotKey(hotkeyWindow, TalkKeyId);
+        var key = TalkKeys.FirstOrDefault(k => k.Id == saved.TalkKey);
+        if (key.Label == null) key = TalkKeys[0];
+        talkVk = key.Vk;
+        if (!Native.RegisterHotKey(hotkeyWindow, TalkKeyId, key.Mods | Native.MOD_NOREPEAT, (uint)key.Vk))
+            Note($"⚠ {key.Label} is taken by another app; pick another talk key in Settings");
+        TalkKeyLabel = key.Label;
+    }
+
+    /** The talk key as people read it. */
+    public static string TalkKeyLabel { get; private set; } = "Ctrl+Alt+Space";
+
+    public void SetTalkKey(string id)
+    {
+        saved.TalkKey = id;
+        saved.Store();
+        ApplyTalkKey();
+        Note($"Talk key: {TalkKeyLabel}");
+    }
+
+    public void SetDevices(int mic, int speaker)
+    {
+        saved.MicDevice = mic;
+        saved.SpeakerDevice = speaker;
+        saved.Store();
+        voiceIo.InputDevice = mic;
+        voiceIo.OutputDevice = speaker;
+    }
+
+    public void SetFace(bool show, bool keep, string size, string place)
+    {
+        saved.ShowFace = show;
+        saved.KeepFace = keep;
+        if (size.Length > 0) saved.FaceSize = size;
+        if (place.Length > 0) saved.FacePlace = place;
+        saved.Store();
+        faceWindow?.Look(saved.FaceSize, saved.FacePlace);
+        faceWindow?.Keep(saved.KeepFace && saved.ShowFace);
+        ShowFace();
+    }
+
+    public void SetShowControl(bool on)
+    {
+        saved.ShowControl = on;
+        saved.Store();
+    }
+
     void RegisterHotkey()
     {
         var hwnd = new WindowInteropHelper(window!).EnsureHandle();
         // Ctrl+Alt+S: pause or resume, from anywhere.
         Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x53);
-        // Ctrl+Alt+Space: talk. A press listens until a pause; held, it listens until let go; while the
+        // The talk key (Settings; Ctrl+Alt+Space unless changed). A press listens until a pause; held, it listens until let go; while the
         // agent thinks or speaks, it stops it.
-        if (!Native.RegisterHotKey(hwnd, TalkKeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x20))
-            Note("⚠ Ctrl+Alt+Space is taken by another app; talking from this computer has no key");
+        hotkeyWindow = hwnd;
+        ApplyTalkKey();
         HwndSource.FromHwnd(hwnd)!.AddHook((IntPtr h, int msg, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (msg == Native.WM_HOTKEY && w.ToInt32() == TalkKeyId)

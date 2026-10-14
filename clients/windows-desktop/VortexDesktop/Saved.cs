@@ -27,6 +27,14 @@ public sealed class Saved
     public bool ShowFace { get; set; } = true;
     /** The face stays on screen between turns, and a click on it talks. */
     public bool KeepFace { get; set; }
+    /** The talk key, one of App.TalkKeys. */
+    public string TalkKey { get; set; } = "ctrl+alt+space";
+    /** Microphone and speaker by Windows' number for them; -1 is Windows' default. */
+    public int MicDevice { get; set; } = -1;
+    public int SpeakerDevice { get; set; } = -1;
+    /** The face's size and where along the bottom of the screen it sits (FaceWindow.Sizes, Places). */
+    public string FaceSize { get; set; } = "medium";
+    public string FacePlace { get; set; } = "center";
 
     static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VorteX Axis");
     static string FilePath => Path.Combine(Folder, "desktop.json");

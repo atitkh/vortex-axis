@@ -14,7 +14,7 @@ static class Native
     public const uint SWP_NOSIZE = 0x1, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
     public const int WM_HOTKEY = 0x312;
-    public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_NOREPEAT = 0x4000;
+    public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X, Y; }

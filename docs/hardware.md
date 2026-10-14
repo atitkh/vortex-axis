@@ -62,7 +62,19 @@ Its settings (volume, brightness, rotation, wake word, how long it waits for you
 
 The desktop app turns a Windows computer into a device: a key to talk (Ctrl+Alt+Space), answers on its speakers, Vortex's face on screen, and, if you allow it, the agent reading the screen and acting on it. It is experimental; read [SECURITY.md](../SECURITY.md) before switching the agent's access on.
 
-Download it from the admin page's **Add a device** (a release image comes with it), run it, and enter Axis's address and a pairing code. It updates itself from Axis. Windows warns the first time it runs, because the app is not signed yet: choose **More info**, then **Run anyway**.
+Download it from the admin page's **Add a device** (a release image comes with it), run it, and enter Axis's address and a pairing code. It updates itself from Axis. Its settings (talk key, microphone and speaker, the face's size and place, what shows on screen) are under **Settings** in its window, or in the tray menu.
+
+### "Windows protected your PC"
+
+The app is not code-signed yet (a signing certificate costs money every year), so the first time it runs Windows SmartScreen shows a blue box, **Windows protected your PC**, with only a **Don't run** button. That is Windows saying it has not seen this program before, not that anything is wrong with it.
+
+1. Click **More info** (small text under the message).
+2. Check the publisher line says "Unknown publisher" and the name is `VortexAxisDesktop.exe`.
+3. Click **Run anyway**.
+
+Windows remembers the choice for that file. An update from Axis is a new file, but it is put in place of the old one by the app itself, so SmartScreen does not ask again. If your browser also warns when downloading it ("not commonly downloaded"), choose **Keep** in its download list.
+
+Only do this for a copy that came from your own Axis or from the project's releases. If you would rather not trust a download at all, build it yourself: `scripts/build-desktop.sh` in the repository.
 
 ## A phone or any browser
 

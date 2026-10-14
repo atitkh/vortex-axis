@@ -1,7 +1,7 @@
 <Window x:Class="Axis.Desktop.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="VorteX Axis" Width="420" Height="600" MinWidth="380" MinHeight="520"
+        Title="VorteX Axis" Width="440" Height="680" MinWidth="400" MinHeight="560"
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen"
         Icon="app.ico" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
     <Grid Margin="28,22,28,20">
@@ -68,8 +68,12 @@
                 </CheckBox>
                 <Button Content="Show the pointer" Margin="0,18,0,0" HorizontalAlignment="Left" Click="OnShowPointer" />
             </StackPanel>
-            <TextBlock Grid.Row="1" Text="Recently" Style="{StaticResource Label}" Margin="0,22,0,6" />
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <!-- Two views below: what it did lately, and its settings. -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,20,0,8">
+                <Button x:Name="RecentTab" Content="Recently" Style="{StaticResource Link}" Margin="0,0,18,0" Click="OnRecentTab" />
+                <Button x:Name="SettingsTab" Content="Settings" Style="{StaticResource Link}" Click="OnSettingsTab" />
+            </StackPanel>
+            <ScrollViewer x:Name="RecentView" Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="RecentList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -84,6 +88,48 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+            </ScrollViewer>
+            <ScrollViewer x:Name="SettingsView" Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" Padding="0,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="TALKING" Style="{StaticResource Label}" Margin="0,4,0,8" />
+                    <CheckBox x:Name="VoiceSwitch" Style="{StaticResource Switch}" Click="OnVoice">
+                        <StackPanel>
+                            <TextBlock Text="Talk from this computer" />
+                            <TextBlock Text="Its microphone and speakers become a device, like a board." Style="{StaticResource Help}" />
+                        </StackPanel>
+                    </CheckBox>
+                    <TextBlock Text="Talk key" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="KeyBox" SelectionChanged="OnKey" />
+                    <TextBlock Text="A press listens until you pause, held it listens until you let go, and while Vortex thinks or speaks it stops it." Style="{StaticResource Help}" Margin="0,6,0,0" />
+                    <TextBlock Text="Microphone" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="MicBox" SelectionChanged="OnDevices" />
+                    <TextBlock Text="Speaker" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="SpeakerBox" SelectionChanged="OnDevices" />
+
+                    <TextBlock Text="ON SCREEN" Style="{StaticResource Label}" Margin="0,26,0,8" />
+                    <CheckBox x:Name="FaceSwitch" Style="{StaticResource Switch}" Click="OnFace">
+                        <StackPanel>
+                            <TextBlock Text="Show Vortex's face" />
+                            <TextBlock Text="While you talk to it, and while an agent is using this computer." Style="{StaticResource Help}" />
+                        </StackPanel>
+                    </CheckBox>
+                    <CheckBox x:Name="KeepSwitch" Style="{StaticResource Switch}" Margin="0,14,0,0" Click="OnFace">
+                        <StackPanel>
+                            <TextBlock Text="Keep the face on screen" />
+                            <TextBlock Text="It stays between turns, and a click on it talks." Style="{StaticResource Help}" />
+                        </StackPanel>
+                    </CheckBox>
+                    <TextBlock Text="Face size" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="SizeBox" SelectionChanged="OnFaceLook" />
+                    <TextBlock Text="Face position" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="PlaceBox" SelectionChanged="OnFaceLook" />
+                    <CheckBox x:Name="ControlSwitch" Style="{StaticResource Switch}" Margin="0,18,0,0" Click="OnControl">
+                        <StackPanel>
+                            <TextBlock Text="Show when an agent is using this computer" />
+                            <TextBlock Text="A pill at the top of the screen while it looks, clicks or types." Style="{StaticResource Help}" />
+                        </StackPanel>
+                    </CheckBox>
+                </StackPanel>
             </ScrollViewer>
             <TextBlock x:Name="NothingYet" Grid.Row="2" Text="Nothing yet. What agents look at and point to shows here." Style="{StaticResource Help}" Foreground="{StaticResource Faint}" />
             <Button Grid.Row="3" Content="Forget this pairing" Style="{StaticResource Link}" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnForget" />

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows.Threading;
 using NAudio.Wave;
 
@@ -13,12 +15,51 @@ sealed class VoiceIo : IVoiceIo
     BufferedWaveProvider? buffer;
     DispatcherTimer? draining;
 
+    /** Which microphone and speaker, by Windows' number; -1 is Windows' default. Used from the next recording or answer. */
+    public int InputDevice { get; set; } = -1;
+    public int OutputDevice { get; set; } = -1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct WaveOutCaps
+    {
+        public ushort Mid, Pid;
+        public uint DriverVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Name;
+        public uint Formats;
+        public ushort Channels, Reserved;
+        public uint Support;
+    }
+    [DllImport("winmm.dll")] static extern int waveOutGetNumDevs();
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] static extern int waveOutGetDevCapsW(IntPtr device, out WaveOutCaps caps, int size);
+
+    /** The microphones there are, Windows' default first. */
+    public static List<(int Id, string Name)> Inputs()
+    {
+        var list = new List<(int, string)> { (-1, "Windows default") };
+        try { for (var i = 0; i < WaveInEvent.DeviceCount; i++) list.Add((i, WaveInEvent.GetCapabilities(i).ProductName)); } catch { }
+        return list;
+    }
+
+    /** The speakers there are, Windows' default first. */
+    public static List<(int Id, string Name)> Outputs()
+    {
+        var list = new List<(int, string)> { (-1, "Windows default") };
+        try
+        {
+            var count = waveOutGetNumDevs();
+            for (var i = 0; i < count; i++)
+                if (waveOutGetDevCapsW((IntPtr)i, out var caps, Marshal.SizeOf<WaveOutCaps>()) == 0) list.Add((i, caps.Name));
+        }
+        catch { }
+        return list;
+    }
+
     public void StartCapture(Action<short[]> frame)
     {
         lock (gate)
         {
             StopCapture();
-            var m = new WaveInEvent { WaveFormat = new WaveFormat(Voice.MicRate, 16, 1), BufferMilliseconds = 20, NumberOfBuffers = 4 };
+            var m = new WaveInEvent { DeviceNumber = InputDevice, WaveFormat = new WaveFormat(Voice.MicRate, 16, 1), BufferMilliseconds = 20, NumberOfBuffers = 4 };
             m.DataAvailable += (_, e) =>
             {
                 var samples = new short[e.BytesRecorded / 2];
@@ -53,7 +94,7 @@ sealed class VoiceIo : IVoiceIo
                 BufferDuration = TimeSpan.FromSeconds(60),
                 DiscardOnBufferOverflow = true,
             };
-            output = new WaveOutEvent { DesiredLatency = 150 };
+            output = new WaveOutEvent { DeviceNumber = OutputDevice, DesiredLatency = 150 };
             output.Init(new Meter(buffer, this));
             output.Play();
         }

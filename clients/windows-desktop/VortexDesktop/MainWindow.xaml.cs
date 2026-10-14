@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
+using System.Windows.Controls;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -21,7 +24,83 @@ public partial class MainWindow : Window
         RecentList.ItemsSource = AppNow.Recently;
         Footer.Text = $"Version {App.Version} · close this window and it keeps running in the tray";
         AppNow.Changed += Render;
+        FillSettings();
         Render();
+        ShowView(settings: false);
+    }
+
+    bool filling;
+
+    /** Puts the saved choices into the settings view. */
+    void FillSettings()
+    {
+        filling = true;
+        var saved = AppNow.Saved;
+        VoiceSwitch.IsChecked = saved.Voice;
+        Fill(KeyBox, App.TalkKeys.Select(k => (k.Id, k.Label)), saved.TalkKey);
+        Fill(MicBox, VoiceIo.Inputs().Select(d => (d.Id.ToString(), d.Name)), saved.MicDevice.ToString());
+        Fill(SpeakerBox, VoiceIo.Outputs().Select(d => (d.Id.ToString(), d.Name)), saved.SpeakerDevice.ToString());
+        FaceSwitch.IsChecked = saved.ShowFace;
+        KeepSwitch.IsChecked = saved.KeepFace;
+        Fill(SizeBox, FaceWindow.Sizes.Select(z => (z.Id, z.Label)), saved.FaceSize);
+        Fill(PlaceBox, FaceWindow.Places.Select(z => (z.Id, z.Label)), saved.FacePlace);
+        ControlSwitch.IsChecked = saved.ShowControl;
+        filling = false;
+    }
+
+    static void Fill(ComboBox box, IEnumerable<(string Id, string Label)> items, string chosen)
+    {
+        box.Items.Clear();
+        foreach (var (id, label) in items) box.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+        box.SelectedItem = box.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == chosen) ?? box.Items.Cast<ComboBoxItem>().FirstOrDefault();
+    }
+
+    static string Chosen(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+
+    /** Opens the window on its settings (the tray's "Settings"). */
+    public void ShowSettings()
+    {
+        FillSettings();
+        ShowView(settings: true);
+    }
+
+    void ShowView(bool settings)
+    {
+        RecentView.Visibility = settings ? Visibility.Collapsed : Visibility.Visible;
+        SettingsView.Visibility = settings ? Visibility.Visible : Visibility.Collapsed;
+        NothingYet.Visibility = !settings && AppNow.Recently.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RecentTab.Foreground = (Brush)FindResource(settings ? "Dim" : "Text");
+        SettingsTab.Foreground = (Brush)FindResource(settings ? "Text" : "Dim");
+    }
+
+    void OnRecentTab(object sender, RoutedEventArgs e) => ShowView(settings: false);
+    void OnSettingsTab(object sender, RoutedEventArgs e) => ShowSettings();
+
+    async void OnVoice(object sender, RoutedEventArgs e)
+    {
+        if (!filling) await AppNow.SetVoiceAsync(VoiceSwitch.IsChecked == true);
+    }
+
+    void OnKey(object sender, SelectionChangedEventArgs e)
+    {
+        if (!filling) AppNow.SetTalkKey(Chosen(KeyBox));
+    }
+
+    void OnDevices(object sender, SelectionChangedEventArgs e)
+    {
+        if (!filling && int.TryParse(Chosen(MicBox), out var mic) && int.TryParse(Chosen(SpeakerBox), out var speaker)) AppNow.SetDevices(mic, speaker);
+    }
+
+    void OnFace(object sender, RoutedEventArgs e)
+    {
+        if (!filling) AppNow.SetFace(FaceSwitch.IsChecked == true, KeepSwitch.IsChecked == true, Chosen(SizeBox), Chosen(PlaceBox));
+    }
+
+    void OnFaceLook(object sender, SelectionChangedEventArgs e) => OnFace(sender, e);
+
+    void OnControl(object sender, RoutedEventArgs e)
+    {
+        if (!filling) AppNow.SetShowControl(ControlSwitch.IsChecked == true);
     }
 
     public void EnsureHandle() => new WindowInteropHelper(this).EnsureHandle();
@@ -42,7 +121,7 @@ public partial class MainWindow : Window
         var pairing = AppNow.Saved.Pairing;
         PairPanel.Visibility = pairing == null ? Visibility.Visible : Visibility.Collapsed;
         PairedPanel.Visibility = pairing == null ? Visibility.Collapsed : Visibility.Visible;
-        NothingYet.Visibility = AppNow.Recently.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        NothingYet.Visibility = RecentView.Visibility == Visibility.Visible && AppNow.Recently.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         AllowSwitch.IsChecked = !AppNow.Paused;
         StartSwitch.IsChecked = Saved.StartWithWindows;
         if (pairing != null) WhereText.Text = $"{pairing.Name} on {pairing.Address}";

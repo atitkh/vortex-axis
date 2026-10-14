@@ -82,7 +82,7 @@ sealed class VoicePill : Pill
         };
         // A question waiting here: said in the pill, with its choices, until answered.
         var asking = voice.Question != null && voice.Mode is VoiceMode.Idle or VoiceMode.Listening;
-        if (asking && voice.Mode == VoiceMode.Idle) (words, colour) = ("Question · Ctrl+Alt+Space to answer", Color.FromRgb(0x4D, 0x94, 0xFF));
+        if (asking && voice.Mode == VoiceMode.Idle) (words, colour) = ($"Question · {App.TalkKeyLabel} to answer", Color.FromRgb(0x4D, 0x94, 0xFF));
         status.Text = words;
         status.Foreground = new SolidColorBrush(colour);
         Tint(colour);

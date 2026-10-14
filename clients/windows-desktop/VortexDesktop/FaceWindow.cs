@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -15,8 +16,12 @@ namespace Axis.Desktop.App;
  */
 sealed class FaceWindow : Window
 {
-    /** The window: the figure fills the middle 60 %, the rest is the shadow fading out. */
-    const double Side = 200;
+    /** Sizes to choose from: the window's side; the figure fills the middle 60 %, the rest is the shadow fading out. */
+    public static readonly (string Id, string Label, double Side)[] Sizes = [("small", "Small", 150), ("medium", "Medium", 200), ("large", "Large", 270)];
+    /** Where along the bottom of the main screen it sits. */
+    public static readonly (string Id, string Label)[] Places = [("center", "Bottom centre"), ("left", "Bottom left"), ("right", "Bottom right")];
+    double Side = 200;
+    string place = "center";
     readonly Face face = new();
     readonly Canvas canvas;
     readonly DispatcherTimer leave = new() { Interval = TimeSpan.FromSeconds(2.5) };
@@ -76,10 +81,19 @@ sealed class FaceWindow : Window
         Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, style);
     }
 
+    /** Size and place, from the settings. */
+    public void Look(string size, string where)
+    {
+        Side = Sizes.FirstOrDefault(z => z.Id == size).Side is > 0 and var side ? side : 200;
+        place = where;
+        Width = Height = canvas.Width = canvas.Height = Side;
+        if (IsVisible) Place();
+    }
+
     void Place()
     {
         var area = SystemParameters.WorkArea;
-        Left = area.Left + (area.Width - Side) / 2;
+        Left = place == "left" ? area.Left - Side * 0.12 : place == "right" ? area.Right - Side * 0.88 : area.Left + (area.Width - Side) / 2;
         Top = area.Bottom - Side + 6;
     }
 
