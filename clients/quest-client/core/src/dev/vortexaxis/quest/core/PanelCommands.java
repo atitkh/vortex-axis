@@ -1152,7 +1152,7 @@ public final class PanelCommands implements AxisLink.Handler {
             case FAST: return "fast";
             case STARTING: return "starting (uiautomator meanwhile)";
             case OFF: return "uiautomator (fast engine off)";
-            default: return "uiautomator (fast engine not available: " + clip(h.detail(), 80) + ")";
+            default: return "uiautomator (fast engine not available: " + clip(h.detail(), 900) + ")";
         }
     }
 

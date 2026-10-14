@@ -41,7 +41,23 @@ public final class Helper extends Instrumentation {
     private volatile ServerSocket server;
     private static volatile File status;
 
+    private static volatile Helper self;
+
+    /**
+     * How far the helper got, said two ways: as an INSTRUMENTATION_STATUS line, which `am instrument` prints and the app
+     * reads back from its log (the one way known to work), and in status.txt when that can be written.
+     */
     static void note(String line) {
+        Helper h = self;
+        if (h != null) {
+            try {
+                Bundle b = new Bundle();
+                b.putString("note", line.length() > 400 ? line.substring(0, 400) : line);
+                h.sendStatus(0, b);
+            } catch (RuntimeException ignored) {
+                // Not told then; the file may be.
+            }
+        }
         File f = status;
         if (f == null) return;
         try (java.io.FileWriter w = new java.io.FileWriter(f, true)) {
@@ -52,6 +68,7 @@ public final class Helper extends Instrumentation {
     }
 
     @Override public void onCreate(Bundle arguments) {
+        self = this;
         try {
             File dir = getTargetContext().getExternalFilesDir(null);
             if (dir != null) {

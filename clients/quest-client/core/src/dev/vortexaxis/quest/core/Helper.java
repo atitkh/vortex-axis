@@ -377,17 +377,28 @@ public final class Helper {
     private String startLog() {
         StringBuilder out = new StringBuilder();
         try {
-            String trail = adb.shell("tail -n 8 " + STATUS + " 2>/dev/null", 3000).trim();
-            out.append(trail.isEmpty() ? " (it wrote no status: the process did not get as far as its own code)"
-                    : " (its status: " + PanelCommands.clip(trail.replace('\n', '|'), 700) + ")");
-            String said = adb.shell("tail -n 3 " + LOG + " 2>/dev/null", 3000).trim();
-            if (!said.isEmpty()) out.append(" (am said: ").append(PanelCommands.clip(said.replace('\n', ' '), 200)).append(')');
+            // What `am instrument` printed: the helper's own steps as INSTRUMENTATION_STATUS notes, and how it ended.
+            String log = adb.shell("tail -n 60 " + LOG + " 2>/dev/null", 3000);
+            StringBuilder trail = new StringBuilder();
+            StringBuilder ended = new StringBuilder();
+            for (String line : log.split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("INSTRUMENTATION_STATUS: note=")) trail.append(trail.length() > 0 ? " | " : "").append(t.substring("INSTRUMENTATION_STATUS: note=".length()));
+                else if (t.startsWith("INSTRUMENTATION_RESULT:") || t.startsWith("INSTRUMENTATION_FAILED") || t.startsWith("Error") || t.startsWith("java.") || t.startsWith("android."))
+                    ended.append(ended.length() > 0 ? " | " : "").append(t);
+            }
+            out.append(trail.length() == 0 ? " (the helper reported no step: it did not reach its own code)" : " (the helper got as far as: " + tailOf(trail.toString(), 450) + ")");
+            if (ended.length() > 0) out.append(" (am said: ").append(tailOf(ended.toString(), 220)).append(')');
+            String file = adb.shell("tail -n 6 " + STATUS + " 2>/dev/null", 3000).trim();
+            if (!file.isEmpty()) out.append(" (status file: ").append(tailOf(file.replace('\n', '|'), 300)).append(')');
         } catch (IOException ignored) {
             // The reasons are only help; the failure is told anyway.
         }
         if (!lastConnectError.isEmpty()) out.append(" (connecting said: ").append(PanelCommands.clip(lastConnectError, 160)).append(')');
         return out.toString();
     }
+
+    private static String tailOf(String s, int n) { return s.length() <= n ? s : "…" + s.substring(s.length() - n); }
 
     // ---- calls -----------------------------------------------------------------
 

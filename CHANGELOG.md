@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.6 (experimental) (2026-10-14)
+
+- **The fast engine's start failures can be read.** After 0.3.5 the helper installed and started but never answered, for minutes, and the app could only say "it wrote no status": the status file may not be writable by the helper at all. The helper now reports each step as an `INSTRUMENTATION_STATUS: note=...` line, which `am instrument` prints and the app already reads back, and the failure message carries them ("the helper got as far as: onCreate | checks passed | UiAutomation connected ...") along with how `am` ended. `desktop.hello` (the admin page's Check the headset) shows the whole message, not its first 80 characters.
+- versionCode 9 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.5 (experimental) (2026-10-14)
 
 - **Clicks are a real touch again.** With the fast engine a click on an element was an accessibility press (`ACTION_CLICK`), and the Browser's tab strip ignores that while reporting success: "Close tab" and "Create tab" did nothing (tested: the press changed nothing, the same spot by coordinates added a tab). The click is now a touch at the element's centre, as the shell's `input tap` was; the press is only the fallback when the touch is not taken. The answer's `how` was always "tap"; it now says `tap`, `double tap`, `long press` or `press`.

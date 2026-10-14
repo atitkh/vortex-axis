@@ -457,6 +457,20 @@ public class HelperTest {
         check(shell().stream().noneMatch(c -> c.contains("uiautomator")) && helper.state() == Helper.State.FAST, "the helper is left alone this time");
         fh.blind = false;
 
+        System.out.println("[engine] a helper that never answers: the failure carries the steps it reported");
+        helper.pause("test");
+        fh.wontStart = true;
+        int keepStartMs = helper.startMs;
+        helper.startMs = 700;
+        helper.tick();
+        check(helper.state() == Helper.State.BASIC && helper.detail().contains("the helper got as far as: onCreate (pid 1, uid 10124) | checks passed"),
+                "Basic, and the message says how far it got: " + helper.detail());
+        fh.wontStart = false;
+        helper.startMs = keepStartMs;
+        Thread.sleep(300);
+        helper.tick();
+        equal(helper.state(), Helper.State.FAST, "and it starts when it can");
+
         System.out.println("[engine] the Test button: the fast engine, then uiautomator both ways");
         PanelCommands.TestResult tr = cmds.test();
         check(tr.fast != null && tr.fast.fast && tr.plain != null && !tr.plain.fast && tr.compressed != null, "three timings: " + tr.fast + " / " + tr.plain + " / " + tr.compressed);

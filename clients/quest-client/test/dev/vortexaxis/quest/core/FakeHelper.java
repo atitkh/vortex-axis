@@ -49,6 +49,8 @@ final class FakeHelper implements AutoCloseable {
     volatile String hangOn;
     /** The helper sees no window at all (its UiAutomation is dead): dumps have no tree, but it still answers pings. */
     volatile boolean blind;
+    /** The helper process starts but never listens (it dies, or hangs on UiAutomation). */
+    volatile boolean wontStart;
     /** The helper cannot inject a touch. */
     volatile boolean tapFails;
     /** The pretend headset's own state for the install: is the helper there, and which build's SHA-256 is noted. */
@@ -182,14 +184,14 @@ final class FakeHelper implements AutoCloseable {
                 die();
                 if (cmd.contains("am instrument -w") && cmd.endsWith("& echo helper-started")) {
                     try {
-                        if (installed) start();
+                        if (installed && !wontStart) start();
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
                     out = "helper-started\n";
                 } else out = "";
-            } else if (cmd.startsWith("tail -n 3 " + Helper.LOG)) out = "INSTRUMENTATION_STATUS: pretend\n";
-            else if (cmd.startsWith("tail -n 8 " + Helper.STATUS)) out = "12:00:00.000 onCreate (pid 1, uid 2000)\n12:00:00.050 checks passed (app uid 10123)\n";
+            } else if (cmd.startsWith("tail -n 60 " + Helper.LOG)) out = "INSTRUMENTATION_STATUS: note=onCreate (pid 1, uid 10124)\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: note=checks passed (app uid 10123, port 1)\nINSTRUMENTATION_STATUS_CODE: 0\n";
+            else if (cmd.startsWith("tail -n 6 " + Helper.STATUS)) out = "";
             return out != null ? out.getBytes(StandardCharsets.UTF_8) : rest.apply(cmd);
         };
     }
