@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.9.0 (2026-10-13)
+
+- **The face can be put anywhere.** While it is kept on screen, right-click it and drag. Where it is let go is remembered (and held inside the screens: if a monitor goes away, it comes back). Settings and the tray list it as "Where you put it" next to bottom centre, left and right.
+- **The tray icon's right-click menu has the everyday switches again:** talk from this computer, show the face, keep it on screen, its size and place, show when an agent is using this computer, start with Windows. Settings has the rest. The window and the menu always agree.
+- **The connected indicator has rounded corners, not an oval**, like the buttons.
+- **Steadier:** the settings file is written whole or not at all, with the last good copy kept (a cut-short write used to be able to cost the pairing); an error in one handler is logged and the app carries on instead of vanishing from the tray; a failing sound-device list no longer stops the window opening; a log at `%APPDATA%\VorteX Axis\desktop.log` keeps what went wrong.
+
 ## Desktop app 0.8.1 (2026-10-13)
 
 - **Buttons have rounded corners, not a pill shape**, the same radius as the text boxes and drop-downs.

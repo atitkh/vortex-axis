@@ -34,21 +34,40 @@ public sealed class Saved
     public int SpeakerDevice { get; set; } = -1;
     /** The face's size and where along the bottom of the screen it sits (FaceWindow.Sizes, Places). */
     public string FaceSize { get; set; } = "medium";
+    /** "center", "left" or "right" along the bottom, or "custom": where FaceX and FaceY (the face's middle, in screen units) say. */
     public string FacePlace { get; set; } = "center";
+    public double? FaceX { get; set; }
+    public double? FaceY { get; set; }
 
     static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VorteX Axis");
     static string FilePath => Path.Combine(Folder, "desktop.json");
 
+    /** The last good copy: a write cut short (power, a crash) must not cost the pairing. */
     public static Saved Load()
     {
-        try { return JsonSerializer.Deserialize<Saved>(File.ReadAllText(FilePath)) ?? new Saved(); }
-        catch { return new Saved(); }
+        foreach (var path in new[] { FilePath, FilePath + ".bak" })
+        {
+            try
+            {
+                if (File.Exists(path) && JsonSerializer.Deserialize<Saved>(File.ReadAllText(path)) is { } found) return found;
+            }
+            catch (Exception e) { Diag.Log($"could not read {Path.GetFileName(path)}: {e.Message}"); }
+        }
+        return new Saved();
     }
 
+    /** Written beside the file and swapped in, so the file is always whole. Never throws: a full disk is logged, not fatal. */
     public void Store()
     {
-        Directory.CreateDirectory(Folder);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        try
+        {
+            Directory.CreateDirectory(Folder);
+            var fresh = FilePath + ".new";
+            File.WriteAllText(fresh, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            if (File.Exists(FilePath)) File.Replace(fresh, FilePath, FilePath + ".bak");
+            else File.Move(fresh, FilePath);
+        }
+        catch (Exception e) { Diag.Log($"could not save settings: {e.Message}"); }
     }
 
     /** Never written as it is: only the encrypted token goes to the file. */

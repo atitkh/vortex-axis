@@ -45,7 +45,8 @@ public partial class App : System.Windows.Application
     ControlPill? controlPill;
     FaceWindow? faceWindow;
     readonly VoiceIo voiceIo = new();
-    Forms.ToolStripMenuItem? voiceItem;
+    // The tray menu's switches; their ticks are brought up to date each time it opens.
+    Forms.ToolStripMenuItem? voiceItem, faceItem, keepItem, controlItem, startItem, sizeMenu, placeMenu;
     Mutex? single;
     Saved saved = Saved.Load();
     AxisLink? link;
@@ -67,6 +68,21 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // A tray app that nobody is watching must not vanish over one failed call: it is logged and carries on.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Diag.Log($"error on the window thread: {args.Exception}");
+            Note($"⚠ {args.Exception.Message}");
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => Diag.Log($"unhandled: {args.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Diag.Log($"a task failed unobserved: {args.Exception}");
+            args.SetObserved();
+        };
+        // A monitor plugged or unplugged, or the resolution changed: the face goes back inside the screens.
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(() => faceWindow?.Replace());
         // A floor under the pool, so a few slow Windows calls cannot leave answers to Axis waiting for a thread.
         System.Threading.ThreadPool.GetMinThreads(out var workers, out var io);
         System.Threading.ThreadPool.SetMinThreads(Math.Max(workers, 32), Math.Max(io, 16));
@@ -97,7 +113,14 @@ public partial class App : System.Windows.Application
         faceWindow.Loudness = () => voice?.Loudness ?? -1;
         faceWindow.Clicked += () => { if (voice != null && !Paused && State == LinkState.Online) voice.Press(); };
         controlPill.Moved += ShowFace;
-        faceWindow.Look(saved.FaceSize, saved.FacePlace);
+        faceWindow.Moved += (x, y) =>
+        {
+            saved.FacePlace = FaceWindow.Custom;
+            (saved.FaceX, saved.FaceY) = (x, y);
+            saved.Store();
+            Changed?.Invoke();
+        };
+        faceWindow.Look(saved.FaceSize, saved.FacePlace, saved.FaceX, saved.FaceY);
         faceWindow.Keep(saved.KeepFace && saved.ShowFace);
         voiceIo.InputDevice = saved.MicDevice;
         voiceIo.OutputDevice = saved.SpeakerDevice;
@@ -306,12 +329,57 @@ public partial class App : System.Windows.Application
         pauseItem = new Forms.ToolStripMenuItem("Pause", null, (_, _) => SetPaused(!Paused));
         menu.Items.Add(pauseItem);
         menu.Items.Add("Show the pointer", null, (_, _) => ShowPointer());
-        menu.Items.Add("Settings", null, (_, _) => { OpenWindow(); window?.ShowSettings(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // The everyday switches, so they do not need the window. Ticks are brought up to date as the menu opens.
+        voiceItem = new Forms.ToolStripMenuItem("Talk from this computer", null, async (_, _) =>
+        {
+            try { await SetVoiceAsync(!saved.Voice); }
+            catch (Exception error) { Note($"⚠ {error.Message}"); }
+        });
+        faceItem = new Forms.ToolStripMenuItem("Show Vortex's face", null, (_, _) => SetFace(!saved.ShowFace, saved.KeepFace, "", ""));
+        keepItem = new Forms.ToolStripMenuItem("Keep the face on screen", null, (_, _) => SetFace(saved.ShowFace, !saved.KeepFace, "", ""));
+        sizeMenu = new Forms.ToolStripMenuItem("Face size");
+        foreach (var (id, label, _) in FaceWindow.Sizes)
+            sizeMenu.DropDownItems.Add(new Forms.ToolStripMenuItem(label, null, (_, _) => SetFace(saved.ShowFace, saved.KeepFace, id, "")) { Tag = id });
+        placeMenu = new Forms.ToolStripMenuItem("Face position");
+        foreach (var (id, label) in FaceWindow.Places)
+            placeMenu.DropDownItems.Add(new Forms.ToolStripMenuItem(label, null, (_, _) => SetFace(saved.ShowFace, saved.KeepFace, "", id)) { Tag = id });
+        placeMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        placeMenu.DropDownItems.Add(new Forms.ToolStripMenuItem("Right-click and drag the face to put it anywhere") { Enabled = false });
+        controlItem = new Forms.ToolStripMenuItem("Show when an agent is using this computer", null, (_, _) => SetShowControl(!saved.ShowControl));
+        startItem = new Forms.ToolStripMenuItem("Start with Windows", null, (_, _) => SetStartWithWindows(!Saved.StartWithWindows));
+        menu.Items.AddRange([voiceItem, faceItem, keepItem, sizeMenu, placeMenu, controlItem, startItem]);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Settings…", null, (_, _) => { OpenWindow(); window?.ShowSettings(); });
         menu.Items.Add("Quit", null, (_, _) => Quit());
+        menu.Opening += (_, _) => RefreshMenu();
         tray = new Forms.NotifyIcon { Icon = new System.Drawing.Icon(icon), Text = "VorteX Axis", ContextMenuStrip = menu, Visible = true };
         tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) OpenWindow(); };
         UpdateTray();
+    }
+
+    /** The menu's ticks and what is on offer, from what is saved. */
+    void RefreshMenu()
+    {
+        if (voiceItem == null) return;
+        voiceItem.Checked = saved.Voice;
+        faceItem!.Checked = saved.ShowFace;
+        keepItem!.Checked = saved.KeepFace;
+        controlItem!.Checked = saved.ShowControl;
+        try { startItem!.Checked = Saved.StartWithWindows; }
+        catch { startItem!.Checked = false; }
+        // What the face does only matters when it is shown.
+        keepItem.Enabled = saved.ShowFace;
+        foreach (Forms.ToolStripItem item in sizeMenu!.DropDownItems)
+            if (item is Forms.ToolStripMenuItem m) m.Checked = (string?)m.Tag == saved.FaceSize;
+        foreach (Forms.ToolStripItem item in placeMenu!.DropDownItems)
+        {
+            if (item is not Forms.ToolStripMenuItem { Tag: string id } m) continue;
+            // "Where you put it" is offered once there is somewhere put.
+            m.Visible = id != FaceWindow.Custom || saved.FaceX != null;
+            m.Checked = id == saved.FacePlace;
+        }
     }
 
     void UpdateTray()
@@ -401,15 +469,24 @@ public partial class App : System.Windows.Application
         if (size.Length > 0) saved.FaceSize = size;
         if (place.Length > 0) saved.FacePlace = place;
         saved.Store();
-        faceWindow?.Look(saved.FaceSize, saved.FacePlace);
+        faceWindow?.Look(saved.FaceSize, saved.FacePlace, saved.FaceX, saved.FaceY);
         faceWindow?.Keep(saved.KeepFace && saved.ShowFace);
         ShowFace();
+        Changed?.Invoke();
     }
 
     public void SetShowControl(bool on)
     {
         saved.ShowControl = on;
         saved.Store();
+        Changed?.Invoke();
+    }
+
+    public void SetStartWithWindows(bool on)
+    {
+        try { Saved.StartWithWindows = on; }
+        catch (Exception e) { Note($"⚠ Could not change starting with Windows: {e.Message}"); }
+        Changed?.Invoke();
     }
 
     void RegisterHotkey()

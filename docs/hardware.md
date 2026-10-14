@@ -62,7 +62,7 @@ Its settings (volume, brightness, rotation, wake word, how long it waits for you
 
 The desktop app turns a Windows computer into a device: a key to talk (Ctrl+Alt+Space), answers on its speakers, Vortex's face on screen, and, if you allow it, the agent reading the screen and acting on it. It is experimental; read [SECURITY.md](../SECURITY.md) before switching the agent's access on.
 
-Download it from the admin page's **Add a device** (a release image comes with it), run it, and enter Axis's address and a pairing code. It updates itself from Axis. Its settings (talk key, microphone and speaker, the face's size and place, what shows on screen) are under **Settings** in its window, or in the tray menu.
+Download it from the admin page's **Add a device** (a release image comes with it), run it, and enter Axis's address and a pairing code. It updates itself from Axis. Its settings (talk key, microphone and speaker, the face's size and place, what shows on screen) are under **Settings** in its window; the everyday ones (talking, the face, its size and place, starting with Windows) are also in the tray icon's right-click menu. A face kept on screen can be moved anywhere by right-clicking it and dragging.
 
 ### "Windows protected your PC"
 

@@ -23,7 +23,7 @@
                 <TextBlock Text="VorteX Axis" FontSize="16" FontWeight="SemiBold" />
                 <TextBlock Text="Desktop · experimental" Style="{StaticResource Help}" Margin="0,1,0,0" />
             </StackPanel>
-            <Border x:Name="Pill" Grid.Column="2" CornerRadius="999" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="10,4" VerticalAlignment="Center">
+            <Border x:Name="Pill" Grid.Column="2" CornerRadius="8" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="10,4" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal">
                     <Ellipse x:Name="PillDot" Width="7" Height="7" Fill="{StaticResource Faint}" VerticalAlignment="Center" Margin="0,0,7,0" />
                     <TextBlock x:Name="PillText" Text="Not paired" FontSize="12" Foreground="{StaticResource Dim}" />
@@ -123,6 +123,7 @@
                     <ComboBox x:Name="SizeBox" SelectionChanged="OnFaceLook" />
                     <TextBlock Text="Face position" Style="{StaticResource Label}" />
                     <ComboBox x:Name="PlaceBox" SelectionChanged="OnFaceLook" />
+                    <TextBlock Text="While the face is kept on screen, right-click it and drag to put it anywhere." Style="{StaticResource Help}" Margin="0,6,0,0" />
                     <CheckBox x:Name="ControlSwitch" Style="{StaticResource Switch}" Margin="0,18,0,0" Click="OnControl">
                         <StackPanel>
                             <TextBlock Text="Show when an agent is using this computer" />

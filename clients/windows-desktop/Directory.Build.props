@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- The desktop app's own version, counted apart from Axis's and the boards'. -->
-    <Version>0.8.1</Version>
+    <Version>0.9.0</Version>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>

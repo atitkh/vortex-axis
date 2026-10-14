@@ -36,16 +36,49 @@ public partial class MainWindow : Window
     {
         filling = true;
         var saved = AppNow.Saved;
-        VoiceSwitch.IsChecked = saved.Voice;
         Fill(KeyBox, App.TalkKeys.Select(k => (k.Id, k.Label)), saved.TalkKey);
-        Fill(MicBox, VoiceIo.Inputs().Select(d => (d.Id.ToString(), d.Name)), saved.MicDevice.ToString());
-        Fill(SpeakerBox, VoiceIo.Outputs().Select(d => (d.Id.ToString(), d.Name)), saved.SpeakerDevice.ToString());
+        // Listing the sound devices asks Windows, which can fail: the page then offers the default only.
+        Fill(MicBox, Devices(() => VoiceIo.Inputs().Select(d => (d.Id.ToString(), d.Name))), saved.MicDevice.ToString());
+        Fill(SpeakerBox, Devices(() => VoiceIo.Outputs().Select(d => (d.Id.ToString(), d.Name))), saved.SpeakerDevice.ToString());
+        filling = false;
+        FillOnScreen();
+    }
+
+    static IEnumerable<(string Id, string Label)> Devices(Func<IEnumerable<(string, string)>> list)
+    {
+        try { return list().ToList(); }
+        catch (Exception e)
+        {
+            Diag.Log($"could not list sound devices: {e.Message}");
+            return [("-1", "Windows default")];
+        }
+    }
+
+    string placesShown = "";
+
+    /**
+     * The switches and the face's size and place, brought up to date from what is saved (the tray changes them too,
+     * and a dragged face changes its place). A drop-down is only touched when its value differs, so one a person
+     * has open is not closed under them.
+     */
+    void FillOnScreen()
+    {
+        var saved = AppNow.Saved;
+        var before = filling;
+        filling = true;
+        VoiceSwitch.IsChecked = saved.Voice;
         FaceSwitch.IsChecked = saved.ShowFace;
         KeepSwitch.IsChecked = saved.KeepFace;
-        Fill(SizeBox, FaceWindow.Sizes.Select(z => (z.Id, z.Label)), saved.FaceSize);
-        Fill(PlaceBox, FaceWindow.Places.Select(z => (z.Id, z.Label)), saved.FacePlace);
         ControlSwitch.IsChecked = saved.ShowControl;
-        filling = false;
+        if (Chosen(SizeBox) != saved.FaceSize) Fill(SizeBox, FaceWindow.Sizes.Select(z => (z.Id, z.Label)), saved.FaceSize);
+        // "Where you put it" is on offer once the face has been dragged somewhere.
+        var key = $"{saved.FacePlace}/{saved.FaceX != null}";
+        if (placesShown != key || Chosen(PlaceBox) != saved.FacePlace)
+        {
+            Fill(PlaceBox, FaceWindow.Places.Where(z => z.Id != FaceWindow.Custom || saved.FaceX != null).Select(z => (z.Id, z.Label)), saved.FacePlace);
+            placesShown = key;
+        }
+        filling = before;
     }
 
     static void Fill(ComboBox box, IEnumerable<(string Id, string Label)> items, string chosen)
@@ -124,6 +157,7 @@ public partial class MainWindow : Window
         NothingYet.Visibility = RecentView.Visibility == Visibility.Visible && AppNow.Recently.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         AllowSwitch.IsChecked = !AppNow.Paused;
         StartSwitch.IsChecked = Saved.StartWithWindows;
+        FillOnScreen();
         if (pairing != null) WhereText.Text = $"{pairing.Name} on {pairing.Address}";
 
         var (text, brush) = pairing == null ? ("Not paired", "Faint")

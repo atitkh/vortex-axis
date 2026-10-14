@@ -19,9 +19,16 @@ sealed class FaceWindow : Window
     /** Sizes to choose from: the window's side; the figure fills the middle 60 %, the rest is the shadow fading out. */
     public static readonly (string Id, string Label, double Side)[] Sizes = [("small", "Small", 150), ("medium", "Medium", 200), ("large", "Large", 270)];
     /** Where along the bottom of the main screen it sits. */
-    public static readonly (string Id, string Label)[] Places = [("center", "Bottom centre"), ("left", "Bottom left"), ("right", "Bottom right")];
+    public static readonly (string Id, string Label)[] Places = [("center", "Bottom centre"), ("left", "Bottom left"), ("right", "Bottom right"), (Custom, "Where you put it")];
+    /** The place a person drags it to; only offered once there is one. */
+    public const string Custom = "custom";
     double Side = 200;
     string place = "center";
+    double? customX, customY;
+    // A right-click drag in progress: where the cursor and the window were when it began.
+    Point? grab;
+    double grabLeft, grabTop;
+    bool dragged;
     readonly Face face = new();
     readonly Canvas canvas;
     readonly DispatcherTimer leave = new() { Interval = TimeSpan.FromSeconds(2.5) };
@@ -35,6 +42,9 @@ sealed class FaceWindow : Window
 
     /** A click on the face, when it is kept on screen. */
     public event Action? Clicked;
+
+    /** The face was dragged somewhere: where its middle is now, in screen units. */
+    public event Action<double, double>? Moved;
 
     public FaceWindow()
     {
@@ -54,6 +64,43 @@ sealed class FaceWindow : Window
             ApplyStyle();
         };
         MouseLeftButtonDown += (_, _) => Clicked?.Invoke();
+        // Right button held and dragged: moves it anywhere. Only while it is kept on screen (otherwise clicks pass through it).
+        MouseRightButtonDown += (_, e) =>
+        {
+            if (!keep) return;
+            grab = PointToScreen(e.GetPosition(this));
+            (grabLeft, grabTop, dragged) = (Left, Top, false);
+            CaptureMouse();
+            Cursor = System.Windows.Input.Cursors.SizeAll;
+            e.Handled = true;
+        };
+        MouseMove += (_, e) =>
+        {
+            if (grab is not { } from) return;
+            if (e.RightButton != System.Windows.Input.MouseButtonState.Pressed) { EndDrag(); return; }
+            var now = PointToScreen(e.GetPosition(this));
+            // The cursor moves in device pixels, the window in device-independent units.
+            var toUnits = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+            var by = toUnits.Transform(new Vector(now.X - from.X, now.Y - from.Y));
+            if (!dragged && Math.Abs(by.X) + Math.Abs(by.Y) < 4) return;
+            dragged = true;
+            Left = grabLeft + by.X;
+            Top = grabTop + by.Y;
+        };
+        MouseRightButtonUp += (_, e) =>
+        {
+            if (grab == null) return;
+            var moved = dragged;
+            EndDrag();
+            if (!moved) return;
+            // Kept on the screen: it may be let go half outside, and comes back inside.
+            (customX, customY, place) = (Left + Side / 2, Top + Side / 2, Custom);
+            Place();
+            (customX, customY) = (Left + Side / 2, Top + Side / 2);
+            Moved?.Invoke(Left + Side / 2, Top + Side / 2);
+            e.Handled = true;
+        };
+        LostMouseCapture += (_, _) => { grab = null; Cursor = null; };
         leave.Tick += (_, _) =>
         {
             leave.Stop();
@@ -81,17 +128,42 @@ sealed class FaceWindow : Window
         Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, style);
     }
 
-    /** Size and place, from the settings. */
-    public void Look(string size, string where)
+    void EndDrag()
+    {
+        grab = null;
+        ReleaseMouseCapture();
+        Cursor = null;
+    }
+
+    /** Size and place, from the settings; x and y are where a dragged face's middle was left. */
+    public void Look(string size, string where, double? x = null, double? y = null)
     {
         Side = Sizes.FirstOrDefault(z => z.Id == size).Side is > 0 and var side ? side : 200;
-        place = where;
+        (customX, customY) = (x, y);
+        // "Where you put it" with nowhere put yet is the usual place.
+        place = where == Custom && (x == null || y == null) ? "center" : where;
         Width = Height = canvas.Width = canvas.Height = Side;
+        if (IsVisible) Place();
+    }
+
+    /** Back where it belongs (the screens changed). */
+    public void Replace()
+    {
         if (IsVisible) Place();
     }
 
     void Place()
     {
+        if (place == Custom && customX is { } x && customY is { } y)
+        {
+            // The figure fills the middle 60 %, so the window may hang a fifth of its side off an edge and lose nothing.
+            // Clamped to all the screens together, so a disconnected monitor does not strand it.
+            var (l, t) = (SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop);
+            var (r, b) = (l + SystemParameters.VirtualScreenWidth, t + SystemParameters.VirtualScreenHeight);
+            Left = Math.Clamp(x - Side / 2, l - Side * 0.2, Math.Max(l - Side * 0.2, r - Side * 0.8));
+            Top = Math.Clamp(y - Side / 2, t - Side * 0.2, Math.Max(t - Side * 0.2, b - Side * 0.8));
+            return;
+        }
         var area = SystemParameters.WorkArea;
         Left = place == "left" ? area.Left - Side * 0.12 : place == "right" ? area.Right - Side * 0.88 : area.Left + (area.Width - Side) / 2;
         Top = area.Bottom - Side + 6;
