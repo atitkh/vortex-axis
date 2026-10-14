@@ -12,6 +12,7 @@
 //   face-listening.gif  green, pulled in, swelling with a voice
 //   face-thinking.gif   violet, fast, a little sparkle
 //   face-speaking.gif   open and pulsing with the voice of the reply
+//   face-thinking-tools.gif  thinking, then the dots forming a house and a magnifier and swirling back
 //   face-states.gif     idle -> listening -> thinking -> speaking -> idle, with the state named
 //   face-states-card.gif  the same, 9:16, for a tall card that crops its picture (the portfolio)
 //
@@ -95,6 +96,16 @@ const clips = {
   "face-thinking": {
     size: 320, face: 320, from: LOOKS.thinking, mode: "thinking", warm: 1.5, minSec: 3.2, events: [],
   },
+  // Thinking, then the dots forming what the agent has picked up (a house, a magnifier), and swirling back.
+  "face-thinking-tools": {
+    size: 320, face: 320, from: LOOKS.thinking, mode: "thinking", warm: 1.5, minSec: 7.2,
+    events: [
+      [1.0, LOOKS.thinking, "thinking", "home"],
+      [3.0, LOOKS.thinking, "thinking", "none"],
+      [3.9, LOOKS.thinking, "thinking", "search"],
+      [5.7, LOOKS.thinking, "thinking", "none"],
+    ],
+  },
   "face-speaking": {
     size: 320, face: 320, from: LOOKS.speaking, mode: "speaking", warm: 1.5, minSec: 4, events: [],
     level: (n) => voice(n, 0.05, n / FPS - 0.05, [0.5, 1], 23, true),
@@ -161,10 +172,14 @@ async function run(name, c, n, capture, fix) {
   }
   const start = { phase: v.phase, pulse: v.pulsePhase };
   let label = c.mode, color = c.from;
-  const events = c.events.map(([t, look, mode]) => ({ at: Math.round(t * FPS), look, mode }));
+  const events = c.events.map(([t, look, mode, doing]) => ({ at: Math.round(t * FPS), look, mode, doing }));
   const keep = Math.round(1.4 * FPS);
   for (let i = 0; i < n; i++) {
-    for (const e of events) if (e.at === i) { v.hold(e.look, e.mode); label = e.mode; color = e.look; }
+    for (const e of events) if (e.at === i) {
+      v.hold(e.look, e.mode);
+      if (e.doing) v.setDoing(e.doing === "none" ? undefined : e.doing);
+      label = e.mode; color = e.look;
+    }
     v.setLevel(level && (v.mode === "listening" || v.mode === "speaking") ? level[i] : -1);
     if (fix && i >= n - keep) { v.phase += fix.phase / keep; v.pulsePhase += fix.pulse / keep; }
     v.draw(DT);

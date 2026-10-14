@@ -198,6 +198,10 @@ The four states a person sees most, drawn by `web/vortex.js` (`media/`, made by 
 
 ![idle, listening, thinking, speaking and back to idle](media/face-states.gif)
 
+The thinking face while the agent picks up a tool (section 8): the dots form a house, then a magnifier, and swirl back.
+
+![thinking, forming a house and a magnifier](media/face-thinking-tools.gif)
+
 In the clips the voice is made up (syllables with pauses between words), measured the way section 4 says; a real device follows the microphone or the speech being played.
 
 The admin page has a Face page (`#face`) that draws every look live with `web/vortex.js`: a tile per look, and the chosen one large beside its thirteen numbers, with a slider standing in for the voice on the two looks that follow one. It reads the looks straight from `web/vortex.js` (`IDLE`, `LOOKS`, `LOOK_FIELDS`, and `Vortex.hold()` to keep a face on one look), so a look added there shows up without touching the page. It is a viewer only: the looks are still code, in `web/vortex.js` and in the firmware.
