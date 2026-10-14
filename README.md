@@ -6,6 +6,10 @@ You already have an agent (in [OpenClaw](https://docs.openclaw.ai), or any model
 
 Axis is a bridge, not an agent. It does not think; it listens, routes and speaks.
 
+<p align="center">
+  <img src="docs/media/face-states.gif" alt="The VorteX face going from idle to listening, thinking and speaking, and back to idle" width="480">
+</p>
+
 ```
  devices                          Axis                          behind it
  -------                          ----                          ---------
