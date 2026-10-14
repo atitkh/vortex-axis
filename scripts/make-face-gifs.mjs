@@ -13,6 +13,7 @@
 //   face-thinking.gif   violet, fast, a little sparkle
 //   face-speaking.gif   open and pulsing with the voice of the reply
 //   face-states.gif     idle -> listening -> thinking -> speaking -> idle, with the state named
+//   face-states-card.gif  the same, 9:16, for a tall card that crops its picture (the portfolio)
 //
 // The four single-state files loop without a visible seam: the length is picked so the figure comes
 // back to where it started (the arms repeat every third of a turn). The face has no randomness of its own
@@ -113,6 +114,22 @@ const clips = {
       return mic.map((v, i) => Math.max(v, say[i]));
     },
   },
+  // The same, tall and narrow, for a card that shows its picture 9:16 and crops the rest (the portfolio).
+  "face-states-card": {
+    size: [270, 480], face: 250, at: [10, 100], labelY: 388, label: true, from: idle.calm, mode: "idle", warm: 0, minSec: 14.2,
+    events: [
+      [2.2, LOOKS.listening, "listening"],
+      [5.0, LOOKS.thinking, "thinking"],
+      [7.4, LOOKS.speaking, "speaking"],
+      [11.4, idle.calm, "idle"],
+    ],
+    // The microphone while he speaks, then the reply being played: one array over the whole clip.
+    level: (n) => {
+      const mic = voice(n, 2.35, 4.85, [0.45, 1], 5, false);
+      const say = voice(n, 7.55, 11.25, [0.5, 1], 17, false);
+      return mic.map((v, i) => Math.max(v, say[i]));
+    },
+  },
 };
 
 const face = document.getElementById("face");
@@ -167,7 +184,7 @@ async function run(name, c, n, capture, fix) {
       octx.letterSpacing = "3px";
       octx.textAlign = "center";
       octx.fillStyle = "rgb(" + [color.r, color.g, color.b].map((k) => Math.round((0.35 + k * 0.65) * 255)).join(",") + ")";
-      octx.fillText(NAMES[label] ?? label, out.width / 2 + 1.5, out.height - 24);
+      octx.fillText(NAMES[label] ?? label, out.width / 2 + 1.5, c.labelY ?? out.height - 24);
     }
     const blob = await new Promise((r) => out.toBlob(r, "image/png"));
     await fetch("/frame?clip=" + name + "&i=" + i, { method: "POST", body: blob });
