@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.1 (experimental) (2026-10-14)
+
+- **Updates from Axis now install.** On the owner's headset the update command arrived and said "Updating", and nothing was installed: the install was started detached from the app's adb stream (`nohup ... &`) and never ran, and nothing said so. The app now runs `pm install -r` in its own adb stream a few seconds after answering, waits for it, and says what pm said if it fails (Recently, the log, the admin page's answer). When it works Android replaces the app and starts it again through a new `UpdatedReceiver` (ACTION_MY_PACKAGE_REPLACED, which may start the foreground service). The 0.3.0 on a headset still has the old way: install 0.3.1 once by hand (`adb install -r`), and updates from Axis are the new way after that.
+- **The fast engine says why it did not start.** The helper writes how far it got (and any crash, with its stack) to `/data/local/tmp/vortex-axis-helper.status`; when it does not answer, the app's message carries that trail, what `am instrument` said, and why connecting to its socket failed. Copy diagnostics has it. (On the owner's headset the helper installed and started, then did not answer within 8 s, and "Process crashed" was all the app could say.)
+- versionCode 4 (helper too). Axis is unchanged.
+
 ## 0.44.1 (2026-10-14)
 
 - **An agent waiting for its subagents no longer shows as "needs you".** The progress cards Axis mirrors from an OpenClaw gateway counted a session with steps left and no run of its own as waiting for the person. A session that has started subagents still running is at work now, and its task says so in the note: "2/3 agents running · <step>". When they have all finished and the agent has not come back, the task is the person's move as before, and the note keeps the count ("3/3 agents done · <step>"). It reads the session list Axis already polls for open tasks (`childSessions`, each child's `hasActiveRun`, and the session's `hasActiveSubagentRun`); nothing new is asked of the gateway.

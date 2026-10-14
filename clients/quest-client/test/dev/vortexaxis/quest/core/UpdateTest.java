@@ -66,7 +66,6 @@ public class UpdateTest {
         QuestClient quest = new QuestClient(adb, new JdkSockets(), log, "0.2.0");
         List<String> diary = new ArrayList<>();
         quest.update.setDiary(diary::add);
-        quest.update.watchForMs = 0;
         quest.update.delaySeconds = 3;
         String sha = hex(MessageDigest.getInstance("SHA-256").digest(APK));
 
@@ -119,27 +118,31 @@ public class UpdateTest {
         check(sent.stream().noneMatch(c -> c.contains("pm install") || c.contains("cp ")), "nothing was installed for any of them: " + sent);
 
         System.out.println("[update] one that goes ahead");
+        quest.update.delaySeconds = 0;
+        adbd.answer = cmd -> cmd.startsWith("pm install")
+                ? "Success\n".getBytes(StandardCharsets.UTF_8)
+                : T.headset(xml, new String[] {"com.oculus.store"}).apply(cmd);
         a = quest.commands.handle("update", offer("0.2.1", APK.length, sha.toUpperCase(), "/v1/quest/app"));
         check(a.ok, "answered before the app goes: " + a.error);
         equal(a.payload, Json.obj("version", "0.2.1"), "with the version");
         check(apk.exists() && java.util.Arrays.equals(Files.readAllBytes(apk.toPath()), APK), "the download is kept in the app's update folder");
-        sent = adbd.take();
+        sent = new java.util.ArrayList<>();
+        for (int i = 0; i < 50 && sent.size() < 2; i++) {
+            Thread.sleep(100);
+            sent.addAll(adbd.take());
+        }
         String path = apk.getAbsolutePath();
         equal(sent, java.util.Arrays.asList(
                 "rm -f /data/local/tmp/vortex-axis-update.txt && cp '" + path + "' /data/local/tmp/vortex-axis-update.apk && chmod 644 /data/local/tmp/vortex-axis-update.apk && echo staged",
-                "nohup sh -c 'trap \"\" HUP; sleep 3; pm install -r /data/local/tmp/vortex-axis-update.apk > /data/local/tmp/vortex-axis-update.txt 2>&1; "
-                        + "if grep -q Success /data/local/tmp/vortex-axis-update.txt; then am start -n dev.vortexaxis.quest/.MainActivity --ez dev.vortexaxis.quest.UPDATED true; fi; "
-                        + "rm -f /data/local/tmp/vortex-axis-update.apk' </dev/null >/dev/null 2>&1 & echo started"),
-                "copied where pm can read it, then pm install -r and the restart, detached from the app");
+                "pm install -r /data/local/tmp/vortex-axis-update.apk 2>&1; rm -f /data/local/tmp/vortex-axis-update.apk"),
+                "copied where pm can read it, then pm install -r in the app's own stream (no detaching: the app is restarted by Android)");
         equal(pending, java.util.Arrays.asList("0.2.1"), "the version being installed is remembered for after the restart");
         check(diary.stream().anyMatch(d -> d.startsWith("Updating to 0.2.1")), "Recently says so");
         check(SelfUpdate.stageCommand("/sdcard/it's here.apk").contains("cp '/sdcard/it'\\''s here.apk' "), "the path is one quoted word");
 
         System.out.println("[update] the install fails on the headset");
         pending.clear();
-        quest.update.watchForMs = 3000;
-        quest.update.watchEveryMs = 100;
-        adbd.answer = cmd -> cmd.startsWith("cat /data/local/tmp/vortex-axis-update.txt")
+        adbd.answer = cmd -> cmd.startsWith("pm install")
                 ? "Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Package dev.vortexaxis.quest signatures do not match]\n".getBytes(StandardCharsets.UTF_8)
                 : T.headset(xml, new String[] {"com.oculus.store"}).apply(cmd);
         a = quest.commands.handle("update", offer("0.2.1", APK.length, sha, "/v1/quest/app"));

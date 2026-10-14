@@ -50,7 +50,6 @@ public class E2eTest {
         // Updates: the download goes to a throwaway folder; Android's package check is the app's, not here.
         java.io.File updates = java.nio.file.Files.createTempDirectory("quest-e2e-update").toFile();
         List<String> pending = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
-        quest.update.watchForMs = 0;
         quest.update.setHost(new SelfUpdate.Host() {
             @Override public java.io.File folder() { return updates; }
             @Override public void check(java.io.File apk) {}
@@ -91,10 +90,10 @@ public class E2eTest {
         java.io.File got = new java.io.File(updates, SelfUpdate.FILE);
         String sha = UpdateTest.hex(java.security.MessageDigest.getInstance("SHA-256").digest(java.nio.file.Files.readAllBytes(got.toPath())));
         equal(sha, build.get("sha256"), "downloaded through /v1/quest/app with the headset's token; size and SHA-256 checked");
-        waitFor(() -> adbd.history.stream().anyMatch(c -> c.startsWith("nohup sh -c ")), 5000, "the install");
+        waitFor(() -> adbd.history.stream().anyMatch(c -> c.startsWith("pm install -r ")), 8000, "the install");
         check(adbd.history.contains("rm -f /data/local/tmp/vortex-axis-update.txt && cp '" + got.getAbsolutePath() + "' /data/local/tmp/vortex-axis-update.apk && chmod 644 /data/local/tmp/vortex-axis-update.apk && echo staged"), "copied for pm on the pretend headset");
-        check(adbd.history.stream().anyMatch(c -> c.startsWith("nohup sh -c ") && c.contains("pm install -r /data/local/tmp/vortex-axis-update.apk") && c.contains("am start -n dev.vortexaxis.quest/.MainActivity")),
-                "then pm install -r and the restart, detached");
+        check(adbd.history.contains("pm install -r /data/local/tmp/vortex-axis-update.apk 2>&1; rm -f /data/local/tmp/vortex-axis-update.apk"),
+                "then pm install -r in the app's own stream (Android restarts the app by UpdatedReceiver)");
         Map<String, Object> pushed = call("POST", "/admin/clients/" + pairing.clientId + "/update", admin, null, 202);
         equal(pushed.get("from") + " -> " + pushed.get("to"), QuestIdentity.VERSION + " -> " + newVersion, "the admin page's Update works for a headset too");
         adbd.take();

@@ -165,7 +165,7 @@ final class FakeHelper implements AutoCloseable {
             } else if (cmd.startsWith("echo ") && cmd.endsWith("> " + Helper.MARKER)) {
                 marker = cmd.substring(5, cmd.indexOf(' ', 5));
                 out = "";
-            } else if (cmd.startsWith("am force-stop " + HelperProtocol.PACKAGE)) {
+            } else if (cmd.startsWith("am force-stop " + HelperProtocol.PACKAGE) || cmd.startsWith("rm -f " + Helper.STATUS + "; am force-stop " + HelperProtocol.PACKAGE)) {
                 if (running()) stops++;
                 die();
                 if (cmd.contains("am instrument -w") && cmd.endsWith("& echo helper-started")) {
@@ -177,6 +177,7 @@ final class FakeHelper implements AutoCloseable {
                     out = "helper-started\n";
                 } else out = "";
             } else if (cmd.startsWith("tail -n 3 " + Helper.LOG)) out = "INSTRUMENTATION_STATUS: pretend\n";
+            else if (cmd.startsWith("tail -n 8 " + Helper.STATUS)) out = "12:00:00.000 onCreate (pid 1, uid 2000)\n12:00:00.050 checks passed (app uid 10123)\n";
             return out != null ? out.getBytes(StandardCharsets.UTF_8) : rest.apply(cmd);
         };
     }

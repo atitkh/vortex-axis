@@ -159,7 +159,7 @@ public class HelperTest {
         check(sent.contains(Helper.installCommand(host.apk.getAbsolutePath())), "installed it with pm install -r from /data/local/tmp");
         check(sent.contains("echo " + host.sha + " > " + Helper.MARKER), "and noted which build it is");
         String start = sent.stream().filter(c -> c.contains("am instrument")).findFirst().orElse("");
-        check(start.startsWith("am force-stop dev.vortexaxis.quest.helper; nohup sh -c ") && start.contains("am instrument -w -e uid 10123 dev.vortexaxis.quest.helper/.Helper") && start.endsWith("& echo helper-started"),
+        check(start.startsWith("rm -f /data/local/tmp/vortex-axis-helper.status; am force-stop dev.vortexaxis.quest.helper; nohup sh -c ") && start.contains("am instrument -w -e uid 10123 dev.vortexaxis.quest.helper/.Helper") && start.endsWith("& echo helper-started"),
                 "started detached with am instrument, told this app's uid: " + start);
         check(states.contains(Helper.State.STARTING) && states.get(states.size() - 1) == Helper.State.FAST, "the window heard Starting, then Fast: " + states);
         equal(fh.installs, 1, "one install");

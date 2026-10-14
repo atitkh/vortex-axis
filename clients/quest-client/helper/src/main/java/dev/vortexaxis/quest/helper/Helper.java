@@ -34,18 +34,39 @@ public final class Helper extends Instrumentation {
     private volatile long seen = System.currentTimeMillis();
     private volatile LocalServerSocket server;
 
+    /** Where the helper writes how far it got (the shell user can write there; the app reads it when the helper does not answer). */
+    static final String STATUS = "/data/local/tmp/vortex-axis-helper.status";
+
+    static void note(String line) {
+        try (java.io.FileWriter w = new java.io.FileWriter(STATUS, true)) {
+            w.write(new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(new java.util.Date()) + " " + line + "\n");
+        } catch (IOException ignored) {
+            // Nowhere to say it.
+        }
+    }
+
     @Override public void onCreate(Bundle arguments) {
+        // A fresh trail for this start, and any crash written into it before the process goes.
+        new java.io.File(STATUS).delete();
+        final Thread.UncaughtExceptionHandler before = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            note("CRASH in " + thread.getName() + ": " + Log.getStackTraceString(error).replace('\n', ' '));
+            if (before != null) before.uncaughtException(thread, error);
+        });
+        note("onCreate (pid " + android.os.Process.myPid() + ", uid " + android.os.Process.myUid() + ")");
         super.onCreate(arguments);
         args = arguments;
         start();
     }
 
     @Override public void onStart() {
+        note("onStart");
         Bundle out = new Bundle();
         try {
             serve();
         } catch (Throwable t) {
             Log.e(TAG, "stopped: " + t);
+            note("stopped: " + Log.getStackTraceString(t).replace('\n', ' '));
             out.putString("stopped", String.valueOf(t));
         }
         finish(Activity.RESULT_OK, out);
@@ -58,16 +79,20 @@ public final class Helper extends Instrumentation {
         if (given == null || Integer.parseInt(given.trim()) != app) throw new SecurityException("not started for the VorteX Axis app");
         if (pm.checkSignatures(APP, getContext().getPackageName()) != PackageManager.SIGNATURE_MATCH)
             throw new SecurityException("the VorteX Axis app is not signed with this helper's key");
+        note("checks passed (app uid " + app + ")");
         UiAutomation ui = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         if (ui == null) throw new IllegalStateException("no UiAutomation (start it with am instrument from the shell)");
+        note("UiAutomation connected");
         AccessibilityServiceInfo info = ui.getServiceInfo();
         info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
         ui.setServiceInfo(info);
+        note("service info set");
         String version = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0).versionName;
         HelperRouter<android.view.accessibility.AccessibilityNodeInfo> router = new HelperRouter<>(new Screen(ui), version);
         LocalServerSocket ss = new LocalServerSocket(HelperProtocol.SOCKET);
         server = ss;
+        note("listening on @" + HelperProtocol.SOCKET + ", version " + version);
         Log.i(TAG, "listening for uid " + app + ", version " + version);
         Thread watch = new Thread(() -> {
             while (server != null) {
@@ -95,9 +120,11 @@ public final class Helper extends Instrumentation {
             }
             if (s.getPeerCredentials().getUid() != app) {
                 Log.w(TAG, "refused a connection from uid " + s.getPeerCredentials().getUid());
+                note("refused a connection from uid " + s.getPeerCredentials().getUid());
                 s.close();
                 continue;
             }
+            note("accepted the app");
             seen = System.currentTimeMillis();
             Thread t = new Thread(() -> {
                 try (LocalSocket c = s) {

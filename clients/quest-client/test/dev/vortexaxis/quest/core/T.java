@@ -55,6 +55,7 @@ final class T {
             if (cmd.contains("uiautomator dump")) out = "UI hierchary dumped to: " + PanelCommands.DUMP + "\n";
             else if (cmd.startsWith("cat " + PanelCommands.DUMP)) out = xml[0];
             else if (cmd.endsWith("&& echo staged")) out = "staged\n";
+            else if (cmd.startsWith("pm install -r ")) out = "Success\n";
             else if (cmd.endsWith("& echo started")) out = "started\n";
             else if (cmd.startsWith("dumpsys window")) out = "  mCurrentFocus=Window{1a2b3c u0 " + focus[0] + "/" + focus[0] + ".MainActivity}\n  mFocusedApp=ActivityRecord{4d5e u0 " + focus[0] + "/.MainActivity t12}\n";
             else if (cmd.startsWith("screencap")) return png();

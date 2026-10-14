@@ -206,6 +206,7 @@ public final class Helper {
             set(State.STARTING, "checking the helper");
             if (installIfNeeded(h)) set(State.STARTING, "installed; starting");
             else set(State.STARTING, "starting");
+            lastConnectError = "";
             String said = adb.shell(startCommand(h.uid()), 10_000);
             if (!said.contains("helper-started")) throw new IOException("the start was not taken: " + firstLine(said));
             long end = System.currentTimeMillis() + startMs;
@@ -299,6 +300,7 @@ public final class Helper {
             closeConn();
             return v;
         } catch (IOException e) {
+            lastConnectError = AxisLink.describe(e);
             closeConn();
             return null;
         }
@@ -340,17 +342,28 @@ public final class Helper {
 
     /** Stops any helper that runs, then starts it detached (SelfUpdate's way), answering only `uid`, its words kept in LOG. */
     static String startCommand(int uid) {
-        return "am force-stop " + HelperProtocol.PACKAGE + "; "
+        return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; "
                 + Shell.detached("am instrument -w -e uid " + uid + " " + HelperProtocol.INSTRUMENTATION + " > " + LOG + " 2>&1", "helper-started");
     }
 
+    /** The helper writes how far it got here, and any crash (Helper.STATUS in the helper's own code). */
+    static final String STATUS = "/data/local/tmp/vortex-axis-helper.status";
+    /** Why the last connection to the helper's socket failed (empty: none yet), for the message when it never answers. */
+    private volatile String lastConnectError = "";
+
     private String startLog() {
+        StringBuilder out = new StringBuilder();
         try {
+            String trail = adb.shell("tail -n 8 " + STATUS + " 2>/dev/null", 3000).trim();
+            out.append(trail.isEmpty() ? " (it wrote no status: the process did not get as far as its own code)"
+                    : " (its status: " + PanelCommands.clip(trail.replace('\n', '|'), 700) + ")");
             String said = adb.shell("tail -n 3 " + LOG + " 2>/dev/null", 3000).trim();
-            return said.isEmpty() ? "" : " (it said: " + PanelCommands.clip(said.replace('\n', ' '), 160) + ")";
-        } catch (IOException e) {
-            return "";
+            if (!said.isEmpty()) out.append(" (am said: ").append(PanelCommands.clip(said.replace('\n', ' '), 200)).append(')');
+        } catch (IOException ignored) {
+            // The reasons are only help; the failure is told anyway.
         }
+        if (!lastConnectError.isEmpty()) out.append(" (connecting said: ").append(PanelCommands.clip(lastConnectError, 160)).append(')');
+        return out.toString();
     }
 
     // ---- calls -----------------------------------------------------------------

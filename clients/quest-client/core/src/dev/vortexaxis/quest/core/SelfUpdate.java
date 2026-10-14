@@ -20,10 +20,9 @@ import java.util.regex.Pattern;
  * (AppUpdate.cs): only a newer version, only from the paired Axis, plain http only on the local
  * network or a tailnet, downloaded with the headset's own token and kept only if its size and
  * SHA-256 match. Then installed through the app's own adb: the APK is copied to /data/local/tmp and
- * `pm install -r` runs detached from the app, a few seconds after the answer has gone, because
- * installing over itself ends the app's process; the same detached script starts the app again.
- * Whether the install worked is read back from its output file while the app still lives (it does
- * only when the install failed).
+ * `pm install -r` runs a few seconds after the answer has gone, in the app's own adb stream. Installing
+ * over itself ends the app's process, so a working install is never read back: Android starts the app
+ * again (UpdatedReceiver). A failed one leaves the app running to say what pm said.
  */
 public final class SelfUpdate {
     public static final String PACKAGE = "dev.vortexaxis.quest";
@@ -33,7 +32,7 @@ public final class SelfUpdate {
     public static final String FILE = "quest-client.apk";
     static final String STAGED = "/data/local/tmp/vortex-axis-update.apk";
     static final String RESULT = "/data/local/tmp/vortex-axis-update.txt";
-    static final int ADB_MS = 30_000;
+    static final int ADB_MS = 30_000, INSTALL_MS = 120_000;
 
     /** What only the Android side can do. */
     public interface Host {
@@ -78,10 +77,8 @@ public final class SelfUpdate {
     private volatile Host host;
     private volatile AxisLink.Pairing pairing;
     private volatile PanelCommands.Diary diary = what -> {};
-    /** Seconds the detached install waits, so the answer is out before the app goes. */
+    /** Seconds the install waits, so the answer is out before the app goes. */
     int delaySeconds = 3;
-    /** How often and how long the install's output is read back; 0 does not read it (tests). */
-    int watchEveryMs = 2000, watchForMs = 120_000;
 
     public SelfUpdate(AdbLink adb, RollingLog log, String version) {
         this.adb = adb;
@@ -132,11 +129,6 @@ public final class SelfUpdate {
                 String out = adb.shell(stageCommand(source), ADB_MS);
                 if (!out.contains("staged")) throw new IOException("the headset could not take the download: " + firstLine(out));
                 h.pending(offer.version);
-                out = adb.shell(installCommand(delaySeconds), ADB_MS);
-                if (!out.contains("started")) {
-                    h.pending(null);
-                    throw new IOException("the install could not be started: " + firstLine(out));
-                }
             } finally {
                 gate.unlock();
             }
@@ -147,8 +139,46 @@ public final class SelfUpdate {
             return AxisLink.Answer.fail("update failed: " + why);
         }
         did("Updating to " + offer.version + "; the app restarts by itself");
-        if (watchForMs > 0) watch(offer.version, apk);
+        install(offer.version, apk, gate);
         return AxisLink.Answer.done(Json.obj("version", offer.version));
+    }
+
+    /**
+     * The install itself, once the answer has gone: `pm install -r`, run in this app's own adb stream and waited
+     * for. When it works Android replaces this app, ends its process and starts it again through
+     * ACTION_MY_PACKAGE_REPLACED (the app's UpdatedReceiver), so nothing after it needs to run; when it does not,
+     * the app is still here and says what pm said. (An earlier version ran it detached from the stream with
+     * nohup, and on the Quest it never ran: nothing was installed and nothing was said.)
+     */
+    private void install(String to, File apk, ReentrantLock gate) {
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(delaySeconds * 1000L);
+                if (!gate.tryLock(PanelCommands.BUSY_MS, TimeUnit.MILLISECONDS)) throw new IOException("the headset was busy with an agent's command");
+                String out;
+                try {
+                    out = adb.shell(installCommand(), INSTALL_MS);
+                } finally {
+                    gate.unlock();
+                }
+                if (out.contains("Success")) {
+                    log.line("update: installed " + to + ", waiting to be restarted");
+                    return;
+                }
+                throw new IOException(firstLine(out));
+            } catch (IOException e) {
+                // Only reached while the app still lives, which a working install does not leave it.
+                Host h = host;
+                String why = AxisLink.describe(e);
+                did("Update to " + to + " failed: " + why);
+                if (h != null) h.pending(null);
+                if (apk != null) apk.delete();
+            } catch (InterruptedException ignored) {
+                // The app is going.
+            }
+        }, "axis-update-install");
+        t.setDaemon(true);
+        t.start();
     }
 
     private static final Pattern SAFE_PATH = Pattern.compile("/[A-Za-z0-9._/-]+");
@@ -179,47 +209,9 @@ public final class SelfUpdate {
         return "rm -f " + RESULT + " && cp " + Shell.quote(source) + " " + STAGED + " && chmod 644 " + STAGED + " && echo staged";
     }
 
-    /**
-     * The install, detached from this app's adb stream (nohup, all output redirected, in the background)
-     * so it goes on after the app's process ends: wait, `pm install -r`, its output kept for the app to
-     * read, then the app started again when it worked.
-     */
-    static String installCommand(int delaySeconds) {
-        String script = "sleep " + delaySeconds + "; pm install -r " + STAGED + " > " + RESULT + " 2>&1; "
-                + "if grep -q Success " + RESULT + "; then am start -n " + ACTIVITY + " --ez " + UPDATED_EXTRA + " true; fi; rm -f " + STAGED;
-        return Shell.detached(script, "started");
-    }
-
-    /** Reads the install's output while the app lives: only a failed install leaves it running to read it. */
-    private void watch(String to, File apk) {
-        Thread t = new Thread(() -> {
-            long end = System.currentTimeMillis() + watchForMs;
-            try {
-                while (System.currentTimeMillis() < end) {
-                    Thread.sleep(watchEveryMs);
-                    String out;
-                    try {
-                        out = adb.shell("cat " + RESULT + " 2>/dev/null", 5000).trim();
-                    } catch (IOException e) {
-                        continue;
-                    }
-                    if (out.isEmpty()) continue;
-                    if (out.contains("Success")) {
-                        log.line("update: installed " + to + ", waiting to be restarted");
-                        continue;
-                    }
-                    Host h = host;
-                    if (h != null) h.pending(null);
-                    if (apk != null) apk.delete();
-                    did("Update to " + to + " failed: " + firstLine(out));
-                    return;
-                }
-            } catch (InterruptedException ignored) {
-                // The app is going.
-            }
-        }, "axis-update-watch");
-        t.setDaemon(true);
-        t.start();
+    /** `pm install -r` of the staged copy, its words (Success, or Failure [INSTALL_FAILED_...]) coming back on the stream. */
+    static String installCommand() {
+        return "pm install -r " + STAGED + " 2>&1; rm -f " + STAGED;
     }
 
     /** Downloads `url` to `file` with the headset's token and checks size and SHA-256. Throws, leaving no file, when anything does not match. */
