@@ -238,7 +238,7 @@ public class E2eTest {
         click = tool(Json.obj("action", "click", "name", "Beyond Sandbox"));
         equal(click.get("how") + " " + click.get("x") + "," + click.get("y"), "tap 174,290", "click by name: the same answer");
         List<String> helped = fh.take();
-        check(helped.size() == 1 && helped.get(0).startsWith("click "), "the helper pressed it by its handle: " + helped);
+        check(helped.size() == 1 && helped.get(0).equals("tap 174,290"), "the helper touched it at its centre: " + helped);
         List<String> shellNow = adbd.take();
         check(shellNow.stream().noneMatch(c -> c.startsWith("input")), "and the shell got no input tap");
         check(shellNow.stream().noneMatch(c -> c.startsWith("dumpsys window")) && "Store (com.oculus.store)".equals(Json.map(click.get("after")).get("window")),

@@ -167,7 +167,7 @@ public class HelperTest {
         run("desktop.keys", "keys", "tab");
         equal(fh.takeOps(), Arrays.asList("front", "key", "front"), "keys after a while: front before, front after");
         a = run("desktop.click", "name", "Beyond Sandbox");
-        equal(fh.takeOps(), Arrays.asList("dump", "click", "front"), "click by name: the dump, the press, one front");
+        equal(fh.takeOps(), Arrays.asList("dump", "tap", "front"), "click by name: the dump, a real touch at its centre, one front");
         a = run("desktop.type", "text", "hello", "name", "Search");
         equal(fh.takeOps(), Arrays.asList("dump", "setText", "front"), "type by name: the dump, the text, one front");
         a = run("desktop.type", "text", "ok");
@@ -288,7 +288,7 @@ public class HelperTest {
         check(sent.contains(Helper.installCommand(host.apk.getAbsolutePath())), "installed it with pm install -r from /data/local/tmp");
         check(sent.contains("echo " + host.sha + " > " + Helper.MARKER), "and noted which build it is");
         String start = sent.stream().filter(c -> c.contains("am instrument")).findFirst().orElse("");
-        check(start.startsWith("rm -f /sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt; am force-stop dev.vortexaxis.quest.helper; nohup sh -c ") && start.contains("am instrument -w -e uid 10123 -e port ") && start.contains(" -e secret ") && start.contains("dev.vortexaxis.quest.helper/.Helper") && start.endsWith("& echo helper-started"),
+        check(start.startsWith("rm -f /sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt; am force-stop dev.vortexaxis.quest.helper; sleep 1; nohup sh -c ") && start.contains("am instrument -w -e uid 10123 -e port ") && start.contains(" -e secret ") && start.contains("dev.vortexaxis.quest.helper/.Helper") && start.endsWith("& echo helper-started"),
                 "started detached with am instrument, told this app's uid: " + start);
         check(states.contains(Helper.State.STARTING) && states.get(states.size() - 1) == Helper.State.FAST, "the window heard Starting, then Fast: " + states);
         equal(fh.installs, 1, "one install");
@@ -304,7 +304,7 @@ public class HelperTest {
         check(a.ok, "click by name: " + a.error);
         equal(a.payload.get("how") + " " + a.payload.get("x") + "," + a.payload.get("y"), "tap 174,290", "the answer's shape and words as through the shell");
         List<String> did = fh.take();
-        check(did.size() == 1 && did.get(0).startsWith("click "), "the helper pressed the tile by its handle: " + did);
+        check(did.size() == 1 && did.get(0).equals("tap 174,290"), "the helper touched the tile at its centre (an accessibility press is only the fallback): " + did);
         check(shell().stream().noneMatch(c -> c.startsWith("input")), "the shell got no input tap");
         check("Store (com.oculus.store)".equals(Json.map(data(a).get("after")).get("window")), "after: from the fast engine's front");
 
@@ -421,6 +421,41 @@ public class HelperTest {
         Thread.sleep(300);
         helper.tick();
         equal(helper.state(), Helper.State.FAST, "and the helper is back after the next check");
+
+        System.out.println("[engine] a click is a real touch; the accessibility press is only the fallback, and the answer says which");
+        fh.take();
+        a = run("desktop.click", "name", "Beyond Sandbox");
+        equal(a.payload.get("how"), "tap", "the answer says tap");
+        equal(fh.take(), Arrays.asList("tap 174,290"), "and it was a touch at the centre");
+        fh.tapFails = true;
+        a = run("desktop.click", "name", "Beyond Sandbox");
+        check(a.ok, "the touch was not taken: " + a.error);
+        equal(a.payload.get("how"), "press", "the answer says press, not tap");
+        check(fh.take().stream().anyMatch(c -> c.startsWith("click ")), "the element was pressed by its handle instead");
+        adbd.take();
+        a = run("desktop.click", "x", 12, "y", 22);
+        equal(a.payload.get("how"), "tap", "no element to press: the shell taps");
+        check(shell().stream().anyMatch(c -> c.startsWith("input tap 12 22")), "through the shell, as before");
+        fh.tapFails = false;
+
+        System.out.println("[engine] a helper that sees no panel at all is restarted, and that look is read with uiautomator once");
+        adbd.take();
+        fh.blind = true;
+        a = run("desktop.look");
+        check(a.ok && Json.list(data(a).get("elements")).size() > 0, "the look still has the panel: " + a.error);
+        check(shell().stream().anyMatch(c -> c.contains("uiautomator dump")), "read with uiautomator");
+        equal(helper.state(), Helper.State.BASIC, "and the fast engine was stopped to be started again");
+        fh.blind = false;
+        Thread.sleep(400);
+        helper.tick();
+        equal(helper.state(), Helper.State.FAST, "it came back");
+        fh.blind = true;
+        adbd.take();
+        a = run("desktop.look");
+        check(a.ok && Json.list(data(a).get("elements")).isEmpty() && String.valueOf(data(a).get("note")).contains("no panel could be read"),
+                "within a minute again: the empty look goes out as it is, with a note: " + data(a));
+        check(shell().stream().noneMatch(c -> c.contains("uiautomator")) && helper.state() == Helper.State.FAST, "the helper is left alone this time");
+        fh.blind = false;
 
         System.out.println("[engine] the Test button: the fast engine, then uiautomator both ways");
         PanelCommands.TestResult tr = cmds.test();

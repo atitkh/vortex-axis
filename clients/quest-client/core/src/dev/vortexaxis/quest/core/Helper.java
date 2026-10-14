@@ -97,7 +97,7 @@ public final class Helper {
     /** How long a started helper gets to answer: a fresh process connecting UiAutomation took most of 8 s on a Quest. */
     int startMs = 25_000;
     /** Waits before trying again after a failure: doubled each time, from the first to the last. */
-    long retryFirstMs = 10_000, retryMaxMs = 5 * 60_000;
+    long retryFirstMs = 4_000, retryMaxMs = 5 * 60_000;
 
     private final AdbLink adb;
     private final RollingLog log;
@@ -358,7 +358,9 @@ public final class Helper {
 
     /** Stops any helper that runs, then starts it detached (SelfUpdate's way), answering only `uid`, its words kept in LOG. */
     static String startCommand(int uid, int port, String secret) {
-        return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; "
+        // A second after the force-stop: the old process's UiAutomation connection is still being cleared, and a
+        // helper started on top of it failed its first tries (the window sat on "Starting" for minutes).
+        return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; sleep 1; "
                 + Shell.detached("am instrument -w -e uid " + uid + " -e port " + port + " -e secret " + secret + " "
                         + HelperProtocol.INSTRUMENTATION + " > " + LOG + " 2>&1", "helper-started");
     }

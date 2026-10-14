@@ -385,13 +385,36 @@ public final class PanelCommands implements AxisLink.Handler {
     Panel dump(boolean compressed) throws IOException, InterruptedException {
         if (fast()) {
             try {
-                return fastDump();
+                Panel fastPanel = fastDump();
+                if (fastPanel.nodes > 0) return fastPanel;
+                return blind(fastPanel, compressed);
             } catch (Helper.Lost e) {
                 lost(e);
             } catch (Helper.Failed e) {
                 log.line("look: the fast engine could not read the panel (" + e.getMessage() + "); with uiautomator this once");
             }
         }
+        return shellDump(compressed);
+    }
+
+    /** Longest between two recoveries from a fast engine that saw no panel at all. */
+    static final int BLIND_RETRY_MS = 60_000;
+    private long blindAt;
+
+    /**
+     * The fast engine answered with no tree at all. A helper whose UiAutomation connection has died still answers
+     * pings and says exactly this, forever (it did, on the owner's headset). So the helper is stopped and started
+     * again, and this look is read once with uiautomator: if that sees a panel, the helper was blind; if it sees
+     * nothing too, nothing is in front, and the helper has only been restarted. At most once a minute, so a headset
+     * with nothing to read (an immersive app) is not restarted over and over; the empty look then goes out as it is.
+     */
+    private Panel blind(Panel empty, boolean compressed) throws IOException, InterruptedException {
+        long now = System.currentTimeMillis();
+        if (now - blindAt < BLIND_RETRY_MS) return empty;
+        blindAt = now;
+        log.line("look: the fast engine saw no panel; restarting it and reading with uiautomator this once");
+        Helper h = helper;
+        if (h != null) h.lost("it saw no panel at all");
         return shellDump(compressed);
     }
 
@@ -495,6 +518,9 @@ public final class PanelCommands implements AxisLink.Handler {
                 "device", DEVICE_HINT);
         data.put("elements", lines);
         if (panel.elements.size() > elements.size()) data.put("more", panel.elements.size() - elements.size());
+        // No tree at all is not an empty panel: say so, so an agent does not take the headset for blank or act blind.
+        if (panel.nodes == 0)
+            data.put("note", "no panel could be read just now (nothing with content is in front, or the reader is restarting). Look again in a moment, or open an app");
         return data;
     }
 
@@ -642,7 +668,9 @@ public final class PanelCommands implements AxisLink.Handler {
                     case "right": command = "input swipe " + x + " " + y + " " + x + " " + y + " 800"; how = "long press"; said = "Long-pressed"; break;
                     default: return AxisLink.Answer.fail("button must be left, right or double, not " + button);
                 }
-                if (!fastClick(t.element, x, y, button)) checkQuiet(adb.shell(command, ACT_MS));
+                String didHow = fastClick(t.element, x, y, button);
+                if (didHow == null) checkQuiet(adb.shell(command, ACT_MS));
+                else how = didHow;
                 did(said + " " + (t.element != null ? "\"" + clip(t.element.name, 60) + "\"" : x + ", " + y));
                 Map<String, Object> payload = Json.obj("x", x, "y", y, "how", how);
                 if (t.element != null) payload.put("name", clip(t.element.name, 200));
@@ -917,33 +945,42 @@ public final class PanelCommands implements AxisLink.Handler {
 
     // ---- the fast engine's ways, each falling back to the shell -----------------
 
-    /** Taps, double-taps or long-presses through the fast engine: by the element's handle when it has one. False: do it through the shell. */
-    private boolean fastClick(Panel.Element e, int x, int y, String button) throws IOException {
-        if (!fast()) return false;
+    /**
+     * Taps, double-taps or long-presses through the fast engine, as what it did ("tap", "double tap", "long press", or
+     * "press" for the accessibility press); null: do it through the shell.
+     *
+     * A real touch at the element's centre comes first. The accessibility press (ACTION_CLICK) is only the fallback:
+     * it reports success on a view that ignores it, and the Browser's tab strip does (Close tab and Create tab did
+     * nothing, though they were "pressed"), where a touch works.
+     */
+    private String fastClick(Panel.Element e, int x, int y, String button) throws IOException {
+        if (!fast()) return null;
         try {
-            boolean byHandle = e != null && e.handle >= 0 && !button.equals("double");
-            if (byHandle) {
-                try {
-                    helper.call(button.equals("right") ? "longClick" : "click", Json.obj("handle", e.handle), ACT_MS);
-                    return true;
-                } catch (Helper.Failed f) {
-                    if (!HelperProtocol.STALE.equals(f.code)) throw f;
-                    // Gone since the look: where it was is still where the agent meant.
+            try {
+                if (button.equals("right")) {
+                    helper.call("longPress", Json.obj("x", x, "y", y), ACT_MS);
+                    return "long press";
                 }
-            }
-            if (button.equals("right")) helper.call("longPress", Json.obj("x", x, "y", y), ACT_MS);
-            else {
                 helper.call("tap", Json.obj("x", x, "y", y), ACT_MS);
-                if (button.equals("double")) helper.call("tap", Json.obj("x", x, "y", y), ACT_MS);
+                if (button.equals("double")) {
+                    helper.call("tap", Json.obj("x", x, "y", y), ACT_MS);
+                    return "double tap";
+                }
+                return "tap";
+            } catch (Helper.Failed f) {
+                // The touch was not taken. A press on the element itself may still be.
+                if (e == null || e.handle < 0 || button.equals("double")) throw f;
+                log.line("click: the fast engine could not touch (" + f.getMessage() + "); pressing the element instead");
             }
-            return true;
+            helper.call(button.equals("right") ? "longClick" : "click", Json.obj("handle", e.handle), ACT_MS);
+            return button.equals("right") ? "long press (accessibility)" : "press";
         } catch (Helper.Lost l) {
             if (l.sent) throw unsure("tapping", l);
             lost(l);
-            return false;
+            return null;
         } catch (Helper.Failed f) {
             log.line("click: the fast engine could not (" + f.getMessage() + "); through the shell");
-            return false;
+            return null;
         }
     }
 

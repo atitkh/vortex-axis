@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.5 (experimental) (2026-10-14)
+
+- **Clicks are a real touch again.** With the fast engine a click on an element was an accessibility press (`ACTION_CLICK`), and the Browser's tab strip ignores that while reporting success: "Close tab" and "Create tab" did nothing (tested: the press changed nothing, the same spot by coordinates added a tab). The click is now a touch at the element's centre, as the shell's `input tap` was; the press is only the fallback when the touch is not taken. The answer's `how` was always "tap"; it now says `tap`, `double tap`, `long press` or `press`.
+- **A helper that cannot see is restarted.** On the owner's headset the fast engine went on answering pings while its UiAutomation was dead, so every look was empty ("unknown panel", 40 ms) and `open` waited out its full 2 s. A look with no tree at all now stops the helper, reads that look with uiautomator once and starts the helper again (at most once a minute, so an immersive app with nothing to read does not restart it over and over); an empty look says so in a `note` instead of passing for a blank panel.
+- **The helper reads a window when none is active** (the focused application window, else the topmost with content), and its focus check refuses to guess when there is no window, so the password guard stays strict.
+- **A restart takes seconds, not minutes:** a second's pause after the helper is stopped (the old UiAutomation connection is still clearing) and the first retries at 4 s, 8 s, 16 s instead of 10 s, 20 s, 40 s.
+- versionCode 8 (helper too). Axis is unchanged.
+
 ## 0.44.3 (2026-10-14)
 
 - **A board could be left glowing "computer in use" with nothing in use** (and the other way round). Axis marked a screen as told before its `desktop.busy` had been delivered, and dropped a failure: the command has a 3 s timeout and a board busy with a conversation can miss it, which left the board's flag stuck until the next change, so the rose glow came on whenever its face went idle. A screen now counts as told only once it took the command; a miss is asked again (up to five times, 3 s apart), and a late failure never undoes a newer state. The glow stays off over the thinking face by design (it cost frames there; the computer icon says it instead).

@@ -42,8 +42,30 @@ final class Screen implements HelperRouter.Device<AccessibilityNodeInfo> {
         }
     }
 
-    @Override public String[] front() {
+    /**
+     * The window to read: the active one, else (a panel opened from the shell has no focus until it is pointed at, and
+     * then there is none) the focused application window, else the topmost one that has content.
+     */
+    private AccessibilityNodeInfo readable() {
         AccessibilityNodeInfo root = ui.getRootInActiveWindow();
+        if (root != null) return root;
+        AccessibilityNodeInfo best = null;
+        int bestLayer = -1;
+        for (AccessibilityWindowInfo w : Build.VERSION.SDK_INT >= 30 ? flat(ui.getWindowsOnAllDisplays()) : ui.getWindows()) {
+            if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+            AccessibilityNodeInfo r = w.getRoot();
+            if (r == null) continue;
+            if (w.isFocused()) return r;
+            if (w.getLayer() > bestLayer) {
+                best = r;
+                bestLayer = w.getLayer();
+            }
+        }
+        return best;
+    }
+
+    @Override public String[] front() {
+        AccessibilityNodeInfo root = readable();
         String title = "";
         for (AccessibilityWindowInfo w : ui.getWindows()) {
             if (w.isActive()) {
@@ -98,7 +120,7 @@ final class Screen implements HelperRouter.Device<AccessibilityNodeInfo> {
                 // Still moving: read it as it is.
             }
         }
-        if (windowId == null) return ui.getRootInActiveWindow();
+        if (windowId == null) return readable();
         for (AccessibilityWindowInfo w : Build.VERSION.SDK_INT >= 30 ? flat(ui.getWindowsOnAllDisplays()) : ui.getWindows())
             if (w.getId() == windowId) return w.getRoot();
         return null;
@@ -167,8 +189,11 @@ final class Screen implements HelperRouter.Device<AccessibilityNodeInfo> {
     }
 
     @Override public AccessibilityNodeInfo focusedInput() {
-        AccessibilityNodeInfo root = ui.getRootInActiveWindow();
-        return root == null ? null : root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        AccessibilityNodeInfo root = readable();
+        // No window to look in is not "nothing has the focus": the guard against typing into a password field must not
+        // take it for that (the app then reads the panel instead).
+        if (root == null) throw new IllegalStateException("no window to read the focus from");
+        return root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
     }
 
     @Override public void tap(int x, int y) throws Exception {

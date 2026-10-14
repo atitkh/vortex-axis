@@ -47,6 +47,10 @@ final class FakeHelper implements AutoCloseable {
     volatile N root;
     /** An op that never answers while set (the helper hangs). */
     volatile String hangOn;
+    /** The helper sees no window at all (its UiAutomation is dead): dumps have no tree, but it still answers pings. */
+    volatile boolean blind;
+    /** The helper cannot inject a touch. */
+    volatile boolean tapFails;
     /** The pretend headset's own state for the install: is the helper there, and which build's SHA-256 is noted. */
     volatile boolean installed;
     volatile String marker;
@@ -258,7 +262,7 @@ final class FakeHelper implements AutoCloseable {
         @Override public List<Map<String, Object>> windows() {
             return List.of(Json.obj("id", 1, "title", "Store", "package", root.d.pkg, "display", 0, "active", true, "focused", true));
         }
-        @Override public N root(Integer windowId, boolean compressed, int idleMs) { return root; }
+        @Override public N root(Integer windowId, boolean compressed, int idleMs) { return blind ? null : root; }
         @Override public String[] front() {
             if (frontAfter == 0 && frontLater != null) front = frontLater;
             if (frontAfter >= 0) frontAfter--;
@@ -285,7 +289,10 @@ final class FakeHelper implements AutoCloseable {
         }
         @Override public boolean scroll(N n, boolean forward) { calls.add("scroll " + (forward ? "forward" : "backward")); return true; }
         @Override public N focusedInput() { return find(root, x -> x.d.focused && x.d.editable); }
-        @Override public void tap(int x, int y) { calls.add("tap " + x + "," + y); }
+        @Override public void tap(int x, int y) {
+            if (tapFails) throw new IllegalStateException("the touch was not taken");
+            calls.add("tap " + x + "," + y);
+        }
         @Override public void longPress(int x, int y) { calls.add("longPress " + x + "," + y); }
         @Override public void swipe(int x1, int y1, int x2, int y2, int ms) { calls.add("swipe " + x1 + "," + y1 + " " + x2 + "," + y2 + " " + ms); }
         @Override public void key(int code, boolean ctrl, boolean alt, boolean shift) { calls.add("key " + (ctrl ? "ctrl+" : "") + (alt ? "alt+" : "") + (shift ? "shift+" : "") + code); }
