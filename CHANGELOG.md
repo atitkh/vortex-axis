@@ -4,6 +4,26 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.2.0 (experimental) (2026-10-14)
+
+- **Tidier, shorter looks.** Things come in reading order (bands from the top, left to right in a band), so a header row drawn last in the dump comes first; a list's items still follow their list. A tile's short texts are folded into its name (`Unplugged: Air Guitar, $19.99 — 4.3 (1.2K), Games • Rhythm`, the trailing bullet cut), and a tile without a name of its own is named by its first label. Decoration pictures ("Star icon representing rating", "…, image"), a text or picture repeating a tappable thing in the same box, and an unnamed disabled copy of something in the same place are left out. A line shows at most 80 characters of a name (120 with a tile's details), cut at a word; finding and clicking by name still uses all of it. On a fixture modelled on a real look at the Store's front page: 52 lines before, 24 after.
+- **Where a look's time goes**: the Test button and Copy diagnostics say adb connect (when there was one), dump, read-back and parse milliseconds, the total and the node counts. The dump and the read-back are two adb calls now, to time them apart.
+- **Faster looks** (a switch in the app, off by default, kept): `uiautomator dump --compressed`, which may leave out things an agent needs. Test reads the panel both ways and shows both timings and counts.
+- **Updates from Axis**, as the desktop app has them: Axis's `update` command is taken only for a newer version, only from the paired Axis (plain http only nearby), downloaded with the headset's token, checked by size, SHA-256 and Android's package manager (same app, same signing key, not an older build number), then installed through the app's own adb with `pm install -r`, detached so it finishes after the app ends, and the app started again. Recently says "Updated to X" after the restart, or pm's words when the install failed. A new setting on the headset's page, "Update automatically" (on).
+- versionCode 2. Not run on a headset yet: the self-update and restart, `--compressed`, the new reading order on real panels.
+
+## 0.43.0 (2026-10-14)
+
+- **Axis keeps Quest headsets on the newest Quest app** in the data folder's `quest/` (or a release image's `bundled/quest/`): a headset with an older version is told to update when it connects, or when a newer build lands, unless its "Update automatically" is off; never to an older or the same build. `GET /v1/quest/app` serves the APK to a `quest-panels` client's own token only; `GET /admin/quest` says what is there.
+- **Update on a headset's admin page**, and `POST /admin/clients/:id/update` works for `quest-panels` (it answered 404 before).
+
+## Quest panel client 0.1.0 (experimental) (2026-10-14)
+
+- **A Meta Quest is a computer to Axis now**, for its 2D panels (Store, Browser, Settings, Android apps): `clients/quest-client/`, an Android app that pairs like any device (type `quest-panels`, capability `desktop`) and answers the desktop tool's `look`, `find`, `wait`, `click`, `type`, `keys`, `scroll`, `open`, `screenshot` and `steps` in the Windows app's shapes, through the headset's own adb (`adb tcpip 5555` from a computer after each restart, the app's key allowed once on the headset). Panels are read with `uiautomator dump` and made small: labels from `content-desc` for React Native panels, a tile named from the text inside it, everything clipped to the 1280x800 panel and what is off it left out. `switch`, `window`, `desktop`, `clipboard` and `paste` are refused with words; `point` is accepted and noted. The Windows app's guards, ported: Pause, the device's switches, no password fields, refused keys (power, sleep, recents), only http(s) addresses and installed apps opened, a deadline on every adb call, one command at a time.
+- The window (pairing, connection and adb state, Set up steps, Pause, Test, Recently, Copy diagnostics, Forget), a foreground service with Pause in its notification, the token and the adb key sealed with the Android Keystore, a rolling log without tokens or typed text.
+- `scripts/build-quest-client.sh` builds it in Docker into the data folder's `quest/`; `scripts/test-quest-client.sh` runs its JVM tests and an end-to-end test against a real Axis from the checkout (pairing, the socket, the desktop tool through `POST /mcp`, a pretend adbd). No change to Axis itself.
+- Not run on a headset yet. Not built: voice, a pointer in the headset, updates from Axis, starting at boot.
+
 ## Desktop app 0.9.0 (2026-10-13)
 
 - **The face can be put anywhere.** While it is kept on screen, right-click it and drag. Where it is let go is remembered (and held inside the screens: if a monitor goes away, it comes back). Settings and the tray list it as "Where you put it" next to bottom centre, left and right.

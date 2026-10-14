@@ -1,0 +1,81 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<!-- Modelled on a real look at the Store's front page (React Native): a header row drawn LAST over a
+     panel-sized page, tiles with a star icon, a rating and a genre, an unnamed hero card with a disabled
+     twin, a bottom row whose tiles each have a same-box text twin, and a very long label. Only the
+     attributes the parser reads are given. -->
+<hierarchy rotation="0">
+  <node class="android.widget.FrameLayout" package="com.oculus.store" text="" content-desc="" bounds="[0,0][1280,800]">
+    <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" bounds="[0,0][1280,800]">
+      <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" bounds="[0,-60][1280,800]">
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Unplugged: Air Guitar, $19.99" clickable="true" bounds="[30,-40][258,72]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[30,35][45,50]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.3 (1.2K) •" content-desc="" bounds="[45,32][126,52]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Rhythm" content-desc="" bounds="[125,32][249,52]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Elixir, Free" clickable="true" bounds="[268,-40][496,72]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[268,35][283,50]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.1 (900) •" content-desc="" bounds="[283,32][360,52]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Simulation" content-desc="" bounds="[360,32][490,52]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Beat Saber, $29.99" clickable="true" bounds="[506,-40][734,72]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[506,35][521,50]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.8 (60K) •" content-desc="" bounds="[521,32][600,52]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Rhythm" content-desc="" bounds="[600,32][724,52]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Walkabout Mini Golf, $14.99" clickable="true" bounds="[744,-40][972,72]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[744,35][759,50]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.9 (20K) •" content-desc="" bounds="[759,32][838,52]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Sports" content-desc="" bounds="[838,32][962,52]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Pistol Whip, $24.99" clickable="true" bounds="[982,-40][1210,72]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[982,35][997,50]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.7 (15K) •" content-desc="" bounds="[997,32][1076,52]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Action" content-desc="" bounds="[1076,32][1200,52]" />
+        </node>
+        <node class="android.widget.TextView" package="com.oculus.store" text="Top picks" content-desc="" bounds="[30,122][258,150]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Gorilla Tag, Free" clickable="true" bounds="[30,160][258,350]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[30,320][45,335]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.6 (300K) •" content-desc="" bounds="[45,317][130,337]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Games • Action" content-desc="" bounds="[130,317][250,337]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Supernatural, $19.99" clickable="true" bounds="[30,370][258,560]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Star icon representing rating" bounds="[30,530][45,545]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="4.7 (10K) •" content-desc="" bounds="[45,527][130,547]" />
+          <node class="android.widget.TextView" package="com.oculus.store" text="Fitness • Workout" content-desc="" bounds="[130,527][250,547]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" clickable="true" bounds="[452,122][1246,568]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="" bounds="[452,122][1246,568]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" clickable="true" enabled="false" bounds="[452,122][1246,568]" />
+        <node class="android.widget.TextView" package="com.oculus.store" text="New and noteworthy" content-desc="" bounds="[30,610][400,640]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="See all" clickable="true" bounds="[1150,610][1250,640]" />
+        <node class="android.widget.HorizontalScrollView" package="com.oculus.store" text="" content-desc="" scrollable="true" bounds="[0,660][1280,800]">
+          <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" bounds="[0,660][1280,800]">
+            <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="DeoVR - VR Video Player, Free" clickable="true" bounds="[30,669][258,800]" />
+            <node class="android.widget.TextView" package="com.oculus.store" text="" content-desc="DeoVR - VR Video Player, image" bounds="[30,669][258,800]" />
+            <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Bigscreen Beta, Free" clickable="true" bounds="[268,669][496,800]" />
+            <node class="android.widget.TextView" package="com.oculus.store" text="" content-desc="Bigscreen Beta, image" bounds="[268,669][496,800]" />
+            <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Virtual Desktop, $19.99" clickable="true" bounds="[506,669][734,800]" />
+            <node class="android.widget.TextView" package="com.oculus.store" text="" content-desc="Virtual Desktop, image" bounds="[506,669][734,800]" />
+            <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Skybox VR Player, Free" clickable="true" bounds="[744,669][972,800]" />
+            <node class="android.widget.TextView" package="com.oculus.store" text="" content-desc="Skybox VR Player, image" bounds="[744,669][972,800]" />
+          </node>
+        </node>
+      </node>
+      <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="" bounds="[0,0][1280,100]">
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Home" clickable="true" selected="true" bounds="[31,30][115,70]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Top charts" clickable="true" bounds="[125,30][242,70]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Categories" clickable="true" bounds="[252,30][380,70]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Deals" clickable="true" bounds="[390,30][470,70]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Library" clickable="true" bounds="[480,30][570,70]" />
+        <node class="android.widget.EditText" package="com.oculus.store" text="" hint="Search" content-desc="" clickable="true" bounds="[877,30][1098,70]" />
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Your Meta Credits balance is 0. Meta Credits can no longer be purchased on the Meta Horizon Store." clickable="true" bounds="[1119,30][1180,70]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Meta Credits icon" bounds="[1129,35][1169,65]" />
+        </node>
+        <node class="android.view.ViewGroup" package="com.oculus.store" text="" content-desc="Sam" clickable="true" bounds="[1200,20][1260,80]">
+          <node class="android.widget.ImageView" package="com.oculus.store" text="" content-desc="Sam, image" bounds="[1205,25][1255,75]" />
+        </node>
+      </node>
+    </node>
+  </node>
+</hierarchy>

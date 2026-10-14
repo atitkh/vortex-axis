@@ -1,0 +1,36 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'dev.vortexaxis.quest'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'dev.vortexaxis.quest'
+        minSdk 29
+        // Kept at 32 on purpose: a sideloaded app, fewer newer background and foreground-service rules.
+        targetSdk 32
+        // versionCode goes up with every build that goes out: an update from Axis never installs an older one.
+        versionCode 2
+        versionName '0.2.0'
+    }
+
+    sourceSets {
+        // All the logic is plain Java in ../core (no android.*), compiled into the app as it is and tested on a JVM.
+        main.java.srcDirs += '../core/src'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures { buildConfig true }
+
+    lint { checkReleaseBuilds false; abortOnError false }
+}
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

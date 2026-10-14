@@ -25,6 +25,8 @@ let lastStatus;
 let lastGateway;
 let lastNow;
 let lastFirmware = [];
+/** The Quest panel client build on this hub ({ available, version, ... }), for the Update button on a headset's page. */
+let lastQuest;
 let lastShelves = [];
 let lastWakeWords = { wakeWords: [], builtInUsedBy: [] };
 let lastConfig;
@@ -178,7 +180,7 @@ $("signout").addEventListener("click", () => signOut());
 
 async function refresh() {
   try {
-    const [status, gateway, clients, settings, now, firmware, wake] = await Promise.all([
+    const [status, gateway, clients, settings, now, firmware, wake, quest] = await Promise.all([
       api("GET", "/admin/status"),
       api("GET", "/admin/gateway"),
       api("GET", "/admin/clients"),
@@ -186,7 +188,9 @@ async function refresh() {
       api("GET", "/admin/now").catch(() => undefined),
       api("GET", "/admin/firmware").catch(() => undefined),
       api("GET", "/admin/wakewords").catch(() => undefined),
+      api("GET", "/admin/quest").catch(() => undefined),
     ]);
+    lastQuest = quest;
     lastWakeWords = wake ?? { wakeWords: [], builtInUsedBy: [] };
     lastNow = now;
     lastFirmware = firmware?.firmware ?? [];
@@ -1438,7 +1442,8 @@ function renderDevice() {
       typeName(client.type) === client.type ? null : h("span", { class: "sub mono" }, ` ${client.type}`),
       h("span", { class: "sub" }, ` · version ${client.version} `),
       (() => {
-        const held = lastFirmware.find((f) => f.type === client.type);
+        // Firmware for a board; for a Quest headset, the app build scripts/build-quest-client.sh put on this hub.
+        const held = client.type === "quest-panels" ? (lastQuest?.available ? lastQuest : undefined) : lastFirmware.find((f) => f.type === client.type);
         if (!held || held.version === client.version || !client.online) return null;
         return h("button", {
           type: "button",

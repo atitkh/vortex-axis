@@ -1,4 +1,5 @@
 import { DesktopApp } from "./desktopapp.js";
+import { QuestApp } from "./questapp.js";
 import { titleFrom } from "./background.js";
 import { FirmwareStore } from "./firmware.js";
 import { importBundledFirmware } from "./bundled.js";
@@ -177,6 +178,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     log,
   });
   const desktopApp = new DesktopApp(config.dataDir, hub, log, config.bundledDir);
+  const questApp = new QuestApp(config.dataDir, hub, log, config.bundledDir);
   // Firmware a release image came with, onto the shelves (only when newer than what is there).
   importBundledFirmware(config.bundledDir, new FirmwareStore(config.dataDir), log);
   const desktops = new Desktops(hub, store);
@@ -433,6 +435,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   quietTimer.unref();
   hub.onConnect(() => hub.checkQuiet());
   const stopDesktopUpdates = desktopApp.start();
+  const stopQuestUpdates = questApp.start();
 
   const backup = new Backup({ store, config, activity, log });
   backup.start();
@@ -445,7 +448,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ desktopApp, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ desktopApp, questApp, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -500,6 +503,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       clearInterval(quietTimer);
       clearInterval(forgetTimer);
       stopDesktopUpdates();
+      stopQuestUpdates();
       homeAssistant?.stop();
       timers.stop();
       gateway.stop();

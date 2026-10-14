@@ -21,6 +21,7 @@ import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
 import type { ToolAccess } from "./tools.js";
 import { DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
+import { QUEST_TYPE, type QuestApp } from "./questapp.js";
 import type { Desktops } from "./desktop.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
@@ -157,6 +158,8 @@ function stampWebFiles(files: Map<string, { type: string; body: Buffer }>): void
 export interface HttpDeps {
   /** The desktop app build computers update to. */
   desktopApp?: DesktopApp;
+  /** The Quest panel client build headsets update to. */
+  questApp?: QuestApp;
   /** The computers, for which ones an agent is using. */
   desktops?: Desktops;
   config: Config;
@@ -522,6 +525,25 @@ export function createHttpHandler(deps: HttpDeps) {
       return;
     }
 
+    // A headset fetching the Quest app Axis told it to update to, with its own token.
+    if (method === "GET" && url.pathname === "/v1/quest/app" && deps.questApp) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      if (client.type !== QUEST_TYPE) throw new HttpError(404, "the Quest app is for Quest headsets");
+      const build = deps.questApp.build();
+      if (!build) throw new HttpError(404, "the Quest app has not been built on this hub");
+      res.writeHead(200, {
+        "content-type": "application/vnd.android.package-archive",
+        "content-length": build.size,
+        "cache-control": "no-store",
+        "x-sha256": build.sha256,
+        "x-version": build.version,
+      });
+      createReadStream(build.file).pipe(res);
+      return;
+    }
+
     // A client with a cancel button on its countdown, cancelling the timer it is showing.
     if (method === "POST" && url.pathname === "/v1/timers/cancel" && deps.timers) {
       const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
@@ -864,6 +886,12 @@ export function createHttpHandler(deps: HttpDeps) {
           return;
         }
       }
+      // The Quest panel client (experimental): built on this hub by scripts/build-quest-client.sh.
+      if (parts[1] === "quest" && method === "GET" && parts.length === 2) {
+        const build = deps.questApp?.build();
+        if (!build) return sendJson(res, 200, { available: false });
+        return sendJson(res, 200, { available: true, size: build.size, version: build.version, sha256: build.sha256, builtAt: build.builtAt ?? null });
+      }
       if (parts[1] === "firmware") {
         const type = parts[2] ?? "";
         const version = parts[3] ?? "";
@@ -982,9 +1010,10 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {
         const { client, session } = requireOnline(parts[2]!);
-        if (client.type === DESKTOP_TYPE && deps.desktopApp) {
+        const app = client.type === DESKTOP_TYPE ? deps.desktopApp : client.type === QUEST_TYPE ? deps.questApp : undefined;
+        if (app) {
           try {
-            const done = await deps.desktopApp.update(session);
+            const done = await app.update(session);
             activity?.note("admin", client.id, `${client.name} told to update from ${done.from} to ${done.to}`);
             return sendJson(res, 202, { client: client.name, ...done });
           } catch (error) {

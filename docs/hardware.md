@@ -76,6 +76,12 @@ Windows remembers the choice for that file. An update from Axis is a new file, b
 
 Only do this for a copy that came from your own Axis or from the project's releases. If you would rather not trust a download at all, build it yourself: `scripts/build-desktop.sh` in the repository.
 
+## A Meta Quest headset (experimental)
+
+The Quest app lets an agent read and use the headset's 2D panels (Store, Browser, Settings, Android apps) with the same desktop tool as a computer. It has no voice and draws nothing yet, and it never touches immersive apps. It works through the headset's own adb, so it needs developer mode, and after every restart of the headset a computer with a cable to run `adb tcpip 5555` once. The first time, the headset asks to allow the app's key: tick **Always allow**.
+
+Build it with `scripts/build-quest-client.sh` (Docker; the APK lands in the data folder's `quest/`), install it the first time with `adb install -r quest-client.apk`, open it from **Unknown Sources**, and pair it with a code like any device. After that it updates itself from Axis, like the desktop app, whenever a newer build is in the data folder; only a build signed with the same key installs over it (builds from that script share one key, kept in a Docker volume; one made on another machine needs an uninstall first, which loses the pairing). [clients/quest-client/README.md](../clients/quest-client/README.md) has the steps and the limits; read [SECURITY.md](../SECURITY.md) first.
+
 ## A phone or any browser
 
 Open Axis's address, enter a pairing code, and it is a device: type, tap to talk, hold to talk. On a phone, add it to the Home Screen and turn on notifications to get questions and finished tasks when you are away. Speaking needs `https` or `localhost` ([setup.md](setup.md) shows how).

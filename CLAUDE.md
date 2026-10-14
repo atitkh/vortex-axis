@@ -10,9 +10,9 @@ Read [docs/design.md](docs/design.md) before changing behavior. It records what 
 
 ## Status
 
-Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or two: what runs, what is unproven, what is broken, what is next. What changed in each version goes in `CHANGELOG.md` (newest first); how something was built or tried goes in `docs/design.md`. The notes that used to be here are in `docs/status-history.md`.
+Last updated: 2026-10-14. Keep this section to what is true NOW, in a screen or two: what runs, what is unproven, what is broken, what is next. What changed in each version goes in `CHANGELOG.md` (newest first); how something was built or tried goes in `docs/design.md`. The notes that used to be here are in `docs/status-history.md`.
 
-**Versions:** Axis 0.42.3, board firmware 0.18.2, desktop app 0.9.0, protocol 1. Licence Apache-2.0 (`LICENSE`, `NOTICE`). Releases: a tag `vX.Y.Z` matching `package.json` runs `.github/workflows/release.yml` (firmware, desktop app, image with both in `bundled/`); the repository is on a private Gitea for now (its runner builds the release, results readable in Gitea's database) and will be mirrored to GitHub. `SECURITY.md` says what protects what; change it with any change to auth, tokens, exposure or the desktop app's limits. One number for the server and its web pages (top-level `package.json`); firmware and the desktop app count their own.
+**Versions:** Axis 0.43.0, board firmware 0.18.2, desktop app 0.9.0, Quest panel client 0.2.0 (experimental), protocol 1. Licence Apache-2.0 (`LICENSE`, `NOTICE`). Releases: a tag `vX.Y.Z` matching `package.json` runs `.github/workflows/release.yml` (firmware, desktop app, image with both in `bundled/`); the repository is on a private Gitea for now (its runner builds the release, results readable in Gitea's database) and will be mirrored to GitHub. `SECURITY.md` says what protects what; change it with any change to auth, tokens, exposure or the desktop app's limits. One number for the server and its web pages (top-level `package.json`); firmware and the desktop app count their own.
 
 **Running now:** see `CLAUDE.local.md`. That file is NOT in the repository (it is in `.gitignore`): it holds what is particular to one installation, such as host names, addresses, the public name, device names and which agent answers. If you are working on the installation this checkout belongs to, read it and keep it current; never write such details in this file or anywhere else that is committed. In general terms: Axis runs in Docker on port 8440 with its data folder on a local disk, backs itself up hourly to a mounted folder, is reached from outside under a public name through a tunnel with `/admin` kept to the local network, and serves two Waveshare boards, a few browser clients and one Windows computer through an OpenClaw gateway.
 
@@ -23,12 +23,13 @@ Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or 
 - `web/`: the web client (an installable page that looks and behaves like a board) and the admin page.
 - `firmware/`: the Waveshare ESP32-S3-Touch-AMOLED-1.8 board: face, wake word, tap and hold to talk, pictures, edge glows, gestures, updates over Wi-Fi.
 - `clients/windows-desktop/`: the desktop app (EXPERIMENTAL, its tool is off until switched on): an agent reads the screen and acts on it (`vortex_axis_desktop`: look, find, click, type, paste, keys, scroll, wait, open, switch, window, steps, clipboard, screenshot), and the computer is a voice device too (talk key, speakers, pills at the top of the screen, the face at the bottom). It updates itself from Axis.
+- `clients/quest-client/`: the Quest panel client (EXPERIMENTAL, 0.2.0; 0.1.0 was paired and seen working on the owner's Quest 3: Test, and a real `look` through Axis): an Android app (Java; all logic in `core/`, plain Java, no android.*) that is one more computer to Axis (type `quest-panels`, capability `desktop`) and answers the desktop tool on the headset's 2D panels through the headset's own adb at 127.0.0.1:5555 (`adb tcpip 5555` after each restart). No voice, no pointer drawn. It updates itself from Axis (`server/src/questapp.ts`, `GET /v1/quest/app`; the app installs it through its own adb with `pm install -r`, detached, and starts again). `scripts/build-quest-client.sh` builds the APK into the data folder's `quest/`, which offers it to every paired headset at once (like `build-desktop.sh`); `scripts/test-quest-client.sh` runs its JVM tests and an end-to-end test against a real Axis from the checkout. `clients/quest-probe/` is the throwaway experiment it grew from.
 - Timers may carry a task (`then` on the timer tool): when due, Axis starts a turn for the agent (`Turns.task`) instead of ringing; computers are look-only meanwhile (`Desktops.holdLookOnly`) unless the person said Allow when Axis asked. Once only; the owner said repeating tasks are not Axis's job.
 - `speech/`: one image run as three CPU services (recognition, synthesis, voiceprints) behind OpenAI's audio API.
 
 **Proven by the owner on real devices:** he tries each feature after it is built and has said (2026-10-13) that everything up to then works, including the desktop app's actions, updates, voice, pills and face on his computer. Treat a feature as unproven only if it is listed below or was added after that date.
 
-**Never run by its author:** the Windows parts of the desktop app (there is no Windows where it is written). What is checked before a build goes out: the Core against a fake screen (every command's answer built and serialized), the voice part against a throwaway Axis with the real speech services, the face by rendering frames from `Face`. Expect the owner's first use to find what those cannot.
+**Never run by its author:** the Windows parts of the desktop app (there is no Windows where it is written), and most of the Quest panel client on a headset (seen working by the owner on 0.1.0: pairing, adb auth, Test's dump, one `look` through Axis; unproven there: tap, text entry, keys and `keycombination`, `monkey`/`am start`, `screencap`, `dumpsys window` focus lines, and everything new in 0.2.0: the reading order and folding on real panels, `uiautomator dump --compressed`, the self-update's detached `pm install -r` and the restart by `am start`). What is checked before a build goes out: the Core against a fake screen (every command's answer built and serialized), the voice part against a throwaway Axis with the real speech services, the face by rendering frames from `Face`. Expect the owner's first use to find what those cannot.
 
 **Known and open**
 
@@ -40,7 +41,7 @@ Last updated: 2026-10-13. Keep this section to what is true NOW, in a screen or 
 
 **Things that have bitten, so that they do not again**
 
-- `scripts/build-desktop.sh` puts the build in the data folder, and every paired computer with "Update automatically" takes it within five minutes. Run it only for a build meant to go out, with a new version number.
+- `scripts/build-desktop.sh` puts the build in the data folder, and every paired computer with "Update automatically" takes it within five minutes. Run it only for a build meant to go out, with a new version number. The same holds for `scripts/build-quest-client.sh` and headsets (bump `versionName` and `versionCode` in `clients/quest-client/app/build.gradle`, and `QuestIdentity.VERSION`).
 - A setting saved on the admin page's Integrations page wins over `.env` (`server/src/hubconfig.ts`): check the page before concluding an `.env` change did nothing.
 - Every streamed `fetch` body is read through `drain()`; never iterate `res.body` (Node crashes).
 - Desktop app JSON: add strings to a `JsonArray` as `(JsonNode?)` casts; `AxisLink`'s options carry a type resolver; do not switch reflection-based JSON off (`Saved.cs` needs it). Never swallow a failed send: 0.4.0 to 0.4.3 lost every look that way.
@@ -127,6 +128,8 @@ AXIS_ADMIN_TOKEN=... npm run push-firmware -- <type> --update   # upload a firmw
 AXIS_ADMIN_TOKEN=dev npm start        # after a build; listens on 8440
 npm run deploy                        # docker compose up -d --build with the commit passed in; needs .env, see .env.example
 scripts/build-desktop.sh              # builds the Windows desktop app in the .NET SDK container into the data folder, for the admin page's download
+scripts/build-quest-client.sh         # JVM tests, then the Quest panel client's APK in Docker into the data folder's quest/ (first install by hand: adb install -r; then headsets update from Axis at once)
+scripts/test-quest-client.sh          # the Quest client's JVM tests and its end-to-end test against this checkout's server (Docker)
 ```
 
 `npm test` and `npm run typecheck` build `protocol/` first, because the server imports its compiled output.
@@ -162,6 +165,7 @@ scripts/build-desktop.sh              # builds the Windows desktop app in the .N
 - `speech/`: the local speech services' image (Python, sherpa-onnx): `stt.py`, `tts.py`, `voiceprint.py`, `common.py`. `compose.yaml` runs it three times. Models are fetched on first start into `/models`.
 - `server/src/progress.ts`: tasks agents report on, in memory, told to every screen; `server/src/cards.ts` feeds it from the OpenClaw gateway's progress cards.
 - `server/src/agentasks.ts`: questions and approvals OpenClaw agents wait on, put to the person through `hub.ask` and answered back to the gateway.
+- `server/src/questapp.ts`: the Quest panel client's build in the data folder's `quest/` and keeping headsets on it (the desktop app's `desktopapp.ts`, for `quest-panels`).
 - `server/src/desktop.ts`: computers with the desktop app (experimental): which one a call means, and `desktop.look`/`point`/`hide` carried there. The app is `clients/windows-desktop/` (see its README).
 - `server/src/asklight.ts`: tells each screen how many questions wait where it is not showing them (`ask.waiting`), from `hub.askingClients()` and `AgentAsks.unshown()`.
 - `server/src/delivery.ts`: gets agent-started speech to a client by whatever route it has: live, a notification to a closed browser, or kept until it is back; one message to many clients; questions by notification. `commands.ts` and `homeassistant.ts` both go through it.
