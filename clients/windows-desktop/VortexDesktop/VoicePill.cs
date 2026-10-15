@@ -18,6 +18,7 @@ sealed class VoicePill : Pill
     readonly TextBlock heard = Words(Dim, 12);
     readonly TextBlock reply = Words(Bright, 13);
     readonly Border rule = new() { Height = 1, Margin = new Thickness(0, 7, 0, 6), Background = Frozen(new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF))) };
+    readonly WrapPanel buttons = new() { Margin = new Thickness(0, 9, 0, 0), Visibility = Visibility.Collapsed };
     readonly DispatcherTimer linger = new() { Interval = TimeSpan.FromSeconds(6) };
 
     public VoicePill()
@@ -35,6 +36,7 @@ sealed class VoicePill : Pill
         text.Children.Add(heard);
         text.Children.Add(rule);
         text.Children.Add(reply);
+        text.Children.Add(buttons);
         var row = new DockPanel();
         DockPanel.SetDock(Dot, Dock.Left);
         row.Children.Add(Dot);
@@ -45,6 +47,39 @@ sealed class VoicePill : Pill
             linger.Stop();
             FadeOut();
         };
+    }
+
+    /** Called with the choice a button was pressed for. */
+    public Action<string>? Chose { get; set; }
+
+    string choiceKey = "";
+
+    /** The question's choices as buttons the person can press; the pill takes clicks only while they show. */
+    void Buttons(System.Collections.Generic.IReadOnlyList<string> choices)
+    {
+        var key = string.Join("\n", choices);
+        if (key == choiceKey) return;
+        choiceKey = key;
+        buttons.Children.Clear();
+        buttons.Visibility = choices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var choice in choices)
+        {
+            var button = new Button
+            {
+                Content = choice,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(14, 4, 14, 4),
+                Foreground = Bright,
+                Background = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x4D, 0x94, 0xFF))),
+                BorderBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x99, 0x4D, 0x94, 0xFF))),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Focusable = false,
+            };
+            var picked = choice;
+            button.Click += (_, _) => Chose?.Invoke(picked);
+            buttons.Children.Add(button);
+        }
+        Clickable(choices.Count > 0);
     }
 
     /** How far down from the top of the screen: under the "using this computer" pill when that is showing. */
@@ -90,12 +125,14 @@ sealed class VoicePill : Pill
         Dot.RenderTransform = new ScaleTransform(grow, grow, 4.5, 4.5);
         if (asking)
         {
-            Lines(voice.Question, voice.Choices.Count > 0 ? string.Join("   ·   ", voice.Choices) : "");
+            Lines(voice.Question, "");
+            Buttons(voice.Choices);
             heard.FontStyle = FontStyles.Normal;
             linger.Stop();
             FadeIn();
             return;
         }
+        Buttons([]);
         heard.FontStyle = FontStyles.Italic;
         Lines(voice.Heard.Length > 0 ? $"“{voice.Heard}”" : "", voice.Reply);
         if (voice.Mode == VoiceMode.Idle)

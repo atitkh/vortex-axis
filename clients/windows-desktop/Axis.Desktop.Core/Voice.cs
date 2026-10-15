@@ -100,6 +100,22 @@ public sealed class Voice
         }
     }
 
+    /** A choice picked on screen (a button in the pill): sent as the answer, as a tap on a board does. */
+    public void Answer(string choice)
+    {
+        string? id;
+        lock (gate)
+        {
+            id = askId;
+            if (id == null || !Choices.Contains(choice)) return;
+            askId = null;
+            Question = null;
+            Choices = [];
+        }
+        _ = link.TrySendAsync(new JsonObject { ["t"] = "answer", ["askId"] = id, ["choice"] = choice });
+        Changed?.Invoke();
+    }
+
     /** The key has stayed down: listen until it comes up. */
     public void Hold()
     {

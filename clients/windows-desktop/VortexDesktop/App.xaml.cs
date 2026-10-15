@@ -200,7 +200,7 @@ public partial class App : System.Windows.Application
             voice = new Voice(link, voiceIo);
             if (pill == null)
             {
-                pill = new VoicePill { Below = () => controlPill?.Room ?? 0 };
+                pill = new VoicePill { Below = () => controlPill?.Room ?? 0, Chose = choice => voice?.Answer(choice) };
                 if (controlPill != null) controlPill.Moved += () => pill.Replace();
             }
             voice.Changed += () => Dispatcher.BeginInvoke(() =>

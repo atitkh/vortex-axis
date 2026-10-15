@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.1 (2026-10-15)
+
+- A question shown on the PC (the confirm step of 0.45.0, or any `ask`) now has real **buttons** in the voice pill; before, the choices were only words to say. The pill takes clicks only while a question shows, and never the focus.
+
 ## Desktop app 0.10.0 (2026-10-15)
 
 - **Drag**: from a name, an id or x,y to `toName`, `toId` or `toX`,`toY`. A real mouse drag: the pointer glides to the start as for a click, the left button goes down (held `holdMs` when asked, up to 2 s), the mouse moves in steps over 400 ms as input a drag's own loop sees, rests a moment over the target, and lets go; the button is always released and the mouse put back.

@@ -62,6 +62,14 @@ abstract class Pill : Window
         SizeChanged += (_, _) => Place();
     }
 
+    /** Lets clicks land on the pill (a question with buttons); off again, it is click-through as before. */
+    protected void Clickable(bool on)
+    {
+        var hwnd = new WindowInteropHelper(this).EnsureHandle();
+        var style = Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE);
+        Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, on ? style & ~Native.WS_EX_TRANSPARENT : style | Native.WS_EX_TRANSPARENT);
+    }
+
     /** The colour of what is going on: the dot and its glow, and a hint of it on the edge. */
     protected void Tint(Color c)
     {
