@@ -71,6 +71,8 @@ public final class MainActivity extends Activity {
             @Override public void stepAside() { runOnUiThread(() -> moveTaskToBack(true)); }
         };
         resumed = true;
+        // In front and used again: it takes touches (see onPause).
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         hub.watch(refresh);
         if (hub.pairing() != null) {
             AxisService.start(this);
@@ -85,6 +87,10 @@ public final class MainActivity extends Activity {
 
     @Override protected void onPause() {
         resumed = false;
+        // Panels are overlapping windows on one display, and a tap goes to the topmost at that spot. When another panel
+        // has the focus, this window (still there, paused) must not take the taps an agent sends to that one: it
+        // took those meant for the Browser's tab strip. It takes touches again when it is in front.
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         hub.unwatch(refresh);
         super.onPause();
     }

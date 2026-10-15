@@ -397,7 +397,7 @@ public final class Helper {
             if (from < 0) {
                 out.append(" (the helper never started for this try: nothing logged for port ").append(lastPort).append(')');
                 // What the system itself said about the package: a crash before the helper's own code, or the start refused.
-                String sys = adb.shell("logcat -d -t 1500 2>/dev/null | grep -E 'dev.vortexaxis.quest.helper|FATAL EXCEPTION|AndroidRuntime' | tail -n 6", 5000);
+                String sys = adb.shell("logcat -d -t 1500 2>/dev/null | grep -E 'dev.vortexaxis.quest.helper|FATAL EXCEPTION|AndroidRuntime|am_crash|am_proc|instrumentation' | grep -v 'base.dm' | tail -n 10", 5000);
                 StringBuilder said = new StringBuilder();
                 for (String line : sys.split("\n")) {
                     String t = line.trim();

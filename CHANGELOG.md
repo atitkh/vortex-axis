@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.10 (experimental) (2026-10-14)
+
+- **The app's window no longer takes taps meant for another panel.** 0.3.8 moved the window aside only when it was "resumed", but with another panel focused it is paused and still on top, so it went on taking the taps for the Browser's tab strip (checked on the headset: a tap at "Create tab" gave the focus to this app and added no tab). A paused window now ignores touches (`FLAG_NOT_TOUCHABLE`), and takes them again when it is in front. The Live view stays where it is.
+- The helper's failure message reads more of the system log (crashes, process starts, instrumentation lines) and leaves out the harmless `base.dm` noise.
+- versionCode 13 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.9 (experimental) (2026-10-14)
 
 - **When the helper logs nothing at all, the app says what the system logged about its package.** After 0.3.8 the helper (started without `-w`) still never reached its first line, so its own steps said nothing; the message now also carries the last lines of logcat that mention `dev.vortexaxis.quest.helper`, `FATAL EXCEPTION` or `AndroidRuntime` ("the system said: ..."), which is where a crash before the helper's own code would be.
