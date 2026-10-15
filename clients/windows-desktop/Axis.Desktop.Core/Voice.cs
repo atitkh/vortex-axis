@@ -73,6 +73,20 @@ public sealed class Voice
         this.io = io;
         link.Message += OnMessage;
         link.Audio += pcm => { if (playing != null) io.PlayWrite(pcm); };
+        link.StateChanged += (state, _) => { if (state != LinkState.Online) Dropped(); };
+    }
+
+    /** The link to Axis went away: a turn that was waiting on it will never finish, so let go of it. */
+    void Dropped()
+    {
+        lock (gate)
+        {
+            var was = Mode;
+            if (playing != null) { io.StopPlayback(); playing = null; }
+            if (askId != null) { askId = null; Question = null; Choices = []; }
+            if (was is VoiceMode.Transcribing or VoiceMode.Thinking or VoiceMode.Speaking) { Doing = null; Set(VoiceMode.Idle); }
+            else Changed?.Invoke();
+        }
     }
 
     bool Busy => Mode is VoiceMode.Transcribing or VoiceMode.Thinking or VoiceMode.Speaking;

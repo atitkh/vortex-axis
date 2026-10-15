@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.2 (2026-10-15)
+
+- A drop of the link to Axis in the middle of a turn no longer leaves the pill on "Thinking" with the reply's words in it: the turn, a question or playback that was waiting is let go when the link goes away.
+
 ## Desktop app 0.10.1 (2026-10-15)
 
 - A question shown on the PC (the confirm step of 0.45.0, or any `ask`) now has real **buttons** in the voice pill; before, the choices were only words to say. The pill takes clicks only while a question shows, and never the focus.
