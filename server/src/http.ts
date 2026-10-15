@@ -1097,6 +1097,7 @@ export function createHttpHandler(deps: HttpDeps) {
             mirrorCards: config.mirrorCards,
             mirrorQuestions: config.mirrorQuestions,
             mirrorApprovals: config.mirrorApprovals,
+            desktopBlocked: config.desktopBlocked,
             watch: deps.gateway.status().watch,
             publicHosts: config.publicHosts,
             tokens: access.tokens(),

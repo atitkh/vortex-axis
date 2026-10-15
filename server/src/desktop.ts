@@ -1,4 +1,5 @@
 import type { Hub, Session } from "./hub.js";
+import { riskyName, sendingWindow, submitKeys, submitText } from "./risky.js";
 import type { Store } from "./store.js";
 
 /**
@@ -12,7 +13,7 @@ import type { Store } from "./store.js";
  * `desktop.point` with where it pointed. Ids hold until the next look.
  */
 
-const ACTIONS = ["look", "find", "point", "hide", "click", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait", "screenshot", "scroll", "clipboard", "paste"] as const;
+const ACTIONS = ["look", "find", "point", "hide", "click", "drag", "type", "keys", "open", "switch", "window", "desktop", "steps", "wait", "screenshot", "scroll", "clipboard", "paste"] as const;
 /** Most characters one type carries: a command's values are at most 512 characters. */
 export const MAX_TYPED = 500;
 /** Most characters one paste carries (sent as the command's data, not a value). */
@@ -25,6 +26,10 @@ const MAX_WAIT_S = 20;
  * moment it appears.
  */
 const MAX_FIXED_WAIT_MS = 1000;
+/** Longest a drag may hold before it moves (a long press, for lists and home screens that need one). */
+const MAX_HOLD_MS = 2000;
+/** How long the person has to allow a risky action; no answer is a no. */
+const CONFIRM_MS = 30_000;
 type Action = (typeof ACTIONS)[number];
 
 /** How long a computer gets to read its screen: reading a busy window's controls can take a while. */
@@ -64,6 +69,8 @@ export class Desktops {
     private readonly now: () => number = Date.now,
     /** How long a screen gets to take "desktop.busy", and how long before a failed one is tried again. */
     private readonly timing: { deliverMs?: number; retryMs?: number } = {},
+    /** The admin's block list: parts of app and window names the tool may neither read nor touch. */
+    private readonly blockList: () => string[] = () => [],
   ) {
     // A screen that comes back while an agent is at a computer is told straight away.
     hub.onConnect((session) => {
@@ -90,6 +97,9 @@ export class Desktops {
       if (at >= 0) this.lookOnly.splice(at, 1);
     };
   }
+
+  /** Per computer, what its last answers showed: the window in front and the names of the elements by id. */
+  private readonly seen = new Map<string, Seen>();
 
   /** The computers an agent is using right now, for the admin page. */
   inUse(): InUse[] {
@@ -215,13 +225,19 @@ export class Desktops {
 
   private async carryOut(session: Session, action: Action, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     const computer = session.client.name;
+    const blocked = this.blockList();
+    // The computer refuses to read or act on a blocked window itself (it knows which is in front); Axis
+    // refuses what it can tell from the call, and keeps a blocked window's contents out of any answer.
+    const block = blocked.length ? { blocked: blocked.join("|") } : {};
+    const named = [text(params.app), text(params.url), text(params.window)].find((n) => n && blockedBy(blocked, n));
+    if (named) throw new Error(`${named} is blocked by the user: the desktop tool may not read or touch it. Tell the person; do not try another way`);
 
     if (action === "look") {
       const scope = text(params.scope) ?? "window";
       if (!["window", "mouse", "screen"].includes(scope)) throw new Error("scope must be window, mouse or screen");
-      const outcome = await this.hub.command(session, "desktop.look", { scope, ocr: params.ocr === true }, LOOK_TIMEOUT_MS);
+      const outcome = await this.hub.command(session, "desktop.look", { scope, ocr: params.ocr === true, ...block }, LOOK_TIMEOUT_MS);
       if (!outcome.ok) throw new Error(outcome.error || `${computer} could not read its screen, and did not say why`);
-      return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
+      return { computer, ...this.read(session, outcome.data, blocked, true) };
     }
 
     if (action === "screenshot") {
@@ -233,12 +249,12 @@ export class Desktops {
       if (!["window", "screen"].includes(scope)) throw new Error("screenshot scope must be window or screen");
       const detail = text(params.detail) ?? "normal";
       if (!["low", "normal", "high"].includes(detail)) throw new Error("detail must be low, normal or high");
-      const args: Record<string, string | number> = { scope, detail };
+      const args: Record<string, string | number> = { scope, detail, ...block };
       const id = whole(params.id);
       if (id !== undefined) args.id = id;
       const outcome = await this.hub.command(session, "desktop.screenshot", args, LOOK_TIMEOUT_MS);
       if (!outcome.ok) throw new Error(outcome.error || `${computer} could not take a picture, and did not say why`);
-      const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
+      const data = this.read(session, outcome.data, blocked, true);
       const image = data.image as { data?: unknown; mimeType?: unknown } | undefined;
       if (typeof image?.data !== "string" || typeof image.mimeType !== "string") throw new Error(`${computer} sent no picture`);
       // `image` is lifted out by the MCP door into an image block; the rest is the text beside it.
@@ -252,6 +268,7 @@ export class Desktops {
     }
 
     if (CHANGES.has(action)) this.mayChange(session);
+    let allowed: string | undefined;
 
     if (action === "steps") {
       const list = Array.isArray(params.steps) ? params.steps : undefined;
@@ -263,16 +280,28 @@ export class Desktops {
         const kind = text(one.action) as Action | undefined;
         if (!kind || !STEP_ACTIONS.has(kind)) throw new Error(`step ${i + 1}: action must be one of ${[...STEP_ACTIONS].join(", ")}`);
         try {
-          return { action: kind, ...argsFor(kind, one) };
+          const off = [text(one.app), text(one.url), text(one.window)].find((n) => n && blockedBy(blocked, n));
+          if (off) throw new Error(`${off} is blocked by the user: the desktop tool may not read or touch it`);
+          const step: Record<string, string | number> & { action: Action } = { action: kind, ...argsFor(kind, one) };
+          return step;
         } catch (error) {
           throw new Error(`step ${i + 1} (${kind}): ${(error as Error).message}`);
         }
       });
-      const outcome = await this.hub.command(session, "desktop.steps", {}, STEPS_TIMEOUT_MS, { steps });
-      const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
+      // One question for the whole list, naming the first risky step; the window an open or switch brings is the one after it.
+      let window = this.seen.get(session.client.id)?.window;
+      const risks: string[] = [];
+      for (const step of steps) {
+        const risk = this.riskOf(session, step.action, step, window);
+        if (risk) risks.push(risk);
+        if (step.action === "open" || step.action === "switch") window = String(step.app ?? step.url ?? step.window ?? "");
+      }
+      if (risks.length) allowed = await this.confirm(session, risks[0]! + (risks.length > 1 ? ` (and ${risks.length - 1} more risky step${risks.length > 2 ? "s" : ""})` : ""));
+      const outcome = await this.hub.command(session, "desktop.steps", { ...block }, STEPS_TIMEOUT_MS, { steps });
+      const data = this.read(session, outcome.data, blocked, false);
       // A step that failed is reported with the ones before it, not as an error: the agent needs to know what happened.
       if (!outcome.ok && !Array.isArray(data.steps)) throw new Error(outcome.error || `${computer} could not run the steps`);
-      return { computer, ...data };
+      return { computer, ...data, ...(allowed ? { confirmed: allowed } : {}) };
     }
 
     if (action === "clipboard") {
@@ -281,6 +310,10 @@ export class Desktops {
       return { computer, ...(typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {}) };
     }
     const args = argsFor(action, params);
+    if (CHANGES.has(action)) {
+      const risk = this.riskOf(session, action, args, this.seen.get(session.client.id)?.window);
+      if (risk) allowed = await this.confirm(session, risk);
+    }
     // A paste's text can be long: it travels as the command's data, not as one of its (short) values.
     let extra: unknown;
     if (action === "paste") {
@@ -288,16 +321,93 @@ export class Desktops {
       delete args.text;
     }
     const timeout = action === "find" ? LOOK_TIMEOUT_MS : action === "wait" && typeof args.seconds === "number" ? (args.seconds + 5) * 1000 : ACT_TIMEOUT_MS;
-    const outcome = await this.hub.command(session, `desktop.${action}`, args, timeout, extra);
+    const outcome = await this.hub.command(session, `desktop.${action}`, { ...args, ...block }, timeout, extra);
     if (!outcome.ok) throw new Error(outcome.error || `${computer} could not ${action === "keys" ? "press that" : action}`);
-    const data = typeof outcome.data === "object" && outcome.data !== null ? (outcome.data as Record<string, unknown>) : {};
+    const data = this.read(session, outcome.data, blocked, action === "find");
     if (action === "point") return { computer, pointed: true, ...(outcome.payload ?? {}) };
-    const result: Record<string, unknown> = { computer, done: action, ...(outcome.payload ?? {}), ...data };
+    const result: Record<string, unknown> = { computer, done: action, ...this.read(session, outcome.payload, blocked, false), ...data, ...(allowed ? { confirmed: allowed } : {}) };
     // A pause by number is almost never what an agent needs: tell it, in the answer it is reading.
     if (action === "wait" && typeof args.ms === "number") {
       result.hint = `paused ${args.ms} ms (at most ${MAX_FIXED_WAIT_MS}). Not needed after open or click: their answers say what is in front. To wait for something, use wait with name or window (returns when it appears), or find`;
     }
     return result;
+  }
+
+  /**
+   * An answer from the computer, noted for the next risky check (the window in front, element names by id) and kept
+   * clear of blocked windows: a read of one is refused, a window list names it only as blocked, `after` says no more.
+   */
+  private read(session: Session, raw: unknown, blocked: string[], reading: boolean): Record<string, unknown> {
+    const data = typeof raw === "object" && raw !== null ? { ...(raw as Record<string, unknown>) } : {};
+    const after = typeof data.after === "object" && data.after !== null ? (data.after as Record<string, unknown>) : undefined;
+    const front = windowName(data.window) ?? windowName(after?.window);
+    const hit = front !== undefined ? blockedBy(blocked, front) : undefined;
+    if (hit) {
+      this.seen.delete(session.client.id);
+      if (reading) throw new Error(`the window in front is blocked by the user (it matches "${hit}"): its contents are not read. Tell the person; do not try another way`);
+      if (data.window !== undefined) data.window = "blocked by the user";
+      if (after) data.after = { window: "blocked by the user" };
+      return data;
+    }
+    if (Array.isArray(data.windows)) data.windows = data.windows.map((w) => (blockedBy(blocked, windowName(w) ?? "") ? "blocked by the user" : w));
+    const lines = Array.isArray(data.elements) ? data.elements : Array.isArray(data.matches) ? data.matches : undefined;
+    if (front !== undefined || lines) {
+      const was = this.seen.get(session.client.id);
+      const seen: Seen = { window: front ?? was?.window, elements: lines ? new Map() : was?.elements ?? new Map() };
+      for (const line of lines ?? []) {
+        const element = elementOf(line);
+        if (element) seen.elements.set(element.id, element);
+      }
+      this.seen.set(session.client.id, seen);
+    }
+    return data;
+  }
+
+  /** Why an action needs the person's yes first, in words for the question, or undefined. */
+  private riskOf(session: Session, action: Action, args: Record<string, unknown>, window: string | undefined): string | undefined {
+    const elements = this.seen.get(session.client.id)?.elements;
+    const nameAt = (name: unknown, id: unknown, x: unknown, y: unknown) =>
+      text(name) ?? (typeof id === "number" ? elements?.get(id)?.name : typeof x === "number" && typeof y === "number" ? elementAt(elements, x, y)?.name : undefined);
+    const where = window ? ` in ${window.slice(0, 60)}` : "";
+    if (action === "click" || action === "drag") {
+      const from = nameAt(args.name, args.id, args.x, args.y);
+      const to = action === "drag" ? nameAt(args.toName, args.toId, args.toX, args.toY) : undefined;
+      const risky = [from, to].find((n) => riskyName(n));
+      if (risky) return `${action === "drag" ? `drag "${from ?? "something"}" to "${to ?? "a spot"}"` : `click "${risky.slice(0, 60)}"`}${where}`;
+      return undefined;
+    }
+    if (!sendingWindow(window)) return undefined;
+    if (action === "keys" && submitKeys(text(args.keys))) return `press ${text(args.keys)}${where}`;
+    if ((action === "type" || action === "paste") && submitText(typeof args.text === "string" ? args.text : undefined)) return `${action} text that ends a line (which sends it)${where}`;
+    return undefined;
+  }
+
+  /**
+   * Asks the person whether an agent may do something risky, on the computer when it can ask (the person is at
+   * it), else on a device near it. Resolves with what to report when allowed, once; throws when not. Off with the
+   * computer's confirmRisky switch.
+   */
+  private async confirm(session: Session, what: string): Promise<string | undefined> {
+    const settings = this.hub.settings(session);
+    const on = settings.confirmRisky;
+    if (on === 0 || on === false || on === "0") return undefined;
+    const computer = session.client.name;
+    const caps = session.client.capabilities;
+    let asked: Session;
+    try {
+      asked = caps.includes("mic") || caps.includes("screen") ? session : this.hub.pickOutput({ location: text(settings.location) });
+    } catch {
+      try {
+        asked = this.hub.pickOutput({});
+      } catch (error) {
+        throw new Error(`to ${what} the person must allow it first, and no device can ask them (${(error as Error).message}). Tell them what you would do`);
+      }
+    }
+    const answer = await this.hub.ask(asked, `May the agent ${what} on ${computer}?`, ["Allow", "Deny"], CONFIRM_MS);
+    if (answer.answer !== "Allow") {
+      throw new Error(`the user declined: ${what} was not done${answer.timedOut ? " (no answer in 30 seconds counts as no)" : ""}. Do not try it another way; ask them what they want`);
+    }
+    return `the person allowed: ${what}`;
   }
 
   /** Clicking, typing and everything else that changes the screen: refused here when switched off for the computer. */
@@ -311,6 +421,63 @@ export class Desktops {
   }
 }
 
+/** What the last answers from a computer showed, for telling whether an action is risky. */
+interface Seen {
+  window: string | undefined;
+  elements: Map<number, SeenElement>;
+}
+interface SeenElement {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The block list's entry a name matches (any case, any part), or undefined. */
+export function blockedBy(blocked: string[], name: string): string | undefined {
+  const lower = name.toLowerCase();
+  return blocked.find((entry) => lower.includes(entry));
+}
+
+/** A window as an answer gives it: a line ("Inbox - Mail (outlook) 0,0 1200x800") or an object with a title. */
+function windowName(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null) {
+    const w = value as Record<string, unknown>;
+    return [w.title, w.name, w.app, w.process].filter((v) => typeof v === "string").join(" ") || undefined;
+  }
+  return undefined;
+}
+
+/** One element from a look or find: a line "id kind x,y wxh name [= value] [*focus]", or an object. */
+function elementOf(value: unknown): SeenElement | undefined {
+  if (typeof value === "string") {
+    const m = /^(\d+) \S+ (-?\d+),(-?\d+) (\d+)x(\d+) ?(.*)$/.exec(value);
+    if (!m) return undefined;
+    const name = m[6]!.split(" = ")[0]!.replace(/( \*\w+.*)$/, "");
+    return { id: Number(m[1]), x: Number(m[2]), y: Number(m[3]), w: Number(m[4]), h: Number(m[5]), name };
+  }
+  if (typeof value === "object" && value !== null) {
+    const e = value as Record<string, unknown>;
+    if (typeof e.id !== "number") return undefined;
+    const n = (v: unknown) => (typeof v === "number" ? v : 0);
+    return { id: e.id, name: typeof e.name === "string" ? e.name : "", x: n(e.x), y: n(e.y), w: n(e.w), h: n(e.h) };
+  }
+  return undefined;
+}
+
+/** The smallest element of a look at a point. */
+function elementAt(elements: Seen["elements"] | undefined, x: number, y: number): SeenElement | undefined {
+  let best: SeenElement | undefined;
+  for (const e of elements?.values() ?? []) {
+    if (x < e.x || y < e.y || x >= e.x + e.w || y >= e.y + e.h) continue;
+    if (!best || e.w * e.h < best.w * best.h) best = e;
+  }
+  return best;
+}
+
 /** A few words on what an agent just did on a computer, for the admin page. */
 function describe(action: string, params: Record<string, unknown>): string {
   const what = text(params.name) ?? text(params.into) ?? text(params.app) ?? text(params.url) ?? text(params.window) ?? text(params.keys) ?? text(params.go);
@@ -319,9 +486,9 @@ function describe(action: string, params: Record<string, unknown>): string {
 }
 
 /** Actions that change what is on the screen, held by the computer's allowInput switch. */
-const CHANGES = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "steps", "scroll", "paste"]);
+const CHANGES = new Set<Action>(["click", "drag", "type", "keys", "open", "switch", "window", "desktop", "steps", "scroll", "paste"]);
 /** What a step in `steps` may be. */
-const STEP_ACTIONS = new Set<Action>(["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"]);
+const STEP_ACTIONS = new Set<Action>(["click", "drag", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"]);
 const MAX_STEPS = 10;
 const STEPS_TIMEOUT_MS = 60_000;
 
@@ -357,6 +524,26 @@ function argsFor(action: Action, params: Record<string, unknown>): Record<string
         const seconds = whole(params.seconds);
         if (seconds !== undefined) args.seconds = Math.min(60, Math.max(1, seconds));
       }
+      return args;
+    }
+    case "drag": {
+      // From: id, name or x,y as for click. To: toId, toName or toX,toY.
+      target();
+      const x = whole(params.x), y = whole(params.y);
+      if (args.id === undefined && args.name === undefined) {
+        if (x === undefined || y === undefined) throw new Error("drag needs where from: an id from the last look, a name, or x and y");
+        Object.assign(args, { x, y });
+      }
+      const toId = whole(params.toId);
+      const toName = text(params.toName)?.slice(0, 200);
+      const toX = whole(params.toX), toY = whole(params.toY);
+      if (toId !== undefined) args.toId = toId;
+      else if (toName) args.toName = toName;
+      else if (toX !== undefined && toY !== undefined) Object.assign(args, { toX, toY });
+      else throw new Error("drag needs where to: toId from the last look, toName, or toX and toY");
+      const hold = params.holdMs === undefined ? undefined : whole(params.holdMs);
+      if (params.holdMs !== undefined && (hold === undefined || hold < 0 || hold > MAX_HOLD_MS)) throw new Error(`holdMs must be 0 to ${MAX_HOLD_MS}: how long to press before moving`);
+      if (hold) args.holdMs = hold;
       return args;
     }
     case "type": {

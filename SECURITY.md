@@ -34,7 +34,8 @@ The desktop app lets an agent read a computer's screen and, if allowed, click an
 - Per computer, on its admin page: "Let agents read the screen" and "Let agents click and type" (on), "Let agents take screenshots" (off). Axis checks them, and so does the app.
 - On the computer: Pause (window, tray or Ctrl+Alt+S) stops everything. A pill at the top of the screen shows while an agent is using it.
 - The app never types into a password field, never takes a screenshot while one has the focus, and never presses lock, sign-out, the security screen, Task Manager, Alt+F4, Win+R or Win+X. It opens only Start-menu apps and http(s) addresses, never a path or a command.
-- Not yet: a confirmation before sending, posting, deleting or buying (the tool's description asks agents to ask first, and nothing enforces it), and a list of apps an agent may not read or touch.
+- **Asking first** (Axis 0.45.0): before a click or drag on something named to send, post, delete, buy, pay, sign out, install and the like, or Enter in a mail, chat or payment window, Axis asks the person itself ("Allow" / "Deny", 30 seconds, silence is no), on the computer or a device near it; an agent's word does not count. Allow covers that one call. Per computer it can be switched off ("confirmRisky"). It goes by names: an element whose name gives no hint (an icon with no name, a spot on a canvas) is not asked about, and a click by id or point is named from the last look, so it can be wrong when the screen changed since.
+- **A block list** (Agent tools page): apps and windows, by part of their names, that are never read and never acted on. Axis refuses calls that name one and keeps such a window out of answers; the app (from 0.10.0) refuses to read or act on it when it is in front. With an older app, Axis can only keep what is read out of the answer, and an action on it is not stopped.
 
 **Things done later, with nobody watching.** An agent can leave itself a task for later (a timer with something to do). While such a task runs, the desktop tool is look-only: nothing is clicked or typed. It may act only if the person allowed it when the task was set, and Axis asks them that itself, on the device, with its own question; an agent's word that they agreed does not count. This governs Axis's desktop tool only. Whatever else an agent can do through its own harness (send mail, run commands) is not Axis's to limit.
 
@@ -63,6 +64,6 @@ Boards keep their Wi-Fi password and token in flash. They trust public certifica
 ## Known gaps
 
 - No signed firmware or signed desktop app.
-- No confirmation step or block list for the desktop app (see above).
+- The desktop tool's confirmation and block list go by names and titles (see above): an app that names nothing, or a title that does not say what it is, gets neither.
 - One admin token for everything; no separate users or roles.
 - The admin side is not rate-limited beyond the wrong-token lockout.

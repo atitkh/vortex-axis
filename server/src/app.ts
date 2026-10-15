@@ -181,7 +181,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const questApp = new QuestApp(config.dataDir, hub, log, config.bundledDir);
   // Firmware a release image came with, onto the shelves (only when newer than what is there).
   importBundledFirmware(config.bundledDir, new FirmwareStore(config.dataDir), log);
-  const desktops = new Desktops(hub, store);
+  const desktops = new Desktops(hub, store, Date.now, {}, () => config.desktopBlocked);
   const timers = new Timers({
     store,
     hub,

@@ -522,6 +522,12 @@
         <p class="help" id="watch-state"></p>
         <p class="msg" id="asks-note"></p>
       </div>
+      <h3>Apps the desktop tool may not use</h3>
+      <div>
+        <div class="inline"><input type="text" id="desktop-blocked" placeholder="bank, keepass, signal" aria-label="Blocked apps"><button type="button" id="desktop-blocked-save">Save</button></div>
+        <p class="help">Parts of app, window or process names, separated by commas, any case. A window whose name or title contains one is never read (a look says it is blocked, with nothing of what it shows) and nothing is clicked, dragged or typed there. The computer refuses it too, from desktop app 0.10.0 and Quest app 0.4.0; with older apps Axis can only keep what they read out of the answer. Up to 12, of 2 to 40 characters.</p>
+        <p class="msg" id="desktop-blocked-note"></p>
+      </div>
       <h3>Connect a harness by MCP</h3>
       <div class="form">
         <label>Address</label>

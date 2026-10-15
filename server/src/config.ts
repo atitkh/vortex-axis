@@ -74,6 +74,8 @@ export interface Config {
   mirrorQuestions: boolean;
   /** Whether approvals OpenClaw agents wait on are offered on a device. */
   mirrorApprovals: boolean;
+  /** Apps and windows the desktop tool may neither read nor touch: parts of their names, any case. */
+  desktopBlocked: string[];
   /** Where copies of the data folder go, as Axis sees it. Unset: no backup. */
   backupDir: string | undefined;
   /** Hours between copies. 0 makes one only when asked. */
@@ -177,6 +179,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mirrorCards: env.AXIS_MIRROR_CARDS !== "0" && env.AXIS_MIRROR_CARDS !== "false",
     mirrorQuestions: env.AXIS_MIRROR_QUESTIONS !== "0" && env.AXIS_MIRROR_QUESTIONS !== "false",
     mirrorApprovals: env.AXIS_MIRROR_APPROVALS === "1" || env.AXIS_MIRROR_APPROVALS === "true",
+    desktopBlocked: (env.AXIS_DESKTOP_BLOCKED ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     backupDir: env.AXIS_BACKUP_DIR || undefined,
     backupEveryHours: integer("AXIS_BACKUP_EVERY_HOURS", env.AXIS_BACKUP_EVERY_HOURS, 1),
     backupKeepDays: Math.max(1, integer("AXIS_BACKUP_KEEP_DAYS", env.AXIS_BACKUP_KEEP_DAYS, 7)),

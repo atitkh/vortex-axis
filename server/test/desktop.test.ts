@@ -94,6 +94,9 @@ describe("the desktop tool (experimental)", () => {
       pc.send({ t: "command.result", id: asked.id, ok: true, ...reply });
       return asked;
     };
+    // Asking first is tested on its own, below.
+    const { body } = await admin("GET", "/admin/clients");
+    await admin("PATCH", `/admin/settings/device/${body.clients.find((c: any) => c.name === "Desk PC").id}`, { values: { confirmRisky: 0 } });
 
     const clicking = tryTool({ action: "click", name: "Send", kind: "button" });
     expect((await answer("desktop.click", { payload: { how: "invoked", name: "Send" } })).params).toEqual({ name: "Send", kind: "button", button: "left" });
@@ -222,5 +225,97 @@ describe("the desktop tool (experimental)", () => {
     await pressing;
     const now = (await admin("GET", "/admin/now")).body;
     expect(now.computers).toEqual([expect.objectContaining({ computer: "Desk PC", last: "keys ctrl+s" })]);
+  });
+});
+
+describe("dragging, the block list and asking before risky actions", () => {
+  async function setUp() {
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const pc = await computer("Desk PC");
+    const answer = async (name: string, reply: Record<string, unknown>, match: (m: any) => boolean = () => true) => {
+      const asked = await pc.next("command", 0, (m) => m.name === name && match(m));
+      pc.send({ t: "command.result", id: asked.id, ok: true, ...reply });
+      return asked;
+    };
+    return { pc, answer };
+  }
+
+  it("drags from a name, id or point to another, with a hold, and says what is missing", async () => {
+    const { answer } = await setUp();
+    const dragging = tryTool({ action: "drag", name: "Report.pdf", toName: "Archive", holdMs: 500 });
+    expect((await answer("desktop.drag", { payload: { how: "mouse" } })).params).toEqual({ name: "Report.pdf", toName: "Archive", holdMs: 500 });
+    expect((await dragging).body.result).toMatchObject({ done: "drag", how: "mouse" });
+    const byPoint = tryTool({ action: "drag", x: 10, y: 20, toX: 300, toY: 40 });
+    expect((await answer("desktop.drag", {}, (m) => m.params.x === 10)).params).toEqual({ x: 10, y: 20, toX: 300, toY: 40 });
+    await byPoint;
+    expect((await tryTool({ action: "drag", toName: "Archive" })).body.error).toMatch(/needs where from/);
+    expect((await tryTool({ action: "drag", id: 3 })).body.error).toMatch(/needs where to/);
+    expect((await tryTool({ action: "drag", id: 3, toId: 4, holdMs: 5000 })).body.error).toMatch(/holdMs must be 0 to 2000/);
+    expect((await tryTool({ action: "steps", steps: [{ action: "drag", id: 1 }] })).body.error).toMatch(/step 1 \(drag\): drag needs where to/);
+  });
+
+  it("keeps blocked apps out: refused by name, not read, passed to the computer", async () => {
+    const { answer } = await setUp();
+    expect((await admin("PATCH", "/admin/integrations", { desktopBlocked: "Bank, KeePass" })).status).toBe(200);
+    expect((await admin("PATCH", "/admin/integrations", { desktopBlocked: ["x"] })).status).toBe(400);
+    expect((await tryTool({ action: "switch", window: "KeePassXC" })).body.error).toMatch(/blocked by the user/);
+    expect((await tryTool({ action: "steps", steps: [{ action: "open", app: "My Bank" }] })).body.error).toMatch(/step 1 \(open\): My Bank is blocked/);
+
+    const looking = tryTool({ action: "look" });
+    expect((await answer("desktop.look", { data: { window: "Online Bank - Edge (msedge) 0,0 800x600", elements: ["1 text 0,0 10x10 balance"] } })).params).toMatchObject({ blocked: "bank|keepass" });
+    const refused = (await looking).body.error;
+    expect(refused).toMatch(/blocked by the user \(it matches "bank"\)/);
+    expect(refused).not.toMatch(/balance/);
+
+    const screen = tryTool({ action: "look", scope: "screen" });
+    await answer("desktop.look", { data: { window: "Notepad", windows: ["Notepad", "Online Bank - Edge"] } }, (m) => m.params.scope === "screen");
+    expect((await screen).body.result.windows).toEqual(["Notepad", "blocked by the user"]);
+
+    const clicking = tryTool({ action: "click", x: 1, y: 1 });
+    await answer("desktop.click", { data: { after: { window: "KeePass", focus: "password" } } });
+    expect((await clicking).body.result.after).toEqual({ window: "blocked by the user" });
+    await admin("PATCH", "/admin/integrations", { desktopBlocked: [] });
+  });
+
+  it("asks the person before a risky click or Enter, and does it only on Allow", async () => {
+    const { pc, answer } = await setUp();
+    const phone = await connect(await newPairedClient({ capabilities: ["screen"], name: "Phone" }), { capabilities: ["screen"] });
+    await phone.next("status");
+    const looking = tryTool({ action: "look" });
+    await answer("desktop.look", { data: { window: "Inbox - Mail", elements: ["1 button 900,600 80x30 Send", "2 button 10,10 80x30 Search"] } });
+    await looking;
+
+    // Not risky: no question.
+    const search = tryTool({ action: "click", id: 2 });
+    await answer("desktop.click", {}, (m) => m.params.id === 2);
+    expect((await search).body.result.confirmed).toBeUndefined();
+
+    // Allowed: done once, and the answer says so.
+    const sending = tryTool({ action: "click", id: 1 });
+    const question = await phone.next("ask");
+    expect(question).toMatchObject({ question: expect.stringMatching(/May the agent click "Send" in Inbox - Mail on Desk PC\?/), choices: ["Allow", "Deny"] });
+    phone.send({ t: "answer", askId: question.askId, choice: "Allow" });
+    await answer("desktop.click", {}, (m) => m.params.id === 1);
+    expect((await sending).body.result.confirmed).toMatch(/allowed: click "Send"/);
+
+    // Declined: the computer never hears of it. Enter in a mail window, and a click at the Send button's spot, ask too.
+    const pressing = tryTool({ action: "keys", keys: "ctrl+enter" });
+    const asked = await phone.next("ask", 0, (m) => m.askId !== question.askId);
+    expect(asked.question).toMatch(/press ctrl\+enter in Inbox - Mail/);
+    phone.send({ t: "answer", askId: asked.askId, choice: "Deny" });
+    expect((await pressing).body.error).toMatch(/the user declined/);
+    const steps = tryTool({ action: "steps", steps: [{ action: "type", text: "hi" }, { action: "click", x: 905, y: 610 }] });
+    const third = await phone.next("ask", 0, (m) => m.askId !== question.askId && m.askId !== asked.askId);
+    expect(third.question).toMatch(/click "Send"/);
+    phone.send({ t: "answer", askId: third.askId, choice: "Deny" });
+    expect((await steps).body.error).toMatch(/the user declined/);
+    expect(pc.received.some((m: any) => m.name === "desktop.keys" || m.name === "desktop.steps")).toBe(false);
+
+    // Switched off for the computer: no question.
+    const { body } = await admin("GET", "/admin/clients");
+    await admin("PATCH", `/admin/settings/device/${body.clients.find((c: any) => c.name === "Desk PC").id}`, { values: { confirmRisky: 0 } });
+    const unasked = tryTool({ action: "click", name: "Delete" });
+    await answer("desktop.click", {}, (m) => m.params.name === "Delete");
+    expect((await unasked).body.result.done).toBe("click");
   });
 });

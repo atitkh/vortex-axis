@@ -3346,6 +3346,7 @@ function renderTools() {
     : !d.watch.missing.length
       ? `The gateway lets Axis listen for these (${d.watch.scopes.join(", ")}).`
       : `Not working yet: the gateway has not granted Axis ${d.watch.missing.join(" and ")}. It grants scopes when a pairing is approved, so pair again: make a setup code on the gateway (openclaw qr --setup-code-only --limited), paste it on the OpenClaw page, and approve the request there. Turns stop for the moment that takes.`;
+  if (document.activeElement !== $("desktop-blocked")) $("desktop-blocked").value = (d.desktopBlocked ?? []).join(", ");
   $("mcp-public").checked = d.public;
   $("mcp-public").disabled = !d.publicHosts.length;
   $("mcp-public-help").textContent = d.publicHosts.length
@@ -3519,6 +3520,13 @@ for (const [id, key] of [["mirror-questions", "mirrorQuestions"], ["mirror-appro
 $("mirror-cards").addEventListener("change", (event) =>
   act(event.target, "mirror-note", async () => {
     await api("PATCH", "/admin/integrations", { mirrorCards: event.target.checked });
+    await loadTools(true);
+  }),
+);
+$("desktop-blocked-save").addEventListener("click", (event) =>
+  act(event.target, "desktop-blocked-note", async () => {
+    const saved = await api("PATCH", "/admin/integrations", { desktopBlocked: $("desktop-blocked").value });
+    note("desktop-blocked-note", saved.settings.desktopBlocked?.length ? `Blocked: ${saved.settings.desktopBlocked.join(", ")}.` : "Nothing is blocked.", "good");
     await loadTools(true);
   }),
 );

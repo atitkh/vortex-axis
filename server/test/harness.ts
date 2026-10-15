@@ -58,6 +58,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     mirrorCards: true,
     mirrorQuestions: false,
     mirrorApprovals: false,
+    desktopBlocked: [],
     backupDir: undefined,
     backupEveryHours: 1,
     backupKeepDays: 7,

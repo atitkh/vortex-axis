@@ -28,6 +28,8 @@ export interface HubSettings {
   /** Whether its agents' questions, and the approvals they wait on, are put to the person on a device. */
   mirrorQuestions: boolean;
   mirrorApprovals: boolean;
+  /** Apps and windows the desktop tool may neither read nor touch (parts of names, any case). */
+  desktopBlocked: string[];
 }
 
 const META_KEY = "hub_config";
@@ -60,6 +62,7 @@ function fromConfig(config: Config): HubSettings {
     mirrorCards: config.mirrorCards,
     mirrorQuestions: config.mirrorQuestions,
     mirrorApprovals: config.mirrorApprovals,
+    desktopBlocked: config.desktopBlocked,
   };
 }
 
@@ -100,7 +103,11 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.mirrorCards = settings.mirrorCards;
   config.mirrorQuestions = settings.mirrorQuestions;
   config.mirrorApprovals = settings.mirrorApprovals;
+  config.desktopBlocked = settings.desktopBlocked ?? [];
 }
+
+/** Most entries in the desktop block list: it travels to the computer with each command, in at most 500 characters. */
+const MAX_BLOCKED = 12;
 
 const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
 
@@ -189,6 +196,13 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
     if (body[key] === undefined) continue;
     if (typeof body[key] !== "boolean") throw new Error(`${key} must be true or false`);
     patch[key] = body[key] as boolean;
+  }
+  if (body.desktopBlocked !== undefined) {
+    const blocked = names(body.desktopBlocked, "blocked apps");
+    if (blocked.length > MAX_BLOCKED) throw new Error(`at most ${MAX_BLOCKED} blocked apps`);
+    const wrong = blocked.find((entry) => entry.length < 2 || entry.length > 40 || entry.includes("|"));
+    if (wrong !== undefined) throw new Error(`"${wrong}" cannot be blocked: give 2 to 40 characters of an app's or window's name, without |`);
+    patch.desktopBlocked = blocked;
   }
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 
