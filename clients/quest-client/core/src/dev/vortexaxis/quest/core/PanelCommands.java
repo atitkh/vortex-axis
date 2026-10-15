@@ -322,16 +322,67 @@ public final class PanelCommands implements AxisLink.Handler {
                     adbSays = adb.problem();
                 }
                 did("Checked from the admin page: adb " + ("ready".equals(adbSays) ? "ready" : "not ready"));
-                return AxisLink.Answer.done(Json.obj(
+                Map<String, Object> hello = Json.obj(
                         "platform", QuestIdentity.TYPE,
                         "version", version,
                         "adb", clip(adbSays, 200),
                         "panel", Panel.WIDTH + "x" + Panel.HEIGHT,
                         "engine", engineWord(),
-                        "unsupported", "switch, window, desktop, clipboard, paste; point is noted but not drawn"));
+                        "unsupported", "switch, window, desktop, clipboard, paste; point is noted but not drawn");
+                // Axis takes no value over 240 characters, so what is longer comes as numbered pieces.
+                Helper hh = helper;
+                if (hh != null && hh.state() == Helper.State.BASIC) pieces(hello, "why", hh.detail());
+                if ("ready".equals(adbSays)) pieces(hello, "windows", windowLayout());
+                return AxisLink.Answer.done(hello);
             }
             default:
                 return AxisLink.Answer.fail("not implemented on this device");
+        }
+    }
+
+    /** `text` as `key`, `key2`, `key3` ... of at most 200 characters each (up to five), nothing for an empty text. */
+    static void pieces(Map<String, Object> into, String key, String text) {
+        if (text == null || text.isEmpty()) return;
+        for (int i = 0; i < 5 && i * 200 < text.length(); i++)
+            into.put(i == 0 ? key : key + (i + 1), text.substring(i * 200, Math.min(text.length(), (i + 1) * 200)));
+    }
+
+    private static final Pattern WINDOW_LINE = Pattern.compile("Window #\\d+ Window\\{\\S+ u\\d+ ([^}/ ]+)");
+    private static final Pattern DISPLAY_LINE = Pattern.compile("mDisplayId=(\\d+)");
+
+    /**
+     * Which window is on which display, from `dumpsys window windows`: "com.oculus.browser@0 dev.vortexaxis.quest@0 ...",
+     * then the focus. For finding out where a tap goes on a headset whose panels may sit on several displays. Empty when
+     * it cannot be read.
+     */
+    String windowLayout() {
+        try {
+            String out = adb.shell("dumpsys window windows | grep -E 'Window #|mDisplayId='; echo ==; dumpsys window displays | grep -E 'mCurrentFocus|Display: mDisplayId'", 5000);
+            int split = out.indexOf("\n==");
+            String windows = split >= 0 ? out.substring(0, split) : out;
+            String focus = split >= 0 ? out.substring(split + 3) : "";
+            StringBuilder b = new StringBuilder();
+            String current = null;
+            for (String line : windows.split("\n")) {
+                Matcher w = WINDOW_LINE.matcher(line);
+                if (w.find()) {
+                    current = w.group(1);
+                    continue;
+                }
+                Matcher d = DISPLAY_LINE.matcher(line);
+                if (current != null && d.find()) {
+                    b.append(current).append('@').append(d.group(1)).append(' ');
+                    current = null;
+                }
+            }
+            b.append("| ");
+            for (String line : focus.split("\n")) {
+                String t = line.trim().replaceAll("\\s+", " ");
+                if (!t.isEmpty()) b.append(clip(t, 90)).append("; ");
+            }
+            return b.toString().trim();
+        } catch (IOException e) {
+            return "";
         }
     }
 
@@ -1152,7 +1203,7 @@ public final class PanelCommands implements AxisLink.Handler {
             case FAST: return "fast";
             case STARTING: return "starting (uiautomator meanwhile)";
             case OFF: return "uiautomator (fast engine off)";
-            default: return "uiautomator (fast engine not available: " + clip(h.detail(), 900) + ")";
+            default: return "uiautomator (fast engine not available: " + clip(h.detail(), 150) + ")";
         }
     }
 

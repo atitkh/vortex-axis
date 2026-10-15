@@ -307,6 +307,17 @@ public class CommandsTest {
     }
 
     static void unsupported() {
+        System.out.println("[hello] nothing longer than Axis takes, long things as pieces");
+        Map<String, Object> pcs = new java.util.LinkedHashMap<>();
+        PanelCommands.pieces(pcs, "why", "x".repeat(450));
+        equal(new java.util.ArrayList<>(pcs.keySet()), Arrays.asList("why", "why2", "why3"), "450 characters make three pieces");
+        check(pcs.values().stream().allMatch(v -> ((String) v).length() <= 200), "none over 200 characters");
+        PanelCommands.pieces(pcs, "empty", "");
+        check(!pcs.containsKey("empty"), "an empty text makes none");
+        Map<String, Object> hi = Json.map(run("desktop.hello").payload);
+        check(hi != null && hi.values().stream().allMatch(v -> !(v instanceof String) || ((String) v).length() <= 240), "every value of hello is within 240 characters: " + hi);
+        adbd.take();
+
         System.out.println("[unsupported on a Quest]");
         for (String n : new String[] {"switch", "window", "desktop", "clipboard", "paste"}) {
             AxisLink.Answer a = run("desktop." + n, "window", "Store", "do", "maximize", "go", "next", "text", "hi");

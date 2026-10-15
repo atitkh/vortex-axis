@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.7 (experimental) (2026-10-14)
+
+- **"Check the headset" answers again.** 0.3.6 put the helper's whole start message in `desktop.hello`, and Axis refuses any value over 240 characters ("Expected union value"), so the answer was dropped and the admin page timed out. Long things now come as pieces of at most 200 characters (`why`, `why2` ...), and the engine line is short.
+- **Shows how the headset lays its windows out.** `desktop.hello` carries `windows`: each window with the display it is on (`com.oculus.browser@0 dev.vortexaxis.quest@0 ...`) and the focus. Found on the owner's headset: with the app's own panel open, a tap at the Browser's "Create tab" put the focus on the app's panel instead (`after` named the app) and added no tab. It looks like the tap goes to a different window than the one read, and this tells where each panel lives.
+- versionCode 10 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.6 (experimental) (2026-10-14)
 
 - **The fast engine's start failures can be read.** After 0.3.5 the helper installed and started but never answered, for minutes, and the app could only say "it wrote no status": the status file may not be writable by the helper at all. The helper now reports each step as an `INSTRUMENTATION_STATUS: note=...` line, which `am instrument` prints and the app already reads back, and the failure message carries them ("the helper got as far as: onCreate | checks passed | UiAutomation connected ...") along with how `am` ended. `desktop.hello` (the admin page's Check the headset) shows the whole message, not its first 80 characters.
