@@ -150,6 +150,15 @@ public class AdbClient {
         }
     }
 
+    /**
+     * Closes the connection from another thread while a command may be waiting on it (close() would wait for that
+     * command first): the waiting command then fails at once.
+     */
+    public void abort() {
+        java.net.Socket s = socket;
+        try { if (s != null) s.close(); } catch (IOException ignored) {}
+    }
+
     public synchronized void close() {
         try { if (socket != null) socket.close(); } catch (IOException ignored) {}
         socket = null; out = null; in = null; banner = "";

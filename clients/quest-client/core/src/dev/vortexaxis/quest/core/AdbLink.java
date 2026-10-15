@@ -173,6 +173,18 @@ public final class AdbLink {
         }
     }
 
+    /**
+     * A second connection with the same key, for one command that runs for a long time (the helper's `am instrument -w`)
+     * without holding up the commands on the first. The key must already be allowed: this never waits for a person.
+     */
+    public AdbClient second() throws IOException {
+        byte[][] saved = keys.load();
+        if (saved == null) throw new IOException("no adb key yet");
+        AdbClient c = new AdbClient(AdbClient.decodePrivateKey(saved[0]), AdbClient.decodePublicKey(saved[1]), keyName, (s, d) -> {});
+        c.connect(host, port, 3000, 0);
+        return c;
+    }
+
     public boolean ready() {
         AdbClient c = client;
         return c != null && c.isConnected() && !busy;

@@ -287,9 +287,10 @@ public class HelperTest {
         check(sent.get(0).startsWith("pm list packages --show-versioncode dev.vortexaxis.quest.helper"), "asked whether the helper is there");
         check(sent.contains(Helper.installCommand(host.apk.getAbsolutePath())), "installed it with pm install -r from /data/local/tmp");
         check(sent.contains("echo " + host.sha + " > " + Helper.MARKER), "and noted which build it is");
-        String start = sent.stream().filter(c -> c.contains("am instrument")).findFirst().orElse("");
-        check(start.startsWith("rm -f /sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt; am force-stop dev.vortexaxis.quest.helper; sleep 1; am instrument -e uid 10123 -e port ") && start.contains(" -e secret ") && start.contains("dev.vortexaxis.quest.helper/.Helper") && start.endsWith("; echo helper-started") && !start.contains("nohup") && !start.contains(" -w"),
-                "started with am instrument (no -w, no nohup), told this app's uid: " + start);
+        String start = adbd.history.stream().filter(c -> c.contains("am instrument")).reduce((x, y) -> y).orElse("");
+        check(sent.contains(Helper.stopCommand()), "stopped any old helper first: " + sent);
+        check(start.startsWith("am instrument -w -e uid 10123 -e port ") && start.contains(" -e secret ") && start.endsWith("dev.vortexaxis.quest.helper/.Helper 2>&1"),
+                "started with am instrument -w on its own connection, told this app's uid: " + start);
         check(states.contains(Helper.State.STARTING) && states.get(states.size() - 1) == Helper.State.FAST, "the window heard Starting, then Fast: " + states);
         equal(fh.installs, 1, "one install");
 

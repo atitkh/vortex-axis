@@ -224,9 +224,10 @@ public final class Helper {
             String secret = HelperProtocol.nonce();
             ch.prepare(port, secret);
             lastPort = port;
-            String said = adb.shell(startCommand(h.uid(), port, secret), 15_000);
-            if (!said.contains("helper-started")) throw new IOException("the start was not taken: " + firstLine(said));
-            amSaid = said.replace("helper-started", "").trim().replace('\n', ' ');
+            String said = adb.shell(stopCommand(), 15_000);
+            if (!said.contains("stopped")) throw new IOException("the old helper could not be stopped: " + firstLine(said));
+            amSaid = "";
+            hold(instrumentCommand(h.uid(), port, secret));
             long end = System.currentTimeMillis() + startMs;
             String v = null;
             while (System.currentTimeMillis() < end) {
@@ -300,6 +301,7 @@ public final class Helper {
     }
 
     private void stopHelper() {
+        closeHolder();
         closeConn();
         try {
             if (adb.ready()) adb.shell("am force-stop " + HelperProtocol.PACKAGE, 5000);
@@ -359,15 +361,58 @@ public final class Helper {
     }
 
     /**
-     * Stops any helper that runs, then starts it, answering only `uid`. `am instrument` WITHOUT -w: it returns at once and
-     * the instrumentation goes on inside the system, with nothing of ours to keep alive. (0.3.0 to 0.3.7 ran `am instrument -w`
-     * under nohup in the background of the adb stream, which Android may end with the stream: on the owner's headset the
-     * start sometimes never ran, with no word why.) What it reports is read back from logcat.
+     * Stops any helper that runs. A second after the force-stop: the old process's UiAutomation connection is still
+     * being cleared.
      */
-    static String startCommand(int uid, int port, String secret) {
-        // A second after the force-stop: the old process's UiAutomation connection is still being cleared.
-        return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; sleep 1; "
-                + "am instrument -e uid " + uid + " -e port " + port + " -e secret " + secret + " " + HelperProtocol.INSTRUMENTATION + " 2>&1; echo helper-started";
+    static String stopCommand() {
+        return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; sleep 1; echo stopped";
+    }
+
+    /** Starts the helper, answering only `uid`. Held open by `hold`: see there why. */
+    static String instrumentCommand(int uid, int port, String secret) {
+        return "am instrument -w -e uid " + uid + " -e port " + port + " -e secret " + secret + " " + HelperProtocol.INSTRUMENTATION + " 2>&1";
+    }
+
+    /** The adb connection that keeps `am instrument -w` running while the helper is up; null when there is none. */
+    private volatile AdbClient holder;
+
+    /**
+     * Runs `am instrument -w` on a connection of its own and keeps it open for as long as the helper runs. The helper's
+     * UiAutomation connection is a binder that lives in that `am` process: when `am` ends, the helper is blind. Without
+     * -w (0.3.8 to 0.3.10) `am` returned at once and the helper got no UiAutomation at all ("no UiAutomation" in its
+     * log on the owner's headset); with -w under nohup in the background (0.3.0 to 0.3.7) Android could end `am` with
+     * the stream, and the helper went on answering pings while seeing nothing. Here `am` lives as long as this app's
+     * connection to adbd, and when it ends the helper is taken as lost and started again.
+     */
+    private void hold(String command) throws IOException {
+        closeHolder();
+        AdbClient c = adb.second();
+        holder = c;
+        Thread t = new Thread(() -> {
+            String said;
+            try {
+                said = new String(c.shellBytes(command, Integer.MAX_VALUE), java.nio.charset.StandardCharsets.UTF_8).trim().replace('\n', ' ');
+            } catch (IOException e) {
+                said = "its connection ended (" + AxisLink.describe(e) + ")";
+            } finally {
+                c.close();
+            }
+            amSaid = said;
+            if (holder != c) return;
+            holder = null;
+            log.line("engine: am instrument ended" + (said.isEmpty() ? "" : ": " + PanelCommands.clip(said, 200)));
+            synchronized (life) {
+                if (state == State.FAST) lostLocked("its am instrument ended");
+            }
+        }, "axis-helper-am");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void closeHolder() {
+        AdbClient c = holder;
+        holder = null;
+        if (c != null) c.abort();
     }
 
     /**

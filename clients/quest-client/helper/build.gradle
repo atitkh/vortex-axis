@@ -14,8 +14,8 @@ android {
         minSdk 29
         targetSdk 32
         // In step with the app: the app expects the helper it carries to say its own version.
-        versionCode 13
-        versionName '0.3.10'
+        versionCode 14
+        versionName '0.3.11'
     }
 
     sourceSets {

@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.11 (experimental) (2026-10-14)
+
+- **The fast engine's real fault, found from the headset's logcat:** the helper's UiAutomation is a binder that lives in the `am instrument` process. Without `-w` (0.3.8 to 0.3.10) `am` returned at once and the helper logged "no UiAutomation"; with `-w` under nohup in the background (0.3.0 to 0.3.7) Android could end `am` with the adb stream, and the helper went on answering pings while seeing nothing (the empty looks). The app now runs `am instrument -w` on a second adb connection of its own and holds it open for as long as the helper runs; when it ends, the helper is taken as lost and started again. Closing it never waits on the command reading it (a deadlock found in the tests).
+- versionCode 14 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.10 (experimental) (2026-10-14)
 
 - **The app's window no longer takes taps meant for another panel.** 0.3.8 moved the window aside only when it was "resumed", but with another panel focused it is paused and still on top, so it went on taking the taps for the Browser's tab strip (checked on the headset: a tap at "Create tab" gave the focus to this app and added no tab). A paused window now ignores touches (`FLAG_NOT_TOUCHABLE`), and takes them again when it is in front. The Live view stays where it is.

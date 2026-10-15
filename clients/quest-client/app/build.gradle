@@ -12,8 +12,8 @@ android {
         // Kept at 32 on purpose: a sideloaded app, fewer newer background and foreground-service rules.
         targetSdk 32
         // versionCode goes up with every build that goes out: an update from Axis never installs an older one.
-        versionCode 13
-        versionName '0.3.10'
+        versionCode 14
+        versionName '0.3.11'
     }
 
     sourceSets {
