@@ -282,7 +282,7 @@ describe("dragging, the block list and asking before risky actions", () => {
     const phone = await connect(await newPairedClient({ capabilities: ["screen"], name: "Phone" }), { capabilities: ["screen"] });
     await phone.next("status");
     const looking = tryTool({ action: "look" });
-    await answer("desktop.look", { data: { window: "Inbox - Mail", elements: ["1 button 900,600 80x30 Send", "2 button 10,10 80x30 Search"] } });
+    await answer("desktop.look", { data: { window: "Inbox - Mail 0,0 1200x800", elements: ["1 button 900,600 80x30 Send", "2 button 10,10 80x30 Search"] } });
     await looking;
 
     // Not risky: no question.

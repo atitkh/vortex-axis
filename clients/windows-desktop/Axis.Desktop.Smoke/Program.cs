@@ -53,6 +53,11 @@ sealed class FakeDesktop : IDesktop
         Console.WriteLine($"{kind} click at {x},{y} on {target?.Name}");
         return Task.FromResult(target != null ? "invoked" : "mouse");
     }
+    public Task<string> DragAsync(ScreenElement? from, int x1, int y1, ScreenElement? to, int x2, int y2, int holdMs, CancellationToken ct)
+    {
+        Console.WriteLine($"drag from {x1},{y1} ({from?.Name}) to {x2},{y2} ({to?.Name}), hold {holdMs} ms");
+        return Task.FromResult("mouse");
+    }
     public Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
     {
         Console.WriteLine($"typing {text.Length} characters into {target?.Name ?? "the focus"}");

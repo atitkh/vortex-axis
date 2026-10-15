@@ -60,6 +60,11 @@ public interface IDesktop
      * directly, without the mouse; "mouse" when a real click was sent there (and the mouse put back).
      */
     Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct);
+    /**
+     * Drags with the left button from (x1, y1) to (x2, y2): down, held `holdMs` first when asked, moved in steps,
+     * up. A real mouse drag, never an automation pattern; the mouse is put back after. Returns how ("mouse").
+     */
+    Task<string> DragAsync(ScreenElement? from, int x1, int y1, ScreenElement? to, int x2, int y2, int holdMs, CancellationToken ct);
     /** Types `text` into `target`, or into whatever has the focus. Refuses a password field. */
     Task TypeAsync(ScreenElement? target, string text, CancellationToken ct);
     /** Presses one key combination. */
@@ -195,6 +200,11 @@ public sealed class DesktopCommands
     {
         try
         {
+            if (await BlockedFrontAsync(name, p, ct) is string hit)
+            {
+                Did?.Invoke($"Refused {name["desktop.".Length..]}: the window in front is on the user's block list");
+                return CommandAnswer.Fail($"the window in front is blocked by the user (it matches \"{hit}\"): the app neither reads it nor acts on it. Tell the person; do not try another way");
+            }
             if (name is "desktop.look" or "desktop.find" or "desktop.screenshot") return await WithinAsync(RunAsync(name, p, ct), ReadDeadlineMs, name);
             if (!Changes.Contains(name)) return await RunAsync(name, p, ct);
             var before = await StateOrNullAsync(ct);
@@ -208,6 +218,31 @@ public sealed class DesktopCommands
             Did?.Invoke($"{name} failed: {why}");
             return CommandAnswer.Fail(why);
         }
+    }
+
+    /** The user's block list, sent by Axis with each command as `blocked` ("bank|keepass"), lower case. */
+    static List<string> Blocked(JsonElement p) =>
+        (Str(p, "blocked") ?? "").ToLowerInvariant().Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /** The block list's entry a window's title or app contains, any case, or null. */
+    static string? BlockedBy(List<string> blocked, string? title, string? app)
+    {
+        var name = $"{title} {app}".ToLowerInvariant();
+        return blocked.FirstOrDefault(b => name.Contains(b, StringComparison.Ordinal));
+    }
+
+    /**
+     * The block list's entry the window in front matches, when a command would read it or act on it; null to go on.
+     * Open, switch, window and a look at the whole screen are let through: they name or list other windows, and a
+     * screen look names a blocked one only as blocked.
+     */
+    async Task<string?> BlockedFrontAsync(string name, JsonElement p, CancellationToken ct)
+    {
+        var blocked = Blocked(p);
+        if (blocked.Count == 0 || name is "desktop.hello" or "desktop.hide" or "desktop.open" or "desktop.switch" or "desktop.window"
+            || name == "desktop.look" && Str(p, "scope") == "screen") return null;
+        var front = (await StateOrNullAsync(ct))?.Window;
+        return front == null ? null : BlockedBy(blocked, front.Title, front.App);
     }
 
     async Task<CommandAnswer> RunAsync(string name, JsonElement p, CancellationToken ct)
@@ -224,6 +259,8 @@ public sealed class DesktopCommands
                 var ocr = Bool(p, "ocr") ? OcrMode.Always : Toggle("autoOcr", true) ? OcrMode.Auto : OcrMode.Never;
                 var started = System.Diagnostics.Stopwatch.StartNew();
                 var look = await desktop.LookAsync(scope, ocr, ct);
+                if (scope == "screen" && Blocked(p) is { Count: > 0 } blocked)
+                    look = look with { Elements = look.Elements.Select(e => e.Kind == "window" && BlockedBy(blocked, e.Name, null) != null ? e with { Name = "blocked by the user", Value = null, Ref = null } : e).ToList() };
                 var elements = Pick(look.Elements, look.MouseX, look.MouseY, MaxElements);
                 lock (gate) last = elements;
                 var data = LookData(look, elements);
@@ -302,7 +339,18 @@ public sealed class DesktopCommands
             }
             case "desktop.steps":
                 return await StepsAsync(p, ct);
-            case "desktop.click" or "desktop.type" or "desktop.keys" or "desktop.open" or "desktop.switch" or "desktop.window" or "desktop.desktop"
+            case "desktop.window" when Str(p, "do") == "list":
+            {
+                // The windows open, as a look at the screen sees them (blocked ones named only as blocked).
+                if (!Toggle("allowLook", true)) return CommandAnswer.Fail("reading the screen is switched off for this computer");
+                var look = await desktop.LookAsync("screen", OcrMode.Never, ct);
+                var blocked = Blocked(p);
+                var windows = look.Elements.Where(e => e.Kind == "window" && e.Name.Length > 0)
+                    .Select(e => (JsonNode?)(BlockedBy(blocked, e.Name, null) != null ? "blocked by the user" : $"{Clip(e.Name, 120)} {e.X},{e.Y} {e.W}x{e.H}")).ToArray();
+                Did?.Invoke($"Listed {windows.Length} open windows");
+                return CommandAnswer.Done(data: new JsonObject { ["windows"] = new JsonArray(windows) });
+            }
+            case "desktop.click" or "desktop.drag" or "desktop.type" or "desktop.keys" or "desktop.open" or "desktop.switch" or "desktop.window" or "desktop.desktop"
                 or "desktop.scroll" or "desktop.paste":
                 return await ActAsync(name, p, ct);
             case "desktop.hello":
@@ -345,7 +393,7 @@ public sealed class DesktopCommands
 
     /** Commands that change the screen: their answer says what is in front afterwards, so the agent need not look again. */
     static readonly HashSet<string> Changes =
-        ["desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps",
+        ["desktop.click", "desktop.drag", "desktop.type", "desktop.keys", "desktop.open", "desktop.switch", "desktop.window", "desktop.desktop", "desktop.steps",
          "desktop.scroll", "desktop.paste"];
     /** How long the screen gets to catch up before it is read again; an app being started takes longer. */
     const int AfterMs = 300, AfterOpenMs = 400;
@@ -387,7 +435,7 @@ public sealed class DesktopCommands
         && d.TryGetProperty("steps", out var s) && s.ValueKind == JsonValueKind.Array && s.EnumerateArray().Any(e => Str(e, "action") == action);
 
     /** What a step in `steps` may be. */
-    static readonly HashSet<string> StepActions = ["click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"];
+    static readonly HashSet<string> StepActions = ["click", "drag", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"];
     public const int MaxSteps = 10;
     /** A moment between steps, for the screen to catch up with the last one. */
     const int SettleMs = 150;
@@ -548,6 +596,32 @@ public sealed class DesktopCommands
                 Did?.Invoke($"{(kind == ClickKind.Left ? "Clicked" : kind == ClickKind.Right ? "Right-clicked" : "Double-clicked")} {(target != null ? Clip(target.Name, 60) : $"{x}, {y}")}");
                 var payload = new JsonObject { ["x"] = x, ["y"] = y, ["how"] = how };
                 if (target != null) payload["name"] = Clip(target.Name, 200);
+                return CommandAnswer.Done(payload);
+            }
+            case "desktop.drag":
+            {
+                var (from, fail) = await TargetAsync(p, ct);
+                if (fail != null) return CommandAnswer.Fail(fail);
+                int x1, y1;
+                if (from != null) (x1, y1) = (from.X + from.W / 2, from.Y + from.H / 2);
+                else if (Int(p, "x") is int px && Int(p, "y") is int py) (x1, y1) = (px, py);
+                else return CommandAnswer.Fail("drag needs where from: a name, an id, or x and y");
+                // Where to: by id from the last look, by name (read afresh), or a point.
+                var toward = new JsonObject();
+                if (Int(p, "toId") is int toId) toward["id"] = toId;
+                else if (Str(p, "toName") is string toName) toward["name"] = toName;
+                var (to, toFail) = await TargetAsync(JsonDocument.Parse(toward.ToJsonString()).RootElement, ct);
+                if (toFail != null) return CommandAnswer.Fail(toFail);
+                int x2, y2;
+                if (to != null) (x2, y2) = (to.X + to.W / 2, to.Y + to.H / 2);
+                else if (Int(p, "toX") is int tx && Int(p, "toY") is int ty) (x2, y2) = (tx, ty);
+                else return CommandAnswer.Fail("drag needs where to: toName, toId, or toX and toY");
+                var hold = Math.Clamp(Int(p, "holdMs") ?? 0, 0, 2000);
+                var how = await desktop.DragAsync(from, x1, y1, to, x2, y2, hold, ct);
+                Did?.Invoke($"Dragged {(from != null ? Clip(from.Name, 60) : $"{x1}, {y1}")} to {(to != null ? Clip(to.Name, 60) : $"{x2}, {y2}")}{(hold > 0 ? $" after holding {hold} ms" : "")}");
+                var payload = new JsonObject { ["x"] = x1, ["y"] = y1, ["toX"] = x2, ["toY"] = y2, ["how"] = how };
+                if (from != null) payload["name"] = Clip(from.Name, 200);
+                if (to != null) payload["toName"] = Clip(to.Name, 200);
                 return CommandAnswer.Done(payload);
             }
             case "desktop.type":
@@ -757,6 +831,8 @@ public sealed class DesktopCommands
         data["elements"] = list;
         if (look.Elements.Count > elements.Count) data["more"] = look.Elements.Count - elements.Count;
         if (look.OcrFailed != null) data["ocr"] = $"text from the pixels skipped: {look.OcrFailed}";
+        else if (elements.Any(e => e.Source == "ocr"))
+            data["ocr"] = "the window exposes few controls, so its text was read from the pixels: lines marked (ocr), positions approximate; click them by name";
         return data;
     }
 
@@ -786,6 +862,7 @@ public static class DesktopIdentity
             Setting("bubble", "Words beside the pointer", "toggle", "Desktop", "Show what the agent says next to its pointer.", "1"),
             Setting("allowScreenshot", "Let agents take screenshots", "toggle", "Desktop", "On, an agent may take a small picture of the window in front or the screen when reading its controls is not enough; the picture goes to the agent's model. Never while a password field has the focus.", "0"),
             Setting("autoUpdate", "Update automatically", "toggle", "Desktop", "When a newer desktop app is on this hub, download it, check it and restart into it.", "1"),
+            Setting("confirmRisky", "Ask before risky actions", "toggle", "Desktop", "Axis asks you first (Allow or Deny, here or on a device near you) when an agent would click Send, Delete, Buy and the like, or press Enter in a chat, mail or payment window.", "1"),
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),
         ["actions"] = new JsonArray(

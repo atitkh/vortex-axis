@@ -441,9 +441,9 @@ export function blockedBy(blocked: string[], name: string): string | undefined {
   return blocked.find((entry) => lower.includes(entry));
 }
 
-/** A window as an answer gives it: a line ("Inbox - Mail (outlook) 0,0 1200x800") or an object with a title. */
+/** A window as an answer gives it: a line ("Inbox - Mail (outlook) 0,0 1200x800", its box left off) or an object with a title. */
 function windowName(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value.replace(/ -?\d+,-?\d+ \d+x\d+$/, "");
   if (typeof value === "object" && value !== null) {
     const w = value as Record<string, unknown>;
     return [w.title, w.name, w.app, w.process].filter((v) => typeof v === "string").join(" ") || undefined;

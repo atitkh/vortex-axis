@@ -636,6 +636,28 @@ sealed class WindowsDesktop : IDesktop
         }
     }
 
+    /** How long a drag's move takes, after any hold. */
+    const int DragMoveMs = 400;
+
+    public async Task<string> DragAsync(ScreenElement? from, int x1, int y1, ScreenElement? to, int x2, int y2, int holdMs, CancellationToken ct)
+    {
+        await ShowAt(x1, y1, "Drag", ct);
+        try
+        {
+            // The pointer glides to the drop as the mouse moves there.
+            var moving = Uia.Run(() => Input.Drag(x1, y1, x2, y2, holdMs, DragMoveMs), 3000 + holdMs + DragMoveMs, "dragging", ct);
+            await Task.Delay(Math.Max(80, holdMs), ct);
+            _ = overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(x2, y2, "Drop", 3, size()));
+            await moving;
+            return "mouse";
+        }
+        finally
+        {
+            await Task.Delay(150, ct);
+            IntendFront();
+        }
+    }
+
     /** Presses a control through UI Automation, if it offers a way to. False when it does not. */
     static bool Press(AutomationElement e)
     {

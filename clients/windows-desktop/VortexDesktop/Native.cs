@@ -6,7 +6,7 @@ namespace Axis.Desktop.App;
 /** The few Windows calls WPF does not wrap. */
 static class Native
 {
-    public const int GWL_EXSTYLE = -20;
+    public const int GWL_EXSTYLE = -20, GWL_STYLE = -16;
     public const int WS_EX_TRANSPARENT = 0x20;
     public const int WS_EX_TOOLWINDOW = 0x80;
     public const int WS_EX_LAYERED = 0x80000;

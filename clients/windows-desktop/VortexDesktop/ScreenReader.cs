@@ -138,6 +138,18 @@ sealed class ScreenReader
             if (hwnd == IntPtr.Zero) return (null, list, null);
             var window = AutomationElement.FromHandle(hwnd);
             Add(list, window);
+            // A menu that opened from it (a right click's, a drop-down) is a window of its own: read it too, and first (the
+            // window's own controls may fill the list), so its items can be clicked by name straight after the right click.
+            foreach (var popup in Windows.Popups(hwnd))
+            {
+                var menu = AutomationElement.FromHandle(popup);
+                Add(list, menu);
+                foreach (AutomationElement e in menu.FindAll(TreeScope.Descendants, Condition.TrueCondition))
+                {
+                    if (list.Count >= MaxCollected) break;
+                    Add(list, e);
+                }
+            }
             var all = window.FindAll(TreeScope.Descendants, Condition.TrueCondition);
             foreach (AutomationElement e in all)
             {

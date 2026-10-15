@@ -27,6 +27,7 @@ static class Windows
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
     const int SW_MINIMIZE = 6, SW_MAXIMIZE = 3, SW_RESTORE = 9;
@@ -54,6 +55,31 @@ static class Windows
             try { app = Process.GetProcessById((int)pid).ProcessName; } catch { }
             found.Add(new Open(hwnd, title.ToString(), app));
             return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    const int WS_POPUP = unchecked((int)0x80000000);
+
+    /**
+     * Menus and drop-downs open over `front`: a right click's context menu is a window of its own, above the one
+     * in front. Windows' own menus (class #32768) from any app, and popups `front`'s app owns, both only when they
+     * are above it (EnumWindows lists front to back).
+     */
+    public static List<IntPtr> Popups(IntPtr front)
+    {
+        Native.GetWindowThreadProcessId(front, out var frontPid);
+        var found = new List<IntPtr>();
+        EnumWindows((hwnd, _) =>
+        {
+            if (hwnd == front) return false;
+            if (!IsWindowVisible(hwnd)) return true;
+            var name = new StringBuilder(64);
+            GetClassName(hwnd, name, name.Capacity);
+            Native.GetWindowThreadProcessId(hwnd, out var pid);
+            var popup = (Native.GetWindowLong(hwnd, Native.GWL_STYLE) & WS_POPUP) != 0 && GetWindow(hwnd, GW_OWNER) != IntPtr.Zero;
+            if (name.ToString() == "#32768" || pid == frontPid && popup) found.Add(hwnd);
+            return found.Count < 4;
         }, IntPtr.Zero);
         return found;
     }

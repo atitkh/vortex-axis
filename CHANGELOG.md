@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.0 (2026-10-15)
+
+- **Drag**: from a name, an id or x,y to `toName`, `toId` or `toX`,`toY`. A real mouse drag: the pointer glides to the start as for a click, the left button goes down (held `holdMs` when asked, up to 2 s), the mouse moves in steps over 400 ms as input a drag's own loop sees, rests a moment over the target, and lets go; the button is always released and the mouse put back.
+- **Context menus by name**: a right click's menu (or a drop-down) is a window of its own, which looks, finds and clicks by name did not read, so "Copy" right after a right click was not found. The reader now reads Windows' own menus and the popups the app in front owns that sit above it, first, with the window in front.
+- **Tab order**: `keys` with `tab` and `shift+tab` moves the focus forward and back, and the answer's `after` says what has it; no separate action was added.
+- **Reading the pixels** when a window exposes few controls was already there (the "Read pixels when a window says little" switch, on): a look now says so (`ocr`: lines marked `(ocr)`, positions approximate) and those lines are clicked by name like any other (with the mouse, at their middle).
+- **The block list** (Axis 0.45.0 sends it with each command): with a blocked window in front, nothing is read and nothing is done; a look at the screen and `window` list name a blocked window only as blocked. `window` takes `do: list`.
+- Offers "Ask before risky actions" (`confirmRisky`, on) on the computer's page; Axis does the asking.
+- Not run on Windows by its author: built in the SDK container and run as the fake computer (`Axis.Desktop.Smoke`) against a throwaway Axis from this checkout.
+
 ## Quest panel client 0.4.0 (experimental) (2026-10-15)
 
 - **Drag**, as a real touch: from a name, an id or x,y to `toName`, `toId` or `toX`,`toY`, with `holdMs` to long-press first. The fast engine puts a finger down, holds, moves in steps over 400 ms and lifts (a new helper op, `drag`); through the shell it is `input swipe`, or `input draganddrop` when there is a hold.

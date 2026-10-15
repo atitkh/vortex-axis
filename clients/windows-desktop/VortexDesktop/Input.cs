@@ -69,6 +69,56 @@ static class Input
         }
     }
 
+    const uint MOUSEEVENTF_MOVE = 0x1, MOUSEEVENTF_ABSOLUTE = 0x8000, MOUSEEVENTF_VIRTUALDESK = 0x4000;
+
+    /** A move to (x, y) as input, which a drag's modal loop sees (SetCursorPos alone may not be). */
+    static INPUT MoveTo(int x, int y)
+    {
+        var desk = System.Windows.Forms.SystemInformation.VirtualScreen;
+        var mi = new MOUSEINPUT
+        {
+            dx = (int)Math.Round((x - desk.X) * 65535.0 / Math.Max(1, desk.Width - 1)),
+            dy = (int)Math.Round((y - desk.Y) * 65535.0 / Math.Max(1, desk.Height - 1)),
+            dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+        };
+        return new INPUT { type = INPUT_MOUSE, u = new InputUnion { mi = mi } };
+    }
+
+    /**
+     * Drags with the left button from (x1, y1) to (x2, y2): down, held `holdMs` (a little at least, so the press
+     * is seen), moved in steps over `moveMs`, a moment at rest over the target so it takes the drop, then up.
+     * The button is always let go and the mouse put back.
+     */
+    public static void Drag(int x1, int y1, int x2, int y2, int holdMs, int moveMs)
+    {
+        Native.GetCursorPos(out var was);
+        var down = false;
+        try
+        {
+            SetCursorPos(x1, y1);
+            Send([MoveTo(x1, y1)]);
+            Thread.Sleep(30);
+            Send([Mouse(MOUSEEVENTF_LEFTDOWN)]);
+            down = true;
+            Thread.Sleep(Math.Max(80, holdMs));
+            var steps = Math.Max(10, moveMs / 15);
+            for (var i = 1; i <= steps; i++)
+            {
+                Send([MoveTo(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps)]);
+                Thread.Sleep(Math.Max(1, moveMs / steps));
+            }
+            Thread.Sleep(150);
+            Send([Mouse(MOUSEEVENTF_LEFTUP)]);
+            down = false;
+            Thread.Sleep(30);
+        }
+        finally
+        {
+            if (down) try { Send([Mouse(MOUSEEVENTF_LEFTUP)]); } catch (InvalidOperationException) { }
+            SetCursorPos(was.X, was.Y);
+        }
+    }
+
     const uint MOUSEEVENTF_WHEEL = 0x0800, MOUSEEVENTF_HWHEEL = 0x1000;
 
     /** Turns the mouse wheel over (x, y), `notches` at a time (negative: up or left), and puts the mouse back. */
