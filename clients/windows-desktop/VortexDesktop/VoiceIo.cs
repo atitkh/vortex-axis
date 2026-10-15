@@ -94,9 +94,33 @@ sealed class VoiceIo : IVoiceIo
                 BufferDuration = TimeSpan.FromSeconds(60),
                 DiscardOnBufferOverflow = true,
             };
-            output = new WaveOutEvent { DeviceNumber = OutputDevice, DesiredLatency = 150 };
-            output.Init(new Meter(buffer, this));
-            output.Play();
+            // The chosen speaker may be gone (unplugged, or numbered differently since): then the default one.
+            // A throw here would end the link's receive loop, so nothing leaves this method.
+            foreach (var device in OutputDevice == -1 ? new[] { -1 } : new[] { OutputDevice, -1 })
+            {
+                try
+                {
+                    var wave = new WaveOutEvent { DeviceNumber = device, DesiredLatency = 150 };
+                    try
+                    {
+                        wave.Init(new Meter(buffer, this));
+                        wave.Play();
+                    }
+                    catch
+                    {
+                        wave.Dispose();
+                        throw;
+                    }
+                    output = wave;
+                    break;
+                }
+                catch (Exception e)
+                {
+                    Diag.Log($"speaker {device} did not start: {e.Message}");
+                }
+            }
+            // No speaker at all: nothing to play to; the reply is still shown and the turn still ends.
+            if (output == null) buffer = null;
         }
     }
 

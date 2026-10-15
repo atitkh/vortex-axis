@@ -198,6 +198,7 @@ public partial class App : System.Windows.Application
         if (saved.Voice)
         {
             voice = new Voice(link, voiceIo);
+            voice.Failed += why => Diag.Log($"voice: {why}");
             if (pill == null)
             {
                 pill = new VoicePill { Below = () => controlPill?.Room ?? 0, Chose = choice => voice?.Answer(choice) };

@@ -233,6 +233,16 @@ public sealed class Voice
 
     void OnMessage(string type, JsonElement m)
     {
+        // A failure while handling one message must not take the connection with it.
+        try { Handle(type, m); }
+        catch (Exception e) { Failed?.Invoke(e.Message); }
+    }
+
+    /** Something went wrong handling a message from Axis (for the log). */
+    public event Action<string>? Failed;
+
+    void Handle(string type, JsonElement m)
+    {
         string? S(string key) => m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         lock (gate)
         {

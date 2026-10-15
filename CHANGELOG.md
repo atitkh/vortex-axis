@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.3 (2026-10-15)
+
+- **Speech that never played, and the link dropping each time it was due**: when the chosen speaker could not be opened (its number had changed or it was gone), starting playback threw inside the link's receive loop, which ended the connection; the pill showed Speaking and nothing came out. Now it falls back to the default speaker, and with none it carries on silently (the words still show); a failure while handling any one message from Axis is logged and no longer takes the connection down.
+
 ## Desktop app 0.10.2 (2026-10-15)
 
 - A drop of the link to Axis in the middle of a turn no longer leaves the pill on "Thinking" with the reply's words in it: the turn, a question or playback that was waiting is let go when the link goes away.
