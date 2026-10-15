@@ -288,8 +288,8 @@ public class HelperTest {
         check(sent.contains(Helper.installCommand(host.apk.getAbsolutePath())), "installed it with pm install -r from /data/local/tmp");
         check(sent.contains("echo " + host.sha + " > " + Helper.MARKER), "and noted which build it is");
         String start = sent.stream().filter(c -> c.contains("am instrument")).findFirst().orElse("");
-        check(start.startsWith("rm -f /sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt; am force-stop dev.vortexaxis.quest.helper; sleep 1; nohup sh -c ") && start.contains("am instrument -w -e uid 10123 -e port ") && start.contains(" -e secret ") && start.contains("dev.vortexaxis.quest.helper/.Helper") && start.endsWith("& echo helper-started"),
-                "started detached with am instrument, told this app's uid: " + start);
+        check(start.startsWith("rm -f /sdcard/Android/data/dev.vortexaxis.quest.helper/files/status.txt; am force-stop dev.vortexaxis.quest.helper; sleep 1; am instrument -e uid 10123 -e port ") && start.contains(" -e secret ") && start.contains("dev.vortexaxis.quest.helper/.Helper") && start.endsWith("; echo helper-started") && !start.contains("nohup") && !start.contains(" -w"),
+                "started with am instrument (no -w, no nohup), told this app's uid: " + start);
         check(states.contains(Helper.State.STARTING) && states.get(states.size() - 1) == Helper.State.FAST, "the window heard Starting, then Fast: " + states);
         equal(fh.installs, 1, "one install");
 
@@ -438,6 +438,26 @@ public class HelperTest {
         check(shell().stream().anyMatch(c -> c.startsWith("input tap 12 22")), "through the shell, as before");
         fh.tapFails = false;
 
+        System.out.println("[engine] this app's own window steps aside before an agent acts, so taps reach the panel in use");
+        final boolean[] shown = {true};
+        final int[] aside = {0};
+        cmds.setOwnWindow(new PanelCommands.OwnWindow() {
+            @Override public boolean visible() { return shown[0]; }
+            @Override public void stepAside() { aside[0]++; shown[0] = false; }
+        });
+        run("desktop.look");
+        equal(aside[0], 0, "a look leaves it alone");
+        a = run("desktop.click", "x", 10, "y", 20);
+        equal(aside[0], 1, "a click moves it aside once");
+        run("desktop.click", "x", 10, "y", 20);
+        equal(aside[0], 1, "and not again while it is gone");
+        shown[0] = true;
+        run("desktop.keys", "keys", "enter");
+        equal(aside[0], 2, "when it has come back, the next action moves it aside again");
+        cmds.setOwnWindow(null);
+        fh.take();
+        adbd.take();
+
         System.out.println("[engine] a helper that sees no panel at all is restarted, and that look is read with uiautomator once");
         adbd.take();
         fh.blind = true;
@@ -458,12 +478,12 @@ public class HelperTest {
         fh.blind = false;
 
         System.out.println("[engine] a helper that never answers: the failure carries the steps it reported");
-        helper.pause("test");
         fh.wontStart = true;
+        helper.pause("test");
         int keepStartMs = helper.startMs;
         helper.startMs = 700;
         helper.tick();
-        check(helper.state() == Helper.State.BASIC && helper.detail().contains("the helper got as far as: onCreate (pid 1, uid 10124) | checks passed"),
+        check(helper.state() == Helper.State.BASIC && helper.detail().contains("the helper got as far as: onCreate (pid 1, uid 10124, port"),
                 "Basic, and the message says how far it got: " + helper.detail());
         fh.wontStart = false;
         helper.startMs = keepStartMs;

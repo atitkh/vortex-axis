@@ -49,6 +49,8 @@ final class FakeHelper implements AutoCloseable {
     volatile String hangOn;
     /** The helper sees no window at all (its UiAutomation is dead): dumps have no tree, but it still answers pings. */
     volatile boolean blind;
+    /** The port the last start was told, for the pretend logcat. */
+    volatile String lastPort = "0";
     /** The helper process starts but never listens (it dies, or hangs on UiAutomation). */
     volatile boolean wontStart;
     /** The helper cannot inject a touch. */
@@ -182,7 +184,9 @@ final class FakeHelper implements AutoCloseable {
             } else if (cmd.startsWith("am force-stop " + HelperProtocol.PACKAGE) || cmd.startsWith("rm -f " + Helper.STATUS + "; am force-stop " + HelperProtocol.PACKAGE)) {
                 if (running()) stops++;
                 die();
-                if (cmd.contains("am instrument -w") && cmd.endsWith("& echo helper-started")) {
+                if (cmd.contains("am instrument ") && cmd.endsWith("; echo helper-started")) {
+                    java.util.regex.Matcher pm = java.util.regex.Pattern.compile("-e port (\\d+)").matcher(cmd);
+                    if (pm.find()) lastPort = pm.group(1);
                     try {
                         if (installed && !wontStart) start();
                     } catch (IOException e) {
@@ -190,7 +194,7 @@ final class FakeHelper implements AutoCloseable {
                     }
                     out = "helper-started\n";
                 } else out = "";
-            } else if (cmd.startsWith("tail -n 60 " + Helper.LOG)) out = "INSTRUMENTATION_STATUS: note=onCreate (pid 1, uid 10124)\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: note=checks passed (app uid 10123, port 1)\nINSTRUMENTATION_STATUS_CODE: 0\n";
+            } else if (cmd.startsWith("logcat -d")) out = "10-14 21:00:00.000  1  1 I VortexAxisHelper: onCreate (pid 1, uid 10124, port " + lastPort + ")\n10-14 21:00:00.050  1  1 I VortexAxisHelper: checks passed (app uid 10123, port " + lastPort + ")\n";
             else if (cmd.startsWith("tail -n 6 " + Helper.STATUS)) out = "";
             return out != null ? out.getBytes(StandardCharsets.UTF_8) : rest.apply(cmd);
         };

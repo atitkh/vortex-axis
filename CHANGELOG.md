@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.8 (experimental) (2026-10-14)
+
+- **Taps meant for the Browser went to this app's own window.** The headset stacks panels as overlapping windows on one display, and a tap goes to the topmost one at that spot. On the owner's headset this app's panel sat above the Browser's and below Settings': a tap at "Create tab" gave the focus to this app (the answer's `after` named it) and added nothing, while a tap in Settings worked. While an agent acts, the app's own window now steps aside first (`moveTaskToBack`; it says so in Recently), and comes back when the app is opened again. Looks and finds leave it alone.
+- **The fast engine starts reliably.** The helper was started with `am instrument -w` under `nohup` in the background of the adb stream; Android may end that with the stream, and after an update the new start sometimes never ran (its log was an older helper's, on a port the app was not using). It is now `am instrument` without `-w`: it returns at once and the instrumentation goes on inside the system. When it does not answer, the helper's steps are read from logcat (tag `VortexAxisHelper`, the port tells this try's lines from older ones).
+- `desktop.hello`'s `windows` lists the windows top to bottom with their displays, repeats counted and the system's layer surfaces left out.
+- versionCode 11 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.7 (experimental) (2026-10-14)
 
 - **"Check the headset" answers again.** 0.3.6 put the helper's whole start message in `desktop.hello`, and Axis refuses any value over 240 characters ("Expected union value"), so the answer was dropped and the admin page timed out. Long things now come as pieces of at most 200 characters (`why`, `why2` ...), and the engine line is short.

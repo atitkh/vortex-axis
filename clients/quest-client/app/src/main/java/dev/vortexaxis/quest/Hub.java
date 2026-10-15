@@ -53,6 +53,8 @@ final class Hub {
     /** The fast engine's checks: its own thread, since installing the helper can take a while. */
     private final ScheduledExecutorService engine = Executors.newSingleThreadScheduledExecutor();
     volatile String linkWhy = "";
+    /** The window on screen, if any: set by MainActivity while it is in front. */
+    volatile PanelCommands.OwnWindow window;
 
     private Hub(Context app) {
         this.app = app;
@@ -66,6 +68,16 @@ final class Hub {
         client = new QuestClient(adb, new OkHttpSockets(), log, BuildConfig.VERSION_NAME);
         client.commands.setPictures(new AndroidParts.Pictures());
         client.commands.setApps(new AndroidParts.Apps(app));
+        client.commands.setOwnWindow(new PanelCommands.OwnWindow() {
+            @Override public boolean visible() {
+                PanelCommands.OwnWindow w = window;
+                return w != null && w.visible();
+            }
+            @Override public void stepAside() {
+                PanelCommands.OwnWindow w = window;
+                if (w != null) w.stepAside();
+            }
+        });
         client.commands.paused = prefs.getBoolean("paused", false);
         client.commands.compressed = prefs.getBoolean("fasterLooks", false);
         client.update.setHost(new Updates());

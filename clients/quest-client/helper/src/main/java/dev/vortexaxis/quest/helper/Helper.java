@@ -48,6 +48,8 @@ public final class Helper extends Instrumentation {
      * reads back from its log (the one way known to work), and in status.txt when that can be written.
      */
     static void note(String line) {
+        // logcat is what the app reads over adb when the helper does not answer (tag VortexAxisHelper).
+        Log.i(TAG, line);
         Helper h = self;
         if (h != null) {
             try {
@@ -83,7 +85,8 @@ public final class Helper extends Instrumentation {
             note("CRASH in " + thread.getName() + ": " + Log.getStackTraceString(error).replace('\n', ' '));
             if (before != null) before.uncaughtException(thread, error);
         });
-        note("onCreate (pid " + android.os.Process.myPid() + ", uid " + android.os.Process.myUid() + ")");
+        // The port is how the app tells this start's lines from older ones.
+        note("onCreate (pid " + android.os.Process.myPid() + ", uid " + android.os.Process.myUid() + ", port " + (arguments == null ? "?" : arguments.getString("port")) + ")");
         super.onCreate(arguments);
         args = arguments;
         start();

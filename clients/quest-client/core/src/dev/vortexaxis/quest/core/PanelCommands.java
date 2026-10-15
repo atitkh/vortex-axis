@@ -64,7 +64,7 @@ public final class PanelCommands implements AxisLink.Handler {
     static final int READ_MS = 4_000;
     static final int ACT_MS = 8_000;
     /** Through the shell, an action's `after` is read this long after it. */
-    static final int AFTER_MS = 300;
+    static final int AFTER_MS = 300, OWN_ASIDE_MS = 400;
     /** With the fast engine, the panel is let settle instead: until no accessibility event for QUIET_MS, AFTER_MAX_MS at most. */
     static final int QUIET_MS = 100, AFTER_MAX_MS = 400;
     /** `open` waits for what it started to come to the front, looking every OPEN_STEP_MS (through the shell OPEN_SHELL_STEP_MS), OPEN_MS at most. */
@@ -121,6 +121,19 @@ public final class PanelCommands implements AxisLink.Handler {
     public void setDiary(Diary d) { diary = d == null ? what -> {} : d; }
     public void setUpdater(SelfUpdate u) { updater = u; }
     public void setHelper(Helper h) { helper = h; }
+    public void setOwnWindow(OwnWindow w) { ownWindow = w; }
+
+    /**
+     * This app's own panel. The headset stacks panels as overlapping windows on one display, and a tap goes to the
+     * topmost one at that spot: this app's panel sat above the Browser's and took the taps meant for its tab strip
+     * (the focus came to the app, and no tab was added or closed). So while an agent acts, the panel steps aside.
+     */
+    public interface OwnWindow {
+        boolean visible();
+        void stepAside();
+    }
+
+    private volatile OwnWindow ownWindow;
     public void setDoing(Doing d) { if (d != null) doing = d; }
 
     /** True when this call should try the fast engine first. */
@@ -361,7 +374,9 @@ public final class PanelCommands implements AxisLink.Handler {
             int split = out.indexOf("\n==");
             String windows = split >= 0 ? out.substring(0, split) : out;
             String focus = split >= 0 ? out.substring(split + 3) : "";
-            StringBuilder b = new StringBuilder();
+            // Top to bottom as Android lists them; the same window in a row is said once with a count, and the
+            // system's own layer surfaces (AndroidPanelLayer...) are left out.
+            List<String> entries = new ArrayList<>();
             String current = null;
             for (String line : windows.split("\n")) {
                 Matcher w = WINDOW_LINE.matcher(line);
@@ -371,9 +386,18 @@ public final class PanelCommands implements AxisLink.Handler {
                 }
                 Matcher d = DISPLAY_LINE.matcher(line);
                 if (current != null && d.find()) {
-                    b.append(current).append('@').append(d.group(1)).append(' ');
+                    if (!current.contains("AndroidPanelLayer")) entries.add(current.replace("com.oculus.", "") + "@" + d.group(1));
                     current = null;
                 }
+            }
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < entries.size(); ) {
+                int j = i;
+                while (j < entries.size() && entries.get(j).equals(entries.get(i))) j++;
+                b.append(entries.get(i));
+                if (j - i > 1) b.append('x').append(j - i);
+                b.append(' ');
+                i = j;
             }
             b.append("| ");
             for (String line : focus.split("\n")) {
@@ -700,6 +724,12 @@ public final class PanelCommands implements AxisLink.Handler {
     /** Everything that changes the panel: refused when Axis's allowInput is off for this headset. */
     private AxisLink.Answer act(String name, Map<String, Object> p) throws Exception {
         if (!toggle("allowInput", true)) return AxisLink.Answer.fail("tapping and typing are switched off for this headset");
+        OwnWindow own = ownWindow;
+        if (own != null && own.visible()) {
+            own.stepAside();
+            did("Moved this app's own window aside, so taps reach the panel being used");
+            sleeper.sleep(OWN_ASIDE_MS);
+        }
         switch (name) {
             case "desktop.click": {
                 Target t = target(p);

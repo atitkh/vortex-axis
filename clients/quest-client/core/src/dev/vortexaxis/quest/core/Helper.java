@@ -223,8 +223,10 @@ public final class Helper {
             int port = 20_000 + new java.security.SecureRandom().nextInt(40_000);
             String secret = HelperProtocol.nonce();
             ch.prepare(port, secret);
-            String said = adb.shell(startCommand(h.uid(), port, secret), 10_000);
+            lastPort = port;
+            String said = adb.shell(startCommand(h.uid(), port, secret), 15_000);
             if (!said.contains("helper-started")) throw new IOException("the start was not taken: " + firstLine(said));
+            amSaid = said.replace("helper-started", "").trim().replace('\n', ' ');
             long end = System.currentTimeMillis() + startMs;
             String v = null;
             while (System.currentTimeMillis() < end) {
@@ -356,13 +358,16 @@ public final class Helper {
         return "cp " + Shell.quote(source) + " " + STAGED + " && chmod 644 " + STAGED + " && pm install -r " + STAGED + " 2>&1; rm -f " + STAGED;
     }
 
-    /** Stops any helper that runs, then starts it detached (SelfUpdate's way), answering only `uid`, its words kept in LOG. */
+    /**
+     * Stops any helper that runs, then starts it, answering only `uid`. `am instrument` WITHOUT -w: it returns at once and
+     * the instrumentation goes on inside the system, with nothing of ours to keep alive. (0.3.0 to 0.3.7 ran `am instrument -w`
+     * under nohup in the background of the adb stream, which Android may end with the stream: on the owner's headset the
+     * start sometimes never ran, with no word why.) What it reports is read back from logcat.
+     */
     static String startCommand(int uid, int port, String secret) {
-        // A second after the force-stop: the old process's UiAutomation connection is still being cleared, and a
-        // helper started on top of it failed its first tries (the window sat on "Starting" for minutes).
+        // A second after the force-stop: the old process's UiAutomation connection is still being cleared.
         return "rm -f " + STATUS + "; am force-stop " + HelperProtocol.PACKAGE + "; sleep 1; "
-                + Shell.detached("am instrument -w -e uid " + uid + " -e port " + port + " -e secret " + secret + " "
-                        + HelperProtocol.INSTRUMENTATION + " > " + LOG + " 2>&1", "helper-started");
+                + "am instrument -e uid " + uid + " -e port " + port + " -e secret " + secret + " " + HelperProtocol.INSTRUMENTATION + " 2>&1; echo helper-started";
     }
 
     /**
@@ -373,27 +378,28 @@ public final class Helper {
     static final String STATUS = "/sdcard/Android/data/" + HelperProtocol.PACKAGE + "/files/status.txt";
     /** Why the last connection to the helper's socket failed (empty: none yet), for the message when it never answers. */
     private volatile String lastConnectError = "";
+    private volatile int lastPort;
+    /** What `am instrument` printed when it was started, other than our own marker (usually nothing; an error otherwise). */
+    private volatile String amSaid = "";
 
     private String startLog() {
         StringBuilder out = new StringBuilder();
         try {
-            // What `am instrument` printed: the helper's own steps as INSTRUMENTATION_STATUS notes, and how it ended.
-            String log = adb.shell("tail -n 60 " + LOG + " 2>/dev/null", 3000);
-            StringBuilder trail = new StringBuilder();
-            StringBuilder ended = new StringBuilder();
+            // The helper logs each step under its own tag (and says the port it was told, to tell this start from older ones).
+            String log = adb.shell("logcat -d -t 400 -s VortexAxisHelper:I 2>/dev/null", 4000);
+            java.util.List<String> notes = new java.util.ArrayList<>();
             for (String line : log.split("\n")) {
-                String t = line.trim();
-                if (t.startsWith("INSTRUMENTATION_STATUS: note=")) trail.append(trail.length() > 0 ? " | " : "").append(t.substring("INSTRUMENTATION_STATUS: note=".length()));
-                else if (t.startsWith("INSTRUMENTATION_RESULT:") || t.startsWith("INSTRUMENTATION_FAILED") || t.startsWith("Error") || t.startsWith("java.") || t.startsWith("android."))
-                    ended.append(ended.length() > 0 ? " | " : "").append(t);
+                int at = line.indexOf("VortexAxisHelper:");
+                if (at >= 0) notes.add(line.substring(at + "VortexAxisHelper:".length()).trim());
             }
-            out.append(trail.length() == 0 ? " (the helper reported no step: it did not reach its own code)" : " (the helper got as far as: " + tailOf(trail.toString(), 450) + ")");
-            if (ended.length() > 0) out.append(" (am said: ").append(tailOf(ended.toString(), 220)).append(')');
-            String file = adb.shell("tail -n 6 " + STATUS + " 2>/dev/null", 3000).trim();
-            if (!file.isEmpty()) out.append(" (status file: ").append(tailOf(file.replace('\n', '|'), 300)).append(')');
+            int from = -1;
+            for (int i = 0; i < notes.size(); i++) if (notes.get(i).startsWith("onCreate") && notes.get(i).contains("port " + lastPort + ")")) from = i;
+            if (from < 0) out.append(" (the helper never started for this try: nothing logged for port ").append(lastPort).append(')');
+            else out.append(" (the helper got as far as: ").append(tailOf(String.join(" | ", notes.subList(from, notes.size())), 450)).append(')');
         } catch (IOException ignored) {
             // The reasons are only help; the failure is told anyway.
         }
+        if (!amSaid.isEmpty()) out.append(" (am said: ").append(PanelCommands.clip(amSaid, 200)).append(')');
         if (!lastConnectError.isEmpty()) out.append(" (connecting said: ").append(PanelCommands.clip(lastConnectError, 160)).append(')');
         return out.toString();
     }

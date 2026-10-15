@@ -29,6 +29,7 @@ import java.util.Locale;
 import dev.vortexaxis.quest.core.AdbLink;
 import dev.vortexaxis.quest.core.AxisAddress;
 import dev.vortexaxis.quest.core.AxisLink;
+import dev.vortexaxis.quest.core.PanelCommands;
 import dev.vortexaxis.quest.core.Helper;
 import dev.vortexaxis.quest.core.QuestClient;
 
@@ -65,6 +66,11 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        hub.window = new PanelCommands.OwnWindow() {
+            @Override public boolean visible() { return resumed; }
+            @Override public void stepAside() { runOnUiThread(() -> moveTaskToBack(true)); }
+        };
+        resumed = true;
         hub.watch(refresh);
         if (hub.pairing() != null) {
             AxisService.start(this);
@@ -74,7 +80,11 @@ public final class MainActivity extends Activity {
         build();
     }
 
+    /** Whether this window is on screen, for stepping aside while an agent acts (PanelCommands.OwnWindow). */
+    private volatile boolean resumed;
+
     @Override protected void onPause() {
+        resumed = false;
         hub.unwatch(refresh);
         super.onPause();
     }
