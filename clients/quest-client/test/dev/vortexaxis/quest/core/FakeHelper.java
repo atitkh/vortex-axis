@@ -271,7 +271,10 @@ final class FakeHelper implements AutoCloseable {
 
     final class Screen implements HelperRouter.Device<N> {
         @Override public List<Map<String, Object>> windows() {
-            return List.of(Json.obj("id", 1, "title", "Store", "package", root.d.pkg, "display", 0, "active", true, "focused", true));
+            List<Map<String, Object>> all = new ArrayList<>();
+            all.add(Json.obj("id", 1, "title", "Store", "package", root.d.pkg, "display", 0, "type", 1, "active", true, "focused", true));
+            all.addAll(moreWindows);
+            return all;
         }
         @Override public N root(Integer windowId, boolean compressed, int idleMs) { return blind ? null : root; }
         @Override public String[] front() {
@@ -306,6 +309,7 @@ final class FakeHelper implements AutoCloseable {
         }
         @Override public void longPress(int x, int y) { calls.add("longPress " + x + "," + y); }
         @Override public void swipe(int x1, int y1, int x2, int y2, int ms) { calls.add("swipe " + x1 + "," + y1 + " " + x2 + "," + y2 + " " + ms); }
+        @Override public void drag(int x1, int y1, int x2, int y2, int holdMs, int ms) { calls.add("drag " + x1 + "," + y1 + " " + x2 + "," + y2 + " hold " + holdMs); }
         @Override public void key(int code, boolean ctrl, boolean alt, boolean shift) { calls.add("key " + (ctrl ? "ctrl+" : "") + (alt ? "alt+" : "") + (shift ? "shift+" : "") + code); }
         @Override public void back() { calls.add("back"); }
         @Override public Object[] screenshot(int maxSide, int[] crop) throws IOException {
@@ -314,6 +318,9 @@ final class FakeHelper implements AutoCloseable {
             return new Object[] {s.jpeg, s.w, s.h};
         }
     }
+
+    /** Windows besides the one in front, as the helper lists them. */
+    final List<Map<String, Object>> moreWindows = new ArrayList<>();
 
     /** The ops since the last call, and forgets them. */
     List<String> takeOps() {

@@ -220,6 +220,20 @@ final class Screen implements HelperRouter.Device<AccessibilityNodeInfo> {
         touch(MotionEvent.ACTION_UP, t, SystemClock.uptimeMillis(), x2, y2);
     }
 
+    @Override public void drag(int x1, int y1, int x2, int y2, int holdMs, int ms) throws Exception {
+        long t = SystemClock.uptimeMillis();
+        touch(MotionEvent.ACTION_DOWN, t, t, x1, y1);
+        if (holdMs > 0) Thread.sleep(holdMs);
+        int steps = Math.max(5, ms / 16);
+        for (int i = 1; i <= steps; i++) {
+            Thread.sleep(Math.max(1, ms / steps));
+            touch(MotionEvent.ACTION_MOVE, t, SystemClock.uptimeMillis(), x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
+        }
+        // A moment at rest over the target, so it takes the drop.
+        Thread.sleep(150);
+        touch(MotionEvent.ACTION_UP, t, SystemClock.uptimeMillis(), x2, y2);
+    }
+
     private void touch(int action, long down, long at, int x, int y) {
         MotionEvent e = MotionEvent.obtain(down, at, action, x, y, 0);
         e.setSource(InputDevice.SOURCE_TOUCHSCREEN);

@@ -224,7 +224,7 @@ export const NODE_TOOLS: NodeTool[] = [
     experimental: true,
     description:
       "Use the user's computer (VorteX Axis desktop app). Act by name without looking first; batch actions in `steps`. " +
-      "Actions: open (app by Start-menu name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n), " +
+      "Actions: open (app by Start-menu name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n, or list the open windows; a Quest only lists), " +
       "desktop (go next/previous), click (name, id or x,y), drag (from name, id or x,y to toName, toId or toX,toY; holdMs to long-press first; " +
       "ask the user first when a drop could lose or move something important; prefer names over coordinates), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s), " +
       "find (best 5 matches for a name), look (scope window, mouse for \"what's this\", screen for open windows), point/hide (own pointer), " +
@@ -267,7 +267,7 @@ export const NODE_TOOLS: NodeTool[] = [
         app: { type: "string", description: "open: Start-menu name." },
         url: { type: "string", description: "open: http(s) address." },
         window: { type: "string", description: "switch, window, wait: app or title." },
-        do: { type: "string", enum: ["minimize", "maximize", "restore", "move"] },
+        do: { type: "string", enum: ["minimize", "maximize", "restore", "move", "list"] },
         display: { type: "number", description: "window move: 1-based, as in monitors." },
         go: { type: "string", enum: ["next", "previous", "up", "down", "left", "right", "top", "bottom"], description: "desktop: next/previous. scroll: the rest." },
         pages: { type: "number", description: "scroll: 1-10, default 1." },

@@ -188,6 +188,11 @@ public final class PanelCommands implements AxisLink.Handler {
             if (!locked) return AxisLink.Answer.fail("the headset is still busy with the last command; try again in a moment");
             what = name.startsWith("desktop.") && !paused ? doingWords(name, p) : null;
             if (what != null) try { doing.started(what); } catch (RuntimeException ignored) {}
+            String hit = blockedFront(name, p);
+            if (hit != null) {
+                did("Refused " + name.substring(name.indexOf('.') + 1) + ": the panel in front is on the user's block list");
+                return AxisLink.Answer.fail("the panel in front is blocked by the user (it matches \"" + hit + "\"): the app neither reads it nor acts on it. Tell the person; do not try another way");
+            }
             AxisLink.Answer answer;
             if (!CHANGES.contains(name)) answer = run(name, p);
             else {
@@ -220,6 +225,9 @@ public final class PanelCommands implements AxisLink.Handler {
             case "desktop.look": return "Looking at " + panel;
             case "desktop.find": return "Looking for " + (target != null ? target : "something") + " on " + panel;
             case "desktop.click": return "Tapping " + (target != null ? target : "the panel");
+            case "desktop.drag": return "Dragging " + (target != null ? target : "something");
+            case "desktop.switch": return "Switching to " + clip(or(Json.str(p, "window"), "a panel"), 40);
+            case "desktop.window": return "Listing the panels";
             case "desktop.type": {
                 Object t = p.get("text");
                 int n = t instanceof String ? ((String) t).length() : 0;
@@ -266,7 +274,11 @@ public final class PanelCommands implements AxisLink.Handler {
                 List<Panel.Element> elements = pick(panel.elements, MAX_ELEMENTS);
                 synchronized (this) { last = elements; }
                 did("Looked at " + Panel.appName(panel.pkg) + ": " + elements.size() + " things in " + (System.currentTimeMillis() - started) + " ms");
-                return AxisLink.Answer.data(lookData(panel, elements));
+                Map<String, Object> data = lookData(panel, elements);
+                // The other panels open, for switch; only from the fast engine, which lists them in one call.
+                List<String[]> open = fast() ? panels(blocked(p)) : null;
+                if (open != null && open.size() > 1) data.put("panels", panelLines(open, panel.pkg));
+                return AxisLink.Answer.data(data);
             }
             case "desktop.find": {
                 if (!toggle("allowLook", true)) return AxisLink.Answer.fail("reading the screen is switched off for this headset");
@@ -313,12 +325,16 @@ public final class PanelCommands implements AxisLink.Handler {
             }
             case "desktop.steps":
                 return steps(p);
-            case "desktop.click": case "desktop.type": case "desktop.keys": case "desktop.open": case "desktop.scroll":
+            case "desktop.click": case "desktop.drag": case "desktop.type": case "desktop.keys": case "desktop.open": case "desktop.scroll": case "desktop.switch":
                 return act(name, p);
-            case "desktop.switch":
-                return AxisLink.Answer.fail("switch is not available on a Quest: the app sees only the panel in front. Use open with the app's name to bring it forward");
-            case "desktop.window":
-                return AxisLink.Answer.fail("window is not available on a Quest: panels cannot be minimized, maximized or moved from here");
+            case "desktop.window": {
+                if (!"list".equals(Json.str(p, "do")))
+                    return AxisLink.Answer.fail("on a Quest, window can only list the open panels (do: list); panels cannot be minimized, maximized or moved from here. Use switch to bring one forward");
+                if (!toggle("allowLook", true)) return AxisLink.Answer.fail("reading the screen is switched off for this headset");
+                List<String[]> open = panels(blocked(p));
+                did("Listed " + open.size() + " open panels");
+                return AxisLink.Answer.data(Json.obj("panels", panelLines(open, before())));
+            }
             case "desktop.desktop":
                 return AxisLink.Answer.fail("there are no virtual desktops on a Quest");
             case "desktop.clipboard":
@@ -341,7 +357,7 @@ public final class PanelCommands implements AxisLink.Handler {
                         "adb", clip(adbSays, 200),
                         "panel", Panel.WIDTH + "x" + Panel.HEIGHT,
                         "engine", engineWord(),
-                        "unsupported", "switch, window, desktop, clipboard, paste; point is noted but not drawn");
+                        "unsupported", "desktop, clipboard, paste; window only lists; point is noted but not drawn");
                 // Axis takes no value over 240 characters, so what is longer comes as numbered pieces.
                 Helper hh = helper;
                 if (hh != null && hh.state() == Helper.State.BASIC) pieces(hello, "why", hh.detail());
@@ -719,7 +735,7 @@ public final class PanelCommands implements AxisLink.Handler {
     // ---- acting ----------------------------------------------------------------
 
     private static final Set<String> CHANGES = new HashSet<>(Arrays.asList(
-            "desktop.click", "desktop.type", "desktop.keys", "desktop.open", "desktop.steps", "desktop.scroll"));
+            "desktop.click", "desktop.drag", "desktop.type", "desktop.keys", "desktop.open", "desktop.steps", "desktop.scroll", "desktop.switch"));
 
     /** Everything that changes the panel: refused when Axis's allowInput is off for this headset. */
     private AxisLink.Answer act(String name, Map<String, Object> p) throws Exception {
@@ -827,8 +843,195 @@ public final class PanelCommands implements AxisLink.Handler {
                 return open(p);
             case "desktop.scroll":
                 return scroll(p);
+            case "desktop.drag":
+                return drag(p);
+            case "desktop.switch":
+                return switchTo(p);
             default:
                 return AxisLink.Answer.fail("not implemented on this device");
+        }
+    }
+
+    /** How long a drag's move takes, after any hold. */
+    static final int DRAG_MS = 400;
+
+    /**
+     * A finger put down on one spot (a name, an id or x,y), held for holdMs when asked (a long press, for lists that
+     * need one), moved to the other (toName, toId or toX,toY) and lifted: a real touch, never an accessibility action.
+     */
+    private AxisLink.Answer drag(Map<String, Object> p) throws Exception {
+        Target from = target(p);
+        if (from.fail != null) return AxisLink.Answer.fail(from.fail);
+        int[] a = spot(from, Json.integer(p, "x"), Json.integer(p, "y"));
+        if (a == null) return AxisLink.Answer.fail("drag needs where from: a name, an id, or x and y");
+        Map<String, Object> toward = new LinkedHashMap<>();
+        if (Json.integer(p, "toId") != null) toward.put("id", Json.integer(p, "toId"));
+        else if (Json.str(p, "toName") != null) toward.put("name", Json.str(p, "toName"));
+        Target to = target(toward);
+        if (to.fail != null) return AxisLink.Answer.fail(to.fail);
+        int[] b = spot(to, Json.integer(p, "toX"), Json.integer(p, "toY"));
+        if (b == null) return AxisLink.Answer.fail("drag needs where to: toName, toId, or toX and toY");
+        for (int[] s : new int[][] {a, b})
+            if (s[0] < 0 || s[1] < 0 || s[0] >= Panel.WIDTH || s[1] >= Panel.HEIGHT)
+                return AxisLink.Answer.fail("(" + s[0] + ", " + s[1] + ") is outside the panel (0,0 " + Panel.WIDTH + "x" + Panel.HEIGHT + ")");
+        Integer held = Json.integer(p, "holdMs");
+        int hold = clamp(held == null ? 0 : held, 0, 2000);
+        String how = fastDrag(a, b, hold);
+        if (how == null) {
+            // `input draganddrop` presses long before it moves; where it is missing, a slow swipe is the nearest.
+            String coords = a[0] + " " + a[1] + " " + b[0] + " " + b[1] + " " + (hold + DRAG_MS);
+            String out = hold > 0 ? adb.shell("input draganddrop " + coords, ACT_MS + hold) : null;
+            if (out == null || looksLikeError(out)) {
+                checkQuiet(adb.shell("input swipe " + coords, ACT_MS + hold));
+                how = "swipe";
+            } else how = "drag and drop";
+        }
+        String fromSaid = from.element != null ? "\"" + clip(from.element.name, 60) + "\"" : a[0] + ", " + a[1];
+        String toSaid = to.element != null ? "\"" + clip(to.element.name, 60) + "\"" : b[0] + ", " + b[1];
+        did("Dragged " + fromSaid + " to " + toSaid + (hold > 0 ? " after holding " + hold + " ms" : ""));
+        Map<String, Object> payload = Json.obj("x", a[0], "y", a[1], "toX", b[0], "toY", b[1], "how", how);
+        if (from.element != null) payload.put("name", clip(from.element.name, 200));
+        if (to.element != null) payload.put("toName", clip(to.element.name, 200));
+        return AxisLink.Answer.done(payload);
+    }
+
+    /** The centre of a target's element, or the point given, or null for neither. */
+    private static int[] spot(Target t, Integer x, Integer y) {
+        if (t.element != null) return new int[] {t.element.cx(), t.element.cy()};
+        return x != null && y != null ? new int[] {x, y} : null;
+    }
+
+    private String fastDrag(int[] a, int[] b, int hold) throws IOException {
+        if (!fast()) return null;
+        try {
+            helper.call("drag", Json.obj("x1", a[0], "y1", a[1], "x2", b[0], "y2", b[1], "holdMs", hold, "ms", DRAG_MS), ACT_MS + hold);
+            return "touch";
+        } catch (Helper.Lost l) {
+            if (l.sent) throw unsure("dragging", l);
+            lost(l);
+            return null;
+        } catch (Helper.Failed f) {
+            log.line("drag: the fast engine could not (" + f.getMessage() + "); through the shell");
+            return null;
+        }
+    }
+
+    static final String OWN_PACKAGE = "dev.vortexaxis.quest";
+    /** Packages of the system's own surfaces, never offered as panels to switch to. */
+    private static final Pattern SYSTEM = Pattern.compile("^(android|com\\.android\\.systemui.*|com\\.oculus\\.(vrshell|systemux|os|guardian|systemdriver).*)$");
+
+    /**
+     * The panels open on the headset, top first: {name, package, title}, one per package, this app's own and the
+     * system's left out, blocked ones named as such. From the fast engine's window list, else `dumpsys window`.
+     */
+    List<String[]> panels(List<String> blocked) throws IOException {
+        List<String[]> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        List<String[]> found = new ArrayList<>();
+        boolean listed = false;
+        if (fast()) {
+            try {
+                List<Object> windows = Json.list(helper.call("windows", Json.obj(), ACT_MS).get("windows"));
+                for (Object o : windows == null ? Collections.emptyList() : windows) {
+                    Map<String, Object> w = Json.map(o);
+                    Integer type = Json.integer(w, "type");
+                    if (type != null && type != 1) continue;
+                    found.add(new String[] {or(Json.str(w, "package"), ""), or(Json.str(w, "title"), "")});
+                }
+                listed = true;
+            } catch (Helper.Lost l) {
+                lost(l);
+            } catch (Helper.Failed f) {
+                log.line("panels: the fast engine could not list the windows (" + f.getMessage() + "); through the shell");
+            }
+        }
+        if (!listed) {
+            Matcher m = WINDOW_LINE.matcher(adb.shell("dumpsys window windows | grep -E 'Window #'", 5000));
+            while (m.find()) found.add(new String[] {m.group(1), ""});
+        }
+        for (String[] w : found) {
+            String pkg = w[0];
+            if (!Shell.isPackage(pkg) || pkg.startsWith(OWN_PACKAGE) || SYSTEM.matcher(pkg).matches() || !seen.add(pkg)) continue;
+            String name = Panel.appName(pkg);
+            boolean off = isBlocked(blocked, name + " " + pkg + " " + w[1]) != null;
+            out.add(new String[] {off ? "blocked by the user" : name, off ? "" : pkg, off ? "" : w[1]});
+        }
+        return out;
+    }
+
+    /** "Browser (com.oculus.browser) *front" for each panel. */
+    private static List<Object> panelLines(List<String[]> panels, String front) {
+        List<Object> lines = new ArrayList<>();
+        for (String[] w : panels) {
+            if (w[1].isEmpty()) lines.add(w[0]);
+            else lines.add(w[0] + " (" + w[1] + ")" + (!w[2].isEmpty() && !w[2].equals(w[0]) ? " \"" + clip(w[2], 60) + "\"" : "") + (w[1].equals(front) ? " *front" : ""));
+        }
+        return lines;
+    }
+
+    /**
+     * Brings an open panel to the front by its app's name, package or title: the app is started again, which on the
+     * headset brings its open panel forward rather than opening another, and the front is watched for it.
+     */
+    private AxisLink.Answer switchTo(Map<String, Object> p) throws Exception {
+        String want = Json.str(p, "window");
+        if (want == null) return AxisLink.Answer.fail("switch needs window: an open panel's app or title, such as Browser");
+        List<String[]> open = panels(blocked(p));
+        String[] best = null;
+        int bestScore = 0;
+        for (String[] w : open) {
+            if (w[1].isEmpty()) continue;
+            int s = w[1].equalsIgnoreCase(want) ? 100 : Math.max(score(w[0], want), score(w[2], want));
+            if (s > bestScore) { best = w; bestScore = s; }
+        }
+        if (best == null) {
+            StringBuilder names = new StringBuilder();
+            for (String[] w : open) names.append(names.length() > 0 ? ", " : "").append(w[0]);
+            return AxisLink.Answer.fail("no open panel is called \"" + want + "\"" + (open.isEmpty() ? "" : " (open: " + names + ")") + "; use open with the app's name to start it");
+        }
+        String label = best[0] + " (" + best[1] + ")";
+        if (best[1].equals(beforeFront)) {
+            arrived = best[1];
+            did("Switched to " + clip(best[0], 60) + ": it was in front already");
+            return AxisLink.Answer.done(Json.obj("switched", label, "already", true));
+        }
+        String out = adb.shell("monkey -p " + best[1] + " -c android.intent.category.LAUNCHER 1", ACT_MS);
+        if (out.contains("No activities found") || out.contains("monkey aborted"))
+            return AxisLink.Answer.fail(label + " is open but cannot be brought forward from here (it has nothing to start); the person can pick it in the headset");
+        awaitFront(best[1], false);
+        if (arrived == null)
+            return AxisLink.Answer.fail(label + " was asked to come forward but did not reach the front within " + seconds(OPEN_MS) + " s; look to see what is in front");
+        did("Switched to " + clip(best[0], 60));
+        return AxisLink.Answer.done(Json.obj("switched", label));
+    }
+
+    /** The user's block list, sent by Axis with each command as `blocked` ("bank|keepass"), lower case. */
+    static List<String> blocked(Map<String, Object> p) {
+        String list = Json.str(p, "blocked");
+        List<String> out = new ArrayList<>();
+        if (list != null) for (String s : list.toLowerCase(Locale.ROOT).split("\\|")) if (!s.trim().isEmpty()) out.add(s.trim());
+        return out;
+    }
+
+    /** The entry of the block list a name contains, any case, or null. */
+    static String isBlocked(List<String> blocked, String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        for (String b : blocked) if (n.contains(b)) return b;
+        return null;
+    }
+
+    /**
+     * The block list's entry the panel in front matches, when a command would read it or act on it; null to go on.
+     * Open, switch and window's list are let through: they name another panel, and Axis checks those names.
+     */
+    private String blockedFront(String name, Map<String, Object> p) {
+        List<String> list = blocked(p);
+        if (list.isEmpty() || !name.startsWith("desktop.")) return null;
+        switch (name) {
+            case "desktop.hello": case "desktop.hide": case "desktop.open": case "desktop.switch": case "desktop.window": return null;
+            default:
+                String pkg = before();
+                return pkg == null ? null : isBlocked(list, Panel.appName(pkg) + " " + pkg);
         }
     }
 
@@ -1322,7 +1525,7 @@ public final class PanelCommands implements AxisLink.Handler {
     }
 
     private static final Set<String> STEP_ACTIONS = new HashSet<>(Arrays.asList(
-            "click", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"));
+            "click", "drag", "type", "keys", "open", "switch", "window", "desktop", "wait", "point", "find", "scroll", "paste"));
 
     // ---- what is in front, after an action -----------------------------------
 

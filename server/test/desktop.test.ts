@@ -111,7 +111,7 @@ describe("the desktop tool (experimental)", () => {
     expect((await opening).body.result).toMatchObject({ opened: "Spotify" });
     expect((await tryTool({ action: "open", url: "file:///C:/Windows" })).body.error).toMatch(/http/);
     expect((await tryTool({ action: "open", app: "x", url: "https://a.example" })).body.error).toMatch(/one of them/);
-    expect((await tryTool({ action: "window", do: "close" })).body.error).toMatch(/minimize, maximize, restore or move/);
+    expect((await tryTool({ action: "window", do: "close" })).body.error).toMatch(/minimize, maximize, restore, move or list/);
     expect((await tryTool({ action: "window", do: "move" })).body.error).toMatch(/display/);
 
     // Several steps go as one command, with the steps as structured data; a failed step comes back as a report, not an error.

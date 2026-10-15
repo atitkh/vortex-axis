@@ -4,12 +4,20 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.4.0 (experimental) (2026-10-15)
+
+- **Drag**, as a real touch: from a name, an id or x,y to `toName`, `toId` or `toX`,`toY`, with `holdMs` to long-press first. The fast engine puts a finger down, holds, moves in steps over 400 ms and lifts (a new helper op, `drag`); through the shell it is `input swipe`, or `input draganddrop` when there is a hold.
+- **Switch between panels**: `switch` brings an open panel forward by its app's name, package or title (the app is started again, and the front watched for it), and says plainly when it is not open or did not come forward. `window` with `do: list` lists the open panels; a look names them (`panels`) when the fast engine is running and there is more than one. Minimize, maximize and move are still refused.
+- **The block list**: with a blocked app's panel in front (Axis 0.45.0 sends the list with each command), the app neither reads it nor acts on it; a blocked panel is named only as blocked in lists.
+- Offers the "Ask before risky actions" switch (`confirmRisky`, on) on the headset's page; Axis does the asking.
+- versionCode 15 (helper too). Needs Axis 0.45.0 for `drag`, the block list and `window` list; `switch` works with older Axis too.
+
 ## Axis 0.45.0 (2026-10-15)
 
 - **Drag** (`vortex_axis_desktop` action `drag`): from `name`, `id` or `x`,`y` to `toName`, `toId` or `toX`,`toY`, with `holdMs` (up to 2000) to long-press first; in `steps` too, held by the same switches as a click. The tool's description tells agents to ask first when a drop could lose or move something important, and to prefer names to coordinates. Needs desktop app 0.10.0 or Quest app 0.4.0; older apps answer that they do not know it.
 - **Axis asks before a risky action.** A click or drag on an element named with a word that sends, deletes, buys or signs out (send, post, publish, submit, delete, remove, buy, purchase, pay, order, confirm, transfer, sign out, log out, uninstall, format, erase, reset, install, accept), or Enter / Ctrl+Enter (and typed or pasted text that ends a line) in a window whose title says mail, chat or payment, is put to the person first: on the computer when it can ask, else on a device near it, "Allow" or "Deny", 30 seconds, no answer is no. Deny reaches the agent as "the user declined"; Allow counts for that one call (a `steps` call asks once). The answer says `confirmed` when it was asked; both show in the call on the Live page. Ids and points are named from the computer's last look or find (`server/src/risky.ts` holds the words, with its tests). Per computer, switch `confirmRisky`: on unless switched off (the apps from 0.10.0 / 0.4.0 offer it on the computer's page).
 - **A block list for the desktop tool** (Agent tools page, or `AXIS_DESKTOP_BLOCKED`): parts of app, window or process names. Axis refuses an `open`, `switch`, `window` or `wait` naming one, refuses a look, find or screenshot whose window in front matches ("blocked by the user", nothing of it), names it only as blocked in a list of windows and in `after`, and sends the list to the computer with every command (`blocked`), which refuses to read or act on such a window itself (desktop app 0.10.0, Quest app 0.4.0).
-- `switch` and `window` reach a Quest: Axis never refused them (it keys on the capability); the Quest app did, until 0.4.0.
+- `switch` and `window` reach a Quest: Axis never refused them (it keys on the capability); the Quest app did, until 0.4.0. `window` takes `do: list` (the open windows; on a Quest the only one it does).
 
 ## Quest panel client 0.3.11 (experimental) (2026-10-14)
 

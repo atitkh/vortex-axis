@@ -13,7 +13,7 @@ import java.util.Map;
 public final class QuestIdentity {
     /** Was `quest-panels` up to 0.2.0; Axis 0.44.0 and later take either (server/src/clienttypes.ts). */
     public static final String TYPE = "meta-quest";
-    public static final String VERSION = "0.3.11";
+    public static final String VERSION = "0.4.0";
 
     private QuestIdentity() {}
 
@@ -22,6 +22,7 @@ public final class QuestIdentity {
                 setting("allowLook", "Let agents read the panels", "Off refuses every look. The person in the headset can also pause the app.", "1"),
                 setting("allowInput", "Let agents tap and type", "Off refuses taps, typing, keys, scrolling and opening apps; looking goes on. The app never types into a password field or presses power or sleep.", "1"),
                 setting("allowScreenshot", "Let agents take screenshots", "On, an agent may take a small picture of the panel in front when reading it is not enough; the picture goes to the agent's model. Never while a password field has the focus.", "0"),
+                setting("confirmRisky", "Ask before risky actions", "Axis asks you first (Allow or Deny, on a device near you) when an agent would tap Send, Delete, Buy and the like, or press Enter in a chat, mail or payment app.", "1"),
                 setting("autoUpdate", "Update automatically", "When a newer Quest app is on this hub, download it, check it and install it through the headset's adb; the app restarts by itself.", "1")));
         List<Object> actions = new ArrayList<>();
         actions.add(Json.obj("name", "desktop.hello", "label", "Check the headset", "help", "Asks the app whether it can reach the headset's adb, and which version it is."));

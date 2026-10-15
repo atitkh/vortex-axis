@@ -590,7 +590,7 @@ function argsFor(action: Action, params: Record<string, unknown>): Record<string
     }
     case "window": {
       const op = text(params.do);
-      if (!op || !["minimize", "maximize", "restore", "move"].includes(op)) throw new Error("window needs do: minimize, maximize, restore or move");
+      if (!op || !["minimize", "maximize", "restore", "move", "list"].includes(op)) throw new Error("window needs do: minimize, maximize, restore, move or list");
       args.do = op;
       const which = text(params.window)?.slice(0, 200);
       if (which) args.window = which;

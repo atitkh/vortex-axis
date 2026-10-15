@@ -44,6 +44,10 @@ public final class HelperRouter<N> {
         void tap(int x, int y) throws Exception;
         void longPress(int x, int y) throws Exception;
         void swipe(int x1, int y1, int x2, int y2, int ms) throws Exception;
+        /** A finger put down, held holdMs (a long press), moved to the other point over ms, and lifted there. */
+        default void drag(int x1, int y1, int x2, int y2, int holdMs, int ms) throws Exception {
+            swipe(x1, y1, x2, y2, holdMs + ms);
+        }
         void key(int code, boolean ctrl, boolean alt, boolean shift) throws Exception;
         void back() throws Exception;
         /** {jpeg bytes, width, height} of the screen (`crop` {x, y, w, h} or null) no larger than maxSide, or null when it cannot. */
@@ -156,6 +160,9 @@ public final class HelperRouter<N> {
                 return Json.obj();
             case "swipe":
                 device.swipe(need(r, "x1"), need(r, "y1"), need(r, "x2"), need(r, "y2"), Math.max(1, Math.min(5000, num(r, "ms", 300))));
+                return Json.obj();
+            case "drag":
+                device.drag(need(r, "x1"), need(r, "y1"), need(r, "x2"), need(r, "y2"), Math.max(0, Math.min(2000, num(r, "holdMs", 0))), Math.max(50, Math.min(5000, num(r, "ms", 400))));
                 return Json.obj();
             case "key":
                 device.key(need(r, "code"), Json.isTrue(r, "ctrl"), Json.isTrue(r, "alt"), Json.isTrue(r, "shift"));

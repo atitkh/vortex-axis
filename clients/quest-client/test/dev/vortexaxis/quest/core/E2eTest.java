@@ -168,7 +168,11 @@ public class E2eTest {
         check(adbd.take().contains("am start -a android.intent.action.VIEW -d 'https://example.org/docs'"), "as am start, quoted");
         check(toolError(Json.obj("action", "open", "url", "file:///sdcard/x")).contains("http"), "a file address refused (by Axis before the headset)");
 
-        check(toolError(Json.obj("action", "switch", "window", "Browser")).contains("not available on a Quest"), "switch: unsupported, said clearly");
+        String sw = toolError(Json.obj("action", "switch", "window", "Browser"));
+        check(sw.contains("no open panel is called \"Browser\""), "switch reaches the headset, which says the panel is not open: " + sw);
+        Map<String, Object> drag = tool(Json.obj("action", "drag", "x", 10, "y", 20, "toX", 300, "toY", 40));
+        equal(drag.get("done"), "drag", "drag through Axis");
+        check(adbd.take().contains("input swipe 10 20 300 40 400"), "as a slow swipe through the shell");
         check(toolError(Json.obj("action", "clipboard")).contains("not available on a Quest"), "clipboard: unsupported, said clearly");
         Map<String, Object> point = tool(Json.obj("action", "point", "id", 8, "text", "This one"));
         check(Boolean.TRUE.equals(point.get("pointed")) && Long.valueOf(174).equals(point.get("x")), "point: accepted (noted, not drawn)");

@@ -41,6 +41,7 @@ public class CommandsTest {
         setUp();
         look();
         click();
+        drag();
         type();
         keys();
         scroll();
@@ -306,6 +307,25 @@ public class CommandsTest {
         acted();
     }
 
+    static void drag() {
+        System.out.println("[drag] a slow swipe, or drag and drop after a hold, through the shell; the block list");
+        acted();
+        AxisLink.Answer a = run("desktop.drag", "x", 10, "y", 20, "toX", 300, "toY", 40);
+        check(a.ok && "swipe".equals(a.payload.get("how")), "dragged: " + a.error);
+        equal(acted(), Arrays.asList("input swipe 10 20 300 40 400"), "input swipe over 400 ms");
+        a = run("desktop.drag", "name", "Beyond Sandbox", "toX", 300, "toY", 40, "holdMs", 600);
+        check(a.ok && "drag and drop".equals(a.payload.get("how")), "held first: " + a.error);
+        check(acted().stream().anyMatch(c -> c.startsWith("input draganddrop ") && c.endsWith(" 300 40 1000")), "input draganddrop, with the hold in its time");
+        check(!run("desktop.drag", "x", 1, "y", 1).ok, "no destination: refused");
+        check(!run("desktop.drag", "x", 1, "y", 1, "toX", 5000, "toY", 1).ok, "off the panel: refused");
+        a = run("desktop.look", "blocked", "bank|store");
+        check(!a.ok && a.error.contains("blocked by the user (it matches \"store\")"), "the panel in front blocked: refused: " + a.error);
+        check(acted().stream().noneMatch(c -> c.contains("uiautomator")), "and not read");
+        check(!run("desktop.click", "x", 5, "y", 5, "blocked", "store").ok && acted().isEmpty(), "nor tapped");
+        check(run("desktop.look", "blocked", "bank").ok, "another app blocked: read as before");
+        acted();
+    }
+
     static void unsupported() {
         System.out.println("[hello] nothing longer than Axis takes, long things as pieces");
         Map<String, Object> pcs = new java.util.LinkedHashMap<>();
@@ -319,7 +339,7 @@ public class CommandsTest {
         adbd.take();
 
         System.out.println("[unsupported on a Quest]");
-        for (String n : new String[] {"switch", "window", "desktop", "clipboard", "paste"}) {
+        for (String n : new String[] {"window", "desktop", "clipboard", "paste"}) {
             AxisLink.Answer a = run("desktop." + n, "window", "Store", "do", "maximize", "go", "next", "text", "hi");
             check(!a.ok && (a.error.contains("Quest")), n + ": " + a.error);
         }
