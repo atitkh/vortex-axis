@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Quest panel client 0.3.9 (experimental) (2026-10-14)
+
+- **When the helper logs nothing at all, the app says what the system logged about its package.** After 0.3.8 the helper (started without `-w`) still never reached its first line, so its own steps said nothing; the message now also carries the last lines of logcat that mention `dev.vortexaxis.quest.helper`, `FATAL EXCEPTION` or `AndroidRuntime` ("the system said: ..."), which is where a crash before the helper's own code would be.
+- versionCode 12 (helper too). Axis is unchanged.
+
 ## Quest panel client 0.3.8 (experimental) (2026-10-14)
 
 - **Taps meant for the Browser went to this app's own window.** The headset stacks panels as overlapping windows on one display, and a tap goes to the topmost one at that spot. On the owner's headset this app's panel sat above the Browser's and below Settings': a tap at "Create tab" gave the focus to this app (the answer's `after` named it) and added nothing, while a tap in Settings worked. While an agent acts, the app's own window now steps aside first (`moveTaskToBack`; it says so in Recently), and comes back when the app is opened again. Looks and finds leave it alone.

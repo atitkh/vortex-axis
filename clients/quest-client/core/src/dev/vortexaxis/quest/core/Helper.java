@@ -394,7 +394,18 @@ public final class Helper {
             }
             int from = -1;
             for (int i = 0; i < notes.size(); i++) if (notes.get(i).startsWith("onCreate") && notes.get(i).contains("port " + lastPort + ")")) from = i;
-            if (from < 0) out.append(" (the helper never started for this try: nothing logged for port ").append(lastPort).append(')');
+            if (from < 0) {
+                out.append(" (the helper never started for this try: nothing logged for port ").append(lastPort).append(')');
+                // What the system itself said about the package: a crash before the helper's own code, or the start refused.
+                String sys = adb.shell("logcat -d -t 1500 2>/dev/null | grep -E 'dev.vortexaxis.quest.helper|FATAL EXCEPTION|AndroidRuntime' | tail -n 6", 5000);
+                StringBuilder said = new StringBuilder();
+                for (String line : sys.split("\n")) {
+                    String t = line.trim();
+                    int at = t.indexOf(": ");
+                    if (!t.isEmpty()) said.append(said.length() > 0 ? " | " : "").append(at > 0 && at < 60 ? t.substring(at + 2) : t);
+                }
+                if (said.length() > 0) out.append(" (the system said: ").append(tailOf(said.toString(), 600)).append(')');
+            }
             else out.append(" (the helper got as far as: ").append(tailOf(String.join(" | ", notes.subList(from, notes.size())), 450)).append(')');
         } catch (IOException ignored) {
             // The reasons are only help; the failure is told anyway.
