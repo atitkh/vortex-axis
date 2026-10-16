@@ -35,7 +35,7 @@ COPY web web
 # The page that puts firmware on a new board over USB, served at /flash.
 COPY flasher/index.html flasher/flash.js flasher/
 COPY --from=build /app/esp-web-tools flasher/esp-web-tools
-# Board firmware and the Windows desktop app, when this is a release image (empty otherwise): a fresh hub
+# Board firmware and the Windows desktop app and the Quest client, when this is a release image (empty otherwise): a fresh hub
 # can update boards and offer the app from the start (server/src/bundled.ts, desktopapp.ts).
 COPY bundled bundled
 RUN mkdir -p /data /backup && chown node:node /data /backup

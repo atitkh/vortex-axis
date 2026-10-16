@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Cipher;
 
 // A minimal adb host client that talks the adb wire protocol over a plain TCP socket.
-// Copied from clients/quest-probe (proven against a Quest 3's own adbd), with a deadline
+// Proven against a Quest 3's own adbd (it began as a throwaway probe), with a deadline
 // on every shell command and raw byte output added.
 //
 // Deliberately free of android.* imports so it can be unit-tested on a desktop JVM

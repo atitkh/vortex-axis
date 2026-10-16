@@ -7,13 +7,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 src="$PWD/clients/quest-client"
-image=vortex-axis-quest-probe-build
+image=vortex-axis-quest-build
 node_image="${AXIS_E2E_NODE_IMAGE:-$(docker image inspect vortex-axis:local > /dev/null 2>&1 && echo vortex-axis:local || echo node:24-slim)}"
 npm run build > /dev/null
 port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 token=$(openssl rand -hex 24)
 name="vortex-axis-quest-e2e-$$"
-docker build -q -t "$image" "$PWD/clients/quest-probe" > /dev/null
+docker build -q -t "$image" "$PWD/clients/quest-client" > /dev/null
 docker run -d --rm --name "$name" --network host -v "$PWD":/repo:ro -w /repo \
   -e AXIS_ADMIN_TOKEN="$token" -e AXIS_DATA_DIR=/tmp/axis-data -e AXIS_PORT="$port" -e AXIS_HOST=127.0.0.1 \
   -e AXIS_WEB_DIR=/repo/web -e AXIS_PING_INTERVAL_MS=5000 --entrypoint node "$node_image" server/dist/index.js > /dev/null

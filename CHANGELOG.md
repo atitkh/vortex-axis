@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.46.0 (2026-10-15)
+
+- **The Quest panel client now ships with every release**: the release workflow builds its APK (JVM tests first, then Gradle in Docker), attaches it to the release as `quest-client-<version>.apk`, and puts it inside the Axis image (`bundled/quest`), so a fresh hub offers it to headsets from the start, like the desktop app. It is debug-signed: install it by hand (`adb install`, or Unknown Sources on the headset). Updates over the last build need the same signing key, so a repository that wants that sets the secret `QUEST_KEYSTORE_B64` (a base64 `debug.keystore`); without it every release has a fresh key and a headset uninstalls first.
+- **`scripts/build-quest-client.sh`** copies the source into the build container instead of bind-mounting it (so it works from a CI job that is itself in a container), writes to `$AXIS_QUEST_OUT` when set, and takes the keystore from `QUEST_KEYSTORE_B64`. The local signing key volume is unchanged.
+- **The throwaway Quest probe is removed** (`clients/quest-probe/`, `scripts/build-quest-probe.sh`); the build image moved to `clients/quest-client/Dockerfile`.
+
 ## Desktop app 0.10.3 (2026-10-15)
 
 - **Speech that never played, and the link dropping each time it was due**: when the chosen speaker could not be opened (its number had changed or it was gone), starting playback threw inside the link's receive loop, which ended the connection; the pill showed Speaking and nothing came out. Now it falls back to the default speaker, and with none it carries on silently (the words still show); a failure while handling any one message from Axis is logged and no longer takes the connection down.

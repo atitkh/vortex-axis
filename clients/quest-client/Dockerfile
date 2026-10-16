@@ -1,4 +1,4 @@
-# Build image for the Quest probe: JDK 17, Android command-line tools, platform 34, Gradle 8.7.
+# Build image for the Quest panel client: JDK 17, Android command-line tools, platform 34, Gradle 8.7.
 FROM eclipse-temurin:17-jdk
 RUN apt-get update && apt-get install -y --no-install-recommends unzip curl && rm -rf /var/lib/apt/lists/*
 ENV ANDROID_HOME=/opt/android-sdk

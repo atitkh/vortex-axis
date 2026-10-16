@@ -19,7 +19,7 @@ import java.util.Base64;
 
 import javax.crypto.Cipher;
 
-// Plain-JVM test for AdbClient, copied from clients/quest-probe with the package changed. No JUnit.
+// Plain-JVM test for AdbClient. No JUnit.
 // Exits non-zero on the first failed check.
 //
 //   (a) adb public-key struct encode -> decode round-trip (n, e, n0inv, R^2).

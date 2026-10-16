@@ -1,7 +1,7 @@
 name: release
 
-# A version tag (v0.41.0) builds everything a person needs: the board firmware, the Windows desktop app and
-# the Axis image with both inside it, and puts them on a release. Runs on GitHub, and on a Gitea runner with
+# A version tag (v0.41.0) builds everything a person needs: the board firmware, the Windows desktop app, the
+# Quest panel client and the Axis image with all three inside it, and puts them on a release. Runs on GitHub, and on a Gitea runner with
 # the label "linux" (there the image is built and checked but not pushed; the release gets the files).
 on:
   push:
@@ -32,7 +32,9 @@ jobs:
           echo "axis=$axis" >> "$GITHUB_OUTPUT"
           echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
           echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
-          echo "Axis $axis, board firmware $firmware, desktop app $desktop"
+          quest=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" clients/quest-client/app/build.gradle)
+          echo "quest=$quest" >> "$GITHUB_OUTPUT"
+          echo "Axis $axis, board firmware $firmware, desktop app $desktop, Quest client $quest"
           # A tag has to name the version it is: v plus the top-level package.json's.
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$axis" ]; then
             echo "the tag ${GITHUB_REF_NAME} is not v$axis (package.json)"; exit 1
@@ -93,7 +95,18 @@ jobs:
           printf '{"version":"%s","builtAt":"%s"}\n' "${{ steps.v.outputs.desktop }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > bundled/desktop/version.json
           cp .out/win-x64/VortexAxisDesktop.exe "out/VortexAxisDesktop-${{ steps.v.outputs.desktop }}.exe"
 
-      # The Axis image, with the firmware and the app in it.
+      # The Quest panel client (experimental): the APK, built in Docker with its tests run first. Debug-signed, to be
+      # installed by hand (adb, or the headset's Unknown Sources); a headset on it then updates from Axis. Updates only
+      # install over the last build when the signing key is the same, so keep a key in the secret QUEST_KEYSTORE_B64
+      # (base64 of a debug.keystore); without it every release has a fresh key.
+      - name: Quest panel client
+        env:
+          QUEST_KEYSTORE_B64: ${{ secrets.QUEST_KEYSTORE_B64 }}
+        run: |
+          AXIS_QUEST_OUT=bundled/quest scripts/build-quest-client.sh
+          cp bundled/quest/quest-client.apk "out/quest-client-${{ steps.v.outputs.quest }}.apk"
+
+      # The Axis image, with the firmware and the apps in it.
       - uses: docker/setup-qemu-action@v3
         if: env.ON_GITHUB == 'true'
       - uses: docker/setup-buildx-action@v3
@@ -114,7 +127,7 @@ jobs:
           else
             # Here only built, to prove the image builds with everything in it.
             docker build --build-arg AXIS_COMMIT="${GITHUB_SHA::7}" -t vortex-axis:release-check .
-            docker run --rm --entrypoint sh vortex-axis:release-check -c 'ls -la bundled/firmware bundled/desktop flasher flasher/esp-web-tools | head -40 && cat bundled/firmware/manifest.json'
+            docker run --rm --entrypoint sh vortex-axis:release-check -c 'ls -la bundled/firmware bundled/desktop bundled/quest flasher flasher/esp-web-tools | head -40 && cat bundled/firmware/manifest.json'
             docker rmi vortex-axis:release-check > /dev/null
           fi
 
@@ -132,8 +145,8 @@ jobs:
           awk 'NR>1 && /^## /{n++} n==1{print} n>1{exit}' CHANGELOG.md | sed '1{/^## /d}' > out/notes.md
           {
             echo ""
-            echo "Axis ${{ steps.v.outputs.axis }}, board firmware ${{ steps.v.outputs.firmware }}, desktop app ${{ steps.v.outputs.desktop }}."
-            echo "Image: \`ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]'):${{ steps.v.outputs.axis }}\` (the firmware and the desktop app are inside it)."
+            echo "Axis ${{ steps.v.outputs.axis }}, board firmware ${{ steps.v.outputs.firmware }}, desktop app ${{ steps.v.outputs.desktop }}, Quest client ${{ steps.v.outputs.quest }} (experimental, sideload: \`adb install\` or Unknown Sources)."
+            echo "Image: \`ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]'):${{ steps.v.outputs.axis }}\` (the firmware and both apps are inside it)."
           } >> out/notes.md
           ls -la out
 
@@ -145,6 +158,7 @@ jobs:
           files: |
             out/*.bin
             out/*.exe
+            out/*.apk
 
       - name: Release on Gitea
         if: env.ON_GITHUB != 'true' && github.ref_type == 'tag'
@@ -154,7 +168,7 @@ jobs:
           api="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
           body=$(python3 -c 'import json,sys;print(json.dumps({"tag_name":sys.argv[1],"name":sys.argv[1],"body":open("out/notes.md").read()}))' "${GITHUB_REF_NAME}")
           id=$(curl -sf -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" -d "$body" "$api/releases" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
-          for f in out/*.bin out/*.exe; do
+          for f in out/*.bin out/*.exe out/*.apk; do
             curl -sf -X POST -H "Authorization: token $TOKEN" -F "attachment=@$f" "$api/releases/$id/assets?name=$(basename "$f")" > /dev/null
             echo "attached $(basename "$f")"
           done
