@@ -19,6 +19,26 @@ Axis is a bridge, not an agent. It does not think; it listens, routes and speaks
                                        tools for the agent   └─ speech synthesis (both come with it)
 ```
 
+## The face
+
+Every board, and the web page, shows the same face. It listens, thinks, speaks and rests, and while the agent works the dots leave the ring and form an icon for what it is doing.
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/media/face-idle.gif" alt="Idle" width="200"><br><sub>Idle</sub></td>
+    <td align="center"><img src="docs/media/face-listening.gif" alt="Listening" width="200"><br><sub>Listening</sub></td>
+    <td align="center"><img src="docs/media/face-thinking.gif" alt="Thinking" width="200"><br><sub>Thinking</sub></td>
+    <td align="center"><img src="docs/media/face-speaking.gif" alt="Speaking" width="200"><br><sub>Speaking</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/media/face-thinking-tools.gif" alt="The thinking face forming a house, then a magnifier, as the agent picks up tools" width="320"><br>
+  <sub>Thinking while the agent uses a tool: the dots form a house, then a magnifier.</sub>
+</p>
+
+The clips are drawn by the real client code (`node scripts/make-face-gifs.mjs`). [docs/face.md](docs/face.md) has every look to the pixel.
+
 ## What you get
 
 - **Talk to your agent anywhere:** a wake word or a tap on a board, a tap or a held press on the web page, a key on your computer. When several devices hear you, one answers.
