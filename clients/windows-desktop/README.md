@@ -11,6 +11,7 @@ Build everything with Docker, nothing on the host:
 ```bash
 scripts/build-desktop.sh     # from the repository root: publishes the .exe into Axis's data folder for the admin page
 docker run --rm -v "$PWD/clients/windows-desktop":/src -w /src/Axis.Desktop.Smoke mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -- 192.168.1.20:8440 123-456 20
+docker run --rm -v "$PWD/clients/windows-desktop":/src -w /src/Axis.Desktop.Smoke mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -- check   # the Core's checks, no Axis
 ```
 
 The version is in `Directory.Build.props`, counted apart from Axis's and the boards'.

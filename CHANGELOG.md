@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.4 (2026-10-16)
+
+- **A click on a field half scrolled under the top of a web page no longer lands on the address bar.** A look reported such a field with its whole box, which reached up into the browser's bar, and a click went to its middle. Now a look gives the part that shows (the box cut to the page, a frame in it, and the window), and a click reads the control again and goes to the middle of what shows now; when under 40% of it shows (and not a piece at least 40 px each way) it is scrolled into view first (ScrollItem) and read again, and refused with words when it cannot be.
+- **A text field or combo box is clicked by giving it the focus** through UI Automation, as typing already did; the mouse is used only when that does not take. The answer's `how` is `focused`.
+- **Ids after a scroll**: a scroll marks the last look out of date. An id then has its control read again where it is now (and refused as "off the screen since the scroll" when none of it shows); text read from the pixels cannot be, and is refused with "scrolled since the last look, so element N may have moved; look again". A look or find makes the ids current again. A click's answer gives the x,y it was actually clicked at.
+- **A last guard**: with a browser in front, a mouse click meant for a control in the page is refused when it would land in the top 100 px of the window above the page (its tabs and address bar). Clicks on the browser's own tabs, address bar and buttons, and clicks at a bare x,y, go as before; a page shown full screen is clicked at the top.
+- The geometry is in `Axis.Desktop.Core` (`Geometry.cs`) and checked on any OS by `Axis.Desktop.Smoke check`.
+- Not run on Windows by its author: built in the SDK container, the Core's checks run there.
+
 ## Axis 0.46.0 (2026-10-15)
 
 - **The Quest panel client now ships with every release**: the release workflow builds its APK (JVM tests first, then Gradle in Docker), attaches it to the release as `quest-client-<version>.apk`, and puts it inside the Axis image (`bundled/quest`), so a fresh hub offers it to headsets from the start, like the desktop app. It is debug-signed: install it by hand (`adb install`, or Unknown Sources on the headset). Updates over the last build need the same signing key, so a repository that wants that sets the secret `QUEST_KEYSTORE_B64` (a base64 `debug.keystore`); without it every release has a fresh key and a headset uninstalls first.

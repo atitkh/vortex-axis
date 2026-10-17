@@ -612,23 +612,46 @@ sealed class WindowsDesktop : IDesktop
     Task ShowOnWindow(WindowInfo w, string words, CancellationToken ct) =>
         overlay.Dispatcher.InvokeAsync(() => overlay.PointAt(w.X + w.W / 2, w.Y + Math.Min(60, Math.Max(w.H / 2, 1)), words, 3, size())).Task;
 
-    public async Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
+    public async Task<(string How, int X, int Y)> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
     {
-        await ShowAt(x, y, kind == ClickKind.Right ? "Right-click" : kind == ClickKind.Double ? "Double-click" : "Click", ct);
+        var e = target?.Ref as AutomationElement;
+        var words = kind == ClickKind.Right ? "Right-click" : kind == ClickKind.Double ? "Double-click" : "Click";
+        // Where the control shows now, not where the look saw it: the page may have scrolled, or it sits half under its top.
+        Spot? at = null;
+        if (e != null)
+        {
+            at = await Uia.Run(() => ScreenReader.Where(e), 3000, "finding the control", ct);
+            if (at.Visible is { } v) (x, y) = v.Centre;
+        }
+        await ShowAt(x, y, words, ct);
         try
         {
-            // A control that can be pressed directly is, and the mouse stays where it is.
-            if (kind == ClickKind.Left && target?.Ref is AutomationElement e)
+            if (kind == ClickKind.Left && e != null)
             {
+                // A control that can be pressed directly is, and the mouse stays where it is.
                 try
                 {
-                    if (await Uia.Run(() => Press(e), 3000, "pressing the control", ct)) return "invoked";
+                    if (await Uia.Run(() => Press(e), 3000, "pressing the control", ct)) return ("invoked", x, y);
                 }
                 // A press that opens a dialog may not come back until it closes; it has happened by then.
-                catch (TimeoutException) { return "invoked"; }
+                catch (TimeoutException) { return ("invoked", x, y); }
+                // A field is given the focus directly, as for typing: the mouse could land on whatever covers it.
+                if (target!.Kind is "edit" or "combobox" && await Uia.Run(() => Focus(e), 3000, "focusing the field", ct)) return ("focused", x, y);
             }
+            if (e != null && at != null && !Geometry.Enough(at.Full, at.Visible))
+            {
+                // Too little of it shows to click it surely: scrolled into view and read again, else refused.
+                var before = at;
+                at = await Uia.Run(() => ScrollIntoView(e) ? ScreenReader.Where(e) : before, 3000, "scrolling it into view", ct);
+                if (!Geometry.Enough(at.Full, at.Visible))
+                    throw new InvalidOperationException($"only {(int)(Geometry.Fraction(at.Full, at.Visible) * 100)}% of \"{target!.Name}\" shows (the rest is past the edge of the page or window) and it could not be scrolled into view; scroll until it shows, look again, then click");
+                (x, y) = at.Visible!.Value.Centre;
+                await ShowAt(x, y, words, ct);
+            }
+            // The last guard: a click meant for the page never lands on the browser's own bar.
+            if (Geometry.ChromeRefusal(ScreenReader.Foreground(), y, at?.InPage == true, at?.Page) is string why) throw new InvalidOperationException(why);
             await Uia.Run(() => Input.Click(x, y, kind), 3000, "clicking", ct);
-            return "mouse";
+            return ("mouse", x, y);
         }
         finally
         {
@@ -677,6 +700,43 @@ sealed class WindowsDesktop : IDesktop
         catch (Exception) { }
         return false;
     }
+
+    /** Gives a field the focus through UI Automation. False when it cannot take it, or did not. */
+    static bool Focus(AutomationElement e)
+    {
+        try
+        {
+            if (!e.Current.IsKeyboardFocusable) return false;
+            e.SetFocus();
+            return e.Current.HasKeyboardFocus;
+        }
+        catch (Exception) { return false; }
+    }
+
+    /** Asks a control to scroll itself into view, and gives the page a moment to settle. False when it offers no way to. */
+    static bool ScrollIntoView(AutomationElement e)
+    {
+        try
+        {
+            if (!e.TryGetCurrentPattern(ScrollItemPattern.Pattern, out var item)) return false;
+            ((ScrollItemPattern)item).ScrollIntoView();
+            Thread.Sleep(200);
+            return true;
+        }
+        catch (Exception) { return false; }
+    }
+
+    public Task<ScreenElement?> RefreshAsync(ScreenElement e, CancellationToken ct) =>
+        e.Ref is not AutomationElement a ? Task.FromResult<ScreenElement?>(null) : Uia.Run<ScreenElement?>(() =>
+        {
+            try
+            {
+                if (a.Current.IsOffscreen) return null;
+                return ScreenReader.Where(a).Visible is { } shown ? Geometry.Shown(e, shown) : null;
+            }
+            // Gone from the window, or no longer anywhere on the screen.
+            catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException) { return null; }
+        }, 3000, "reading the control again", ct);
 
     public async Task TypeAsync(ScreenElement? target, string text, CancellationToken ct)
     {

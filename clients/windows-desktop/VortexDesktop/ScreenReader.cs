@@ -15,6 +15,12 @@ using Windows.Storage.Streams;
 namespace Axis.Desktop.App;
 
 /**
+ * Where a control is now: its whole box, the part of it that shows (inside every page holding it and its window),
+ * whether it is in a page (a document: a web page or a frame), and the nearest page's box.
+ */
+sealed record Spot(Box Full, Box? Visible, bool InPage, Box? Page);
+
+/**
  * Reads what is on the screen: the controls a window exposes through UI Automation (names, kinds,
  * boxes, values), and, when a window exposes little, its text from the pixels with Windows' own OCR.
  * Everything is in physical screen pixels (the app is per-monitor DPI aware). A password field's
@@ -32,6 +38,12 @@ sealed class ScreenReader
     const int StatePatienceMs = 1500;
 
     static readonly CacheRequest Cache = MakeCache();
+    /** What walking up from a control needs of each one above it. */
+    static readonly CacheRequest Ancestry = MakeAncestry();
+    /** How far up a control's pages are looked for; web pages nest deep. */
+    const int MaxDepth = 60;
+    /** Most controls read again for what of them shows, in one look: those crossing a page's edge. */
+    const int MaxClipped = 40;
 
     static CacheRequest MakeCache()
     {
@@ -44,6 +56,14 @@ sealed class ScreenReader
         c.Add(AutomationElement.IsPasswordProperty);
         c.Add(AutomationElement.IsValuePatternAvailableProperty);
         c.Add(ValuePattern.ValueProperty);
+        return c;
+    }
+
+    static CacheRequest MakeAncestry()
+    {
+        var c = new CacheRequest { TreeScope = TreeScope.Element, AutomationElementMode = AutomationElementMode.None };
+        c.Add(AutomationElement.ControlTypeProperty);
+        c.Add(AutomationElement.BoundingRectangleProperty);
         return c;
     }
 
@@ -131,6 +151,7 @@ sealed class ScreenReader
                     Add(list, up);
                 }
                 var near = Rectangle.Inflate(new Rectangle(mouse.X, mouse.Y, 1, 1), 300, 120);
+                ClipToPages(list);
                 return (Foreground(), list, near);
             }
 
@@ -156,10 +177,68 @@ sealed class ScreenReader
                 if (list.Count >= MaxCollected) break;
                 Add(list, e);
             }
+            ClipToPages(list);
             var info = Foreground();
             return (info, list, info == null ? null : new Rectangle(info.X, info.Y, info.W, info.H));
         }
     }
+
+    /**
+     * Cuts the box of each control that crosses the edge of a page to what shows, and leaves out one of which
+     * nothing does: a field half scrolled under the top of a web page otherwise keeps a box reaching up into the
+     * browser's address bar, and its middle can be there. Controls wholly inside or outside every page are as read.
+     */
+    static void ClipToPages(List<ScreenElement> list)
+    {
+        var pages = list.Where(e => e.Kind == "document").Select(Box.Of).ToList();
+        if (pages.Count == 0) return;
+        var kept = new List<ScreenElement>(list.Count);
+        var walked = 0;
+        foreach (var e in list)
+        {
+            var box = Box.Of(e);
+            if (e.Kind == "document" || e.Ref is not AutomationElement a || walked >= MaxClipped || !pages.Any(p => box.Within(p) != null && !box.Inside(p)))
+            {
+                kept.Add(e);
+                continue;
+            }
+            walked++;
+            Spot spot;
+            try { spot = Where(a); }
+            catch (Exception) { kept.Add(e); continue; }
+            if (spot.Visible is { } shown) kept.Add(Geometry.Shown(e, shown));
+        }
+        list.Clear();
+        list.AddRange(kept);
+    }
+
+    /** Where `e` is now and what of it shows, walking up to its window. On a UI Automation thread (Uia.Run). */
+    public static Spot Where(AutomationElement e)
+    {
+        var full = ToBox(e.Current.BoundingRectangle) ?? throw new InvalidOperationException("that control has no place on the screen now; look again");
+        var areas = new List<Box>();
+        Box? page = null;
+        if (e.Current.ControlType == ControlType.Document) page = full;
+        var walker = TreeWalker.ControlViewWalker;
+        AutomationElement? top = null;
+        var up = walker.GetParent(e, Ancestry);
+        for (var i = 0; i < MaxDepth && up != null && up != AutomationElement.RootElement; i++)
+        {
+            if (up.Cached.ControlType == ControlType.Document && ToBox(up.Cached.BoundingRectangle) is { } d)
+            {
+                areas.Add(d);
+                page ??= d;
+            }
+            top = up;
+            up = walker.GetParent(up, Ancestry);
+        }
+        // Reached the desktop: the last one passed is the control's own window, and nothing outside it shows.
+        if (up == AutomationElement.RootElement && top != null && ToBox(top.Cached.BoundingRectangle) is { } w) areas.Add(w);
+        return new Spot(full, Geometry.Visible(full, areas), page != null, page);
+    }
+
+    static Box? ToBox(System.Windows.Rect r) =>
+        r.IsEmpty || double.IsInfinity(r.Width) || r.Width < 1 || r.Height < 1 ? null : new Box((int)r.X, (int)r.Y, (int)r.Width, (int)r.Height);
 
     /** The window in front, from Windows itself (never UI Automation, so a frozen window cannot hold it up). */
     public static WindowInfo? Foreground()

@@ -56,10 +56,14 @@ public interface IDesktop
     (int X, int Y) Centre { get; }
 
     /**
-     * Clicks `target` (from the last look) or (x, y). Returns how: "invoked" when the control was pressed
-     * directly, without the mouse; "mouse" when a real click was sent there (and the mouse put back).
+     * Clicks `target` (from the last look) or (x, y). Returns how and where: "invoked" when the control was pressed
+     * directly, without the mouse; "focused" when a field was given the focus that way; "mouse" when a real click
+     * was sent (and the mouse put back). With a target it can read again, the platform clicks where it shows now
+     * (scrolled into view first when little of it does) and refuses a click that would land on a browser's own bar.
      */
-    Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct);
+    Task<(string How, int X, int Y)> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct);
+    /** `e` (one with a Ref) as it is now, its box cut to what shows; null when it is gone or none of it shows. */
+    Task<ScreenElement?> RefreshAsync(ScreenElement e, CancellationToken ct);
     /**
      * Drags with the left button from (x1, y1) to (x2, y2): down, held `holdMs` first when asked, moved in steps,
      * up. A real mouse drag, never an automation pattern; the mouse is put back after. Returns how ("mouse").
@@ -174,6 +178,8 @@ public sealed class DesktopCommands
     readonly IDesktop desktop;
     readonly object gate = new();
     IReadOnlyList<ScreenElement> last = [];
+    /** A scroll since the last look: the ids still name the same things, but their boxes may have moved. */
+    bool scrolled;
     IReadOnlyDictionary<string, JsonElement> settings = new Dictionary<string, JsonElement>();
 
     /** Set by the person in the app. While true, nothing is read and nothing is shown. */
@@ -262,7 +268,7 @@ public sealed class DesktopCommands
                 if (scope == "screen" && Blocked(p) is { Count: > 0 } blocked)
                     look = look with { Elements = look.Elements.Select(e => e.Kind == "window" && BlockedBy(blocked, e.Name, null) != null ? e with { Name = "blocked by the user", Value = null, Ref = null } : e).ToList() };
                 var elements = Pick(look.Elements, look.MouseX, look.MouseY, MaxElements);
-                lock (gate) last = elements;
+                lock (gate) (last, scrolled) = (elements, false);
                 var data = LookData(look, elements);
                 Did?.Invoke($"Looked at the {scope}: {elements.Count} things{(look.Ocr ? ", text read from the pixels" : look.OcrFailed != null ? $", pixels skipped ({look.OcrFailed})" : "")} " +
                     $"in {started.ElapsedMilliseconds} ms (controls {look.ReadMs}, pixels {look.OcrMs}; {Busy()})");
@@ -288,8 +294,9 @@ public sealed class DesktopCommands
                 ScreenElement? region = null;
                 if (Int(p, "id") is int id)
                 {
-                    lock (gate) region = id >= 1 && id <= last.Count ? last[id - 1] : null;
-                    if (region == null) return CommandAnswer.Fail($"no element {id} in the last look; look or find again");
+                    string? fail;
+                    (region, fail) = await ByIdAsync(id, ct);
+                    if (fail != null) return CommandAnswer.Fail(fail);
                 }
                 var detail = Str(p, "detail") ?? "normal";
                 if (!ShotSides.TryGetValue(detail, out var side)) return CommandAnswer.Fail("detail must be low, normal or high");
@@ -483,7 +490,7 @@ public sealed class DesktopCommands
     async Task<LookResult> FreshLookAsync(CancellationToken ct)
     {
         var look = await desktop.LookAsync("window", Toggle("autoOcr", true) ? OcrMode.Auto : OcrMode.Never, ct);
-        lock (gate) last = look.Elements;
+        lock (gate) (last, scrolled) = (look.Elements, false);
         return look;
     }
 
@@ -494,12 +501,7 @@ public sealed class DesktopCommands
      */
     async Task<(ScreenElement? Target, string? Fail)> TargetAsync(JsonElement p, CancellationToken ct)
     {
-        if (Int(p, "id") is int id)
-        {
-            ScreenElement? e;
-            lock (gate) e = id >= 1 && id <= last.Count ? last[id - 1] : null;
-            return e == null ? (null, $"no element {id} in the last look; look again") : (e, null);
-        }
+        if (Int(p, "id") is int id) return await ByIdAsync(id, ct);
         var query = Str(p, "name");
         if (query == null) return (null, null);
         var look = await FreshLookAsync(ct);
@@ -515,6 +517,22 @@ public sealed class DesktopCommands
         // Several the same, one inside another (a button and its own label): the innermost.
         var chosen = tied.Count > 1 ? tied.MinBy(m => (long)look.Elements[m.Index].W * look.Elements[m.Index].H) : top;
         return (look.Elements[chosen.Index], null);
+    }
+
+    /**
+     * Element `id` of the last look. After a scroll its box is read again where the platform can (it may have moved
+     * under the page's top, or off it); text read from the pixels cannot be, and is a failure.
+     */
+    async Task<(ScreenElement? Target, string? Fail)> ByIdAsync(int id, CancellationToken ct)
+    {
+        ScreenElement? e;
+        bool moved;
+        lock (gate) (e, moved) = (id >= 1 && id <= last.Count ? last[id - 1] : null, scrolled);
+        if (e == null) return (null, $"no element {id} in the last look; look again");
+        if (!moved) return (e, null);
+        if (e.Ref == null) return (null, $"scrolled since the last look, so element {id} may have moved; look again");
+        var now = await desktop.RefreshAsync(e, ct);
+        return now == null ? (null, $"element {id} is off the screen since the scroll; look again") : (now, null);
     }
 
     static bool Nested(IReadOnlyList<ScreenElement> all, List<(int Index, int Score)> tied)
@@ -592,7 +610,9 @@ public sealed class DesktopCommands
                     "double" => ClickKind.Double,
                     var other => throw new FormatException($"button must be left, right or double, not {other}"),
                 };
-                var how = await desktop.ClickAsync(target, x, y, kind, ct);
+                // Where it was clicked: where the control shows now, which may not be where the look saw it.
+                string how;
+                (how, x, y) = await desktop.ClickAsync(target, x, y, kind, ct);
                 Did?.Invoke($"{(kind == ClickKind.Left ? "Clicked" : kind == ClickKind.Right ? "Right-clicked" : "Double-clicked")} {(target != null ? Clip(target.Name, 60) : $"{x}, {y}")}");
                 var payload = new JsonObject { ["x"] = x, ["y"] = y, ["how"] = how };
                 if (target != null) payload["name"] = Clip(target.Name, 200);
@@ -690,6 +710,7 @@ public sealed class DesktopCommands
                 var (target, fail) = await TargetAsync(p, ct);
                 if (fail != null) return CommandAnswer.Fail(fail);
                 var how = await desktop.ScrollAsync(target, go, pages, ct);
+                lock (gate) scrolled = true;
                 Did?.Invoke($"Scrolled {go}{(go is "top" or "bottom" ? "" : $" {pages} page{(pages == 1 ? "" : "s")}")}{(target != null ? $" in {Clip(target.Name, 40)}" : "")}");
                 var payload = new JsonObject { ["scrolled"] = go, ["how"] = how };
                 if (target != null) payload["in"] = Clip(target.Name, 200);

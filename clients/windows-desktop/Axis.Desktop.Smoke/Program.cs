@@ -1,8 +1,10 @@
 // Usage: smoke <axis address> <pairing code> [seconds to stay connected]
 // Pairs as "Smoke PC", connects, and answers desktop.look / desktop.point from a fake screen,
 // printing what it was asked. Exits 0 once it has stayed connected for the given time.
+// Or: smoke check. Runs the Core's checks (Checks.cs) with no Axis, and exits 0 when all pass.
 using Axis.Desktop;
 
+if (args is ["check"]) return await Checks.RunAsync();
 if (args.Length < 2) { Console.Error.WriteLine("usage: smoke <address> <code> [seconds]"); return 2; }
 var address = AxisAddress.Parse(args[0]);
 var seconds = args.Length > 2 ? int.Parse(args[2]) : 20;
@@ -23,6 +25,10 @@ return online ? 0 : 1;
 
 sealed class FakeDesktop : IDesktop
 {
+    /** Its controls carry a Ref, as the Windows app's do, so they can be read again after a scroll. */
+    public bool Live { get; init; }
+    /** How far the page has moved up, by the scrolls so far. */
+    public int Scrolled { get; private set; }
     public (int X, int Y) Centre => (960, 540);
     public Task<LookResult> LookAsync(string scope, OcrMode ocr, CancellationToken ct)
     {
@@ -39,6 +45,7 @@ sealed class FakeDesktop : IDesktop
         elements.Add(new("edit", "Search", 100, -1060, 300, 30));
         elements.Add(new("hyperlink", "Settings", 10, -900, 80, 20));
         elements.Add(new("button", "Settings", 1800, -1060, 30, 30));
+        if (Live) elements = elements.Select(e => e with { Ref = new object() }).ToList();
         return Task.FromResult(new LookResult(new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040), 1530, -85, elements, 1920, 2160, false,
             0, -1080, [new Display(0, 0, 1920, 1080, true), new Display(0, -1080, 1920, 1080, false)]));
     }
@@ -48,10 +55,16 @@ sealed class FakeDesktop : IDesktop
         return Task.CompletedTask;
     }
     public Task HideAsync() { Console.WriteLine("hidden"); return Task.CompletedTask; }
-    public Task<string> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
+    public Task<(string How, int X, int Y)> ClickAsync(ScreenElement? target, int x, int y, ClickKind kind, CancellationToken ct)
     {
         Console.WriteLine($"{kind} click at {x},{y} on {target?.Name}");
-        return Task.FromResult(target != null ? "invoked" : "mouse");
+        return Task.FromResult((target != null ? "invoked" : "mouse", x, y));
+    }
+    public Task<ScreenElement?> RefreshAsync(ScreenElement e, CancellationToken ct)
+    {
+        // The page moved up by Scrolled; what went above the window's top is gone.
+        var moved = e with { Y = e.Y - Scrolled };
+        return Task.FromResult<ScreenElement?>(moved.Y + moved.H <= -1080 ? null : moved);
     }
     public Task<string> DragAsync(ScreenElement? from, int x1, int y1, ScreenElement? to, int x2, int y2, int holdMs, CancellationToken ct)
     {
@@ -74,7 +87,12 @@ sealed class FakeDesktop : IDesktop
         Console.WriteLine($"picture of {(region?.Name ?? scope)}, at most {maxSide}px");
         return Task.FromResult(new Shot([0xFF, 0xD8, 0xFF, 0xD9], 1024, 576, 0, -1080, 1920, 1080, new WindowInfo("Chat - Discord", "Discord", 0, -1080, 1920, 1040)));
     }
-    public Task<string> ScrollAsync(ScreenElement? target, string go, int pages, CancellationToken ct) { Console.WriteLine($"scroll {go} {pages}"); return Task.FromResult("wheel"); }
+    public Task<string> ScrollAsync(ScreenElement? target, string go, int pages, CancellationToken ct)
+    {
+        Console.WriteLine($"scroll {go} {pages}");
+        Scrolled += go == "down" ? 300 * pages : go == "up" ? -300 * pages : 0;
+        return Task.FromResult("wheel");
+    }
     public Task<WindowInfo?> FindWindowAsync(string query, CancellationToken ct) => Task.FromResult<WindowInfo?>(query.Contains("Discord") ? new WindowInfo("Chat - Discord", "Discord", 0, 0, 10, 10) : null);
     public Task<(string?, string?)> ReadClipboardAsync(CancellationToken ct) => Task.FromResult<(string?, string?)>(("copied text", null));
     public Task PasteAsync(ScreenElement? target, string text, CancellationToken ct) { Console.WriteLine($"paste {text.Length}"); return Task.CompletedTask; }
