@@ -34,7 +34,7 @@ Last updated: 2026-10-16. Keep this section to what is true NOW, in a screen or 
 **Known and open**
 
 - `i2cWrite ... ESP_ERR_INVALID_STATE` floods on a board after a serial-triggered reset (unexplained).
-- Agents reach Axis through the general `nodes` tool unless the `vortex_axis_*` tools are in their tool policy; the desktop tool is MCP-only (adding a node command forces the node to be approved again).
+- Agents reach Axis through the general `nodes` tool unless the `vortex_axis_*` tools are in their tool policy; the desktop tool is on the node too since 0.46.1 (that added a node command, so the node had to be approved again).
 - Saying the wake word over the device's own speech does not interrupt it (no echo canceller unless `bargeIn` is on). A tap does. Do not build more here without being asked.
 - A screenshot an agent takes stays in that agent harness's own conversation history; Axis keeps none. The owner decided against cleaning other programs' folders from here.
 - Not built: staged rollout of updates, signed firmware or a signed desktop app, a wake word in the web client or on a computer, firmware built in CI on a tag, a Mac desktop app (the plan: reuse `Axis.Desktop.Core`, write the platform part).

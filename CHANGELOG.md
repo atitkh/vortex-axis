@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.46.1 (2026-10-16)
+
+- **The desktop tool is a node tool too.** `vortex.axis.desktop` is declared on the OpenClaw node (it was MCP only), so agents that go through the general `nodes` tool can use it as well. The node's command list grew, so the gateway asks for the node to be approved again after this version is deployed. The tool is still experimental: off until switched on on the Agent tools page.
+
 ## Desktop app 0.10.4 (2026-10-16)
 
 - **A click on a field half scrolled under the top of a web page no longer lands on the address bar.** A look reported such a field with its whole box, which reached up into the browser's bar, and a click went to its middle. Now a look gives the part that shows (the box cut to the page, a frame in it, and the window), and a click reads the control again and goes to the middle of what shows now; when under 40% of it shows (and not a piece at least 40 px each way) it is scrolled into view first (ScrollItem) and read again, and refused with words when it cannot be.

@@ -27,6 +27,7 @@ export const NODE_COMMANDS = [
   "vortex.axis.admin",
   "vortex.axis.progress",
   "vortex.axis.session",
+  "vortex.axis.desktop",
 ] as const;
 
 /** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
@@ -220,7 +221,6 @@ export const NODE_TOOLS: NodeTool[] = [
   {
     name: "vortex_axis_desktop",
     command: "vortex.axis.desktop",
-    mcpOnly: true,
     experimental: true,
     description:
       "Use the user's computer (VorteX Axis desktop app). Act by name without looking first; batch actions in `steps`. " +

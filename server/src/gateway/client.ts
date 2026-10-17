@@ -13,7 +13,8 @@ export interface NodeTool {
   parameters: Record<string, unknown>;
   /**
    * Offered through MCP only, never published on the node: its command is not in the node's declared
-   * list, which cannot grow without a person approving the node again.
+   * list, which cannot grow without a person approving the node again. No tool is MCP-only now (the
+   * desktop tool was, until 0.46.1); the switch stays for the next one.
    */
   mcpOnly?: boolean;
   /** Off until an admin switches it on. */
