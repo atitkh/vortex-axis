@@ -17,7 +17,7 @@ protocol/   the messages between a device and Axis: the one definition
 server/     Axis (TypeScript, Node 24)
 web/        the web client and the admin page (plain JavaScript, no build step)
 firmware/   boards (C++, PlatformIO); common/ is the shared client core
-clients/    other clients: the Windows desktop app (C#, .NET 8)
+clients/    other clients: the Windows desktop app (C#, .NET 8) and the Meta Quest app (Android)
 speech/     the local speech services (Python)
 docs/       design, the face, the client guide, setup, hardware
 ```
@@ -37,6 +37,7 @@ Run Axis from the repository: `cp .env.example .env`, set `AXIS_ADMIN_TOKEN` (24
 
 - **Firmware:** `pio run` in `firmware/waveshare-amoled-1.8` ([firmware/README.md](firmware/README.md)).
 - **Desktop app:** `scripts/build-desktop.sh` builds it in a .NET container. Mind what the script says: it puts the build where a running Axis hands it to every paired computer. `clients/windows-desktop/README.md` has the rest.
+- **Quest app:** `scripts/build-quest-client.sh` builds the APK in a Docker container and puts it where a running Axis hands it to every paired headset. `clients/quest-client/README.md` has the rest.
 
 ## What a change needs
 
@@ -49,7 +50,7 @@ Run Axis from the repository: `cp .env.example .env`, set `AXIS_ADMIN_TOKEN` (24
 
 ## Versions
 
-One number for the server and its web pages, in the top-level `package.json` (the workspaces follow it; a test checks). Board firmware counts its own (`AXIS_FIRMWARE_VERSION`), and so does the desktop app (`Directory.Build.props`). The protocol's number changes only when devices and Axis must change how they talk. A tag `vX.Y.Z` that matches `package.json` builds a release.
+One number for the server and its web pages, in the top-level `package.json` (the workspaces follow it; a test checks). Board firmware counts its own (`AXIS_FIRMWARE_VERSION`), and so do the desktop app (`Directory.Build.props`) and the Quest app (`clients/quest-client/app/build.gradle`). The protocol's number changes only when devices and Axis must change how they talk. A tag `vX.Y.Z` that matches `package.json` builds a release.
 
 ## A new device
 

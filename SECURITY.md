@@ -1,6 +1,6 @@
 # Security
 
-VorteX Axis sits between an AI agent and the devices around a person: microphones, speakers, screens and, with the desktop app, a computer an agent can read and act on. This page says what protects what, what you have to do yourself, and what is not protected. It was written from a review of the code on 2026-10-13 (Axis 0.40.2, desktop app 0.7.7, board firmware 0.18.2).
+VorteX Axis sits between an AI agent and the devices around a person: microphones, speakers, screens and, with the desktop app or the Quest app, a computer or headset an agent can read and act on. This page says what protects what, what you have to do yourself, and what is not protected.
 
 Report a problem privately rather than in a public issue: on GitHub, the repository's **Security** tab, **Report a vulnerability**. Say what you found, how to see it, and which version.
 
@@ -63,7 +63,7 @@ Boards keep their Wi-Fi password and token in flash. They trust public certifica
 
 ## Known gaps
 
-- No signed firmware or signed desktop app.
+- No signed firmware, desktop app or Quest app.
 - The desktop tool's confirmation and block list go by names and titles (see above): an app that names nothing, or a title that does not say what it is, gets neither.
 - One admin token for everything; no separate users or roles.
 - The admin side is not rate-limited beyond the wrong-token lockout.

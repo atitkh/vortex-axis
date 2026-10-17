@@ -14,8 +14,9 @@ Axis is a bridge, not an agent. It does not think; it listens, routes and speaks
  devices                          Axis                          behind it
  -------                          ----                          ---------
  boards (ESP32-S3)  ─┐                                       ┌─ your agent: an OpenClaw gateway,
- web page / phone   ─┼─ one socket ─▶  pairing, settings,  ──┤   or any OpenAI-style chat endpoint
- computer (Windows) ─┘   per device    turns, wake word,     ├─ speech recognition
+ web page / phone   ─┤                                       │   or any OpenAI-style chat endpoint
+ computer (Windows) ─┼─ one socket ─▶  pairing, settings,  ──┤
+ headset (Quest)    ─┘   per device    turns, wake word,     ├─ speech recognition
                                        tools for the agent   └─ speech synthesis (both come with it)
 ```
 
@@ -37,7 +38,7 @@ Every board, and the web page, shows the same face. It listens, thinks, speaks a
   <sub>Thinking while the agent uses a tool: the dots form a house, then a magnifier.</sub>
 </p>
 
-The clips are drawn by the real client code (`node scripts/make-face-gifs.mjs`). [docs/face.md](docs/face.md) has every look to the pixel.
+[docs/face.md](docs/face.md) has every look to the pixel.
 
 ## What you get
 
@@ -47,7 +48,7 @@ The clips are drawn by the real client code (`node scripts/make-face-gifs.mjs`).
 - **Local speech included:** recognition, synthesis and voiceprints run on the CPU beside Axis. Point it at any OpenAI-style audio API instead if you prefer.
 - **An admin page:** devices, shared settings, a live view of each turn as it happens, wake words, firmware and app updates, Home Assistant, backups.
 - **Tools for any agent:** OpenClaw gets them through its gateway; anything else through MCP.
-- **Your computer, experimentally:** a Windows app lets the agent read the screen and act on it, off until you switch it on. Read [SECURITY.md](SECURITY.md) first.
+- **Your computer and headset, experimentally:** a Windows app, and an app for a Meta Quest's 2D panels, let the agent read the screen and act on it, off until you switch it on. Read [SECURITY.md](SECURITY.md) first.
 
 ## Quick start
 
@@ -83,8 +84,9 @@ To speak from a browser, it needs `https` or `localhost` (browsers allow the mic
 | Web page | Any browser or phone; installs as an app, with notifications | Open Axis's address, enter a pairing code |
 | Board | Waveshare ESP32-S3-Touch-AMOLED-1.8: face, microphone, speaker, wake word | Flash once from the browser or by cable ([docs/hardware.md](docs/hardware.md)), then set up from your phone; updates over Wi-Fi from the admin page |
 | Computer | Windows app (experimental): talk key, speakers, and the agent's hands on the screen | Download from the admin page's **Add a device**, enter a pairing code; it updates itself |
+| Meta Quest | Android app (experimental): the agent reads and uses the headset's 2D panels (Store, Browser, Settings, Android apps); no voice | Developer mode, then install the APK with `adb`, enter a pairing code ([docs/hardware.md](docs/hardware.md)); it updates itself |
 
-A release image comes with the board firmware and the Windows app inside it, so a new hub can update boards and offer the app straight away. Making your own device: [docs/client-guide.md](docs/client-guide.md) is the contract, `protocol/` the message definitions.
+A release image comes with the board firmware, the Windows app and the Quest app inside it, so a new hub can update boards and offer the apps straight away. Making your own device: [docs/client-guide.md](docs/client-guide.md) is the contract, `protocol/` the message definitions.
 
 ## Where to read more
 
@@ -98,7 +100,7 @@ A release image comes with the board firmware and the Windows app inside it, so 
 
 ## Status
 
-Used every day by its author with two boards, a phone, browsers and a Windows computer, against an OpenClaw gateway. The server and the boards are steady. The desktop app is new and experimental. Not there yet: signed firmware and a signed Windows app, a Mac app, more board types.
+Used every day by its author with two boards, a phone, browsers, a Windows computer and a Meta Quest, against an OpenClaw gateway. The server and the boards are steady. The Windows and Quest apps are new and experimental. Not there yet: signed firmware and signed Windows and Quest apps, a Mac app, more board types.
 
 ## Licence
 

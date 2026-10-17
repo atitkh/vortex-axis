@@ -624,7 +624,8 @@ export class GatewayClient implements Agent, Credentials {
   private async announceNode(): Promise<void> {
     try {
       await this.node.request("node.pluginTools.update", {
-        tools: this.options.tools.map((tool) => ({ pluginId: PLUGIN_ID, ...tool })),
+        // Only what the gateway's schema knows: it refuses `experimental` and `mcpOnly` as unexpected properties.
+        tools: this.options.tools.map(({ name, description, command, parameters }) => ({ pluginId: PLUGIN_ID, name, description, command, parameters })),
       });
     } catch (error) {
       this.options.log(`could not publish node tools: ${(error as Error).message}`);

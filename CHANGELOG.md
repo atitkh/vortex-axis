@@ -6,7 +6,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 ## Axis 0.46.1 (2026-10-16)
 
-- **The desktop tool is a node tool too.** `vortex.axis.desktop` is declared on the OpenClaw node (it was MCP only), so agents that go through the general `nodes` tool can use it as well. The node's command list grew, so the gateway asks for the node to be approved again after this version is deployed. The tool is still experimental: off until switched on on the Agent tools page.
+- **The desktop tool is a node tool too.** `vortex.axis.desktop` is declared on the OpenClaw node (it was MCP only), so agents that go through the general `nodes` tool can use it as well. The node's command list grew, so the gateway asks for the node to be approved again after this version is deployed. The tool is still experimental: off until switched on on the Agent tools page. (The first deploy of 0.46.1 published nothing: the gateway refuses the `experimental` flag on a node tool, so only name, description, command and parameters are sent now.)
 
 ## Desktop app 0.10.4 (2026-10-16)
 
