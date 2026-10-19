@@ -20,7 +20,7 @@ import type { Config } from "./config.js";
 import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
 import type { ToolAccess } from "./tools.js";
-import { DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
+import { DESKTOP_TYPE, MACOS_DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
 import { QUEST_TYPE, type QuestApp } from "./questapp.js";
 import type { Desktops } from "./desktop.js";
 import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
@@ -517,6 +517,7 @@ export function createHttpHandler(deps: HttpDeps) {
       const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
       const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
       if (!client) throw new HttpError(401, "unknown client or wrong token");
+      if (client.type === MACOS_DESKTOP_TYPE) throw new HttpError(404, "this hub keeps only the Windows desktop app; a Mac is updated by hand for now");
       if (client.type !== DESKTOP_TYPE) throw new HttpError(404, "the desktop app is for computers");
       const build = deps.desktopApp.build();
       if (!build) throw new HttpError(404, "the desktop app has not been built on this hub");
@@ -1010,6 +1011,7 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "update") {
         const { client, session } = requireOnline(parts[2]!);
+        if (client.type === MACOS_DESKTOP_TYPE) throw new HttpError(409, `${client.name} is a Mac: its desktop app is updated by hand for now`);
         const app = client.type === DESKTOP_TYPE ? deps.desktopApp : client.type === QUEST_TYPE ? deps.questApp : undefined;
         if (app) {
           try {

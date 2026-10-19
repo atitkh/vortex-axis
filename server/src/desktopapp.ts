@@ -3,8 +3,13 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Hub, Session } from "./hub.js";
 
-/** The client type of the Windows desktop app, as it introduces itself. */
+/** The client type of the Windows desktop app, as it introduces itself. The build kept here is for it only. */
 export const DESKTOP_TYPE = "windows-desktop";
+/**
+ * The client type of the Mac desktop app (`clients/macos-desktop/`). Routing goes by the `desktop` capability, so it
+ * needs nothing else; it has no build slot here yet and is never offered the Windows build (updated by hand for now).
+ */
+export const MACOS_DESKTOP_TYPE = "macos-desktop";
 
 export interface DesktopBuild {
   version: string;

@@ -208,6 +208,27 @@ describe("the desktop tool (experimental)", () => {
     const quiet = await connect(other, { capabilities: ["desktop"], type: "windows-desktop" });
     await expect(quiet.next("command", 0, (m) => m.name === "update")).rejects.toThrow();
   });
+
+  it("takes a Mac (macos-desktop) like any computer, and never offers it the Windows build", async () => {
+    mkdirSync(join(ctx.dataDir, "desktop"), { recursive: true });
+    writeFileSync(join(ctx.dataDir, "desktop", "VortexAxisDesktop.exe"), Buffer.from("not really an exe"));
+    writeFileSync(join(ctx.dataDir, "desktop", "version.json"), JSON.stringify({ version: "9.0.0" }));
+    await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
+    const identity = await newPairedClient({ capabilities: ["desktop"], type: "macos-desktop", name: "Desk Mac" });
+    const mac = await connect(identity, { capabilities: ["desktop"], type: "macos-desktop", version: "0.1.0" });
+    await mac.next("status");
+
+    const looking = tryTool({ action: "look" });
+    const look = await mac.next("command", 0, (m) => m.name === "desktop.look");
+    mac.send({ t: "command.result", id: look.id, ok: true, data: { elements: ["1 button 10,10 80x30 Send"] } });
+    expect((await looking).body.result).toMatchObject({ computer: "Desk Mac" });
+
+    await expect(mac.next("command", 0, (m) => m.name === "update")).rejects.toThrow();
+    const res = await fetch(`${ctx.base}/v1/desktop/app`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } });
+    expect(res.status).toBe(404);
+    expect((await admin("POST", `/admin/clients/${identity.clientId}/update`)).status).toBe(409);
+  });
+
   it("tells the screens near a computer while an agent is using it, and lists it on the admin page", async () => {
     await admin("PATCH", "/admin/mcp/tools", { vortex_axis_desktop: true });
     const boardId = await newPairedClient({ capabilities: ["screen", "speaker", "mic"], type: "waveshare-amoled-1.8", name: "Desk board" });

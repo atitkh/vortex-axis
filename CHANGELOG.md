@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.47.0 (2026-10-19)
+
+- **A Mac can be a computer too.** Axis knows the client type `macos-desktop` (the Mac app, `clients/macos-desktop/`). The desktop tool already went by the `desktop` capability, so a paired Mac is looked at and pointed with like a Windows computer; what is new is that it is never offered the Windows app's update (`/v1/desktop/app` answers 404 for it, and the admin page's Update says a Mac is updated by hand for now).
+
 ## Axis 0.46.1 (2026-10-16)
 
 - **The desktop tool is a node tool too.** `vortex.axis.desktop` is declared on the OpenClaw node (it was MCP only), so agents that go through the general `nodes` tool can use it as well. The node's command list grew, so the gateway asks for the node to be approved again after this version is deployed. The tool is still experimental: off until switched on on the Agent tools page. (The first deploy of 0.46.1 published nothing: the gateway refuses the `experimental` flag on a node tool, so only name, description, command and parameters are sent now.)
