@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.3.1 (2026-10-20)
+
+- **The pointer like the Windows one**: an arrow in the face's cyan with a glow, its tip on the spot, a ring breathing round the tip (still with Reduce motion), the agent's words in a dark pill with a cyan edge on the roomier side of the pointer, kept on the display, off the tip and out of the notch (`PointerLayout.bubble`, tested at every edge and corner, on a display above and left of the main one, under the notch). It glides 220 ms from its last spot and an action waits 250 ms for it (100 ms when it appears; `PointerLayout.waitMs`, as on Windows); after open, switch and window commands it points at the window's title bar, as before. Out of screen captures like the face and the pills. Not compiled yet.
+
 ## Mac desktop app 0.3.0 (2026-10-20)
 
 - **Talking from this Mac** (as on Windows): the talk key (press, hold, release; ctrl+option+space unless another is recorded, Fn alone possible), the microphone at 16 kHz to Axis and its speech through the speakers, a question with Allow/Deny buttons; the Mac then also offers `mic`, `speaker` and `screen`. Needs the Microphone permission.

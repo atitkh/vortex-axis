@@ -2,7 +2,7 @@ import AppKit
 import AxisMacUI
 
 /** The app's own version: what Axis sees in hello. Bump it with every build meant to go out, and scripts/build-mac.sh's. */
-let appVersion = "0.3.0"
+let appVersion = "0.3.1"
 
 /** A menu bar app (LSUIElement in Info.plist, and accessory here for `swift run`): no Dock icon, no main window. */
 @MainActor

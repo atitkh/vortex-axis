@@ -44,8 +44,6 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
     static let intendedFor: TimeInterval = 90
     /** How long a drag's move takes, after any hold. */
     static let dragMoveMs = 400
-    /** The pointer's glide (PointerPanel); it gets this and a moment more before an action, so the person can follow it. */
-    static let glideMs = 220
 
     let reader = AXReader()
     /** Mouse and keyboard events go one action at a time, never two interleaved. */
@@ -239,13 +237,13 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
 
     /**
      * Shows the pointer where it is about to act, and gives it time to get there so the person can follow: its glide
-     * and a moment more, or a short moment when it appears on the spot.
+     * and a moment more, or a short moment when it appears on the spot (`PointerLayout.waitMs`, the Windows app's wait).
      */
     func showAt(_ x: Int, _ y: Int, _ words: String, seconds: Double = 3) async {
         let glides = await MainActor.run { [weak self] () -> Bool in
             self?.pointerDrawing?.show(x: x, y: y, text: words, seconds: seconds) ?? false
         }
-        try? await Task.sleep(nanoseconds: UInt64(glides ? Self.glideMs + 30 : 100) * 1_000_000)
+        try? await Task.sleep(nanoseconds: UInt64(PointerLayout.waitMs(glides: glides)) * 1_000_000)
     }
 
     /** The pointer on a window's title bar, after an open, switch or window command, says which window is in front. */
