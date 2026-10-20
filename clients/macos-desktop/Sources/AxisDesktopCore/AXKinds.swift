@@ -13,7 +13,8 @@ public enum AXKinds {
         "AXPopUpButton": "combobox", "AXComboBox": "combobox",
         "AXTextField": "edit", "AXTextArea": "edit", "AXSearchField": "edit",
         "AXLink": "hyperlink",
-        "AXMenuItem": "menuitem", "AXMenuBarItem": "menubaritem", "AXMenu": "menu", "AXMenuBar": "menubar",
+        // A menu bar title is a `menuitem`, as the tool's kind hints and the Windows app say (UIA's MenuItem).
+        "AXMenuItem": "menuitem", "AXMenuBarItem": "menuitem", "AXMenu": "menu", "AXMenuBar": "menubar",
         "AXCheckBox": "checkbox", "AXRadioButton": "radiobutton",
         "AXTabGroup": "tab",
         "AXCell": "dataitem",
@@ -47,6 +48,8 @@ public enum AXKinds {
     public static func kind(role: String, subrole: String?, parentRole: String? = nil) -> String {
         if let s = subrole, let k = bySubrole[s] { return k }
         if role == "AXRow" { return parentRole == "AXOutline" || parentRole == "AXBrowser" ? "treeitem" : "listitem" }
+        // A tab that does not say it is one (no AXTabButton subrole) still is when a tab group holds it.
+        if role == "AXRadioButton", parentRole == "AXTabGroup" { return "tabitem" }
         if let k = byRole[role] { return k }
         var bare = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         bare = String(bare.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) && $0.isASCII })

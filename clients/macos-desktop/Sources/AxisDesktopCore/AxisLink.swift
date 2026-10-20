@@ -56,8 +56,21 @@ public struct CommandAnswer: Equatable, Sendable {
 
 public enum LinkState: String, Sendable { case stopped, connecting, online, offline, refused }
 
+/** An error whose words are meant for the agent and the person as they are (the app's own refusals). */
+public protocol SaysWhy: Error {
+    var message: String { get }
+}
+
+/** A refusal or failure of the desktop, in words, as the Windows app's InvalidOperationException messages. */
+public struct DesktopError: SaysWhy, LocalizedError {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var errorDescription: String? { message }
+}
+
 /** An error that says what went wrong in words, or names its domain and code when it has none. */
 public func describeError(_ error: Error) -> String {
+    if let says = error as? SaysWhy { return says.message }
     let e = error as NSError
     let text = e.localizedDescription.trimmingCharacters(in: .whitespaces)
     return text.isEmpty ? "\(e.domain) \(e.code)" : "\(text) (\(e.domain) \(e.code))"

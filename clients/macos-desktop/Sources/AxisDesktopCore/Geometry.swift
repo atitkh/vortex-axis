@@ -143,3 +143,73 @@ public enum Coordinates {
         return Box(x: l, y: t, w: r - l, h: b - t)
     }
 }
+
+extension Coordinates {
+    /**
+     * The display (index into `displays`) a top-left point is on, or nil when it is on none. This is the multi-display
+     * rule for clicks and drags: a point is used as is in the one global space (CGEvent's, the same as AX's and the
+     * look's), whichever display it is on, so a display above or left of the main one is reached with negative
+     * coordinates. Each display holds its own left and top edge, not its right and bottom one (the next display's).
+     * A point on no display is refused rather than let macOS clamp it to the nearest edge.
+     */
+    public static func display(at x: Int, _ y: Int, in displays: [Display]) -> Int? {
+        displays.firstIndex { x >= $0.x && x < $0.x + $0.w && y >= $0.y && y < $0.y + $0.h }
+    }
+
+    /**
+     * The size in pixels of a picture of `area` (points) whose longer side is at most `maxSide`, never sharper than the
+     * screen (`pixelsPerPoint`, 2 on Retina), and `k`, its pixels per point.
+     */
+    public static func pictureSize(area: Box, pixelsPerPoint: Double, maxSide: Int) -> (w: Int, h: Int, k: Double) {
+        let longest = Double(max(area.w, area.h, 1))
+        let k = min(pixelsPerPoint, Double(maxSide) / longest)
+        return (max(1, Int((Double(area.w) * k).rounded())), max(1, Int((Double(area.h) * k).rounded())), k)
+    }
+
+    /** `box` moved and shrunk to fit inside `area`, centred there: where a window goes when it is moved to a display. */
+    public static func centred(_ box: Box, in area: Box) -> Box {
+        let w = min(box.w, area.w), h = min(box.h, area.h)
+        return Box(x: area.x + (area.w - w) / 2, y: area.y + (area.h - h) / 2, w: w, h: h)
+    }
+}
+
+/**
+ * How far a scroll goes. Synthetic scroll-wheel events in pixels (CGEvent `.pixel` units): `wheel1` positive moves
+ * the view up (toward the top of a page), `wheel2` positive moves it left; the person's "natural scrolling" setting
+ * does not turn synthetic events round (unverified on a Mac). A page is most of the height (or width) of what is
+ * scrolled, so a little of the last page stays in view.
+ */
+public enum Scrolling {
+    /** Share of the view one page moves. */
+    public static let pageShare = 0.85
+    /** Far enough to reach the top or bottom of anything. */
+    public static let farPixels = 200_000
+
+    /** The wheel deltas for `go` (up, down, left, right, top, bottom) `pages` times over a view of `width` x `height` points. */
+    public static func wheel(go: String, pages: Int, width: Int, height: Int) -> (wheel1: Int, wheel2: Int) {
+        let down = max(40, Int(Double(max(height, 1)) * pageShare)) * pages
+        let across = max(40, Int(Double(max(width, 1)) * pageShare)) * pages
+        switch go {
+        case "up": return (down, 0)
+        case "down": return (-down, 0)
+        case "left": return (0, across)
+        case "right": return (0, -across)
+        case "top": return (farPixels, 0)
+        case "bottom": return (-farPixels, 0)
+        default: return (0, 0)
+        }
+    }
+
+    /**
+     * The new value (0 at the top or left, 1 at the bottom or right) of a scroll bar for `go`, given its value now and
+     * how much shows (`visible`) of how much there is (`content`), in points. Nil when it cannot scroll that way.
+     */
+    public static func barValue(current: Double, go: String, pages: Int, visible: Double, content: Double) -> Double? {
+        if go == "top" { return 0 }
+        if go == "bottom" { return 1 }
+        guard content > visible, visible > 0 else { return nil }
+        let step = visible * pageShare / (content - visible) * Double(pages)
+        let towardEnd = go == "down" || go == "right"
+        return min(1, max(0, current + (towardEnd ? step : -step)))
+    }
+}

@@ -17,7 +17,11 @@ final class AXKindsTests: XCTestCase {
             ("AXRadioButton", "AXTabButton", nil, "tabitem"),
             ("AXLink", nil, nil, "hyperlink"),
             ("AXMenuItem", nil, nil, "menuitem"),
-            ("AXMenuBarItem", nil, nil, "menubaritem"),
+            ("AXMenuBarItem", nil, nil, "menuitem"),
+            ("AXRadioButton", nil, "AXTabGroup", "tabitem"),
+            ("AXPopUpButton", nil, nil, "combobox"),
+            ("AXSearchField", nil, nil, "edit"),
+            ("AXButton", "AXCloseButton", nil, "button"),
             ("AXWebArea", nil, nil, "document"),
             ("AXWindow", "AXStandardWindow", nil, "window"),
             ("AXSheet", nil, nil, "window"),
@@ -53,7 +57,15 @@ final class AXKindsTests: XCTestCase {
     /** Core's guards key on these: a mapping that never yields them would silently switch a guard off. */
     func testTheKindsCoreActsOnAreReachable() {
         let all = Set(AXKinds.byRole.values).union(AXKinds.bySubrole.values)
-        for k in ["password", "document", "edit", "combobox", "window", "button", "hyperlink"] { XCTAssertTrue(all.contains(k), k) }
+        for k in ["password", "document", "edit", "combobox", "window", "button", "hyperlink", "menuitem", "checkbox", "tabitem"] {
+            XCTAssertTrue(all.contains(k), k)
+        }
+    }
+
+    /** The tool's kind hints (button, edit, hyperlink, menuitem...) are the only names an agent passes; no Mac-only spellings. */
+    func testNoMacOnlySpellingsOfTheToolsKinds() {
+        let all = Set(AXKinds.byRole.values).union(AXKinds.bySubrole.values)
+        for k in ["menubaritem", "textfield", "link", "popupbutton", "statictext", "webarea"] { XCTAssertFalse(all.contains(k), k) }
     }
 }
 
