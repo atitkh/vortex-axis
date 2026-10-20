@@ -220,7 +220,8 @@ final class PointerArrowView: NSView {
         setFrameSize(NSSize(width: side, height: side))
         let path = CGMutablePath()
         for (i, p) in PointerLayout.arrow.enumerated() {
-            let point = CGPoint(x: half + CGFloat(p.x) * k, y: half + CGFloat(p.y) * k)
+            // y is mirrored about the tip (which stays in the middle): the layer's own flip left the arrow upside down on the Mac.
+            let point = CGPoint(x: half + CGFloat(p.x) * k, y: half - CGFloat(p.y) * k)
             if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
         path.closeSubpath()
