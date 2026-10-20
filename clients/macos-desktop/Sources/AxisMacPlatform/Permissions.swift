@@ -8,8 +8,17 @@ import CoreGraphics
  * when there is one).
  */
 public enum Permissions {
-    /** Reading other apps' controls (and, from M2, clicking and typing). */
+    /** Reading other apps' controls, pressing them, and posting mouse and key events. */
     public static var accessibility: Bool { AXIsProcessTrusted() }
+
+    /**
+     * Posting mouse and keyboard events to other apps. macOS grants it with Accessibility (the same list in System
+     * Settings); read on its own so the window can say when clicks and typing would be dropped.
+     */
+    public static var postEvents: Bool { CGPreflightPostEventAccess() }
+
+    /** Asks for it: macOS sends the person to Accessibility. */
+    public static func askPostEvents() { _ = CGRequestPostEventAccess() }
 
     /** Shows the system's prompt that sends the person to the Accessibility settings. */
     public static func askAccessibility() {
@@ -17,7 +26,7 @@ public enum Permissions {
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
-    /** Pictures of the screen (text from the pixels) and other apps' window titles. */
+    /** Pictures of the screen (screenshots, text from the pixels) and other apps' window titles. */
     public static var screenRecording: Bool { CGPreflightScreenCaptureAccess() }
 
     /** Asks once; macOS may want the app started again after the person allows it. */

@@ -29,7 +29,65 @@ final class FakeDesktop: Desktop, @unchecked Sendable {
     func point(x: Int, y: Int, text: String?, seconds: Double) async throws { pointed.append((x, y, text, seconds)) }
     func hide() async { hidden += 1 }
     func centre() async -> (x: Int, y: Int) { (720, 450) }
-    func state() async throws -> ScreenState { ScreenState(window: front, focus: elements[1]) }
+    func state() async throws -> ScreenState { ScreenState(window: front, focus: focus) }
+
+    // M2: what each input was asked to do, and answers to give.
+    var focus: ScreenElement? = ScreenElement(kind: "edit", name: "Search", x: 100, y: 60, w: 400, h: 30, value: "invoices", focused: true)
+    var did: [String] = []
+    var clickHow = "invoked"
+    /** What `refresh` gives after a scroll: nil is "off the screen". */
+    var refreshed: ScreenElement?? = .none
+    var clipboard: (String?, String?) = ("hello", nil)
+    var windows = ["Inbox - Mail (Mail)", "Notes (Notes)"]
+    /** Set by a test: the window in front changes to this right after the first input is resolved (block-list re-check). */
+    var frontAfterTarget: WindowInfo?
+
+    func click(target: ScreenElement?, x: Int, y: Int, kind: ClickKind) async throws -> (how: String, x: Int, y: Int) {
+        did.append("click \(kind.rawValue) \(target?.name ?? "\(x),\(y)")")
+        return (clickHow, x, y)
+    }
+    func refresh(_ e: ScreenElement) async throws -> ScreenElement? {
+        did.append("refresh \(e.name)")
+        switch refreshed {
+        case .none: return e
+        case .some(let now): return now
+        }
+    }
+    func drag(from: ScreenElement?, x1: Int, y1: Int, to: ScreenElement?, x2: Int, y2: Int, holdMs: Int) async throws -> String {
+        did.append("drag \(x1),\(y1) \(x2),\(y2) \(holdMs)")
+        return "mouse"
+    }
+    func type(target: ScreenElement?, text: String) async throws { did.append("type \(text) into \(target?.name ?? "focus")") }
+    func keys(_ combo: KeyCombo) async throws { did.append("keys \(combo)") }
+    func open(app: String?, url: String?) async throws -> (opened: String, window: WindowInfo?) {
+        did.append("open \(app ?? url ?? "")")
+        if app == "Ghost" { return ("Ghost", nil) }
+        front = WindowInfo(title: "Untitled", app: app ?? "Safari", x: 10, y: 20, w: 800, h: 600)
+        return (app ?? url ?? "", front)
+    }
+    func switchTo(_ window: String) async throws -> WindowInfo {
+        did.append("switch \(window)")
+        front = WindowInfo(title: "Notes", app: "Notes", x: 5, y: 6, w: 700, h: 500)
+        return front
+    }
+    func window(op: String, window: String?, display: Int?) async throws -> WindowInfo {
+        did.append("window \(op) \(display ?? 0)")
+        return front
+    }
+    func desktop(next: Bool) async throws { did.append("space \(next ? "next" : "previous")") }
+    func screenshot(scope: String, region: ScreenElement?, maxSide: Int) async throws -> Shot {
+        did.append("shot \(scope) \(region?.name ?? "-") \(maxSide)")
+        return Shot(jpeg: Data([1, 2, 3]), w: 640, h: 427, x: 0, y: 0, areaW: 1200, areaH: 800, window: front)
+    }
+    func scroll(target: ScreenElement?, go: String, pages: Int) async throws -> String {
+        did.append("scroll \(go) \(pages) \(target?.name ?? "-")")
+        return "wheel"
+    }
+    func findWindow(_ query: String) async throws -> WindowInfo? {
+        windows.first { $0.lowercased().contains(query.lowercased()) }.map { WindowInfo(title: $0, app: "", x: 0, y: 0, w: 1, h: 1) }
+    }
+    func readClipboard() async throws -> (text: String?, why: String?) { clipboard }
+    func paste(target: ScreenElement?, text: String) async throws { did.append("paste \(text.count) into \(target?.name ?? "focus")") }
 }
 
 final class CommandsTests: XCTestCase {
@@ -165,12 +223,7 @@ final class CommandsTests: XCTestCase {
         XCTAssertEqual(list.data?["windows"], ["Inbox - Mail (Mail) 0,0 1200x800", "blocked by the user"])
     }
 
-    func testWhatIsNotHereYet() async {
-        for name in ["desktop.click", "desktop.type", "desktop.keys", "desktop.screenshot", "desktop.window"] {
-            let a = await run(name, ["do": "minimize"])
-            XCTAssertFalse(a.ok)
-            XCTAssertTrue(a.error!.hasPrefix("not implemented on this device yet"), name)
-        }
+    func testWhatIsNotHereStill() async {
         let r11 = await run("desktop.busy")
         XCTAssertEqual(r11.error, "not implemented on this device")
         let r12 = await run("update")

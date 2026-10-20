@@ -15,6 +15,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var recently: [String] = []
     @Published public private(set) var accessibility = Permissions.accessibility
     @Published public private(set) var screenRecording = Permissions.screenRecording
+    @Published public private(set) var postEvents = Permissions.postEvents
 
     public let desktop = MacDesktop()
     public let commands: DesktopCommands
@@ -42,6 +43,7 @@ public final class AppModel: ObservableObject {
     public func refreshPermissions() {
         accessibility = Permissions.accessibility
         screenRecording = Permissions.screenRecording
+        postEvents = Permissions.postEvents
     }
 
     /** Connects with the saved pairing, if there is one. */
@@ -114,7 +116,7 @@ public final class AppModel: ObservableObject {
         try? next.save()
         saved = next
         if on { pointer.hide() }
-        note(on ? "Paused: agents can neither read nor point" : "Resumed")
+        note(on ? "Paused: agents can neither read, point nor act" : "Resumed")
     }
 
     /** The menu's "Show the pointer": the same as the admin page's. */

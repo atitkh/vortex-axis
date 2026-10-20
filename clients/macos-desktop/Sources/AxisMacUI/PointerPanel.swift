@@ -29,7 +29,8 @@ public final class PointerPanel: PointerDrawing {
         panel.contentView = view
     }
 
-    public func show(x: Int, y: Int, text: String?, seconds: Double) {
+    @discardableResult
+    public func show(x: Int, y: Int, text: String?, seconds: Double) -> Bool {
         generation += 1
         let mine = generation
         view.ring = size
@@ -40,7 +41,8 @@ public final class PointerPanel: PointerDrawing {
         let half = Double(size) / 2
         let topLeft = Coordinates.appKit(x: Double(x) - half, y: Double(y) - half, mainHeight: mainHeight)
         let frame = NSRect(x: topLeft.x, y: topLeft.y - content.height, width: content.width, height: content.height)
-        if panel.isVisible && panel.alphaValue > 0 {
+        let glides = panel.isVisible && panel.alphaValue > 0
+        if glides {
             NSAnimationContext.runAnimationGroup { c in
                 c.duration = 0.22
                 panel.animator().setFrame(frame, display: true)
@@ -55,6 +57,7 @@ public final class PointerPanel: PointerDrawing {
             guard let self, self.generation == mine else { return }
             self.hide()
         }
+        return glides
     }
 
     public func hide() {

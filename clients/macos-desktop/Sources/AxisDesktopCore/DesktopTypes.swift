@@ -106,9 +106,29 @@ public struct LookResult: Sendable {
     }
 }
 
+/** Which click: one with the left button, one with the right, or two quick left ones. */
+public enum ClickKind: String, Sendable { case left, right, double }
+
 /**
- * What the computer itself does. The Mac app supplies it (`MacDesktop`); the tests fake it. M1: reading and the
- * pointer only. Input (click, type, keys...) comes with M2 and is answered "not implemented" until then.
+ * A picture of part of the screen, already shrunk and encoded: the area it shows is (x, y, areaW, areaH) in
+ * points, `w` x `h` its own size in pixels.
+ */
+public struct Shot: Sendable {
+    public var jpeg: Data
+    public var w: Int, h: Int
+    public var x: Int, y: Int, areaW: Int, areaH: Int
+    public var window: WindowInfo?
+    public init(jpeg: Data, w: Int, h: Int, x: Int, y: Int, areaW: Int, areaH: Int, window: WindowInfo?) {
+        self.jpeg = jpeg
+        self.w = w; self.h = h
+        self.x = x; self.y = y; self.areaW = areaW; self.areaH = areaH
+        self.window = window
+    }
+}
+
+/**
+ * What the computer itself does. The Mac app supplies it (`MacDesktop`); the tests fake it. The calls mirror the
+ * Windows app's `IDesktop` one for one, so `DesktopCommands` keeps the wire's answers.
  */
 public protocol Desktop: AnyObject, Sendable {
     /** `scope` is window, mouse or screen. */
@@ -120,4 +140,44 @@ public protocol Desktop: AnyObject, Sendable {
     func centre() async -> (x: Int, y: Int)
     /** The window in front and the focused control, without reading the rest of the window. */
     func state() async throws -> ScreenState
+    /** The window in front only (no focus read): what the block list is checked against before each input. */
+    func inFront() async -> WindowInfo?
+
+    /**
+     * Clicks `target` (from the last look) or (x, y). Returns how and where: "invoked" when the control was pressed
+     * through Accessibility, "focused" when a field was given the focus that way, "mouse" when a real click was sent
+     * (and the pointer put back). With a target it can read again, it clicks where it shows now and refuses a click
+     * that would land on a browser's own bar.
+     */
+    func click(target: ScreenElement?, x: Int, y: Int, kind: ClickKind) async throws -> (how: String, x: Int, y: Int)
+    /** `e` (one with a ref) as it is now, its box cut to what shows; nil when it is gone or none of it shows. */
+    func refresh(_ e: ScreenElement) async throws -> ScreenElement?
+    /** Drags with the left button from (x1, y1) to (x2, y2), held `holdMs` first; the pointer is put back. Returns "mouse". */
+    func drag(from: ScreenElement?, x1: Int, y1: Int, to: ScreenElement?, x2: Int, y2: Int, holdMs: Int) async throws -> String
+    /** Types `text` into `target`, or into whatever has the focus. Refuses a password field. */
+    func type(target: ScreenElement?, text: String) async throws
+    /** Presses one key combination. */
+    func keys(_ combo: KeyCombo) async throws
+    /** Starts an app matched by name, or opens an http(s) address; waits for its window and brings it forward. */
+    func open(app: String?, url: String?) async throws -> (opened: String, window: WindowInfo?)
+    /** Brings forward the window best matching an app name or a title. */
+    func switchTo(_ window: String) async throws -> WindowInfo
+    /** Minimizes, maximizes, restores or moves to display `display` (1-based) the named window, or the one in front. */
+    func window(op: String, window: String?, display: Int?) async throws -> WindowInfo
+    /** The next or previous Space. */
+    func desktop(next: Bool) async throws
+    /** A picture of the window in front, the whole desktop, or `region` with a margin, its longer side at most `maxSide`. */
+    func screenshot(scope: String, region: ScreenElement?, maxSide: Int) async throws -> Shot
+    /** Scrolls `target` (or what holds it), else the window in front. Returns "scrolled" (the control did it) or "wheel". */
+    func scroll(target: ScreenElement?, go: String, pages: Int) async throws -> String
+    /** The open window best matching an app name or title, or nil. Does not bring it forward. */
+    func findWindow(_ query: String) async throws -> WindowInfo?
+    /** The text on the clipboard, or nil with why. */
+    func readClipboard() async throws -> (text: String?, why: String?)
+    /** Puts `text` into `target` (or the focus) by the clipboard and cmd+V, then puts the clipboard back. */
+    func paste(target: ScreenElement?, text: String) async throws
+}
+
+extension Desktop {
+    public func inFront() async -> WindowInfo? { try? await state().window }
 }

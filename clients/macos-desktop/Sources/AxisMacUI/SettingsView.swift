@@ -20,7 +20,7 @@ public struct SettingsView: View {
             Section("VorteX Axis") {
                 LabeledContent("State", value: model.stateLine)
                 if let a = model.saved.address, model.paired { LabeledContent("Axis", value: "\(a) as \(model.saved.name ?? "")") }
-                Toggle("Pause (agents can neither read nor point)", isOn: Binding(get: { model.paused }, set: { model.setPaused($0) }))
+                Toggle("Pause (agents can neither read, point nor act)", isOn: Binding(get: { model.paused }, set: { model.setPaused($0) }))
                 LabeledContent("Version", value: model.version)
             }
             Section("Pair with Axis") {
@@ -34,9 +34,11 @@ public struct SettingsView: View {
                 if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
             }
             Section("macOS permissions") {
-                permission("Accessibility (read and, later, use other apps)", granted: model.accessibility,
+                permission("Accessibility (read other apps, press their controls)", granted: model.accessibility,
                            ask: Permissions.askAccessibility, open: Permissions.openAccessibilitySettings)
-                permission("Screen Recording (text from the pixels, window titles)", granted: model.screenRecording,
+                permission("Mouse and keyboard (clicks, typing, keys; granted with Accessibility)", granted: model.postEvents,
+                           ask: Permissions.askPostEvents, open: Permissions.openAccessibilitySettings)
+                permission("Screen Recording (screenshots, text from the pixels, window titles)", granted: model.screenRecording,
                            ask: Permissions.askScreenRecording, open: Permissions.openScreenRecordingSettings)
                 Button("Check again") { model.refreshPermissions() }
             }
