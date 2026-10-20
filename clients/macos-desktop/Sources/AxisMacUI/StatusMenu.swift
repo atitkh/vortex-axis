@@ -19,6 +19,8 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
             button.image?.isTemplate = true
         }
         menu.delegate = self
+        // Items say for themselves whether they can be used (Talk now only while online).
+        menu.autoenablesItems = false
         item.menu = menu
     }
 
@@ -33,6 +35,15 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(pause)
         menu.addItem(entry("Show the pointer", #selector(showPointer)))
         menu.addItem(.separator())
+        let voice = entry("Talk from this Mac", #selector(toggleVoice))
+        voice.state = model.saved.voice ? .on : .off
+        menu.addItem(voice)
+        if model.saved.voice {
+            let talk = entry("Talk now (\(model.talkKey.label))", #selector(talkNow))
+            talk.isEnabled = model.state == .online && !model.paused
+            menu.addItem(talk)
+        }
+        menu.addItem(.separator())
         menu.addItem(entry("Quit VorteX Axis", #selector(quit), key: "q"))
     }
 
@@ -45,5 +56,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     @objc func open() { settings.show() }
     @objc func togglePause() { model.setPaused(!model.paused) }
     @objc func showPointer() { model.showPointer() }
+    @objc func toggleVoice() { Task { await model.setVoice(!model.saved.voice) } }
+    @objc func talkNow() { model.talkNow() }
     @objc func quit() { NSApp.terminate(nil) }
 }

@@ -100,6 +100,13 @@ public final class AxisLink: @unchecked Sendable {
     public var onMessage: (@Sendable (String, JSONValue) -> Void)?
     /** Something went wrong answering Axis that Axis itself will never hear about: said in the app instead. */
     public var onTrouble: (@Sendable (String) -> Void)?
+    /** Speech from Axis: the binary frames between a speak.start and its speak.end (16-bit mono PCM). */
+    public var onAudio: (@Sendable (Data) -> Void)?
+    /**
+     * How much speech the Mac can hold ahead of playing it, told to Axis in the hello when it has speakers (the
+     * Windows app's 8000; Axis paces speech to it). 0: no speaker, not sent. Set before `start`.
+     */
+    public var audioBufferMs = 0
 
     private let lock = NSLock()
     private var running: Task<Void, Never>?
@@ -217,8 +224,7 @@ public final class AxisLink: @unchecked Sendable {
         }
         defer { pinging.cancel() }
 
-        // No audioBufferMs: there is no speaker before M3.
-        let hello: [String: JSONValue] = [
+        var hello: [String: JSONValue] = [
             "t": "hello",
             "protocol": .int(Self.protocolVersion),
             "clientId": .string(pairing.clientId),
@@ -230,6 +236,7 @@ public final class AxisLink: @unchecked Sendable {
             // Big enough for anything Axis might send.
             "maxFrameBytes": 65536,
         ]
+        if audioBufferMs > 0 { hello["audioBufferMs"] = .int(audioBufferMs) }
         try await send(.object(hello))
 
         while !Task.isCancelled {
@@ -241,7 +248,9 @@ public final class AxisLink: @unchecked Sendable {
             let text: String
             switch message {
             case .string(let s): text = s
-            case .data: continue  // speech audio; no speaker before M3
+            case .data(let audio):
+                onAudio?(audio)
+                continue
             @unknown default: continue
             }
             guard let root = try? JSONValue.parse(text), let t = root["t"]?.stringValue else { continue }
@@ -312,21 +321,30 @@ public final class AxisLink: @unchecked Sendable {
         return .object(d)
     }
 
-    /** Sends a message, for later parts (voice); false when not connected. */
+    /** Sends a message (the voice part's); false when not connected or it did not go. */
     @discardableResult
     public func trySend(_ message: JSONValue) async -> Bool {
         do { try await send(message); return true } catch { return false }
     }
 
-    /** One frame at a time, in the order asked: sends are chained so two answers never interleave. */
+    /** Sends a frame of the microphone's audio as a binary frame; false when not connected or it did not go. */
+    @discardableResult
+    public func trySendAudio(_ pcm: Data) async -> Bool {
+        do { try await sendFrame(.data(pcm)); return true } catch { return false }
+    }
+
     private func send(_ message: JSONValue) async throws {
-        let text = String(decoding: try message.encoded(), as: UTF8.self)
+        try await sendFrame(.string(String(decoding: try message.encoded(), as: UTF8.self)))
+    }
+
+    /** One frame at a time, in the order asked: sends are chained so two answers (or an answer and audio) never interleave. */
+    private func sendFrame(_ frame: URLSessionWebSocketTask.Message) async throws {
         let task: Task<Void, Error> = try lock.withLock {
             guard let ws = socket else { throw PairError(message: "not connected") }
             let previous = sendTail
             let t = Task {
                 _ = await previous?.result
-                try await ws.send(.string(text))
+                try await ws.send(frame)
             }
             sendTail = t
             return t

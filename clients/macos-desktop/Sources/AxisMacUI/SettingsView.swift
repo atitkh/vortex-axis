@@ -33,6 +33,7 @@ public struct SettingsView: View {
                 }
                 if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
             }
+            VoiceSettings(model: model)
             Section("macOS permissions") {
                 permission("Accessibility (read other apps, press their controls)", granted: model.accessibility,
                            ask: Permissions.askAccessibility, open: Permissions.openAccessibilitySettings)
@@ -40,6 +41,9 @@ public struct SettingsView: View {
                            ask: Permissions.askPostEvents, open: Permissions.openAccessibilitySettings)
                 permission("Screen Recording (screenshots, text from the pixels, window titles)", granted: model.screenRecording,
                            ask: Permissions.askScreenRecording, open: Permissions.openScreenRecordingSettings)
+                permission("Microphone (talking from this Mac)", granted: model.microphone,
+                           ask: { let m = model; Permissions.askMicrophone { _ in Task { @MainActor in m.refreshPermissions() } } },
+                           open: Permissions.openMicrophoneSettings)
                 Button("Check again") { model.refreshPermissions() }
             }
             Section("Recently") {
@@ -50,7 +54,7 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 460, minHeight: 520)
+        .frame(minWidth: 480, minHeight: 560)
         .onAppear { model.refreshPermissions() }
     }
 

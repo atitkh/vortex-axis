@@ -1,9 +1,10 @@
 import AppKit
 import ApplicationServices
+import AVFoundation
 import CoreGraphics
 
 /**
- * The macOS permissions the app needs, read and asked for. Both are tied to the app's signing identity: an app
+ * The macOS permissions the app needs, read and asked for. All are tied to the app's signing identity: an app
  * signed ad hoc loses them on every rebuild (scripts/build-mac.sh signs with an Apple Development certificate
  * when there is one).
  */
@@ -31,6 +32,19 @@ public enum Permissions {
 
     /** Asks once; macOS may want the app started again after the person allows it. */
     public static func askScreenRecording() { _ = CGRequestScreenCaptureAccess() }
+
+    /** The microphone, for talking from this Mac. Asked the first time the talk key is pressed, or from the window. */
+    public static var microphone: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+
+    /** Whether macOS has not asked yet (then asking shows its prompt; once refused, only System Settings can change it). */
+    public static var microphoneUndecided: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined }
+
+    /** Shows macOS's prompt when it has not asked yet; `done` is told the answer, on the main thread. */
+    public static func askMicrophone(_ done: @escaping @Sendable (Bool) -> Void = { _ in }) {
+        AVCaptureDevice.requestAccess(for: .audio) { granted in DispatchQueue.main.async { done(granted) } }
+    }
+
+    public static func openMicrophoneSettings() { open("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") }
 
     public static func openAccessibilitySettings() { open("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") }
     public static func openScreenRecordingSettings() { open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") }

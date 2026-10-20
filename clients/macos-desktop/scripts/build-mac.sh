@@ -24,11 +24,12 @@ cp App/Info.plist "$APP/Contents/Info.plist"
 # certificate when the keychain has one, so the grants survive rebuilds; otherwise ad hoc (they reset every build).
 # The certificate's hash, not its name: the same name can be in the keychain twice.
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -E '"(Developer ID Application|Apple Development)' | grep -v REVOKED | head -1 | awk '{print $2}' || true)
-codesign --force --options runtime --sign "${IDENTITY:--}" "$APP"
+# The entitlements carry the microphone: under the hardened runtime it is refused without them.
+codesign --force --options runtime --entitlements App/VortexAxis.entitlements --sign "${IDENTITY:--}" "$APP"
 # macOS will not start an app whose certificate Apple revoked, even when the keychain still lists it as valid.
 if [[ "$(spctl -a -vv "$APP" 2>&1 || true)" == *REVOKED* ]]; then
   echo "The signing certificate is revoked; signing ad hoc instead"
-  codesign --force --sign - "$APP"
+  codesign --force --entitlements App/VortexAxis.entitlements --sign - "$APP"
   IDENTITY=""
 fi
 

@@ -273,6 +273,21 @@ final class IdentityTests: XCTestCase {
         XCTAssertEqual(settings.first { $0["key"] == "allowScreenshot" }?["default"], "0")
         XCTAssertEqual(settings.first { $0["key"] == "pointerSize" }?["default"], 44)
     }
+
+    /**
+     * Talking from this Mac adds what the Windows app adds: a microphone, speakers and a screen (the voice pill shows
+     * Axis's questions, so Axis may ask them here). The settings stay the Windows app's eight either way: the voice,
+     * face and pill switches are the person's own, kept on the Mac (as on Windows), not on the admin page.
+     */
+    func testVoiceAddsTheWindowsCapabilities() throws {
+        let talking = DesktopIdentity.create(version: "0.3.0", voice: true)
+        XCTAssertEqual(talking.capabilities, ["desktop", "mic", "speaker", "screen"])
+        XCTAssertEqual(DesktopIdentity.create(version: "0.3.0", voice: false).capabilities, ["desktop"])
+        XCTAssertEqual(talking.describe, DesktopIdentity.create(version: "0.3.0").describe, "the same settings, actions and links")
+        let keys = try XCTUnwrap(talking.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
+        XCTAssertEqual(keys, ["allowLook", "allowInput", "bubble", "allowScreenshot", "autoUpdate", "confirmRisky", "autoOcr", "pointerSize"],
+                       "the Windows app's order")
+    }
 }
 
 final class WindowAnswerTests: XCTestCase {
