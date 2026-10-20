@@ -112,6 +112,62 @@ public enum ReadingOrder {
         return elements.indices.filter { !drop.contains($0) }.map { elements[$0] }
     }
 
+    /** Thinner than this either way (what shows of it), an element is a sliver: a line half under a toolbar. */
+    public static let minShown = 10
+    /** A group narrower than this holds a letter or an icon, never something an agent asks for by name. */
+    public static let minGroupWidth = 20
+
+    /** A name with only letters and digits, lower case: how a gloss is compared with the text it repeats. */
+    static func bare(_ s: String) -> String {
+        String(s.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+    }
+
+    /**
+     * Leaves out what 0.2.1's live test still showed on a long Wikipedia page (about 240 elements), after `dropEchoes`:
+     * - **slivers**: any element of which less than 10 pt shows in height or width (the boxes are already cut to
+     *   what shows; `text 264,156 153x8` was a line half under the toolbar);
+     * - **narrow groups**: a `group` under 20 pt wide;
+     * - **glosses**: a `group` whose name is one character, or whose name only repeats the text inside it (its
+     *   letters and digits are those of one element inside it, or of all of them in order: a pronunciation or a
+     *   word split into spans);
+     * - **double lines**: an element with the same kind and name as an earlier one, its box the same or one inside
+     *   the other (two `text Contents`); the earlier stays.
+     * The element with the focus always stays, and so do windows, fields and OCR lines. Order is kept.
+     */
+    public static func dropNoise(_ elements: [ScreenElement]) -> [ScreenElement] {
+        let slack = 2
+        let names = elements.map { plain($0.name) }
+        let keep: (ScreenElement) -> Bool = { e in
+            e.focused || e.source != "ui" || e.kind == "window" || AXKinds.fields.contains(e.kind)
+        }
+        var drop = Set<Int>()
+        for (i, e) in elements.enumerated() where !keep(e) {
+            if e.w < minShown || e.h < minShown { drop.insert(i); continue }
+            guard e.kind == "group" else { continue }
+            if e.w < minGroupWidth || names[i].count <= 1 { drop.insert(i); continue }
+            let inside = elements.indices.filter { j in
+                j != i && elements[j].kind != "group" && elements[j].kind != "window" && elements[j].source == "ui"
+                    && !names[j].isEmpty && elements[j].box.inside(e.box, slack: slack)
+            }
+            let mine = bare(e.name)
+            guard !inside.isEmpty, !mine.isEmpty else { continue }
+            if inside.contains(where: { bare(elements[$0].name) == mine }) || inside.map({ bare(elements[$0].name) }).joined() == mine {
+                drop.insert(i)
+            }
+        }
+        // Double lines: compared only among those still kept, so a pair is never both dropped.
+        var kept: [Int] = []
+        for i in elements.indices where !drop.contains(i) {
+            let e = elements[i]
+            if !keep(e), !names[i].isEmpty, kept.contains(where: { j in
+                let o = elements[j]
+                return o.kind == e.kind && names[j] == names[i] && (e.box.inside(o.box, slack: slack) || o.box.inside(e.box, slack: slack))
+            }) { continue }
+            kept.append(i)
+        }
+        return kept.map { elements[$0] }
+    }
+
     /**
      * Top to bottom, then left to right: elements whose tops are within `tolerance` points of a line's first one
      * are on that line. Lines, not a pairwise "close enough" test, so the order is always well defined. Stable for ties.

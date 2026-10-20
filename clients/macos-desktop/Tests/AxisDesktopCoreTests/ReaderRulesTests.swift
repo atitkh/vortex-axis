@@ -113,6 +113,34 @@ final class ReadingOrderTests: XCTestCase {
         let window = [k("window", "Inbox", 0, 0, 800, 600), k("group", "Inbox", 0, 0, 800, 600), k("text", "Inbox", 10, 10, 50, 20)]
         XCTAssertEqual(ReadingOrder.dropEchoes(window).map(\.kind), ["window", "text"], "a group named as the text in it goes; the window stays")
     }
+
+    /** The 0.2.1 live test: `text 264,156 153x8`, a line half under Brave's toolbar. */
+    func testSliversGo() {
+        let list = [k("window", "Wikipedia", 0, 33, 1470, 923), k("text", "Half hidden", 264, 156, 153, 8), k("hyperlink", "Thin", 10, 300, 6, 30),
+                    k("text", "Whole", 264, 200, 153, 18), k("text", "Focused sliver", 10, 400, 100, 4, focused: true),
+                    k("text", "ocr line", 10, 500, 100, 8, source: "ocr"), k("edit", "", 10, 600, 200, 6)]
+        XCTAssertEqual(ReadingOrder.dropNoise(list).map(\.name), ["Wikipedia", "Whole", "Focused sliver", "ocr line", ""],
+                       "under 10 pt either way goes; the window, the focus, OCR and fields stay")
+    }
+
+    func testNarrowGroupsAndGlossesGo() {
+        let list = [k("group", "Search", 10, 10, 14, 40), k("group", "B", 100, 10, 60, 40),
+                    k("group", "/ˈwɪkiˌpiːdi.ə/", 200, 10, 120, 20), k("text", "ˈwɪkiˌpiːdi.ə", 202, 12, 110, 16),
+                    k("group", "Wikipedia", 400, 10, 120, 20), k("text", "Wiki", 402, 12, 40, 16), k("text", "pedia", 442, 12, 50, 16),
+                    k("group", "Main menu", 600, 10, 200, 300), k("hyperlink", "Home", 610, 20, 80, 20)]
+        XCTAssertEqual(ReadingOrder.dropNoise(list).map(\.name), ["ˈwɪkiˌpiːdi.ə", "Wiki", "pedia", "Main menu", "Home"],
+                       "a group under 20 pt wide, of one letter, or only repeating the text in it goes; a group named for itself stays")
+    }
+
+    /** Two `text Contents` on the same spot. */
+    func testDoubleLinesGo() {
+        let list = [k("text", "Contents", 10, 100, 80, 20), k("text", "Contents", 12, 102, 60, 16), k("text", "Contents", 10, 300, 80, 20),
+                    k("hyperlink", "Contents", 10, 100, 80, 20)]
+        XCTAssertEqual(ReadingOrder.dropNoise(list).map { "\($0.kind) \($0.y)" }, ["text 100", "text 300", "hyperlink 100"],
+                       "the same kind and name, one box inside the other: the first stays; elsewhere, or another kind, stays")
+        let focused = [k("text", "Contents", 10, 100, 80, 20), k("text", "Contents", 12, 102, 60, 16, focused: true)]
+        XCTAssertEqual(ReadingOrder.dropNoise(focused).count, 2, "the focus always stays")
+    }
 }
 
 final class AddressTests: XCTestCase {

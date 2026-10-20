@@ -57,6 +57,8 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
     private var beforeFill: [String: Box] = [:]
     /** The window `window do=minimize` last put in the Dock, for a restore that names none. */
     private var minimisedLast: (pid: pid_t, title: String)?
+    /** Windows taken out of macOS full screen to be minimised: a restore puts them back (0.2.1's live test). */
+    private var fullScreenBefore = FullScreenMemory()
 
     public init() {}
 
@@ -611,6 +613,8 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
         let title: String
         let box: Box?
         let minimised: Bool
+        let fullScreen: Bool
+        let leftFullScreen: Bool
     }
 
     /**
@@ -652,23 +656,35 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
         let previous = lock.withLock { beforeFill[key] }
         if op == "maximize" { lock.withLock { beforeFill[key] = w.box } }
         let pid = w.pid, title = w.title, fill = area
+        let remembered = lock.withLock { fullScreenBefore.had(pid: pid, title: title) }
+        let wasFullScreen = op == "restore" && remembered
         // A box of 0x0 is a window known only by its title (minimised, found through Accessibility).
         let box: Box? = w.box.w > 0 && w.box.h > 0 ? w.box : nil
-        let done: Arranged = try await ax(8000, "arranging the window", { () throws -> Arranged in
+        // Back into full screen takes its animation twice (out of the Dock, into its Space): more time.
+        let patience = wasFullScreen ? 12000 : 8000
+        let done: Arranged = try await ax(patience, "arranging the window", { () throws -> Arranged in
             guard let real = Apps.realWindow(pid: pid, box: box, title: title, minimised: op == "restore") else {
                 throw DesktopError("that window does not answer Accessibility")
             }
             if op != "minimize" { Apps.bringForward(pid: pid, window: real.element) }
-            let now = try Apps.arrange(real.element, op: op, displayArea: fill, previous: previous)
-            if now.minimised { return Arranged(title: real.title, box: nil, minimised: true) }
+            let now = try Apps.arrange(real.element, op: op, displayArea: fill, previous: previous, wasFullScreen: wasFullScreen)
+            if now.minimised {
+                return Arranged(title: real.title, box: nil, minimised: true, fullScreen: false, leftFullScreen: now.leftFullScreen)
+            }
             // The whole window again (toolbar strips included), now that it has moved or come back.
             let whole = Apps.realWindow(pid: pid, box: now.box, title: real.title)?.box ?? now.box
-            return Arranged(title: real.title, box: whole, minimised: false)
+            return Arranged(title: real.title, box: whole, minimised: false, fullScreen: now.fullScreen, leftFullScreen: false)
         })
         if op == "restore" { lock.withLock { beforeFill[key] = nil } }
         let shownTitle = done.title.isEmpty ? title : done.title
         var result = info(pid: pid, title: shownTitle, box: done.box ?? box ?? w.box, owner: w.owner)
         result.minimised = done.minimised
+        result.fullScreen = done.fullScreen
+        lock.withLock {
+            if op == "minimize" && done.leftFullScreen { fullScreenBefore.note(pid: pid, title: shownTitle) }
+            else if op == "restore" { fullScreenBefore.forget(pid: pid, title: title) }
+            else if op == "move" { fullScreenBefore.forget(pid: pid, title: title, exactly: true) }
+        }
         if op == "minimize" {
             lock.withLock { minimisedLast = (pid, shownTitle) }
             forgetIntended(pid: pid)

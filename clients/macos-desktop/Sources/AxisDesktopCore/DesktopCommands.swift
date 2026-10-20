@@ -528,6 +528,7 @@ public final class DesktopCommands: @unchecked Sendable {
         var payload: [String: JSONValue] = ["window": .string("\(clip(w.title, 200)) (\(w.app)) \(w.x),\(w.y) \(w.w)x\(w.h)")]
         // Read back from the window after `window`, so the answer says what happened, not only what was asked.
         if let m = w.minimised { payload["minimized"] = .bool(m) }
+        if let f = w.fullScreen { payload["fullScreen"] = .bool(f) }
         return payload
     }
 

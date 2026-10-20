@@ -285,5 +285,42 @@ final class WindowAnswerTests: XCTestCase {
         XCTAssertEqual(DesktopCommands.windowPayload(back)["minimized"], .bool(false))
         back.minimised = nil
         XCTAssertNil(DesktopCommands.windowPayload(back)["minimized"], "switch and open say nothing of it")
+        XCTAssertNil(DesktopCommands.windowPayload(back)["fullScreen"])
+        back.fullScreen = true
+        XCTAssertEqual(DesktopCommands.windowPayload(back)["fullScreen"], .bool(true), "a restore back into full screen says so")
+    }
+}
+
+final class WindowRestoreTests: XCTestCase {
+    /** The 0.2.1 live test: Brave in full screen, minimised, restored as an ordinary window. It goes back into full screen. */
+    func testAWindowTakenOutOfFullScreenGoesBack() {
+        XCTAssertEqual(WindowRestore.steps(minimised: true, fullScreen: false, wasFullScreen: true, previous: nil), [.unminimise, .enterFullScreen])
+        XCTAssertEqual(WindowRestore.steps(minimised: true, fullScreen: false, wasFullScreen: false, previous: nil), [.unminimise])
+        XCTAssertEqual(WindowRestore.steps(minimised: false, fullScreen: false, wasFullScreen: true, previous: nil), [.enterFullScreen],
+                       "back from the Dock by hand: still put back into full screen")
+    }
+
+    func testTheOtherRestores() {
+        let before = Box(x: 100, y: 100, w: 800, h: 600)
+        XCTAssertEqual(WindowRestore.steps(minimised: false, fullScreen: true, wasFullScreen: false, previous: nil), [.leaveFullScreen])
+        XCTAssertEqual(WindowRestore.steps(minimised: false, fullScreen: false, wasFullScreen: false, previous: before), [.setBox(before)])
+        XCTAssertEqual(WindowRestore.steps(minimised: false, fullScreen: false, wasFullScreen: false, previous: nil), [])
+    }
+
+    func testTheMemory() {
+        var m = FullScreenMemory()
+        XCTAssertFalse(m.had(pid: 42, title: "Log in - Wikipedia"))
+        m.note(pid: 42, title: "Log in - Wikipedia")
+        XCTAssertTrue(m.had(pid: 42, title: "Log in - Wikipedia"))
+        XCTAssertTrue(m.had(pid: 42, title: "Wikipedia"), "the only one of its app: the title may have changed in the Dock")
+        XCTAssertFalse(m.had(pid: 7, title: "Log in - Wikipedia"), "another app")
+        m.note(pid: 42, title: "Mail")
+        XCTAssertFalse(m.had(pid: 42, title: "Wikipedia"), "two of the app: the title decides")
+        m.forget(pid: 42, title: "Other", exactly: true)
+        XCTAssertTrue(m.had(pid: 42, title: "Mail"), "moving another window forgets nothing")
+        m.forget(pid: 42, title: "Mail")
+        XCTAssertTrue(m.had(pid: 42, title: "Log in - Wikipedia"))
+        m.forget(pid: 42, title: "Wikipedia")
+        XCTAssertFalse(m.had(pid: 42, title: "Log in - Wikipedia"), "restored under its new title: forgotten")
     }
 }

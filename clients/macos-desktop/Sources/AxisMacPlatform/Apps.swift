@@ -134,6 +134,19 @@ enum Apps {
         return true
     }
 
+    /**
+     * Puts the window into macOS full screen (a Space of its own) and waits for it, the animation included. True when
+     * it says it is in full screen. A window just back from the Dock is given a moment first: its own animation runs on.
+     */
+    static func enterFullScreen(_ window: AXUIElement) -> Bool {
+        if fullScreen(window) { return true }
+        InputEvents.sleep(ms: 400)
+        AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanTrue)
+        guard waitFor(ms: 3000, { fullScreen(window) }) else { return false }
+        InputEvents.sleep(ms: 700)
+        return true
+    }
+
     /** Brings a minimised window back from the Dock. True when it says it is back. */
     static func unminimise(_ window: AXUIElement) -> Bool {
         guard minimised(window) else { return true }
@@ -176,29 +189,41 @@ enum Apps {
         if let position = AXValueCreate(.cgPoint, &point) { AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position) }
     }
 
+    /** What `arrange` left: the window's box now (nil when minimised), and what it says of itself, read back. */
+    struct Outcome {
+        var box: Box?
+        var minimised: Bool
+        var fullScreen: Bool
+        /** It was in full screen and was taken out of it to be minimised: a restore puts it back (`FullScreenMemory`). */
+        var leftFullScreen = false
+    }
+
     /**
      * Minimizes, fills ("maximize": the display's visible area, never macOS full screen, which would make a Space of
      * its own), restores or moves `window` to `visible[display - 1]` (top-left points, the menu bar and Dock left
-     * out). Restore takes a minimised window back, a full-screen one out of full screen, and a filled one back to the
-     * box it had before (`previous`). A window in full screen leaves it first to be minimised or moved; one asked to
-     * fill while in full screen already fills its display and is left so. Every change is read back from the window
-     * (kAXMinimized, its box) and a change that did not take throws, saying so: in 0.2.0's live test Brave answered
-     * ok to a minimize and nothing happened. Returns the window's box now (nil when minimised) and whether it is minimised.
+     * out). Restore follows `WindowRestore.steps`: a minimised window back from the Dock, and into full screen again
+     * when it was there before this app minimised it (`wasFullScreen`); a full-screen one out of full screen; a
+     * filled one back to the box it had before (`previous`). A window in full screen leaves it first to be minimised
+     * or moved; one asked to fill while in full screen already fills its display and is left so. Every change is read
+     * back from the window (kAXMinimized, AXFullScreen, its box) and a change that did not take throws, saying so: in
+     * 0.2.0's live test Brave answered ok to a minimize and nothing happened. Going back into full screen that does
+     * not take is not an error (the window is back); the answer's `fullScreen` says so.
      */
-    static func arrange(_ window: AXUIElement, op: String, displayArea: Box?, previous: Box?) throws -> (box: Box?, minimised: Bool) {
+    static func arrange(_ window: AXUIElement, op: String, displayArea: Box?, previous: Box?, wasFullScreen: Bool) throws -> Outcome {
         switch op {
         case "minimize":
-            if minimised(window) { return (nil, true) }
+            if minimised(window) { return Outcome(box: nil, minimised: true, fullScreen: false) }
+            let was = fullScreen(window)
             guard leaveFullScreen(window) else { throw DesktopError("the window is in full screen and did not leave it, so it was not minimized") }
             let asked = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
             guard waitFor(ms: 1500, { minimised(window) }) else {
                 let said = asked == .success ? "macOS answered ok" : "macOS answered error \(asked.rawValue)"
                 throw DesktopError("the window did not minimize (\(said), but the window still says it is not minimized)")
             }
-            return (nil, true)
+            return Outcome(box: nil, minimised: true, fullScreen: false, leftFullScreen: was)
         case "maximize":
             guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock, so it was not maximized") }
-            if fullScreen(window) { return (box(of: window), false) }
+            if fullScreen(window) { return Outcome(box: box(of: window), minimised: false, fullScreen: true) }
             guard let area = displayArea else { throw DesktopError("no display to fill") }
             let before = box(of: window)
             setBox(window, area)
@@ -207,17 +232,24 @@ enum Apps {
             if let after, let before, after == before, !WindowPick.same(after, area) {
                 throw DesktopError("the window did not change size (it stays at \(after); the app may not allow resizing)")
             }
-            return (after, false)
+            return Outcome(box: after, minimised: false, fullScreen: false)
         case "restore":
-            if minimised(window) {
-                guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock (it still says it is minimized)") }
-            } else if fullScreen(window) {
-                guard leaveFullScreen(window) else { throw DesktopError("the window did not leave full screen") }
-            } else if let previous {
-                setBox(window, previous)
-                InputEvents.sleep(ms: 120)
+            let steps = WindowRestore.steps(minimised: minimised(window), fullScreen: fullScreen(window), wasFullScreen: wasFullScreen,
+                                            previous: previous)
+            for step in steps {
+                switch step {
+                case .unminimise:
+                    guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock (it still says it is minimized)") }
+                case .leaveFullScreen:
+                    guard leaveFullScreen(window) else { throw DesktopError("the window did not leave full screen") }
+                case .enterFullScreen:
+                    _ = enterFullScreen(window)
+                case .setBox(let b):
+                    setBox(window, b)
+                    InputEvents.sleep(ms: 120)
+                }
             }
-            return (box(of: window), false)
+            return Outcome(box: box(of: window), minimised: minimised(window), fullScreen: fullScreen(window))
         case "move":
             guard let area = displayArea else { throw DesktopError("no such display") }
             guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock, so it was not moved") }
@@ -229,7 +261,7 @@ enum Apps {
             if let c = after?.centre, !(c.x >= area.x && c.x < area.right && c.y >= area.y && c.y < area.bottom) {
                 throw DesktopError("the window did not move to that display (it is at \(after!))")
             }
-            return (after, false)
+            return Outcome(box: after, minimised: false, fullScreen: false)
         default:
             throw DesktopError("window needs do: minimize, maximize, restore or move")
         }

@@ -325,7 +325,7 @@ public final class AXReader: @unchecked Sendable {
             visited = 0
             walk([Node(element: menuBar, parentRole: nil, areas: [], root: true)], into: &bar, skipRoot: true, cap: Self.maxMenuBar)
         }
-        let all = ReadingOrder.dedupe(ReadingOrder.dropEchoes(top + menus + ReadingOrder.sort(inside) + bar))
+        let all = ReadingOrder.dedupe(ReadingOrder.dropNoise(ReadingOrder.dropEchoes(top + menus + ReadingOrder.sort(inside) + bar)))
         return (all, windowBox, cut, inside.count)
     }
 
@@ -348,7 +348,7 @@ public final class AXReader: @unchecked Sendable {
             guard let u = up, let uf = add(u), uf.role != "AXApplication" else { break }
             up = Self.element(u, kAXParentAttribute)
         }
-        return ReadingOrder.dedupe(ReadingOrder.dropEchoes(list))
+        return ReadingOrder.dedupe(ReadingOrder.dropNoise(ReadingOrder.dropEchoes(list)))
     }
 
     /** The focused control of app `pid`, for the state after an action and the password checks. */
