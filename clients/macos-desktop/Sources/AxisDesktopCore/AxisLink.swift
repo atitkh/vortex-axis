@@ -133,6 +133,7 @@ public final class AxisLink: @unchecked Sendable {
 
     public struct PairError: Error, LocalizedError {
         public let message: String
+        public init(message: String) { self.message = message }
         public var errorDescription: String? { message }
     }
 
