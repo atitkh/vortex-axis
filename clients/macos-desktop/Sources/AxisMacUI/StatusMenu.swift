@@ -1,12 +1,19 @@
 import AppKit
+import Combine
+import AxisDesktopCore
 
-/** The menu bar item: the link's state, open the window, pause, show the pointer, quit. Refreshed as it opens. */
+/**
+ * The menu bar item: the link's state, open the window, pause, show the pointer, quit. Refreshed as it opens. Its icon
+ * (`MenuBarIcon`, drawn in code) follows the app's state: idle, listening, speaking, using this Mac, paused, offline.
+ */
 @MainActor
 public final class StatusMenu: NSObject, NSMenuDelegate {
     let model: AppModel
     let settings: SettingsWindow
     private let item: NSStatusItem
     private let menu: NSMenu
+    private var watching: AnyCancellable?
+    private var shown: MenuIconState?
 
     public init(model: AppModel, settings: SettingsWindow) {
         self.model = model
@@ -14,9 +21,10 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         menu = NSMenu()
         super.init()
-        if let button = item.button {
-            button.image = NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: "VorteX Axis")
-            button.image?.isTemplate = true
+        refreshIcon()
+        // objectWillChange comes before the change: the icon is read on the next turn.
+        watching = model.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.refreshIcon() }
         }
         menu.delegate = self
         // Items say for themselves whether they can be used (Talk now only while online).
@@ -43,8 +51,20 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
             talk.isEnabled = model.state == .online && !model.paused
             menu.addItem(talk)
         }
+        let keepFace = entry("Keep the face on screen", #selector(toggleKeepFace))
+        keepFace.state = model.saved.keepFace && model.saved.showFace ? .on : .off
+        keepFace.isEnabled = model.saved.showFace
+        menu.addItem(keepFace)
         menu.addItem(.separator())
         menu.addItem(entry("Quit VorteX Axis", #selector(quit), key: "q"))
+    }
+
+    func refreshIcon() {
+        let state = model.iconState
+        guard state != shown, let button = item.button else { return }
+        shown = state
+        button.image = MenuBarIcon.image(state)
+        button.toolTip = state.words
     }
 
     func entry(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
@@ -58,5 +78,6 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     @objc func showPointer() { model.showPointer() }
     @objc func toggleVoice() { Task { await model.setVoice(!model.saved.voice) } }
     @objc func talkNow() { model.talkNow() }
+    @objc func toggleKeepFace() { model.setKeepFace(!model.saved.keepFace) }
     @objc func quit() { NSApp.terminate(nil) }
 }

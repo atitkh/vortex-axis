@@ -1,14 +1,15 @@
 # VorteX Axis for Mac (experimental)
 
-A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.2.1 is milestones M0, M1 and M2 of `docs/mac-port.md`: pairing, the link, reading, and input. It has no voice and does not update itself.
+A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.3.0 is milestones M0 to M3 of `docs/mac-port.md`: pairing, the link, reading, input, talking from the Mac, Vortex's face, the notices at the top of the screen, and the logo. It does not update itself.
 
-**0.1.0 and 0.2.0 were built and tried on a MacBook Air by the owner (2026-10-19, 2026-10-20, Brave); 0.2.1 (the fixes from 0.2.0's test, below) was written on Linux without a Swift toolchain and has not been compiled.** See "Not verified" below.
+**0.1.0 and 0.2.0 were built and tried on a MacBook Air by the owner (2026-10-19, 2026-10-20, Brave); 0.2.1 and 0.3.0 were written on Linux without a Swift toolchain and have not been compiled.** See "Not verified" below.
 
-- `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table, the key combinations (`KeyCombo`), which window is in front (`WindowPick`). A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
+- `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table, the key combinations (`KeyCombo`), which window is in front (`WindowPick`), the voice part (`Voice`, `TalkKey`, `PCM`), the face (`Face`, `FaceIcons.g.swift` written by `scripts/gen-icons.mjs`), where the face and the pills go (`FaceLayout`, `PillLayout`) and what they say (`PillWords`). A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
 - `Sources/AxisMacPlatform/`: Accessibility (`AXReader`, `AXActions`), the window list and displays (`WindowList`, Quartz), mouse and keys (`InputEvents`, CGEvent), apps and windows (`Apps`), pictures (`ScreenCapture`) and text from the pixels (`TextReader`, Vision), the clipboard (`Pasteboard`), permissions, the saved pairing (`~/Library/Application Support/VorteX Axis/desktop.json`, token in the Keychain). `MacDesktop` puts them together.
-- `Sources/AxisMacUI/`: the menu bar item, the window (pairing, permissions, Recently), the pointer.
+- `Sources/AxisMacUI/`: the menu bar item and its icon (`MenuBarIcon`, drawn in code), the window (pairing, talking, face and notices, permissions, Recently, About), the pointer, the face (`FacePanel`), the pills (`Pills`).
+- `App/`: `Info.plist`, the entitlements, the app icon (`AppIcon.icns` and its `AppIcon.iconset`, made by `scripts/make-icns.sh` from `AppIcon-1024.png`, which `scripts/draw-app-icon.py` draws from the logo).
 - `Sources/VortexAxisMac/`: the app. Its version is `appVersion` in `App.swift`, counted apart from Axis's, the boards' and the Windows app's.
-- `Tests/AxisDesktopCoreTests/`: the Core's checks: the Windows smoke test's clipping and browser-bar checks, every command against a fake screen (input included), the coordinate rules, the role table, the key table, the front-window and window-list rules. No Mac APIs, no Axis.
+- `Tests/AxisDesktopCoreTests/`: the Core's checks: the Windows smoke test's clipping and browser-bar checks, every command against a fake screen (input included), the coordinate rules, the role table, the key table, the front-window and window-list rules, the voice part, the face (its looks, icon and timing), where the face and the pills go (the notch included), the pills' words, the menu bar icon's state. No Mac APIs, no Axis.
 
 ## Build and run (on the Mac)
 
@@ -18,7 +19,7 @@ Needs macOS 13 or newer and Xcode 15 or newer (or its Command Line Tools: `xcode
 cd clients/macos-desktop
 swift build                 # everything, debug
 swift test                  # the Core's checks
-scripts/build-mac.sh        # build/VorteX Axis.app (release, signed, Info.plist with LSUIElement)
+scripts/build-mac.sh        # build/VorteX Axis.app (release, signed, Info.plist with LSUIElement, the icon)
 open "build/VorteX Axis.app"
 ```
 
@@ -30,9 +31,12 @@ Signing: the script signs with a "Developer ID Application" or "Apple Developmen
 
 The app's window (menu bar item > Open VorteX Axis…) shows each and has buttons for them.
 
-1. **Accessibility** (needed for everything: reading other apps' controls, pressing them, and posting mouse and key events). Click Ask, or System Settings > Privacy & Security > Accessibility, switch on VorteX Axis (use + to add `build/VorteX Axis.app` if it is not listed). Without it every look fails with words saying so, not an empty list. The window's "Mouse and keyboard" line reads the same grant from the event side (`CGPreflightPostEventAccess`); if it stays off while Accessibility is on, remove the app from the Accessibility list and add it again. No Input Monitoring is needed: the app watches no keys.
+1. **Accessibility** (needed for everything: reading other apps' controls, pressing them, and posting mouse and key events). Click Ask, or System Settings > Privacy & Security > Accessibility, switch on VorteX Axis (use + to add `build/VorteX Axis.app` if it is not listed). Without it every look fails with words saying so, not an empty list. The window's "Mouse and keyboard" line reads the same grant from the event side (`CGPreflightPostEventAccess`); if it stays off while Accessibility is on, remove the app from the Accessibility list and add it again. No Input Monitoring is needed: the talk key is a Carbon hot key (no permission), and Fn alone is seen through Accessibility.
 2. **Screen Recording** (screenshots, text from the pixels when a window exposes fewer than eight named controls, and other apps' window titles in a look at the screen and the window list). System Settings > Privacy & Security > Screen Recording (on macOS 15, "Screen & System Audio Recording"), switch on VorteX Axis, then quit and start the app again. Without it, `screenshot` and OCR say why; titles fall back to app names.
-3. **Local Network** (macOS 15, a hub on the LAN): allow it when macOS asks on the first connection.
+3. **Microphone** (talking from this Mac): click Ask in the window, or allow it when macOS asks on the first press of the talk key. System Settings > Privacy & Security > Microphone. Without it the voice pill says so.
+4. **Local Network** (macOS 15, a hub on the LAN): allow it when macOS asks on the first connection.
+
+The face, the pills and the icons need no permission.
 
 ## Pair
 
@@ -56,7 +60,25 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - **Apps and windows**: `open` (an `.app` in /Applications, /Applications/Utilities, /System/Applications(/Utilities), ~/Applications, matched by name or display name; or an http(s) address; waits up to 8 s for its window), `switch` (best match by app or title, Spaces included; Accessibility raise plus activation), `window` (minimize; maximize = fill the display's visible area, never macOS full screen; restore = un-minimise, or the box before maximize; move to display n, centred), `desktop` (next/previous Space: control+right/left, the Mission Control shortcuts, which must be on in System Settings > Keyboard > Keyboard Shortcuts > Mission Control), `wait`, `steps`.
 - **Screenshot** (`screenshot`, `allowScreenshot` on): ScreenCaptureKit (macOS 14+; the app's own windows left out) or the older Quartz capture on macOS 13 (the pointer hidden first), only as many pixels as the answer needs (640, 1024, 1568 on the longer side), JPEG quality 72, as the Windows app sends.
 - **Coordinates**: points with the origin at the top left of the main display (the one with the menu bar), y down; displays left of or above it are negative. That is Accessibility's, CGEvent's and Quartz's own space, so a point is used as is on whichever display it is; a bare x,y on no display is refused rather than clamped (`Coordinates.display(at:)`, tested with displays above, left and right).
-- Not here: voice, the face, self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S; M3), an Esc key that cancels (the Windows app has none either).
+- Not here: self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S), an Esc key that cancels (the Windows app has none either), the Windows pointer's look (the Mac's pointer is still a plain ring).
+
+## What is new in 0.3.0
+
+- **Talking from this Mac** (on unless switched off in the window): press the talk key (ctrl+option+space; the window records another, or Fn alone) and talk; it listens until you pause, or hold it and it listens until you let go; press it while the agent speaks to stop it. Microphone and speaker are chosen in the window (the system's default unless chosen). Axis's questions show in the voice pill with their buttons.
+- **The face**: the boards' face on a frosted disc at the bottom middle of the main display. It springs in when you talk and while an agent is using the Mac (then it shows the computer icon), its mouth follows the voice, and it goes 2.5 s after. "Keep it on screen" (window or menu) leaves it there, idling; then a click on it talks, and a drag with the right button (or with Control held) puts it anywhere (remembered, kept on the displays). Size and place in the window. Light and Dark follow the Mac; Reduce motion turns off the spring and slows the face.
+- **The pills** at the top middle: "VorteX is using this computer" with the last thing the agent did (from its first desktop command until 8 s after the last; the admin page's "Show the pointer" does not count), and the voice pill under it (Listening, Thinking, Speaking, what was heard, the reply, a question with its buttons; it goes 6 s after the answer). On a MacBook with a notch the first pill grows out of the notch and draws back into it. Both are click-through (the question's buttons apart) and never take the focus.
+- **Out of the picture**: the face and the pills are marked as never captured (`sharingType = .none`), so screenshots and OCR never see them (the Windows app hides them for a moment instead). The same holds for screen recordings and screen sharing you make.
+- **The logo**: the app has the Vortex icon (Finder, the window's About, Force Quit); the menu bar icon is the spiral drawn in code, with a mark for the state: drawn in (listening), sound arcs (speaking), a pointer (an agent is using this Mac), pause bars (paused), struck through (offline).
+
+## Trying the face, the pills and the logo
+
+1. Build with `scripts/build-mac.sh` and open the app: Finder shows the Vortex icon on `build/VorteX Axis.app`; the menu bar shows the spiral (struck through until it is online).
+2. In the window, "Face and notices" > **Try them**: the "using this computer" pill comes at the top (out of the notch on a MacBook that has one) and the face at the bottom with the computer icon; both go about 10 s later. The menu bar icon shows the pointer meanwhile.
+3. Switch on "Keep it on screen": the face stays, idling through its looks. Click it: it listens (green, the mouth following your voice; the voice pill says Listening). Drag it with the right button: it moves and stays there after a restart; "Place" now offers "Where you put it".
+4. Ask the agent to look at the window in front (talking or typing): the pill says what it did; take a screenshot through the agent with the face kept on: the face is not in it.
+5. Ask something that needs an answer here (anything Axis confirms, such as sending a message, with "Ask before risky actions" on): the voice pill shows the question with Allow and Deny; click one.
+6. Switch the Mac to Light mode and Reduce motion (System Settings > Accessibility > Display): the disc follows, the face no longer springs in.
+7. Pause from the menu: the menu bar icon shows the pause bars, the pill goes, the face stays idle (or away).
 
 ## What changed in 0.2.1 (from 0.2.0's live test on Brave)
 
@@ -76,7 +98,10 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - open/switch/window/desktop: "open TextEdit", "open https://example.org", "switch to Terminal", "maximize the window", "move it to display 2", "minimize it", "go to the next desktop".
 - screenshot (switch it on first on the admin page): "take a screenshot of the window, low detail".
 
-## Not verified (Mac-side; 0.2.1's changes not compiled)
+## Not verified (Mac-side; 0.2.1 and 0.3.0 not compiled)
+
+0.3.0 first: that it builds (SwiftUI in panels, `NSHostingView` subclassing, the `CASpringAnimation` on the face's layer, the Carbon hot key, AVAudioEngine); the face's frame rate (a 60 Hz timer while it shows) and how it looks on light and dark wallpapers; the pill's fit around a real notch (`safeAreaInsets`, `auxiliaryTopLeftArea`); that the question's buttons take a click without the panel taking the focus; the talk key with other apps holding the same combination; whether macOS 15 still keeps `sharingType = .none` windows out of ScreenCaptureKit (the app's own windows are excluded there anyway).
+
 
 0.2.0 was built and its reading and input worked on Brave (type, click by name, keys, scroll, refusals, the window list across Spaces); what is below was not yet tried there. 0.2.1 is not compiled: first, that it builds; then a look at Brave windowed and in full screen (toolbar, address bar and tabs listed, element 1 the whole window), `window do=list` (one Brave entry), minimize/restore with and without a name (`minimized` in the answer), and the click guard just under the address bar. Older items, roughly in order:
 

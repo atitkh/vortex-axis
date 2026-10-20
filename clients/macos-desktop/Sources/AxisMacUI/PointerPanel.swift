@@ -6,7 +6,7 @@ import AxisMacPlatform
  * The agent's pointer: a ring with the agent's words beside it, in a borderless panel that never takes the focus
  * or a click, above other windows and on every Space. Placed in AppKit's bottom-left space through the one flip
  * rule (`Coordinates.appKit`, the main display's height). Glides to a new point, fades out after its time.
- * M1's pointer is deliberately plain; the Windows look (breathing, the bubble on the roomier side) comes with M3.
+ * M1's pointer is deliberately plain; the Windows look (breathing, the bubble on the roomier side) is not ported yet.
  */
 @MainActor
 public final class PointerPanel: PointerDrawing {

@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.3.0 (2026-10-20)
+
+- **Talking from this Mac** (as on Windows): the talk key (press, hold, release; ctrl+option+space unless another is recorded, Fn alone possible), the microphone at 16 kHz to Axis and its speech through the speakers, a question with Allow/Deny buttons; the Mac then also offers `mic`, `speaker` and `screen`. Needs the Microphone permission.
+- **The face**: Vortex's face (a Swift copy of `Face.cs`, the fourth copy of `docs/face.md`) on a small frosted disc at the bottom middle of the main display, springing in for a voice turn and while an agent uses the Mac (the computer icon), its mouth following the voice's loudness, gone 2.5 s after. Keep it on screen and a click on it talks; drag it with the right button (or Control) to put it anywhere. Small, medium (132 pt) or large; bottom centre, left, right or where it was put. Follows Light and Dark, Reduce motion; never takes the focus.
+- **The pills**: "VorteX is using this computer" with the last thing done (8 s after the last command) and the voice pill (listening, thinking, speaking, what was heard, the reply, a question's buttons) at the top middle; on a MacBook with a notch the first one grows out of the notch like the Dynamic Island. The face and the pills are left out of every screen capture.
+- **The logo**: an app icon (`App/AppIcon.icns`, made by `scripts/make-icns.sh` from the logo) and a menu bar icon drawn in code that shows idle, listening, speaking, using this Mac, paused and offline. The window has a section for the face and the pills (with "Try them") and an About section.
+- **Fixes from the live test of 0.2.1 on Brave**: a window taken out of full screen to be minimised goes back into full screen on restore; looks leave out slivers, one-letter groups and doubled lines.
+- Written on Linux, not compiled, its tests not run.
+
 ## Mac desktop app 0.2.1 (2026-10-20)
 
 - **Fixes from the live test of 0.2.0 on Brave.** A look reads the app's real top-level window with its toolbar, address bar and tabs (it read only Chromium's page window, so `find "Address and search bar"` found nothing); element 1 is the whole window and the browser-bar guard is everything above the page. `window do=list` shows one entry per window (Brave's toolbar strip is folded into its window; small untitled helpers are left out). `window` acts on the real window, leaves full screen first to minimise or move, reads the result back and says it (`minimized`), failing with words when it did not take; restore finds minimised windows. Looks leave out a text or image that repeats the link or button holding it, and a group named as what is inside it.

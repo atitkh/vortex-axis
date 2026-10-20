@@ -216,7 +216,7 @@ The admin page has a Face page (`#face`) that draws every look live with `web/vo
 
 While the face is `thinking`, Axis may name the kind of work the agent has picked up (`doing` on the `turn` message). The face then shows an icon for it in the middle, in place of the core. Outside `thinking` there is never an icon.
 
-**The icons.** Thirteen: `search`, `web`, `home`, `calendar`, `list`, `files`, `code`, `timer`, `message`, `memory`, `image`, `computer`, `tool`. Each is a few strokes (lines through points) on a 24 by 24 grid, drawn with a round pen. They are defined once, in `web/icons.js`; `node scripts/gen-icons.mjs` writes `firmware/waveshare-amoled-1.8/src/icons.h` and the desktop app's `FaceIcons.g.cs` from it, with circles already cut into straight pieces. Change an icon there and run the script; never edit the header.
+**The icons.** Thirteen: `search`, `web`, `home`, `calendar`, `list`, `files`, `code`, `timer`, `message`, `memory`, `image`, `computer`, `tool`. Each is a few strokes (lines through points) on a 24 by 24 grid, drawn with a round pen. They are defined once, in `web/icons.js`; `node scripts/gen-icons.mjs` writes `firmware/waveshare-amoled-1.8/src/icons.h`, the Windows desktop app's `FaceIcons.g.cs` and the Mac app's `FaceIcons.g.swift` from it, with circles already cut into straight pieces. Change an icon there and run the script; never edit the header.
 
 **Each frame**, before step 2:
 

@@ -5,7 +5,8 @@ import AxisMacPlatform
 /**
  * The app's state and its one link to Axis: what the settings window shows and the menu bar item acts on.
  * Holds the pairing (address, client id and name on disk; the token in the Keychain), the commands and the desktop,
- * and the voice part (talk key, microphone, speakers) when talking from this Mac is on.
+ * and the voice part (talk key, microphone, speakers) when talking from this Mac is on; and what it shows on screen
+ * besides the pointer: the face, the "using this computer" pill and the voice pill.
  */
 @MainActor
 public final class AppModel: ObservableObject {
@@ -22,10 +23,15 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var voiceNow: VoiceSnapshot?
     /** Why the talk key is not watched (taken by another app), or nil. */
     @Published public private(set) var talkKeyTrouble: String?
+    /** An agent is using this Mac just now (from its first desktop command until a few seconds after the last). */
+    @Published public private(set) var agentHere = false
 
     public let desktop = MacDesktop()
     public let commands: DesktopCommands
     public let pointer: PointerPanel
+    public let face: FacePanel
+    let controlPill: ControlPill
+    let voicePill: VoicePill
     public let audio = AudioIO()
     let talkKeys = TalkKeyWatcher()
     private var link: AxisLink?
@@ -36,6 +42,9 @@ public final class AppModel: ObservableObject {
         self.version = version
         commands = DesktopCommands(desktop: desktop)
         pointer = PointerPanel()
+        face = FacePanel()
+        controlPill = ControlPill()
+        voicePill = VoicePill()
         commands.paused = saved.paused
         desktop.usePointer(pointer)
         commands.onDid = { [weak self] line in Task { @MainActor in self?.did(line) } }
@@ -44,6 +53,25 @@ public final class AppModel: ObservableObject {
         talkKeys.onHold = { [weak self] in self?.voice?.hold() }
         talkKeys.onRelease = { [weak self] in self?.voice?.release() }
         applyTalkKey()
+        face.loudness = { [weak self] in self?.voice?.loudness ?? -1 }
+        face.onClick = { [weak self] in self?.talkPressed() }
+        face.onMoved = { [weak self] x, y in
+            self?.change {
+                $0.facePlace = FaceLayout.custom
+                $0.faceX = x
+                $0.faceY = y
+            }
+        }
+        controlPill.onChange = { [weak self] in self?.agentChanged() }
+        voicePill.host.under = { [weak self] in self?.controlPill.bottom }
+        voicePill.onChoice = { [weak self] choice in self?.voice?.answer(choice) }
+        _ = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.controlPill.replace()
+                self?.voicePill.replace()
+            }
+        }
+        applyFace()
     }
 
     public var paired: Bool { saved.clientId != nil && saved.address != nil }
@@ -55,9 +83,10 @@ public final class AppModel: ObservableObject {
         if recently.count > 40 { recently.removeLast(recently.count - 40) }
     }
 
-    /** What a command did: in the list. */
+    /** What a command did: in the list, and on the "using this computer" pill. */
     func did(_ line: String) {
         note(line)
+        controlPill.did(line)
     }
 
     public func refreshPermissions() {
@@ -121,11 +150,43 @@ public final class AppModel: ObservableObject {
         if state == .refused { note(why ?? "Axis refused this Mac") }
     }
 
-    /** Before a command runs (the UI parts show that an agent is at this Mac). */
-    func commandComing(_ name: String) {}
+    /** Before a command runs: an agent at this Mac is shown for as long as it is (not the admin page's "Show the pointer"). */
+    func commandComing(_ name: String) {
+        if ControlPillWords.shows(name, paused: paused, switchedOn: saved.showControl) { controlPill.touch() }
+    }
 
     func voiceChanged() {
         voiceNow = voice?.snapshot
+        if let now = voiceNow { voicePill.show(now, talkKey: talkKey.label) }
+        showFace()
+    }
+
+    /** An agent came to this Mac or left it: the pill under it moves, the face and the menu bar icon follow. */
+    func agentChanged() {
+        agentHere = controlPill.active
+        voicePill.replace()
+        showFace()
+    }
+
+    /** The face follows the voice part and whether an agent is at this Mac (the Windows app's `ShowFace`). */
+    func showFace() {
+        guard saved.showFace, !paused else {
+            face.set(FaceShow.of(.idle, doing: nil, agentHere: false))
+            return
+        }
+        face.set(FaceShow.of(voiceNow?.mode ?? .idle, doing: voiceNow?.doing, agentHere: agentHere))
+    }
+
+    /** Size, place and keep, from the settings. */
+    func applyFace() {
+        face.look(size: saved.faceSize, place: saved.facePlace, x: saved.faceX, y: saved.faceY)
+        face.keep(saved.keepFace && saved.showFace)
+        showFace()
+    }
+
+    /** What the menu bar icon shows. */
+    public var iconState: MenuIconState {
+        MenuIconState.of(online: paired && state == .online, paused: paused, voice: voiceNow?.mode, agentHere: agentHere)
     }
 
     func useSettings(_ values: [String: JSONValue]) {
@@ -140,6 +201,8 @@ public final class AppModel: ObservableObject {
         voice = nil
         outbox = nil
         voiceNow = nil
+        voicePill.dismiss()
+        showFace()
     }
 
     /**
@@ -190,13 +253,51 @@ public final class AppModel: ObservableObject {
     public func setPaused(_ on: Bool) {
         commands.paused = on
         change { $0.paused = on }
-        if on { pointer.hide() }
+        if on {
+            pointer.hide()
+            controlPill.dismiss()
+        }
+        showFace()
         note(on ? "Paused: agents can neither read, point nor act" : "Resumed")
     }
 
     /** The menu's "Show the pointer": the same as the admin page's. */
     public func showPointer() {
         Task { _ = await commands.handle("desktop.hello", [:]) }
+    }
+
+    // MARK: The face and the pills
+
+    public func setShowFace(_ on: Bool) {
+        change { $0.showFace = on }
+        applyFace()
+    }
+
+    /** The face stays on screen between turns; a click on it talks, a right-button drag moves it. */
+    public func setKeepFace(_ on: Bool) {
+        change { $0.keepFace = on }
+        applyFace()
+    }
+
+    public func setFaceSize(_ size: String) {
+        change { $0.faceSize = size }
+        applyFace()
+    }
+
+    public func setFacePlace(_ place: String) {
+        change { $0.facePlace = place }
+        applyFace()
+    }
+
+    public func setShowControl(_ on: Bool) {
+        change { $0.showControl = on }
+        if !on { controlPill.dismiss() }
+    }
+
+    /** The window's "Try them": the "using this computer" pill and the face with the computer icon, as an agent's command would show them. */
+    public func tryFaceAndPills() {
+        controlPill.did("Tried from the settings window")
+        controlPill.touch()
     }
 
     // MARK: Talking from this Mac

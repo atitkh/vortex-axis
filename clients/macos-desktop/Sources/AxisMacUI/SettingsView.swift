@@ -3,7 +3,7 @@ import SwiftUI
 import AxisDesktopCore
 import AxisMacPlatform
 
-/** The app's window: the link's state, pairing, the permissions macOS must give, and what was done recently. */
+/** The app's window: the link's state, pairing, talking, the face and notices, the permissions macOS must give, what was done recently, and About. */
 @MainActor
 public struct SettingsView: View {
     @ObservedObject var model: AppModel
@@ -34,6 +34,7 @@ public struct SettingsView: View {
                 if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
             }
             VoiceSettings(model: model)
+            FaceSettings(model: model)
             Section("macOS permissions") {
                 permission("Accessibility (read other apps, press their controls)", granted: model.accessibility,
                            ask: Permissions.askAccessibility, open: Permissions.openAccessibilitySettings)
@@ -52,6 +53,7 @@ public struct SettingsView: View {
                     Text(line).font(.system(.caption, design: .monospaced)).lineLimit(2)
                 }
             }
+            AboutSection(version: model.version)
         }
         .formStyle(.grouped)
         .frame(minWidth: 480, minHeight: 560)

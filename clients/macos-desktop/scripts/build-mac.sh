@@ -18,6 +18,8 @@ APP="$STAGE/VorteX Axis.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/VortexAxisMac" "$APP/Contents/MacOS/VortexAxisMac"
 cp App/Info.plist "$APP/Contents/Info.plist"
+# The icon is committed (scripts/make-icns.sh makes it); Info.plist names it (CFBundleIconFile AppIcon).
+cp App/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 
 # Accessibility and Screen Recording are granted to a signing identity. Sign with a Developer ID or Apple Development
