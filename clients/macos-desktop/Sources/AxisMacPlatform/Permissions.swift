@@ -13,13 +13,16 @@ public enum Permissions {
     public static var accessibility: Bool { AXIsProcessTrusted() }
 
     /**
-     * Posting mouse and keyboard events to other apps. macOS grants it with Accessibility (the same list in System
-     * Settings); read on its own so the window can say when clicks and typing would be dropped.
+     * Posting mouse and keyboard events to other apps. Accessibility is what lets an app post them in practice (typing
+     * and clicks worked on a Mac where `CGPreflightPostEventAccess` still said no, as it does for builds whose signature
+     * macOS has not tied to a separate "post event" grant), so an app that is trusted for Accessibility counts as allowed.
      */
-    public static var postEvents: Bool { CGPreflightPostEventAccess() }
+    public static var postEvents: Bool { accessibility || CGPreflightPostEventAccess() }
 
-    /** Asks for it: macOS sends the person to Accessibility. */
-    public static func askPostEvents() { _ = CGRequestPostEventAccess() }
+    /** Asks for it: Accessibility first (the usual case); only when that is on does the separate post-event request run. */
+    public static func askPostEvents() {
+        if !accessibility { askAccessibility() } else { _ = CGRequestPostEventAccess() }
+    }
 
     /** Shows the system's prompt that sends the person to the Accessibility settings. */
     public static func askAccessibility() {

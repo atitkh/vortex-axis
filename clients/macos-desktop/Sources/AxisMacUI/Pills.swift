@@ -304,6 +304,12 @@ final class ControlPill {
 struct ControlPillView: View {
     let doing: String
 
+    /** The width the last action's words take on one line, at most 300 points. */
+    static func detailWidth(_ text: String) -> CGFloat {
+        let natural = (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
+        return min(300, ceil(natural) + 2)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             PillDot(tint: .control, breathes: true).padding(.trailing, 11)
@@ -314,12 +320,13 @@ struct ControlPillView: View {
                 .fixedSize()
             if !doing.isEmpty {
                 Rectangle().fill(Color.white.opacity(0.25)).frame(width: 1, height: 13).padding(.horizontal, 11)
+                // As wide as the words are, up to 300: a flexible `frame(maxWidth: 300)` would take all 300 every time.
                 Text(doing)
                     .font(.system(size: 12))
                     .foregroundColor(PillColour.dim)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: 300, alignment: .leading)
+                    .frame(width: Self.detailWidth(doing), alignment: .leading)
             }
         }
         .padding(EdgeInsets(top: 9, leading: 15, bottom: 10, trailing: 17))

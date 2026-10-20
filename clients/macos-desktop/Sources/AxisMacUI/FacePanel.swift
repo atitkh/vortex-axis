@@ -179,6 +179,17 @@ public final class FacePanel: NSObject {
     @objc private func displayOptionsChanged() { face.reducedMotion = Screens.reduceMotion }
 }
 
+/** Transparent view that paints what its owner gives it; flipped like `FaceView`, never hit by the mouse. */
+final class FaceCanvas: NSView {
+    var drawer: ((CGContext) -> Void)?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        guard let g = NSGraphicsContext.current?.cgContext else { return }
+        drawer?(g)
+    }
+}
+
 /**
  * The disc and the face on it: a soft shadow, the system's frosted material (light or dark with the Mac's appearance),
  * a dark pool in the middle so the dots read on either, a hairline edge, then the dots, the core and the pen icon,
@@ -209,6 +220,19 @@ final class FaceView: NSView {
         material.blendingMode = .behindWindow
         material.state = .active
         addSubview(material)
+        // The face is painted by a view ABOVE the material: a view's own drawing lies under its subviews, so the dots
+        // drawn here would be hidden by the frosted disc (a blank grey circle).
+        canvas.wantsLayer = true
+        canvas.drawer = { [weak self] g in self?.drawFace(g) }
+        addSubview(canvas)
+    }
+
+    private let canvas = FaceCanvas()
+
+    /** Clicks and drags land on this view, whichever of its parts is under the pointer. */
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let p = superview.map { convert(point, from: $0) } ?? point
+        return bounds.contains(p) ? self : nil
     }
 
     required init?(coder: NSCoder) { nil }
@@ -228,6 +252,7 @@ final class FaceView: NSView {
         let r = discRect
         shadowView.frame = r
         material.frame = r
+        canvas.frame = bounds
         material.maskImage = NSImage(size: r.size, flipped: false) { rect in
             NSColor.black.setFill()
             NSBezierPath(ovalIn: rect).fill()
@@ -239,7 +264,7 @@ final class FaceView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         styleShadow()
-        needsDisplay = true
+        canvas.needsDisplay = true
     }
 
     private func styleShadow() {
@@ -273,11 +298,11 @@ final class FaceView: NSView {
 
     func paint(_ frame: Face.Frame) {
         frameNow = frame
-        needsDisplay = true
+        canvas.needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let g = NSGraphicsContext.current?.cgContext else { return }
+    /** The face on the disc, drawn into the canvas above the material. */
+    fileprivate func drawFace(_ g: CGContext) {
         let r = discRect
         let mid = CGPoint(x: r.midX, y: r.midY)
         // A dark pool in the middle of the material, deeper in Light mode, so the dots read on any wallpaper.
