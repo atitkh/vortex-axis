@@ -87,9 +87,16 @@ public enum WindowPick {
     /** Boxes this close are the same window seen by Accessibility and by Quartz (they round differently). */
     static let sameBoxSlack = 4
 
-    /** A window a person would call one: layer 0, not see-through, big enough, and at least partly on a display. */
+    /**
+     * Windows the system itself draws (Mission Control's "Window Highlight Overlay" belongs to WindowManager): on screen
+     * at layer 0 for a moment, but no window of a person's.
+     */
+    public static let systemOwners: Set<String> = ["WindowManager", "Window Server", "Dock", "SystemUIServer", "loginwindow"]
+
+    /** A window a person would call one: layer 0, not see-through, big enough, at least partly on a display, not the system's. */
     public static func normal(_ w: WindowCandidate, displays: [Display]) -> Bool {
         w.layer == 0 && w.alpha > 0.01 && w.box.w >= minSide && w.box.h >= minSide && !w.owner.isEmpty
+            && !systemOwners.contains(w.owner)
             && (displays.isEmpty || onADisplay(w.box, displays))
     }
 
@@ -147,7 +154,7 @@ public enum WindowPick {
         }
         for w in merged(here) { out.append((w, true)) }
         for w in all where w.pid != ownPid && !w.onScreen && !w.title.isEmpty && w.layer == 0 && w.alpha > 0.01
-            && w.box.w >= minSide && w.box.h >= minSide && !w.owner.isEmpty {
+            && w.box.w >= minSide && w.box.h >= minSide && !w.owner.isEmpty && !systemOwners.contains(w.owner) {
             if w.number != 0 && !seen.insert(w.number).inserted { continue }
             out.append((w, false))
         }

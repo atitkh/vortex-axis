@@ -159,6 +159,10 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
             let frontNow = await frontWindow()
             var look = result(frontNow?.window, WindowList.windows())
             look.readMs = Int(Self.ms(since: started))
+            // Asked for pixels but there are none to read: say so instead of leaving the agent to wonder.
+            if ocr == .always {
+                look.ocrFailed = "a look at the screen only lists the open windows; look at a window or at the mouse for its text, or take a screenshot"
+            }
             return look
         }
         guard Permissions.accessibility else { throw TextReader.Refused(message: Permissions.accessibilityRefusal) }

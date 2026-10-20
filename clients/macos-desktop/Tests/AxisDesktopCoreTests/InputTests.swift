@@ -292,6 +292,15 @@ final class WindowPickTests: XCTestCase {
         XCTAssertFalse(WindowPick.normal(w(10, "Brave Browser", "", Box(x: -1405, y: 33, w: 1470, h: 40)), displays: air))
     }
 
+    /** Mission Control's overlay (WindowManager) was listed as a window in the screen look. */
+    func testSystemOverlaysAreNotWindows() {
+        let overlay = w(40, "WindowManager", "Window Highlight Overlay", Box(x: 879, y: 359, w: 434, h: 264), number: 9)
+        XCTAssertFalse(WindowPick.normal(overlay, displays: air))
+        let term = w(20, "Terminal", "zsh", Box(x: 100, y: 100, w: 600, h: 400), number: 1)
+        let listed = WindowPick.listed(onScreen: [overlay, term], all: [overlay, term], displays: air)
+        XCTAssertEqual(listed.map { $0.window.owner }, ["Terminal"])
+    }
+
     /** The live test: Finder's desktop reported as the front window `0,0 0x0` while Terminal was under the mouse. */
     func testNoDesktopAndNoZeroWindow() {
         let list = [w(20, "Terminal", "zsh", Box(x: 100, y: 100, w: 600, h: 400)), w(30, "Finder", "", Box(x: 0, y: 0, w: 0, h: 0))]
