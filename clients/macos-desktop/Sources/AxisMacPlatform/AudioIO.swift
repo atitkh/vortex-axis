@@ -9,6 +9,7 @@ public struct AudioDevice: Hashable, Sendable, Identifiable {
     public let uid: String
     public let name: String
     public var id: String { uid }
+    public init(uid: String, name: String) { self.uid = uid; self.name = name }
 }
 
 /** The Mac's microphones and speakers, from Core Audio. */
