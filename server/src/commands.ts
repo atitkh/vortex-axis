@@ -224,9 +224,9 @@ export const NODE_TOOLS: NodeTool[] = [
     experimental: true,
     description:
       "Use the user's computer (VorteX Axis desktop app). Act by name without looking first; batch actions in `steps`. " +
-      "Actions: open (app by Start-menu name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n, or list the open windows; a Quest only lists), " +
+      "Actions: open (app by Start-menu or Applications name, or url; waits for its window and puts it in front), switch (to a window), window (do minimize/maximize/restore/move to display n, or list the open windows; a Quest only lists), " +
       "desktop (go next/previous), click (name, id or x,y), drag (from name, id or x,y to toName, toId or toX,toY; holdMs to long-press first; " +
-      "ask the user first when a drop could lose or move something important; prefer names over coordinates), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s), " +
+      "ask the user first when a drop could lose or move something important; prefer names over coordinates), type (text into a field by name, else into the window last opened/switched/clicked, brought back if needed), keys (one combo: enter, ctrl+s; a Mac sends ctrl+letter shortcuts as cmd), " +
       "find (best 5 matches for a name), look (scope window, mouse for \"what's this\", screen for open windows), point/hide (own pointer), " +
       "scroll (go up/down/left/right/top/bottom, pages; a name or id scrolls that list or page), " +
       "wait (until name, or window, appears, gone:true until it goes, seconds up to 20; a fixed ms 50-1000 only as a last resort: after open/click the answer already says what is in front, so do not pause), " +
@@ -264,7 +264,7 @@ export const NODE_TOOLS: NodeTool[] = [
         text: { type: "string", description: "type: what to type (max 500). paste: any length. point: words beside the pointer." },
         into: { type: "string", description: "type, paste: field name." },
         keys: { type: "string" },
-        app: { type: "string", description: "open: Start-menu name." },
+        app: { type: "string", description: "open: Start-menu or Applications name." },
         url: { type: "string", description: "open: http(s) address." },
         window: { type: "string", description: "switch, window, wait: app or title." },
         do: { type: "string", enum: ["minimize", "maximize", "restore", "move", "list"] },

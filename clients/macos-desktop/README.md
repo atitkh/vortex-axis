@@ -1,14 +1,14 @@
-# VorteX Axis for Mac (experimental, never built)
+# VorteX Axis for Mac (experimental)
 
-A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen and point at things there (`vortex_axis_desktop`). Version 0.1.0 is milestones M0 and M1 of `docs/mac-port.md`: pairing, the link, and reading. It cannot click or type yet, has no voice and does not update itself.
+A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.2.0 is milestones M0, M1 and M2 of `docs/mac-port.md`: pairing, the link, reading, and input. It has no voice and does not update itself.
 
-**It was written on Linux without a Swift toolchain and has never been compiled or run.** Expect the first build to need fixes; see "Not verified" below.
+**0.1.0 was built and tried on a MacBook Air by the owner (2026-10-19); 0.2.0 was written on Linux without a Swift toolchain and has never been compiled or run.** Expect the first build to need fixes; see "Not verified" below.
 
-- `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table. A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
-- `Sources/AxisMacPlatform/`: Accessibility (`AXReader`), the window list and displays (`WindowList`, Quartz), text from the pixels (`TextReader`, ScreenCaptureKit and Vision), permissions, the saved pairing (`~/Library/Application Support/VorteX Axis/desktop.json`, token in the Keychain).
+- `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table, the key combinations (`KeyCombo`), which window is in front (`WindowPick`). A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
+- `Sources/AxisMacPlatform/`: Accessibility (`AXReader`, `AXActions`), the window list and displays (`WindowList`, Quartz), mouse and keys (`InputEvents`, CGEvent), apps and windows (`Apps`), pictures (`ScreenCapture`) and text from the pixels (`TextReader`, Vision), the clipboard (`Pasteboard`), permissions, the saved pairing (`~/Library/Application Support/VorteX Axis/desktop.json`, token in the Keychain). `MacDesktop` puts them together.
 - `Sources/AxisMacUI/`: the menu bar item, the window (pairing, permissions, Recently), the pointer.
 - `Sources/VortexAxisMac/`: the app. Its version is `appVersion` in `App.swift`, counted apart from Axis's, the boards' and the Windows app's.
-- `Tests/AxisDesktopCoreTests/`: the Core's checks (the Windows smoke test's clipping and browser-bar checks, the commands against a fake screen, the coordinate flips, the role table). No Mac APIs, no Axis.
+- `Tests/AxisDesktopCoreTests/`: the Core's checks: the Windows smoke test's clipping and browser-bar checks, every command against a fake screen (input included), the coordinate rules, the role table, the key table, the front-window and window-list rules. No Mac APIs, no Axis.
 
 ## Build and run (on the Mac)
 
@@ -28,10 +28,10 @@ Signing: the script signs with a "Developer ID Application" or "Apple Developmen
 
 ## Permissions
 
-The app's window (menu bar item > Open VorteX Axis…) shows both and has buttons for them.
+The app's window (menu bar item > Open VorteX Axis…) shows each and has buttons for them.
 
-1. **Accessibility** (needed: reading other apps' controls). Click Ask, or System Settings > Privacy & Security > Accessibility, switch on VorteX Axis (use + to add `build/VorteX Axis.app` if it is not listed). Without it every look fails with words saying so, not an empty list.
-2. **Screen Recording** (optional: text from the pixels when a window exposes fewer than eight named controls, and other apps' window titles in a look at the screen). System Settings > Privacy & Security > Screen Recording (on macOS 15, "Screen & System Audio Recording"), switch on VorteX Axis, then quit and start the app again. Reading the pixels needs macOS 14; on 13 a look says it was skipped.
+1. **Accessibility** (needed for everything: reading other apps' controls, pressing them, and posting mouse and key events). Click Ask, or System Settings > Privacy & Security > Accessibility, switch on VorteX Axis (use + to add `build/VorteX Axis.app` if it is not listed). Without it every look fails with words saying so, not an empty list. The window's "Mouse and keyboard" line reads the same grant from the event side (`CGPreflightPostEventAccess`); if it stays off while Accessibility is on, remove the app from the Accessibility list and add it again. No Input Monitoring is needed: the app watches no keys.
+2. **Screen Recording** (screenshots, text from the pixels when a window exposes fewer than eight named controls, and other apps' window titles in a look at the screen and the window list). System Settings > Privacy & Security > Screen Recording (on macOS 15, "Screen & System Audio Recording"), switch on VorteX Axis, then quit and start the app again. Without it, `screenshot` and OCR say why; titles fall back to app names.
 3. **Local Network** (macOS 15, a hub on the LAN): allow it when macOS asks on the first connection.
 
 ## Pair
@@ -43,20 +43,43 @@ The app's window (menu bar item > Open VorteX Axis…) shows both and has button
 
 A bare `host:port` is plain `ws://` (fine on a trusted LAN or tailnet); a name is `wss://`. The token travels in the hello, so use TLS outside your own network.
 
-## What it does in 0.1.0
+## What it does in 0.2.0
 
-- `desktop.look` (`scope` window, mouse, screen; `ocr`), `desktop.find`, `desktop.point`, `desktop.hide`, `desktop.hello`, `desktop.window` with `do: list`. The same answers, line format and limits as the Windows app (`docs/mac-port.md` section 2).
-- Pause from the menu (every command refused, the pointer hidden), the `allowLook` and `bubble` settings, the block list (the window in front, and blocked windows named only as blocked in a screen look; on a Mac the app's name is in a window's name, so an entry naming an app matches there too).
-- Every other `desktop.*` command answers "not implemented on this device yet". Axis never offers this Mac the Windows app's update; update by building again.
+Every `desktop.*` command the Windows app has, with the same answers, line format and limits (`docs/mac-port.md` section 2), and the same safety: pause, `allowLook`, `allowInput`, `allowScreenshot` (off unless switched on), the block list (checked on the window in front before every command, again right before each input and before each step of `steps`), no typing, pasting or screenshot with a password field named or focused, blocked key chords.
 
-## Not verified (everything Mac-side)
+- **Reading**: `look` (window, mouse, screen; `ocr`), `find`, `window do=list`, `clipboard`. The window in front is the focused window Accessibility gives (its box, its title), checked against Quartz's windows on the current Space; never a desktop or a 0x0 window. Chromium and Firefox browsers are asked to build their tree (`AXEnhancedUserInterface`), Electron apps too (`AXManualAccessibility`); the first look at such an app waits 300 ms for it. The menu bar's first 14 titles come after the window's controls. A screen look and the window list are one list: every normal window on this Space, then titled windows on other Spaces or minimised, marked `= on another Space, or minimised`.
+- **Clicking** (`click`, left/right/double): by id, name or x,y. A control is read again and clicked where it shows now; a field (`edit`, an editable `combobox`) is given the focus (`how: focused`); a control that offers AXPress (or AXPick, for menu items) is pressed with no mouse (`how: invoked`); a right click outside web pages uses the control's own AXShowMenu when it has one; otherwise a real click (`how: mouse`) and the pointer is put back. Under 40% showing: AXScrollToVisible, else refused with words. The browser-bar guard knows the Mac browsers by name and bundle id.
+- **Typing**: `type` (Unicode key events in pieces of 16, Return and Tab as keys), `paste` (the clipboard borrowed and every item put back after 400 ms, marked `org.nspasteboard.TransientType`; a clipboard marked `ConcealedType` is never read), `keys`. Type, paste and keys go to the app the agent last opened, switched to or acted in, brought back first (90 s), else nothing is typed.
+- **Keys**: `ctrl` on a common shortcut key is sent as cmd: `ctrl+` s c v x a z f t w n o p r q l k b i u / [ ] , + - 0 = becomes `cmd+`, `ctrl+y` becomes `shift+cmd+z` (redo). `ctrl` stays Control elsewhere (`ctrl+tab`, `ctrl+left`, `ctrl+space`, other letters), and `control+…` spelled out is always the Control key. `cmd`/`command`/`win`/`meta`, `alt`/`option`/`opt`, `shift`, `fn` as written. Never pressed: cmd+Q (quitting the app), ctrl+cmd+Q (lock), shift+cmd+Q and shift+option+cmd+Q (log out), option+cmd+Esc (Force Quit); ctrl+Q is cmd+Q and refused too. Print Screen, Insert, the menu key, Caps Lock and media keys are refused with words. Letters are US-layout key positions (other layouts: M6).
+- **Scrolling** (`scroll`): the scroll bar of the area holding the target when it can be set (`how: scrolled`), else the wheel in pixels, a page being 85% of the target or window (`how: wheel`). Marks the last look stale, as on Windows.
+- **Drag** (`drag`): mouse down, held (`holdMs`, 80 ms at least), `leftMouseDragged` steps over 400 ms, a rest, up; the button always released and the pointer put back.
+- **Apps and windows**: `open` (an `.app` in /Applications, /Applications/Utilities, /System/Applications(/Utilities), ~/Applications, matched by name or display name; or an http(s) address; waits up to 8 s for its window), `switch` (best match by app or title, Spaces included; Accessibility raise plus activation), `window` (minimize; maximize = fill the display's visible area, never macOS full screen; restore = un-minimise, or the box before maximize; move to display n, centred), `desktop` (next/previous Space: control+right/left, the Mission Control shortcuts, which must be on in System Settings > Keyboard > Keyboard Shortcuts > Mission Control), `wait`, `steps`.
+- **Screenshot** (`screenshot`, `allowScreenshot` on): ScreenCaptureKit (macOS 14+; the app's own windows left out) or the older Quartz capture on macOS 13 (the pointer hidden first), only as many pixels as the answer needs (640, 1024, 1568 on the longer side), JPEG quality 72, as the Windows app sends.
+- **Coordinates**: points with the origin at the top left of the main display (the one with the menu bar), y down; displays left of or above it are negative. That is Accessibility's, CGEvent's and Quartz's own space, so a point is used as is on whichever display it is; a bare x,y on no display is refused rather than clamped (`Coordinates.display(at:)`, tested with displays above, left and right).
+- Not here: voice, the face, self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S; M3), an Esc key that cancels (the Windows app has none either).
 
-Nothing here has been compiled. Things most likely to need work, roughly in order:
+## Trying each command (ask the agent)
 
-- That it compiles at all: Swift concurrency annotations (`@MainActor` on AppKit delegates, `Sendable` warnings), CF bridging casts in `AXReader`, ScreenCaptureKit availability checks.
-- The AX walk: whether the 0.45 s budget is enough for a busy window (Mail, Xcode, a long web page), whether `AXManualAccessibility` makes Electron apps (VS Code, Slack) and Chrome expose their pages, where an open context menu is in the tree, and the role to kind table in `AXKinds.swift` against real apps (AppKit, SwiftUI, Catalyst, Electron, Qt).
-- That a window's AX position and the CGWindowList bounds agree (both top-left points) on a Mac with two displays, one above or left of the main one; that the pointer lands where a look says (the one AppKit flip in `PointerPanel`).
-- Window titles without Screen Recording (the AX fallback), and that `CGPreflightScreenCaptureAccess` reflects a grant without a restart.
-- OCR: the capture of the right display, the crop on a Retina display, Vision's boxes turned into points, the 4 s limit.
-- The pointer panel above full-screen apps and on other Spaces; its glide and fade.
-- The link: `URLSessionWebSocketTask` with Axis (hello, settings, the 20 s ping, a dropped connection and the backoff), ATS with a plain `ws://` LAN address, the Keychain item with an ad hoc signature.
+- look: "look at the window in front" (check the header's window box matches element 1, and a browser shows its toolbar and page); "look at the screen"; "list the open windows" (windows on other Spaces marked).
+- find/click: "find the address bar in Brave and click it" (answer `how: focused`), "click the Reload button" (`invoked`), "right-click the first link" (a context menu, then "look" lists its items first).
+- type/keys: "type hello into the address bar", "press cmd+l", "press ctrl+a" (sent as cmd+a), "press ctrl+tab", "press cmd+q" (refused).
+- paste/clipboard: "paste this paragraph into Notes", then "read the clipboard" (what you had copied before is back).
+- scroll: "scroll down two pages", then click an id from the look before (read again, or refused as moved).
+- drag: "drag the file from this Finder window to that one".
+- open/switch/window/desktop: "open TextEdit", "open https://example.org", "switch to Terminal", "maximize the window", "move it to display 2", "minimize it", "go to the next desktop".
+- screenshot (switch it on first on the admin page): "take a screenshot of the window, low detail".
+
+## Not verified (everything Mac-side of 0.2.0)
+
+Nothing of 0.2.0 has been compiled. Things most likely to need work, roughly in order:
+
+- That it compiles: Swift concurrency (closures crossing to the accessibility and input queues, `MainActor.run` around the pointer, the pasteboard and `NSScreen`), CF casts in `AXReader`/`AXActions`/`Apps`, `Carbon.HIToolbox` key codes, the ScreenCaptureKit availability checks, the run-time lookup of `CGWindowListCreateImage` for macOS 13.
+- Chromium: whether `AXEnhancedUserInterface` plus the 300 ms settle gives Brave/Chrome/Edge/Arc their toolbar and page on the first look, or only on the second; whether 1 s of walking reaches a long page's controls.
+- Clicks: AXPress on Chromium page elements, the focus of web fields, AXShowMenu, `cannotComplete` treated as pressed, the double click's click state, the browser-bar band of 100 pt on Safari's compact bar.
+- Activation from an accessory app on macOS 14/15 (`AXFrontmost` plus `activate()`): the likeliest "it did not come forward".
+- Typing into terminals, remote desktops and some Electron fields that ignore Unicode key events (paste is the way round); Secure Event Input silently dropping keys while any password field has the focus.
+- Scroll directions of the synthetic wheel with natural scrolling on or off; scroll bars that refuse to be set.
+- `window`: maximize/restore by position and size on apps that clamp them; move to a display above or left.
+- Screenshots and OCR: ScreenCaptureKit's `sourceRect` per display, the composite across two displays, the speed now that only the area is captured at the needed size with Vision's fast recogniser (4 s limit).
+- `desktop next/previous` with the Mission Control shortcuts on, and the arrows' fn/numpad flags.
+- Window titles without Screen Recording (the AX title for the front window; app names for others).

@@ -4,6 +4,18 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.47.1 (2026-10-20)
+
+- The desktop tool's words fit a Mac too: `open` takes a "Start-menu or Applications name", and `keys` says a Mac sends ctrl+letter shortcuts as cmd. Nothing else changed on the server.
+
+## Mac desktop app 0.2.0 (2026-10-20)
+
+- **Input (M2)**: click (left, right, double), drag, type, paste, keys, scroll, open, switch, window, desktop (Spaces), wait, steps, clipboard and screenshot, with the Windows app's answers, `after`, ids read again after a scroll, the browser-bar guard (Mac browsers by name and bundle id), the 40% rule, the "intended window", and its refusals (password fields named or focused, a screenshot while one has the focus, input switched off, pause). Clicks press controls through Accessibility first (focus for fields, AXPress, AXPick, AXShowMenu) and use the mouse only when that does not take, putting the pointer back.
+- **Keys on a Mac**: `ctrl` with a common shortcut key (s c v x a z f t w n o p r q l k b i u / [ ] , + - 0 =) is sent as cmd, `ctrl+y` as shift+cmd+z; `ctrl+tab`, `ctrl+arrows`, `ctrl+space` and `control+...` stay Control. Never pressed: cmd+Q, ctrl+cmd+Q, shift+cmd+Q, shift+option+cmd+Q, option+cmd+Esc.
+- **The block list is checked again right before each input and before every step** of `steps` (Windows checks once per command).
+- **Fixes from the first live test of 0.1.0** on a MacBook Air: Brave (and other Chromium browsers, Firefox) now show their toolbar and page (`AXEnhancedUserInterface`, a short settle the first time); the window in front is the focused window Accessibility gives, so its box matches the look's element 1 (not a Chromium helper strip); Finder's empty desktop is never the front window; the window list and a screen look include windows on other Spaces and minimised ones, marked; OCR captures only the area, at the size it needs, and reads it with Vision's fast recogniser (it timed out); menu bar titles are `menuitem`.
+- Written on Linux, not compiled, its tests not run.
+
 ## Axis 0.47.0 (2026-10-19)
 
 - **A Mac can be a computer too.** Axis knows the client type `macos-desktop` (the Mac app, `clients/macos-desktop/`). The desktop tool already went by the `desktop` capability, so a paired Mac is looked at and pointed with like a Windows computer; what is new is that it is never offered the Windows app's update (`/v1/desktop/app` answers 404 for it, and the admin page's Update says a Mac is updated by hand for now).

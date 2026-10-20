@@ -575,7 +575,7 @@ function argsFor(action: Action, params: Record<string, unknown>): Record<string
     case "open": {
       const app = text(params.app)?.slice(0, 120);
       const url = text(params.url)?.slice(0, 500);
-      if (!app === !url) throw new Error("open needs app (a Start-menu name) or url, one of them");
+      if (!app === !url) throw new Error("open needs app (a Start-menu or Applications name) or url, one of them");
       if (url) {
         if (!/^https?:\/\//i.test(url)) throw new Error("url must start with http:// or https://");
         args.url = url;
