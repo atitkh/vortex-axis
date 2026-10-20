@@ -59,7 +59,7 @@ final class InputCommandsTests: XCTestCase {
         XCTAssertEqual(refused.error, "the app never types into a password field")
         let pasteRefused = await run("desktop.paste", ["data": ["text": "hunter2"], "id": 5])
         XCTAssertEqual(pasteRefused.error, "the app never pastes into a password field")
-        let pasted = await run("desktop.paste", ["data": ["text": String(repeating: "x", count: 1000)]])
+        let pasted = await run("desktop.paste", ["data": ["text": .string(String(repeating: "x", count: 1000))]])
         XCTAssertEqual(pasted.payload, ["pasted": 1000])
         XCTAssertEqual(fake.did.last, "paste 1000 into focus")
         let long = await run("desktop.type", ["text": .string(String(repeating: "x", count: 501))])
