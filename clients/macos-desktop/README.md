@@ -1,8 +1,8 @@
 # VorteX Axis for Mac (experimental)
 
-A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.2.0 is milestones M0, M1 and M2 of `docs/mac-port.md`: pairing, the link, reading, and input. It has no voice and does not update itself.
+A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.2.1 is milestones M0, M1 and M2 of `docs/mac-port.md`: pairing, the link, reading, and input. It has no voice and does not update itself.
 
-**0.1.0 was built and tried on a MacBook Air by the owner (2026-10-19); 0.2.0 was written on Linux without a Swift toolchain and has never been compiled or run.** Expect the first build to need fixes; see "Not verified" below.
+**0.1.0 and 0.2.0 were built and tried on a MacBook Air by the owner (2026-10-19, 2026-10-20, Brave); 0.2.1 (the fixes from 0.2.0's test, below) was written on Linux without a Swift toolchain and has not been compiled.** See "Not verified" below.
 
 - `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table, the key combinations (`KeyCombo`), which window is in front (`WindowPick`). A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
 - `Sources/AxisMacPlatform/`: Accessibility (`AXReader`, `AXActions`), the window list and displays (`WindowList`, Quartz), mouse and keys (`InputEvents`, CGEvent), apps and windows (`Apps`), pictures (`ScreenCapture`) and text from the pixels (`TextReader`, Vision), the clipboard (`Pasteboard`), permissions, the saved pairing (`~/Library/Application Support/VorteX Axis/desktop.json`, token in the Keychain). `MacDesktop` puts them together.
@@ -58,6 +58,13 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - **Coordinates**: points with the origin at the top left of the main display (the one with the menu bar), y down; displays left of or above it are negative. That is Accessibility's, CGEvent's and Quartz's own space, so a point is used as is on whichever display it is; a bare x,y on no display is refused rather than clamped (`Coordinates.display(at:)`, tested with displays above, left and right).
 - Not here: voice, the face, self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S; M3), an Esc key that cancels (the Windows app has none either).
 
+## What changed in 0.2.1 (from 0.2.0's live test on Brave)
+
+- **The window is the app's real top-level window, toolbar included.** 0.2.0 walked only the focused AXWindow; Brave (in full screen at least, where Chromium shows its tabs and address bar in a window of their own over the page window) gave its page window (`0,114 1470x842`), so the toolbar, address bar and tabs were never read and `find "Address and search bar"` found nothing. Now `AXReader.realWindow` (rules in `WindowPick.real`, tested) takes the focused window (else main, else biggest) that is not a toolbar strip of another, swaps a page window lying inside a bigger standard window for that window (a dialog or sheet never), walks its toolbar windows too, and joins any toolbar strip Quartz shows over it (`WindowPick.strip`) to its box. Element 1 and the header give the whole window; page elements are still cut to the page; the browser-bar guard now refuses a page click anywhere between the window's top and the page's top (else the top 100 pt, as before).
+- **One entry per window** in `window do=list` and a screen look: an untitled toolbar strip is folded into its window (the box grows to hold both), and an untitled window under 200 pt wide is left out when its app has another window listed (`WindowPick.merged`).
+- **`window` acts on the real window and says what happened.** Minimize, maximize, restore and move go to that window (`Apps.realWindow`); a window in full screen leaves it first to be minimised or moved (macOS ignores both in full screen: the likely reason 0.2.0's minimize answered ok and did nothing); every change is read back (kAXMinimized, the box) and a change that did not take fails with words. The answer has `minimized: true/false`. Restore finds minimised windows: by name through Quartz, else through every app's AX windows; with no name, the window the app last minimised.
+- **Less noise in looks**: a `text` or `image` inside an actionable control whose name is the same or holds it is left out, and so is a `group` named as an element inside it (`ReadingOrder.dropEchoes`, tested); the focus always stays.
+
 ## Trying each command (ask the agent)
 
 - look: "look at the window in front" (check the header's window box matches element 1, and a browser shows its toolbar and page); "look at the screen"; "list the open windows" (windows on other Spaces marked).
@@ -69,9 +76,9 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - open/switch/window/desktop: "open TextEdit", "open https://example.org", "switch to Terminal", "maximize the window", "move it to display 2", "minimize it", "go to the next desktop".
 - screenshot (switch it on first on the admin page): "take a screenshot of the window, low detail".
 
-## Not verified (everything Mac-side of 0.2.0)
+## Not verified (Mac-side; 0.2.1's changes not compiled)
 
-Nothing of 0.2.0 has been compiled. Things most likely to need work, roughly in order:
+0.2.0 was built and its reading and input worked on Brave (type, click by name, keys, scroll, refusals, the window list across Spaces); what is below was not yet tried there. 0.2.1 is not compiled: first, that it builds; then a look at Brave windowed and in full screen (toolbar, address bar and tabs listed, element 1 the whole window), `window do=list` (one Brave entry), minimize/restore with and without a name (`minimized` in the answer), and the click guard just under the address bar. Older items, roughly in order:
 
 - That it compiles: Swift concurrency (closures crossing to the accessibility and input queues, `MainActor.run` around the pointer, the pasteboard and `NSScreen`), CF casts in `AXReader`/`AXActions`/`Apps`, `Carbon.HIToolbox` key codes, the ScreenCaptureKit availability checks, the run-time lookup of `CGWindowListCreateImage` for macOS 13.
 - Chromium: whether `AXEnhancedUserInterface` plus the 300 ms settle gives Brave/Chrome/Edge/Arc their toolbar and page on the first look, or only on the second; whether 1 s of walking reaches a long page's controls.

@@ -70,6 +70,48 @@ public enum ReadingOrder {
         return elements.filter { seen.insert($0.box).inserted }
     }
 
+    /** Kinds a person acts on: they keep their name, and the label inside them goes. */
+    static let actionable: Set<String> = ["hyperlink", "button", "menuitem", "tabitem", "checkbox", "radiobutton", "listitem", "treeitem",
+                                          "combobox", "dataitem", "edit"]
+    /** Kinds that only say what an actionable control around them already says. */
+    static let echoes: Set<String> = ["text", "image"]
+
+    /** A name compared: lower case, runs of spaces as one. */
+    static func plain(_ s: String) -> String {
+        s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /**
+     * Leaves out what only repeats another element (the 0.2.0 live test on a Wikipedia page had `hyperlink Contents`,
+     * `text Contents` and `group Contents`, and `hyperlink Wikipedia The Free Encyclopedia` with `image Wikipedia`,
+     * spending the 250 on long pages): a `text` or `image` lying inside (or on) an actionable control whose name is
+     * the same or holds it, and a `group` whose name is that of an element inside it. The actionable one stays; an
+     * element with the focus always stays; OCR lines are never touched. Order is kept.
+     */
+    public static func dropEchoes(_ elements: [ScreenElement]) -> [ScreenElement] {
+        let slack = 2
+        let names = elements.map { plain($0.name) }
+        var drop = Set<Int>()
+        for (i, e) in elements.enumerated() where !e.focused && e.source == "ui" && !names[i].isEmpty {
+            if echoes.contains(e.kind) {
+                let inner = e.box
+                let echoed = elements.indices.contains { j in
+                    j != i && actionable.contains(elements[j].kind) && elements[j].source == "ui"
+                        && (names[j] == names[i] || names[j].contains(names[i])) && inner.inside(elements[j].box, slack: slack)
+                }
+                if echoed { drop.insert(i) }
+            } else if e.kind == "group" {
+                let outer = e.box
+                let echoed = elements.indices.contains { j in
+                    j != i && elements[j].kind != "group" && elements[j].kind != "window" && elements[j].source == "ui" && names[j] == names[i]
+                        && elements[j].box.inside(outer, slack: slack)
+                }
+                if echoed { drop.insert(i) }
+            }
+        }
+        return elements.indices.filter { !drop.contains($0) }.map { elements[$0] }
+    }
+
     /**
      * Top to bottom, then left to right: elements whose tops are within `tolerance` points of a line's first one
      * are on that line. Lines, not a pairwise "close enough" test, so the order is always well defined. Stable for ties.

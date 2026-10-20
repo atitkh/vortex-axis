@@ -525,7 +525,10 @@ public final class DesktopCommands: @unchecked Sendable {
     }
 
     static func windowPayload(_ w: WindowInfo) -> [String: JSONValue] {
-        ["window": .string("\(clip(w.title, 200)) (\(w.app)) \(w.x),\(w.y) \(w.w)x\(w.h)")]
+        var payload: [String: JSONValue] = ["window": .string("\(clip(w.title, 200)) (\(w.app)) \(w.x),\(w.y) \(w.w)x\(w.h)")]
+        // Read back from the window after `window`, so the answer says what happened, not only what was asked.
+        if let m = w.minimised { payload["minimized"] = .bool(m) }
+        return payload
     }
 
     /**

@@ -55,6 +55,8 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
     private var intended: (pid: pid_t, title: String, box: Box, at: Date)?
     /** A window's box before "maximize", for "restore", by "pid title". */
     private var beforeFill: [String: Box] = [:]
+    /** The window `window do=minimize` last put in the Dock, for a restore that names none. */
+    private var minimisedLast: (pid: pid_t, title: String)?
 
     public init() {}
 
@@ -604,11 +606,34 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
         }
     }
 
+    /** What `window` acted on and how it is now, read back from the window. */
+    struct Arranged {
+        let title: String
+        let box: Box?
+        let minimised: Bool
+    }
+
+    /**
+     * Minimize, maximize, restore or move a window: the one named (Spaces included; for restore, minimised windows
+     * too, found through each app's AX windows when Quartz has no title for them), else for restore the window this
+     * app last minimised, else the window in front. It acts on the app's real top-level window (`Apps.realWindow`),
+     * not Chromium's page window, and the answer says what the window says afterwards (`minimized`).
+     */
     public func window(op: String, window: String?, display: Int?) async throws -> WindowInfo {
         let w: WindowCandidate
+        let lastMinimised = lock.withLock { minimisedLast }
         if let window {
-            guard let found = WindowPick.find(window, in: allWindows()) else { throw DesktopError("no open window matches \"\(window)\"") }
-            w = found
+            if let found = WindowPick.find(window, in: allWindows()) {
+                w = found
+            } else if op == "restore", let m = await quick(4000, { Apps.minimisedWindow(matching: window) }) {
+                w = WindowCandidate(pid: m.pid, owner: m.owner, title: m.title, box: Box(x: 0, y: 0, w: 0, h: 0))
+            } else {
+                throw DesktopError("no open window matches \"\(window)\"")
+            }
+        } else if op == "restore", let last = lastMinimised, NSRunningApplication(processIdentifier: last.pid) != nil,
+                  await quick(2000, { () -> Bool? in Apps.hasMinimised(pid: last.pid, title: last.title) }) == true {
+            let owner = NSRunningApplication(processIdentifier: last.pid)?.localizedName ?? ""
+            w = WindowCandidate(pid: last.pid, owner: owner, title: last.title, box: Box(x: 0, y: 0, w: 0, h: 0))
         } else {
             guard let f = await frontWindow() else { throw DesktopError("no window is in front") }
             w = WindowCandidate(pid: f.pid, owner: f.window.app, title: f.window.title, box: f.window.box)
@@ -626,19 +651,32 @@ public final class MacDesktop: Desktop, @unchecked Sendable {
         let key = "\(w.pid) \(w.title)"
         let previous = lock.withLock { beforeFill[key] }
         if op == "maximize" { lock.withLock { beforeFill[key] = w.box } }
-        let pid = w.pid, box = w.box, title = w.title, fill = area
-        let now: Box? = try await ax(4000, "arranging the window", { () throws -> Box? in
-            guard let handle = Apps.axWindow(pid: pid, box: box, title: title) else { throw DesktopError("that window does not answer Accessibility") }
-            if op != "minimize" { Apps.bringForward(pid: pid, window: handle) }
-            try Apps.arrange(handle, op: op, displayArea: fill, previous: previous)
-            return op == "minimize" ? nil : Apps.box(of: handle)
+        let pid = w.pid, title = w.title, fill = area
+        // A box of 0x0 is a window known only by its title (minimised, found through Accessibility).
+        let box: Box? = w.box.w > 0 && w.box.h > 0 ? w.box : nil
+        let done: Arranged = try await ax(8000, "arranging the window", { () throws -> Arranged in
+            guard let real = Apps.realWindow(pid: pid, box: box, title: title, minimised: op == "restore") else {
+                throw DesktopError("that window does not answer Accessibility")
+            }
+            if op != "minimize" { Apps.bringForward(pid: pid, window: real.element) }
+            let now = try Apps.arrange(real.element, op: op, displayArea: fill, previous: previous)
+            if now.minimised { return Arranged(title: real.title, box: nil, minimised: true) }
+            // The whole window again (toolbar strips included), now that it has moved or come back.
+            let whole = Apps.realWindow(pid: pid, box: now.box, title: real.title)?.box ?? now.box
+            return Arranged(title: real.title, box: whole, minimised: false)
         })
         if op == "restore" { lock.withLock { beforeFill[key] = nil } }
-        let result = info(pid: pid, title: title, box: now ?? box, owner: w.owner)
+        let shownTitle = done.title.isEmpty ? title : done.title
+        var result = info(pid: pid, title: shownTitle, box: done.box ?? box ?? w.box, owner: w.owner)
+        result.minimised = done.minimised
         if op == "minimize" {
+            lock.withLock { minimisedLast = (pid, shownTitle) }
             forgetIntended(pid: pid)
         } else {
-            intend(pid: pid, title: title, box: result.box)
+            lock.withLock {
+                if let m = minimisedLast, m.pid == pid, m.title == shownTitle || m.title == title { minimisedLast = nil }
+            }
+            intend(pid: pid, title: shownTitle, box: result.box)
             let label = op == "move" ? "Moved to display \(display ?? 0)" : op.prefix(1).uppercased() + String(op.dropFirst())
             await showOnWindow(result, label)
         }

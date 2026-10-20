@@ -274,3 +274,16 @@ final class IdentityTests: XCTestCase {
         XCTAssertEqual(settings.first { $0["key"] == "pointerSize" }?["default"], 44)
     }
 }
+
+final class WindowAnswerTests: XCTestCase {
+    /** The 0.2.0 live test: a minimize answered ok and nothing happened. The answer says what the window says afterwards. */
+    func testTheWindowAnswerSaysWhatHappened() {
+        let gone = WindowInfo(title: "Log in - Wikipedia", app: "Brave Browser", x: 0, y: 33, w: 1470, h: 923, minimised: true)
+        XCTAssertEqual(DesktopCommands.windowPayload(gone)["minimized"], .bool(true))
+        var back = gone
+        back.minimised = false
+        XCTAssertEqual(DesktopCommands.windowPayload(back)["minimized"], .bool(false))
+        back.minimised = nil
+        XCTAssertNil(DesktopCommands.windowPayload(back)["minimized"], "switch and open say nothing of it")
+    }
+}

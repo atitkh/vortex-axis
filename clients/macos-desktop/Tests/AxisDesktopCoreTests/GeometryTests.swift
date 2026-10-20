@@ -58,6 +58,24 @@ final class GeometryTests: XCTestCase {
         XCTAssertNotNil(Geometry.chromeRefusal(byBundle, y: 50, inPage: true, page: page), "Safari by its bundle id")
     }
 
+    /** Since 0.2.1 the window is the whole top-level window (Brave: toolbar `0,33`, page `0,114`): the bar is what lies above the page. */
+    func testChromeBandWithTheWholeWindow() {
+        let brave = WindowInfo(title: "Log in - Wikipedia", app: "Brave Browser", x: 0, y: 33, w: 1470, h: 923)
+        let page = Box(x: 0, y: 114, w: 1470, h: 842)
+        XCTAssertNotNil(Geometry.chromeRefusal(brave, y: 100, inPage: true, page: page), "under the address bar: refused")
+        XCTAssertNil(Geometry.chromeRefusal(brave, y: 120, inPage: true, page: page), "in the page, inside the old band: clicked")
+        XCTAssertNil(Geometry.chromeRefusal(brave, y: 60, inPage: false, page: nil), "a tab or the address bar itself: clicked")
+        let tall = Box(x: 0, y: 180, w: 1470, h: 776)
+        XCTAssertNotNil(Geometry.chromeRefusal(brave, y: 150, inPage: true, page: tall), "a bookmarks bar too: all above the page is the bar")
+        XCTAssertNil(Geometry.chromeRefusal(brave, y: 600, inPage: true, page: tall))
+    }
+
+    func testBoxUnionAndSlack() {
+        XCTAssertEqual(Box(x: 0, y: 33, w: 1470, h: 117).union(Box(x: 0, y: 114, w: 1470, h: 842)), Box(x: 0, y: 33, w: 1470, h: 923))
+        XCTAssertTrue(Box(x: 9, y: 9, w: 12, h: 12).inside(Box(x: 10, y: 10, w: 10, h: 10), slack: 2))
+        XCTAssertFalse(Box(x: 9, y: 9, w: 12, h: 12).inside(Box(x: 10, y: 10, w: 10, h: 10)))
+    }
+
     func testBrowsers() {
         for name in ["Safari", "Google Chrome", "Brave Browser", "Arc", "Firefox", "Microsoft Edge", "Chromium", "Opera", "Vivaldi",
                      "Google Chrome Canary", "Firefox Developer Edition", "Zen Browser", "Safari Technology Preview",

@@ -20,6 +20,17 @@ public struct Box: Equatable, Hashable, Sendable, CustomStringConvertible {
     }
 
     public func inside(_ other: Box) -> Bool { x >= other.x && y >= other.y && right <= other.right && bottom <= other.bottom }
+
+    /** Inside `other` give or take `slack` points each way (AX boxes of a control and its label round differently). */
+    public func inside(_ other: Box, slack: Int) -> Bool {
+        x >= other.x - slack && y >= other.y - slack && right <= other.right + slack && bottom <= other.bottom + slack
+    }
+
+    /** The smallest box holding this one and `other`. */
+    public func union(_ other: Box) -> Box {
+        let l = min(x, other.x), t = min(y, other.y), r = max(right, other.right), b = max(bottom, other.bottom)
+        return Box(x: l, y: t, w: r - l, h: b - t)
+    }
 }
 
 /**
@@ -101,12 +112,15 @@ public enum Geometry {
      * Why a mouse click at `y` on a control in a web page would land on the browser's own bar instead, or nil to go
      * on. Only for a control inside a page (`inPage`): the address bar, tabs and buttons are clicked as ever, and so is
      * a bare x,y. `page` is the page's own box: a page that starts at the top of the window (full screen) may be
-     * clicked there; one that reaches above the window says nothing, and the top band is refused.
+     * clicked there; one that reaches above the window says nothing, and the top band is refused. With a page box
+     * inside the window, the bar is all of the window above the page, however tall (tabs, address bar, bookmarks):
+     * since 0.2.1 the window is the whole top-level window, title bar and toolbar included, not Chromium's page window.
      */
     public static func chromeRefusal(_ window: WindowInfo?, y: Int, inPage: Bool, page: Box?) -> String? {
-        guard let window, inPage, isBrowser(window), y >= window.y, y < window.y + chromeBand else { return nil }
-        if let p = page, p.y >= window.y - 2, y >= p.y { return nil }
-        return "that spot is on the browser's own bar at the top of the window, not the page; scroll up a little so it comes down into the page, look again, and click it there"
+        guard let window, inPage, isBrowser(window), y >= window.y else { return nil }
+        let why = "that spot is on the browser's own bar at the top of the window, not the page; scroll up a little so it comes down into the page, look again, and click it there"
+        if let p = page, p.y >= window.y - 2 { return y >= p.y ? nil : why }
+        return y < window.y + chromeBand ? why : nil
     }
 }
 

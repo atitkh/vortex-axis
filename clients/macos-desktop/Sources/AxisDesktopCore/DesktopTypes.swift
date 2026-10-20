@@ -45,12 +45,15 @@ public struct WindowInfo: Equatable, Sendable {
     public var x: Int, y: Int, w: Int, h: Int
     /** The app's bundle identifier ("com.google.Chrome"), when known. Not sent. */
     public var bundleID: String?
+    /** After `window`: whether the window is minimised now, read back from it (kAXMinimized). Nil elsewhere. */
+    public var minimised: Bool?
 
-    public init(title: String, app: String, x: Int, y: Int, w: Int, h: Int, bundleID: String? = nil) {
+    public init(title: String, app: String, x: Int, y: Int, w: Int, h: Int, bundleID: String? = nil, minimised: Bool? = nil) {
         self.title = title
         self.app = app
         self.x = x; self.y = y; self.w = w; self.h = h
         self.bundleID = bundleID
+        self.minimised = minimised
     }
 
     public var box: Box { Box(x: x, y: y, w: w, h: h) }

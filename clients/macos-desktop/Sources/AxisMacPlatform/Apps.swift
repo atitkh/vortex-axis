@@ -87,25 +87,84 @@ enum Apps {
         InputEvents.sleep(ms: 120)
     }
 
-    /** App `pid`'s AX window with this box (within a few points), else the one with this title, else its focused window. */
+    /**
+     * App `pid`'s real top-level window (`AXReader.realWindow`) for a window known by its box and title (from Quartz,
+     * or a look: the whole window, toolbar included): the AX window with that box (within a few points), else that
+     * title, else lying inside that box, else the focused one; then never a toolbar strip, and a page window inside a
+     * bigger standard window is that window. `minimised`: a minimised window may be the one.
+     */
+    static func realWindow(pid: pid_t, box: Box?, title: String?, minimised: Bool = false) -> AXReader.RealWindow? {
+        var rules: [(AXWindowRecord) -> Bool] = []
+        if let box { rules.append({ r in r.box.map { WindowPick.same($0, box) } ?? false }) }
+        if let title, !title.isEmpty { rules.append({ r in r.title == title }) }
+        if let box { rules.append({ r in r.box.map { $0.inside(box, slack: 4) } ?? false }) }
+        return AXReader.realWindow(AXReader.app(pid), pid: pid, prefer: rules, minimised: minimised)
+    }
+
+    /** App `pid`'s AX window to bring forward for a window known by its box and title (`realWindow`, minimised ones too). */
     static func axWindow(pid: pid_t, box: Box?, title: String?) -> AXUIElement? {
-        let app = AXReader.app(pid)
-        let windows: [AXUIElement] = AXReader.attribute(app, kAXWindowsAttribute) ?? []
-        if let box {
-            for w in windows {
-                if let p: AnyObject = AXReader.attribute(w, kAXPositionAttribute), let s: AnyObject = AXReader.attribute(w, kAXSizeAttribute),
-                   let b = AXReader.box(position: p, size: s),
-                   abs(b.x - box.x) <= 4, abs(b.y - box.y) <= 4, abs(b.w - box.w) <= 4, abs(b.h - box.h) <= 4 { return w }
-            }
-        }
-        if let title, !title.isEmpty, let w = windows.first(where: { (AXReader.attribute($0, kAXTitleAttribute) as String?) == title }) { return w }
-        return AXReader.element(app, kAXFocusedWindowAttribute) ?? windows.first
+        realWindow(pid: pid, box: box, title: title, minimised: true)?.element
     }
 
     /** A window's box as Accessibility gives it now. */
-    static func box(of window: AXUIElement) -> Box? {
-        guard let p: AnyObject = AXReader.attribute(window, kAXPositionAttribute), let s: AnyObject = AXReader.attribute(window, kAXSizeAttribute) else { return nil }
-        return AXReader.box(position: p, size: s)
+    static func box(of window: AXUIElement) -> Box? { AXReader.frame(window) }
+
+    static func minimised(_ window: AXUIElement) -> Bool { (AXReader.attribute(window, kAXMinimizedAttribute) as Bool?) == true }
+
+    /** In macOS full screen (a Space of its own), where a window can be neither minimised nor moved. */
+    static func fullScreen(_ window: AXUIElement) -> Bool { (AXReader.attribute(window, "AXFullScreen") as Bool?) == true }
+
+    /** Asks `done` every 100 ms for up to `ms`; true as soon as it says so. */
+    static func waitFor(ms: Int, _ done: () -> Bool) -> Bool {
+        var waited = 0
+        while true {
+            if done() { return true }
+            if waited >= ms { return false }
+            InputEvents.sleep(ms: 100)
+            waited += 100
+        }
+    }
+
+    /** Takes the window out of full screen and waits for it (the animation runs on a little past the flag). True when it is out. */
+    static func leaveFullScreen(_ window: AXUIElement) -> Bool {
+        guard fullScreen(window) else { return true }
+        AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanFalse)
+        guard waitFor(ms: 2500, { !fullScreen(window) }) else { return false }
+        InputEvents.sleep(ms: 700)
+        return true
+    }
+
+    /** Brings a minimised window back from the Dock. True when it says it is back. */
+    static func unminimise(_ window: AXUIElement) -> Bool {
+        guard minimised(window) else { return true }
+        AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        return waitFor(ms: 1500, { !minimised(window) })
+    }
+
+    /** Whether app `pid` has a minimised window called `title` (any minimised window when `title` is empty). */
+    static func hasMinimised(pid: pid_t, title: String) -> Bool {
+        AXReader.windowRecords(AXReader.app(pid)).contains { $0.record.minimised && (title.isEmpty || $0.record.title == title) }
+    }
+
+    /**
+     * The minimised window best matching an app name or a title, across the regular apps, from their AX windows (a
+     * minimised window has no title in Quartz's list without Screen Recording). The app's name scores 5 more, as in
+     * `WindowPick.find`. Nil when none scores.
+     */
+    static func minimisedWindow(matching query: String) -> (pid: pid_t, owner: String, title: String)? {
+        var best: (pid: pid_t, owner: String, title: String, score: Int)?
+        let own = ProcessInfo.processInfo.processIdentifier
+        for running in NSWorkspace.shared.runningApplications where running.activationPolicy == .regular && running.processIdentifier != own {
+            let pid = running.processIdentifier
+            let owner = running.localizedName ?? ""
+            let appScore = Fuzzy.score(owner, query)
+            for w in AXReader.windowRecords(AXReader.app(pid)) where w.record.minimised {
+                let score = max(appScore > 0 ? appScore + 5 : 0, Fuzzy.score(w.record.title, query))
+                if score > 5, score > (best?.score ?? 0) { best = (pid, owner, w.record.title, score) }
+            }
+        }
+        guard let best else { return nil }
+        return (best.pid, best.owner, best.title)
     }
 
     static func setBox(_ window: AXUIElement, _ box: Box) {
@@ -120,36 +179,59 @@ enum Apps {
     /**
      * Minimizes, fills ("maximize": the display's visible area, never macOS full screen, which would make a Space of
      * its own), restores or moves `window` to `visible[display - 1]` (top-left points, the menu bar and Dock left
-     * out). Restore takes a minimised window back, and a filled one back to the box it had before (`previous`).
+     * out). Restore takes a minimised window back, a full-screen one out of full screen, and a filled one back to the
+     * box it had before (`previous`). A window in full screen leaves it first to be minimised or moved; one asked to
+     * fill while in full screen already fills its display and is left so. Every change is read back from the window
+     * (kAXMinimized, its box) and a change that did not take throws, saying so: in 0.2.0's live test Brave answered
+     * ok to a minimize and nothing happened. Returns the window's box now (nil when minimised) and whether it is minimised.
      */
-    static func arrange(_ window: AXUIElement, op: String, displayArea: Box?, previous: Box?) throws {
+    static func arrange(_ window: AXUIElement, op: String, displayArea: Box?, previous: Box?) throws -> (box: Box?, minimised: Bool) {
         switch op {
         case "minimize":
-            guard AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue) == .success else {
-                throw DesktopError("the window would not minimize")
+            if minimised(window) { return (nil, true) }
+            guard leaveFullScreen(window) else { throw DesktopError("the window is in full screen and did not leave it, so it was not minimized") }
+            let asked = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            guard waitFor(ms: 1500, { minimised(window) }) else {
+                let said = asked == .success ? "macOS answered ok" : "macOS answered error \(asked.rawValue)"
+                throw DesktopError("the window did not minimize (\(said), but the window still says it is not minimized)")
             }
+            return (nil, true)
         case "maximize":
-            if (AXReader.attribute(window, kAXMinimizedAttribute) as Bool?) == true {
-                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            }
+            guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock, so it was not maximized") }
+            if fullScreen(window) { return (box(of: window), false) }
             guard let area = displayArea else { throw DesktopError("no display to fill") }
+            let before = box(of: window)
             setBox(window, area)
+            InputEvents.sleep(ms: 120)
+            let after = box(of: window)
+            if let after, let before, after == before, !WindowPick.same(after, area) {
+                throw DesktopError("the window did not change size (it stays at \(after); the app may not allow resizing)")
+            }
+            return (after, false)
         case "restore":
-            if (AXReader.attribute(window, kAXMinimizedAttribute) as Bool?) == true {
-                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            if minimised(window) {
+                guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock (it still says it is minimized)") }
+            } else if fullScreen(window) {
+                guard leaveFullScreen(window) else { throw DesktopError("the window did not leave full screen") }
             } else if let previous {
                 setBox(window, previous)
+                InputEvents.sleep(ms: 120)
             }
+            return (box(of: window), false)
         case "move":
             guard let area = displayArea else { throw DesktopError("no such display") }
-            if (AXReader.attribute(window, kAXMinimizedAttribute) as Bool?) == true {
-                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            }
+            guard unminimise(window) else { throw DesktopError("the window did not come back from the Dock, so it was not moved") }
+            guard leaveFullScreen(window) else { throw DesktopError("the window is in full screen and did not leave it, so it was not moved") }
             let now = box(of: window) ?? area
             setBox(window, Coordinates.centred(now, in: area))
+            InputEvents.sleep(ms: 120)
+            let after = box(of: window)
+            if let c = after?.centre, !(c.x >= area.x && c.x < area.right && c.y >= area.y && c.y < area.bottom) {
+                throw DesktopError("the window did not move to that display (it is at \(after!))")
+            }
+            return (after, false)
         default:
             throw DesktopError("window needs do: minimize, maximize, restore or move")
         }
-        InputEvents.sleep(ms: 120)
     }
 }

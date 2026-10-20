@@ -88,6 +88,31 @@ final class ReadingOrderTests: XCTestCase {
         let kept = ReadingOrder.dedupe([e("Send", 10, 10), e("Send label", 10, 10), e("Other", 10, 40)])
         XCTAssertEqual(kept.map(\.name), ["Send", "Other"], "the first one with a box stays (the control before its own label)")
     }
+
+    func k(_ kind: String, _ name: String, _ x: Int, _ y: Int, _ w: Int, _ h: Int, focused: Bool = false, source: String = "ui") -> ScreenElement {
+        ScreenElement(kind: kind, name: name, x: x, y: y, w: w, h: h, focused: focused, source: source)
+    }
+
+    /** The 0.2.0 live test on a Wikipedia page: `hyperlink Contents`, `text Contents`, `group Contents`. */
+    func testEchoesOfALinkGo() {
+        let list = [k("group", "Contents", 0, 95, 300, 40), k("hyperlink", "Contents", 10, 100, 80, 20), k("text", "Contents", 12, 102, 60, 16)]
+        XCTAssertEqual(ReadingOrder.dropEchoes(list).map(\.kind), ["hyperlink"])
+        let logo = [k("hyperlink", "Wikipedia The Free Encyclopedia", 0, 0, 160, 50), k("image", "Wikipedia", 0, 0, 50, 50)]
+        XCTAssertEqual(ReadingOrder.dropEchoes(logo).map(\.kind), ["hyperlink"], "an image named with part of the link's name")
+    }
+
+    func testWhatIsNotAnEchoStays() {
+        let list = [k("button", "Send", 10, 10, 80, 30), k("text", "3 new messages", 12, 12, 60, 20),
+                    k("hyperlink", "Contents", 10, 100, 80, 20), k("text", "Contents", 10, 300, 80, 20),
+                    k("group", "Sidebar", 0, 0, 300, 400), k("text", "Help", 400, 10, 40, 20)]
+        XCTAssertEqual(ReadingOrder.dropEchoes(list).count, list.count, "another name, outside the control, or a group named for none inside it")
+        let focused = [k("hyperlink", "Edit", 0, 0, 80, 20), k("text", "Edit", 2, 2, 40, 16, focused: true)]
+        XCTAssertEqual(ReadingOrder.dropEchoes(focused).count, 2, "the focus always stays")
+        let ocr = [k("hyperlink", "Edit", 0, 0, 80, 20), k("text", "Edit", 2, 2, 40, 16, source: "ocr")]
+        XCTAssertEqual(ReadingOrder.dropEchoes(ocr).count, 2, "OCR lines are never touched")
+        let window = [k("window", "Inbox", 0, 0, 800, 600), k("group", "Inbox", 0, 0, 800, 600), k("text", "Inbox", 10, 10, 50, 20)]
+        XCTAssertEqual(ReadingOrder.dropEchoes(window).map(\.kind), ["window", "text"], "a group named as the text in it goes; the window stays")
+    }
 }
 
 final class AddressTests: XCTestCase {

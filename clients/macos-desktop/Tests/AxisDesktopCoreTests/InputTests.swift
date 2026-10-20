@@ -335,6 +335,79 @@ final class WindowPickTests: XCTestCase {
         XCTAssertEqual(listed.map { $0.here }, [true, true, false])
     }
 
+    /** The 0.2.0 live test: Brave listed twice, its untitled toolbar strip over its page window. */
+    func testABrowsersToolbarStripIsPartOfItsWindow() {
+        let here = [w(10, "Brave Browser", "", Box(x: 0, y: 33, w: 1470, h: 117), number: 1),
+                    w(10, "Brave Browser", "Log in - Wikipedia", Box(x: 0, y: 114, w: 1470, h: 842), number: 2),
+                    w(20, "Terminal", "zsh", Box(x: 100, y: 100, w: 600, h: 400), number: 3)]
+        let listed = WindowPick.listed(onScreen: here, all: here, displays: air)
+        XCTAssertEqual(listed.map { $0.window.name }, ["Log in - Wikipedia (Brave Browser)", "zsh (Terminal)"], "one entry per real window")
+        XCTAssertEqual(listed.first?.window.box, Box(x: 0, y: 33, w: 1470, h: 923), "the whole window, toolbar included")
+        XCTAssertEqual(listed.first?.window.number, 2, "the titled window's number stays")
+        // Without Accessibility's answer, the front window is the whole window too.
+        XCTAssertEqual(WindowPick.front(pid: 10, focused: nil, list: here, displays: air)?.box, Box(x: 0, y: 33, w: 1470, h: 923))
+        XCTAssertEqual(WindowPick.front(pid: 10, focused: nil, list: here, displays: air)?.title, "Log in - Wikipedia")
+        // Accessibility's whole window (`AXReader.realWindow`) finds its Quartz twin for the title.
+        let whole = FocusedWindow(title: "", box: Box(x: 0, y: 33, w: 1470, h: 923))
+        XCTAssertEqual(WindowPick.front(pid: 10, focused: whole, list: here, displays: air)?.title, "Log in - Wikipedia")
+    }
+
+    func testSmallUntitledHelpersAreLeftOutOfTheList() {
+        let here = [w(10, "Brave Browser", "Axis", Box(x: 0, y: 33, w: 1470, h: 923), number: 1),
+                    w(10, "Brave Browser", "", Box(x: 600, y: 300, w: 150, h: 90), number: 2),
+                    w(30, "Clock", "", Box(x: 10, y: 600, w: 150, h: 90), number: 3)]
+        let listed = WindowPick.listed(onScreen: here, all: here, displays: air)
+        XCTAssertEqual(listed.map { $0.window.number }, [1, 3], "a popup of an app with a window goes; an app's only window stays")
+    }
+
+    func testWhatIsAStrip() {
+        let page = Box(x: 0, y: 114, w: 1470, h: 842)
+        XCTAssertTrue(WindowPick.strip(Box(x: 0, y: 33, w: 1470, h: 117), of: page))
+        XCTAssertTrue(WindowPick.strip(Box(x: 2, y: 33, w: 1467, h: 81), of: page), "touching the top, a point or two off")
+        XCTAssertFalse(WindowPick.strip(Box(x: 0, y: 33, w: 900, h: 81), of: page), "narrower: a window of its own")
+        XCTAssertFalse(WindowPick.strip(Box(x: 0, y: 0, w: 1470, h: 30), of: page), "not touching it")
+        XCTAssertFalse(WindowPick.strip(Box(x: 0, y: 33, w: 1470, h: 400), of: page), "too tall to be a toolbar")
+        XCTAssertFalse(WindowPick.strip(Box(x: 0, y: 200, w: 1470, h: 100), of: page), "below its top")
+    }
+
+    func r(_ box: Box?, title: String = "", role: String = "AXWindow", subrole: String? = "AXStandardWindow", minimised: Bool = false,
+           focused: Bool = false, main: Bool = false) -> AXWindowRecord {
+        AXWindowRecord(role: role, subrole: subrole, title: title, box: box, minimised: minimised, focused: focused, main: main)
+    }
+
+    /** The 0.2.0 live test: the look walked only the page window; the toolbar window is walked with it now. */
+    func testTheRealWindowTakesItsToolbarWindow() {
+        let page = r(Box(x: 0, y: 114, w: 1470, h: 842), title: "Log in - Wikipedia", focused: true, main: true)
+        let toolbar = r(Box(x: 0, y: 33, w: 1470, h: 117), subrole: "AXUnknown")
+        let real = WindowPick.real([toolbar, page])
+        XCTAssertEqual(real?.main, 1, "never the toolbar strip")
+        XCTAssertEqual(real?.attached, [0])
+        XCTAssertEqual(real?.box, Box(x: 0, y: 33, w: 1470, h: 923))
+        // Focus on the toolbar (the address bar has it) still picks the window under it.
+        let focusedBar = WindowPick.real([r(Box(x: 0, y: 33, w: 1470, h: 117), focused: true), r(Box(x: 0, y: 114, w: 1470, h: 842), title: "Log in")])
+        XCTAssertEqual(focusedBar?.main, 1)
+    }
+
+    func testAPageWindowInsideTheRealWindowIsSwappedForIt() {
+        let page = r(Box(x: 0, y: 114, w: 1470, h: 842), title: "Log in", focused: true)
+        let whole = r(Box(x: 0, y: 33, w: 1470, h: 923), title: "Log in", main: true)
+        XCTAssertEqual(WindowPick.real([page, whole])?.main, 1)
+        XCTAssertEqual(WindowPick.real([page, whole])?.box, Box(x: 0, y: 33, w: 1470, h: 923))
+        // A dialog inside its window is what the person is answering: kept.
+        let dialog = r(Box(x: 400, y: 300, w: 500, h: 300), title: "Save", subrole: "AXDialog", focused: true)
+        XCTAssertEqual(WindowPick.real([dialog, whole])?.main, 0)
+    }
+
+    func testMinimisedWindowsOnlyForRestore() {
+        let gone = r(Box(x: 0, y: 33, w: 900, h: 700), title: "Notes", minimised: true, focused: true)
+        let other = r(Box(x: 50, y: 50, w: 600, h: 400), title: "Other")
+        XCTAssertEqual(WindowPick.real([gone, other])?.main, 1, "a minimised window is not the window in front")
+        XCTAssertEqual(WindowPick.real([gone, other], minimised: true)?.main, 0, "restore may take it")
+        XCTAssertNil(WindowPick.real([gone]))
+        XCTAssertNil(WindowPick.real([r(nil, focused: true), r(Box(x: 0, y: 0, w: 40, h: 40))]), "no box, or too small: no window")
+        XCTAssertEqual(WindowPick.real([r(Box(x: 0, y: 0, w: 300, h: 300)), r(Box(x: 0, y: 0, w: 800, h: 600))])?.main, 1, "neither focused nor main: the biggest")
+    }
+
     func testFindByAppOrTitle() {
         let list = [w(1, "Code", "notes.md", Box(x: 0, y: 0, w: 900, h: 700)), w(2, "Notes", "Shopping", Box(x: 0, y: 0, w: 900, h: 700))]
         XCTAssertEqual(WindowPick.find("notes", in: list)?.pid, 2, "the app's name scores 5 more than a title")

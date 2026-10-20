@@ -32,10 +32,13 @@ public enum WindowList {
 
     static var ownPid: Int32 { ProcessInfo.processInfo.processIdentifier }
 
-    /** Normal windows on this Space, front to back, the app's own left out: what `switch`, `open` and `wait` look through. */
+    /**
+     * Normal windows on this Space, front to back, the app's own left out, toolbar strips folded into their window
+     * (`WindowPick.merged`): what `switch`, `open` and `wait` look through.
+     */
     public static func onScreen() -> [WindowCandidate] {
         let displays = displays()
-        return candidates(onScreenOnly: true).filter { $0.pid != ownPid && WindowPick.normal($0, displays: displays) }
+        return WindowPick.merged(candidates(onScreenOnly: true).filter { $0.pid != ownPid && WindowPick.normal($0, displays: displays) })
     }
 
     /**

@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.2.1 (2026-10-20)
+
+- **Fixes from the live test of 0.2.0 on Brave.** A look reads the app's real top-level window with its toolbar, address bar and tabs (it read only Chromium's page window, so `find "Address and search bar"` found nothing); element 1 is the whole window and the browser-bar guard is everything above the page. `window do=list` shows one entry per window (Brave's toolbar strip is folded into its window; small untitled helpers are left out). `window` acts on the real window, leaves full screen first to minimise or move, reads the result back and says it (`minimized`), failing with words when it did not take; restore finds minimised windows. Looks leave out a text or image that repeats the link or button holding it, and a group named as what is inside it.
+- Written on Linux, not compiled, its tests not run.
+
 ## Axis 0.47.1 (2026-10-20)
 
 - The desktop tool's words fit a Mac too: `open` takes a "Start-menu or Applications name", and `keys` says a Mac sends ctrl+letter shortcuts as cmd. Nothing else changed on the server.
