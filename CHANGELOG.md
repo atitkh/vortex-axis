@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.3.2 (2026-10-20)
+
+- **The face follows the Face page's settings, as the boards and the Windows app 0.10.5 do**: `toolIcons`, `toolIconMs`, `toolIconDots`, `idleLooksOff`, live from the settings Axis sends (`Face.useSettings`, `setIconTuning`, `setIdleOff`, `shapePoint`, ported from `web/vortex.js`). `Face.swift` and its tests compiled and passed under Swift 5.10 on Linux; the app itself not compiled.
+
 ## Desktop app 0.10.5 (2026-10-20)
 
 - **The face follows the admin page's Face page, as the boards do**: `toolIcons` (dots, line, off), `toolIconMs` (time to form, 150 to 3000 ms), `toolIconDots` (12 to 78 dots in a shape; the rest stand off in a ring 80 out and go on turning) and `idleLooksOff` (idle looks it never drifts into; one on show when it is switched off is left at once), live, from the settings Axis sends (all layers: global, type, device). Before, the face always drew 78 dots in 700 ms, every idle look, and ignored `toolIcons`. Ported from `web/vortex.js` (`Face.SetIconTuning`, `SetIdleOff`, `UseSettings`, `ShapePoint`), checked in `Axis.Desktop.Smoke check`. Not built into the data folder.

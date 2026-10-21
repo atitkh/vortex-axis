@@ -105,6 +105,112 @@ final class FaceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(points.count, FaceIcons.dots * 2)
     }
 
+    // MARK: The Face page's settings (the Windows app's Checks.FaceSettings)
+
+    /** Runs a face for `seconds` in steps of a tenth, and gives the last frame. */
+    func run(_ f: Face, _ seconds: Double) -> Face.Frame {
+        var frame = f.frame(0)
+        var t = 0.0
+        while t < seconds - 1e-9 { frame = f.frame(0.1); t += 0.1 }
+        return frame
+    }
+
+    func shapeDots(_ frame: Face.Frame) -> Int { frame.dots.filter { abs($0.radius - FaceIcons.shapeDot) < 1e-9 }.count }
+
+    func testAShapeOfFewerDotsSpreadsThemOverThe78Points() {
+        // toolIconDots, as web/vortex.js: dot n is in the shape when n < dots, at point floor(n * 78 / dots).
+        XCTAssertEqual(Face.shapePoint(0, 78), 0)
+        XCTAssertEqual(Face.shapePoint(77, 78), 77)
+        XCTAssertEqual(Face.shapePoint(11, 12), 71)
+        XCTAssertEqual(Face.shapePoint(12, 12), -1)
+        XCTAssertEqual(Face.shapePoint(39, 40), 76)
+        XCTAssertEqual(Face.shapePoint(5, 40), 9)
+    }
+
+    func testTheSettingsAsAxisSendsThem() {
+        let f = face()
+        f.useSettings(["toolIcons": .string("line"), "toolIconMs": .number(5000), "toolIconDots": .number(5)])
+        XCTAssertEqual(f.iconStyle, "line")
+        XCTAssertEqual(f.iconMs, 3000)
+        XCTAssertEqual(f.iconDots, 12)
+        f.useSettings(["toolIcons": .string("sparkles"), "toolIconMs": .number(100), "toolIconDots": .number(40.5)])
+        XCTAssertEqual(f.iconStyle, "dots")
+        XCTAssertEqual(f.iconMs, 150)
+        XCTAssertEqual(f.iconDots, 41)
+        f.useSettings([:])
+        XCTAssertEqual(f.iconStyle, "dots")
+        XCTAssertEqual(f.iconMs, 700)
+        XCTAssertEqual(f.iconDots, 78)
+    }
+
+    func testTwelveDotsDrawTheShapeAndTheRestRingIt() {
+        let f = face()
+        f.setIconTuning(ms: nil, dots: 12)
+        f.setMode("thinking")
+        f.setDoing("search")
+        var frame = run(f, 1.5)
+        XCTAssertEqual(shapeDots(frame), 12)
+        let ring = frame.dots.filter { abs($0.radius - FaceIcons.shapeDot) >= 1e-9 && hypot($0.x - 120, $0.y - 120) >= 80 - 1e-6 }
+        XCTAssertEqual(ring.count, 66)
+        XCTAssertNil(frame.core)
+        XCTAssertNil(frame.icon)
+        f.setIconTuning(ms: nil, dots: nil)
+        frame = run(f, 0.1)
+        XCTAssertEqual(shapeDots(frame), 78)
+    }
+
+    func testASlowerIconIsNotFormedYet() {
+        let f = face()
+        f.setIconTuning(ms: 3000, dots: nil)
+        f.setMode("thinking")
+        f.setDoing("search")
+        let frame = run(f, 0.7)
+        XCTAssertEqual(shapeDots(frame), 0)
+        XCTAssertNotNil(frame.core)
+    }
+
+    func testIconsOffAndLine() {
+        let f = face()
+        f.iconStyle = "off"
+        f.setMode("thinking")
+        f.setDoing("search")
+        var frame = run(f, 1.5)
+        XCTAssertNotNil(frame.core)
+        XCTAssertNil(frame.icon)
+        XCTAssertEqual(shapeDots(frame), 0)
+        f.iconStyle = "line"
+        frame = run(f, 1.5)
+        XCTAssertNil(frame.core)
+        XCTAssertNotNil(frame.icon)
+        XCTAssertEqual(shapeDots(frame), 0)
+    }
+
+    func testIdleLooksSwitchedOff() {
+        let allButSway = Face.idleNames.filter { $0 != "sway" }.map { $0.uppercased() }.joined(separator: ", ")
+        var f = face()
+        f.setIdleOff(allButSway + ",nonsense")
+        f.setMode("idle")
+        XCTAssertEqual(f.idleName, "sway")
+        _ = run(f, 40)
+        XCTAssertEqual(f.idleName, "sway")
+        // Switched off while on show: moves off at once, and never comes back.
+        f = face()
+        f.setMode("idle")
+        let showing = f.idleName
+        f.useSettings(["idleLooksOff": .string(showing)])
+        XCTAssertNotEqual(f.idleName, showing)
+        for _ in 0..<30 {
+            _ = run(f, 17.1)
+            XCTAssertNotEqual(f.idleName, showing)
+        }
+        // Every look named: the first stays.
+        f = face()
+        f.setIdleOff(Face.idleNames.joined(separator: ","))
+        f.setMode("idle")
+        _ = run(f, 40)
+        XCTAssertEqual(f.idleName, "calm")
+    }
+
     // MARK: FaceShow (the Windows app's FaceWindow.Set)
 
     func testWhatTheFaceShows() {

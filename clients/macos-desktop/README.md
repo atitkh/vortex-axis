@@ -1,8 +1,8 @@
 # VorteX Axis for Mac (experimental)
 
-A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.3.1 is milestones M0 to M3 of `docs/mac-port.md`: pairing, the link, reading, input, talking from the Mac, Vortex's face, the notices at the top of the screen, the logo, and (0.3.1) the Windows app's pointer. It does not update itself.
+A menu bar app that makes a Mac an Axis client of type `macos-desktop` with the `desktop` capability, so an agent can read what is on the screen, point at things, and click, type and press keys there (`vortex_axis_desktop`). Version 0.3.2 is milestones M0 to M3 of `docs/mac-port.md`: pairing, the link, reading, input, talking from the Mac, Vortex's face, the notices at the top of the screen, the logo, (0.3.1) the Windows app's pointer, and (0.3.2) a face that follows the admin page's Face settings. It does not update itself.
 
-**0.1.0 and 0.2.0 were built and tried on a MacBook Air by the owner (2026-10-19, 2026-10-20, Brave); 0.2.1, 0.3.0 and 0.3.1 were written on Linux without a Swift toolchain and have not been compiled.** See "Not verified" below.
+**0.1.0 and 0.2.0 were built and tried on a MacBook Air by the owner (2026-10-19, 2026-10-20, Brave); 0.2.1, 0.3.0, 0.3.1 and 0.3.2 were written on Linux without a Swift toolchain and have not been compiled as an app** (0.3.2's `Face.swift` and its face tests alone were compiled and passed under Swift 5.10 on Linux). See "Not verified" below.
 
 - `Sources/AxisDesktopCore/`: Foundation only. Pairing, the socket (protocol 1), the `desktop.*` commands, the geometry, the Accessibility role to kind table, the key combinations (`KeyCombo`), which window is in front (`WindowPick`), the voice part (`Voice`, `TalkKey`, `PCM`), the face (`Face`, `FaceIcons.g.swift` written by `scripts/gen-icons.mjs`), where the face and the pills go (`FaceLayout`, `PillLayout`) and what they say (`PillWords`). A port of the Windows app's `Axis.Desktop.Core`; `Desktop` is what a platform supplies.
 - `Sources/AxisMacPlatform/`: Accessibility (`AXReader`, `AXActions`), the window list and displays (`WindowList`, Quartz), mouse and keys (`InputEvents`, CGEvent), apps and windows (`Apps`), pictures (`ScreenCapture`) and text from the pixels (`TextReader`, Vision), the clipboard (`Pasteboard`), permissions, the saved pairing (`~/Library/Application Support/VorteX Axis/desktop.json`, token in the Keychain). `MacDesktop` puts them together.
@@ -61,6 +61,10 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - **Screenshot** (`screenshot`, `allowScreenshot` on): ScreenCaptureKit (macOS 14+; the app's own windows left out) or the older Quartz capture on macOS 13 (the pointer hidden first), only as many pixels as the answer needs (640, 1024, 1568 on the longer side), JPEG quality 72, as the Windows app sends.
 - **Coordinates**: points with the origin at the top left of the main display (the one with the menu bar), y down; displays left of or above it are negative. That is Accessibility's, CGEvent's and Quartz's own space, so a point is used as is on whichever display it is; a bare x,y on no display is refused rather than clamped (`Coordinates.display(at:)`, tested with displays above, left and right).
 - Not here: self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S), an Esc key that cancels (the Windows app has none either).
+
+## What is new in 0.3.2
+
+- **The face follows the admin page's Face page, as the boards do**, live, from the settings Axis sends (global, type and device layers): `toolIcons` (dots, line or off), `toolIconMs` (how long an icon takes to form, 150 to 3000 ms), `toolIconDots` (how many of the 78 dots draw the shape, 12 to 78; the rest turn in a ring 80 out round it) and `idleLooksOff` (idle looks it never drifts into; one on show when it is switched off is left at once). Before, it always drew 78 dots in 700 ms, every idle look, and ignored `toolIcons`. `Face.useSettings`, tested in `FaceTests` (the face tests were run on Linux; the panel wiring was not compiled).
 
 ## What is new in 0.3.1
 

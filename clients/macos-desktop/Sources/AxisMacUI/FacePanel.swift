@@ -71,6 +71,11 @@ public final class FacePanel: NSObject {
         update()
     }
 
+    /** The face settings Axis sends (the admin page's Face page and Screen group): idle looks off, tool icons, their timing and dots. */
+    public func useSettings(_ values: [String: JSONValue]) {
+        face.useSettings(values)
+    }
+
     /** What to show (Core's `FaceShow`: the voice part's mode, what the agent is doing, whether an agent is here). */
     public func set(_ show: FaceShow) {
         face.setMode(show.mode)

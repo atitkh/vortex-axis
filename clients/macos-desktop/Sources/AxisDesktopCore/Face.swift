@@ -38,6 +38,10 @@ public final class Face {
         look(0.1, 0.85, 0.95, 0.05, 0.2, 0, 0, 1, 0.2, 0.85, 0.9, 0.7, 0),
     ]
 
+    /** The idle looks' names, in the order above, for the `idleLooksOff` setting. */
+    public static let idleNames = ["calm", "breathe", "unwind", "open", "curl", "drift", "shimmer", "galaxy", "tendril", "bloom", "pinwheel",
+                                   "deep", "orbit", "sway"]
+
     static let looks: [String: [Double]] = [
         "offline": look(0.18, 0.55, 1.1, 0.03, 0.2, 0, 0, 0.9, 0.3, 0.34, 0.42),
         "listening": look(1.6, 0.45, 1.8, 0.08, 1.2, 0, 0, 1.2, 0.15, 1.0, 0.55),
@@ -83,11 +87,20 @@ public final class Face {
     private var icon: String?
     private var iconData: FaceIcons.Icon?
     private var drawnAsDots = false
+    private var idleOn: [Int] = Array(0..<Face.idle.count)
 
     /** Loudness of the voice, 0 to 1. Negative: not known, the face pulses on its own. */
     public var level = -1.0
-    /** How icons are shown: "dots" (as on the boards by default), "line" or "off". */
-    public var iconStyle = "dots"
+    /** How icons are shown: "dots" (as on the boards by default), "line" or "off" (the `toolIcons` setting). Anything else is "dots". */
+    public var iconStyle = "dots" {
+        didSet { if iconStyle != "off" && iconStyle != "line" && iconStyle != "dots" { iconStyle = "dots" } }
+    }
+    /** How long an icon takes to form and to go, in milliseconds (the `toolIconMs` setting, 150 to 3000). */
+    public private(set) var iconMs = FaceIcons.ms
+    /** How many of the 78 dots draw a dot shape (the `toolIconDots` setting, 12 to 78); the rest turn in a ring round it. */
+    public private(set) var iconDots = FaceIcons.dots
+    /** The idle look on show or coming, by name. */
+    public var idleName: String { Self.idleNames[idleIndex] }
     /**
      * The person asked for less motion (Accessibility > Display > Reduce motion): the face turns at 30 % of its
      * speed and drops its sparkle (docs/face.md section 6, as the web client does).
@@ -118,9 +131,52 @@ public final class Face {
         if mode == "thinking" { target = heldLook ?? Self.looks["thinking"]! }
     }
 
+    /** The icon timing and the dots in a shape; nil, or not finite, is the usual. Out of range is brought in (web/vortex.js `setIconTuning`). */
+    public func setIconTuning(ms: Double?, dots: Double?) {
+        if let ms, ms.isFinite { iconMs = min(3000, max(150, ms)) } else { iconMs = FaceIcons.ms }
+        // Math.round: halves go up.
+        if let dots, dots.isFinite { iconDots = Int(min(Double(FaceIcons.dots), max(Double(FaceIcons.shapeDotsMin), (dots + 0.5).rounded(.down)))) } else {
+            iconDots = FaceIcons.dots
+        }
+    }
+
+    /**
+     * Idle looks to leave out, their names separated by commas (the `idleLooksOff` setting; spaces and case aside, unknown names
+     * ignored). If every look is named the first one stays, so there is always one.
+     */
+    public func setIdleOff(_ names: String?) {
+        let off = Set((names ?? "").split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
+        idleOn = Self.idleNames.indices.filter { !off.contains(Self.idleNames[$0]) }
+        if idleOn.isEmpty { idleOn = [0] }
+        // A look just switched off should not stay on screen until its time runs out.
+        if mode == "idle" && !idleOn.contains(idleIndex) { pickIdle() }
+    }
+
+    /** The face's settings from what Axis sends (all of them, resolved): `idleLooksOff`, `toolIcons`, `toolIconMs`, `toolIconDots`. A key not there is its usual. */
+    public func useSettings(_ values: [String: JSONValue]) {
+        func number(_ key: String) -> Double? {
+            guard let v = values[key] else { return nil }
+            return v.doubleValue ?? v.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        }
+        setIdleOff(values["idleLooksOff"]?.stringValue)
+        iconStyle = values["toolIcons"]?.stringValue ?? "dots"
+        setIconTuning(ms: number("toolIconMs"), dots: number("toolIconDots"))
+    }
+
+    /**
+     * Where dot `n` (i * 3 + arm) goes in a dot shape drawn by `shapeDots` dots: the point of the 78 it takes, or -1 when it is not
+     * in the shape and stays on its arm (docs/face.md section 8, Tuning).
+     */
+    public static func shapePoint(_ n: Int, _ shapeDots: Int) -> Int { n < shapeDots ? n * FaceIcons.dots / shapeDots : -1 }
+
     private func pickIdle() {
         var next = idleIndex
-        while next == idleIndex { next = min(Self.idle.count - 1, Int(random() * Double(Self.idle.count))) }
+        // Never the same look twice in a row, unless it is the only one left on.
+        while next == idleIndex || !idleOn.contains(next) {
+            next = idleOn[min(idleOn.count - 1, Int(random() * Double(idleOn.count)))]
+            if idleOn.count == 1 { break }
+        }
         idleIndex = next
         idleRemaining = 7 + random() * 10
         target = Self.idle[next]
@@ -139,7 +195,7 @@ public final class Face {
         for i in 0..<now.count { now[i] += (target[i] - now[i]) * k }
         // The icon is only ever there while thinking, and comes and goes quickly.
         let wantIcon = mode == "thinking" && icon != nil && iconStyle != "off"
-        iconShown += ((wantIcon ? 1 : 0) - iconShown) * (1 - exp(-dt * 4.2 * 1000 / FaceIcons.ms))
+        iconShown += ((wantIcon ? 1 : 0) - iconShown) * (1 - exp(-dt * 4.2 * 1000 / iconMs))
         let eye = iconShown < 0.01 ? 0 : iconShown > 0.985 ? 1 : iconShown
         if wantIcon { drawnAsDots = iconStyle == "dots" }
         let asDots = drawnAsDots && iconData != nil
@@ -182,9 +238,11 @@ public final class Face {
                 let spark = flash[at]
 
                 let swell = voiced ? voiceSwell * level : now[Self.pulse] * sin(pulsePhase - t * 3)
-                // The arms take turns along an icon's strokes, the inner dots first.
+                // The arms take turns along an icon's strokes, the inner dots first. With fewer dots in the shape than
+                // there are, the outer ones stand off in a ring round it and go on turning.
                 let n = i * Self.arms + arm
-                let inShape = asDots && n < FaceIcons.dots
+                let point = asDots ? Self.shapePoint(n, iconDots) : -1
+                let inShape = point >= 0
                 let room = asDots ? (inShape ? 0 : FaceIcons.shapeHalo * eye) : hole
                 let reach = Self.maxRadius * now[Self.radius] * (1 + swell)
                 let radius = room + max(0, reach - room) * pow(t, 0.85)
@@ -205,14 +263,14 @@ public final class Face {
                 var b: Double = now[Self.blue] * glow + spark * 0.5
                 if inShape && eye > 0, let points = iconData?.points {
                     // Each dot of the shape has a place on the icon; a wave of light runs along the strokes once it is there.
-                    let ix = (points[n * 2] - 12) * shapeUnit
-                    let iy = (points[n * 2 + 1] - 12) * shapeUnit
+                    let ix = (points[point * 2] - 12) * shapeUnit
+                    let iy = (points[point * 2 + 1] - 12) * shapeUnit
                     let toX: Double = Self.size / 2 + ix * swayCos - iy * swaySin
                     let toY: Double = Self.size / 2 + ix * swaySin + iy * swayCos
                     px += (toX - px) * eye
                     py += (toY - py) * eye
                     size += (FaceIcons.shapeDot - size) * eye
-                    let lit: Double = 0.62 + 0.38 * sin(flowPhase - Double(n) * 0.33) + spark * 0.5
+                    let lit: Double = 0.62 + 0.38 * sin(flowPhase - Double(point) * 0.33) + spark * 0.5
                     r += (shapeColor[0] * lit - r) * eye
                     g += (shapeColor[1] * lit - g) * eye
                     b += (shapeColor[2] * lit - b) * eye
