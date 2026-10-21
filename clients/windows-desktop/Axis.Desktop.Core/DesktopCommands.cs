@@ -873,9 +873,11 @@ public static class DesktopIdentity
 
     /**
      * With `voice`, also a microphone, speakers and a screen (the app's pill, which shows what was heard,
-     * the reply and questions): the computer is talked to like a board.
+     * the reply and questions) that also shows pictures in replies: the computer is talked to like a board.
+     * The sound settings and the `chime` action are declared either way: the admin page keeps one list per kind of
+     * device, and a computer with talking off must not take the chime away from one with it on.
      */
-    public static ClientIdentity Create(string version, bool voice = false) => new(Type, version, voice ? ["desktop", "mic", "speaker", "screen"] : ["desktop"], new JsonObject
+    public static ClientIdentity Create(string version, bool voice = false) => new(Type, version, voice ? ["desktop", "mic", "speaker", "screen", "images"] : ["desktop"], new JsonObject
     {
         ["settings"] = new JsonArray(
             Setting("allowLook", "Let agents read the screen", "toggle", "Desktop", "Off refuses every look. The person at the computer can also pause the app from its window or tray.", "1"),
@@ -885,9 +887,12 @@ public static class DesktopIdentity
             Setting("autoUpdate", "Update automatically", "toggle", "Desktop", "When a newer desktop app is on this hub, download it, check it and restart into it.", "1"),
             Setting("confirmRisky", "Ask before risky actions", "toggle", "Desktop", "Axis asks you first (Allow or Deny, here or on a device near you) when an agent would click Send, Delete, Buy and the like, or press Enter in a chat, mail or payment window.", "1"),
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
+            Setting("listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening. Never in quiet hours.", "1"),
+            Setting("taskChime", "Task chime", "toggle", "Sound", "Two soft notes when an agent's long task finishes. Never in quiet hours.", "1"),
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),
         ["actions"] = new JsonArray(
-            new JsonObject { ["name"] = "desktop.hello", ["label"] = "Show the pointer", ["help"] = "The pointer appears in the middle of the screen for a few seconds." }),
+            new JsonObject { ["name"] = "desktop.hello", ["label"] = "Show the pointer", ["help"] = "The pointer appears in the middle of the screen for a few seconds." },
+            new JsonObject { ["name"] = "chime", ["label"] = "Play the chime", ["help"] = "A small bell, as before a timer is announced. Needs talking from this computer on; never in quiet hours." }),
         ["links"] = new JsonArray(),
     });
 

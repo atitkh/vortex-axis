@@ -215,7 +215,7 @@ public sealed class AxisLink : IAsyncDisposable
                     var receivedAt = Environment.TickCount64;
                     _ = Task.Run(() => AnswerAsync(id, name, parameters, ct, receivedAt), ct);
                     break;
-                case "turn" or "transcript" or "reply.text" or "speak.start" or "speak.end" or "stop" or "ask" or "ask.end" or "status":
+                case "turn" or "transcript" or "reply.text" or "reply.image" or "speak.start" or "speak.end" or "stop" or "ask" or "ask.end" or "status":
                     Message?.Invoke(root.GetProperty("t").GetString()!, root.Clone());
                     break;
                 case "error":
@@ -284,6 +284,27 @@ public sealed class AxisLink : IAsyncDisposable
     {
         try { await SendAsync(message, CancellationToken.None); return true; }
         catch { return false; }
+    }
+
+    /**
+     * A POST to one of Axis's client routes (`/v1/timers/cancel`), as this client: its token and id in the headers, as the
+     * web client sends them. True when Axis said yes.
+     */
+    public async Task<bool> PostAsync(string path, JsonObject body, CancellationToken ct = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(Address.Http, path))
+        {
+            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", pairing.Token);
+        request.Headers.Add("x-axis-client", pairing.ClientId);
+        try
+        {
+            using var res = await http.SendAsync(request, ct);
+            return res.IsSuccessStatusCode;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return false; }
     }
 
     /** Sends a frame of microphone audio. */

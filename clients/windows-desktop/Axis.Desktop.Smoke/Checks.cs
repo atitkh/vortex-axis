@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Axis.Desktop;
 
 /** The Core's checks that need no Axis: where clicks land, ids after a scroll, the face's settings. `smoke check`. */
@@ -20,6 +21,12 @@ static class Checks
         ChromeBand();
         await AfterScrollAsync();
         FaceSettings();
+        TapOrHold();
+        Typing();
+        Progress();
+        Timers();
+        SoundChecks();
+        Pictures();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -204,5 +211,200 @@ static class Checks
         var steps = await live.HandleAsync("desktop.steps", Json("""{"data":{"steps":[{"action":"scroll","go":"down"},{"action":"click","id":2}]}}"""), ct);
         Is(steps.Ok, false, "steps: scroll, then click by id gone off the screen");
         Is(fake.Scrolled, 1500, "every scroll reached the computer");
+    }
+
+    /** A microphone and speaker that do nothing but count, for the voice part's checks. */
+    sealed class FakeIo : IVoiceIo
+    {
+        public Action<short[]>? Frame;
+        public int Starts, Stops, Sounds;
+        public void StartCapture(Action<short[]> frame) { Frame = frame; Starts++; }
+        public void StopCapture() { Frame = null; Stops++; }
+        public void PlayBegin(int sampleRate) { }
+        public void PlayWrite(byte[] pcm) { }
+        public void PlayEnd(Action finished) => finished();
+        public bool StopPlayback() => false;
+        public double PlayLevel => 0;
+        public void PlaySound(short[] pcm, int sampleRate) => Sounds++;
+    }
+
+    /** A voice part on a link that never connects: every send fails quietly, and is seen through Sent. */
+    static (Voice, FakeIo, List<JsonObject>, List<byte[]>) NewVoice()
+    {
+        var link = new AxisLink(new Pairing("http://127.0.0.1:9", "c1", "t", "PC"), DesktopIdentity.Create("0.0.0", true));
+        var io = new FakeIo();
+        var voice = new Voice(link, io);
+        // Quiet hours never, and every sound allowed, whatever the time of day the checks run.
+        voice.Sounds.UseSettings(Values("""{"quietFrom":"","quietTo":""}"""));
+        var sent = new List<JsonObject>();
+        var audio = new List<byte[]>();
+        voice.Sent += m => sent.Add(m);
+        voice.SentAudio += a => audio.Add(a);
+        return (voice, io, sent, audio);
+    }
+
+    static string Kinds(List<JsonObject> sent) => string.Join(",", sent.Select(m => m["t"]!.GetValue<string>()));
+
+    static void TapOrHold()
+    {
+        Is(TalkPress.IsTap(1000, 1219), true, "up after 219 ms: a tap");
+        Is(TalkPress.IsTap(1000, 1220), false, "up after 220 ms: a hold");
+
+        // A tap: the microphone opened at once, then closed, and nothing reached Axis.
+        var (voice, io, sent, audio) = NewVoice();
+        Is(voice.Arm(), true, "key down: armed");
+        Is(io.Starts, 1, "the microphone opens at key down");
+        io.Frame!(new short[320]);
+        io.Frame!(new short[320]);
+        Is(voice.Mode, VoiceMode.Idle, "not listening yet while it could be a tap");
+        Is(voice.Disarm(), true, "key up early: a tap");
+        Is((io.Stops, sent.Count, audio.Count), (1, 0, 0), "a tap: microphone closed, nothing sent");
+        Is(voice.Disarm(), false, "a second tap is nothing");
+
+        // A hold: audio.start, then the pre-roll in order, then live audio; the listening cue sounds.
+        (voice, io, sent, audio) = NewVoice();
+        voice.Arm();
+        var loud = Enumerable.Repeat((short)8000, 320).ToArray();
+        for (var i = 0; i < 3; i++) io.Frame!(i == 1 ? loud : new short[320]);
+        Is(audio.Count, 0, "nothing sent before the hold is known");
+        voice.Commit();
+        Is(Kinds(sent), "audio.start", "a hold starts the turn");
+        Is(sent[0]["trigger"]!.GetValue<string>(), "hold", "with trigger hold");
+        Is(audio.Count, 3, "the three pre-roll frames follow");
+        Is(audio[1][0] | audio[1][1] << 8, 8000, "in the order they were heard");
+        Is(voice.Mode, VoiceMode.Listening, "listening");
+        Is(io.Starts, 1, "the microphone was not opened twice");
+        Is(io.Sounds, 1, "the listening cue played");
+        io.Frame!(new short[320]);
+        Is(audio.Count, 4, "live audio after the pre-roll");
+        voice.Release();
+        Is(Kinds(sent), "audio.start,audio.end", "let go: the recording ends");
+        Is(sent[1]["reason"]!.GetValue<string>(), "silence", "and is sent (speech was heard in the pre-roll)");
+
+        // The pre-roll is bounded.
+        (voice, io, sent, audio) = NewVoice();
+        voice.Arm();
+        for (var i = 0; i < TalkPress.PreRollFrames + 20; i++) io.Frame!(new short[320]);
+        voice.Commit();
+        Is(audio.Count, TalkPress.PreRollFrames, "at most PreRollFrames kept");
+
+        // Key down while it thinks: stops it, as before, and is not armed.
+        (voice, io, sent, audio) = NewVoice();
+        voice.Type("hello");
+        sent.Clear();
+        Is(voice.Arm(), false, "key down while thinking is not a tap or hold");
+        Is(Kinds(sent), "interrupt", "it stops the agent");
+    }
+
+    static void Typing()
+    {
+        Is(TypedText.Clean("  hi  "), "hi", "trimmed");
+        Is(TypedText.Clean("   "), null, "blank is not sent");
+        Is(TypedText.Clean(null), null, "nothing is not sent");
+        Is(TypedText.Clean(new string('a', 4000))?.Length, 4000, "4000 characters go");
+        Is(TypedText.Clean(new string('a', 4001)), null, "4001 do not");
+        Is(TypedText.Message("pc-1", "hi").ToJsonString(), """{"t":"text","turnId":"pc-1","text":"hi"}""", "the message's shape");
+
+        var (voice, _, sent, _) = NewVoice();
+        Is(voice.Type(" "), false, "a blank line is not sent");
+        Is(sent.Count, 0, "nothing went");
+        Is(voice.Type("what's the time?\nand the date"), true, "typed");
+        Is(Kinds(sent), "interrupt,text", "stops what was going on, then the text");
+        Is(sent[1]["text"]!.GetValue<string>(), "what's the time?\nand the date", "the words, newline kept");
+        Is(sent[1]["turnId"]!.GetValue<string>().StartsWith("pc-"), true, "a new turn id");
+        Is((voice.Mode, voice.Heard), (VoiceMode.Thinking, "what's the time?\nand the date"), "the pill thinks, with the words");
+    }
+
+    static void Progress()
+    {
+        var glance = new Glance();
+        var chimes = 0;
+        glance.TaskChime += () => chimes++;
+        Is(glance.Handle("desktop.look", Json("{}"), 0), false, "other commands are not the glance's");
+        glance.Handle("progress.show", Json("""{"title":"Backup","note":"copying","done":3,"total":7,"state":"running","count":2,"steps":"xScan\n>Copy\n-Check","others":"!Invoice: which account?"}"""), 0);
+        var t = glance.TaskAt(0)!;
+        Is((t.Word, t.Detail, t.More), ("Working", "3/7", "+1"), "running: word, steps done, more");
+        Is(Math.Round(t.Part!.Value, 3), 0.429, "the bar at 3/7");
+        Is(string.Join("|", t.Steps.Select(r => $"{r.Kind}:{r.Text}")), "done:Scan|running:Copy|pending:Check", "the steps");
+        Is(string.Join("|", t.Others.Select(r => $"{r.Kind}:{r.Text}")), "needs:Invoice: which account?", "the other task, waiting for you");
+        Is(t.HasList, true, "a list to open");
+        glance.Handle("progress.show", Json("""{"title":"Backup","note":"which disk?","done":3,"total":7,"state":"blocked","count":1}"""), 1000);
+        t = glance.TaskAt(1000)!;
+        Is((t.Word, t.Detail, t.More, t.HasList), ("Needs you", "which disk?", "", false), "blocked");
+        glance.Handle("progress.show", Json("""{"title":"Notes","note":"","done":-1,"total":0,"state":"running","count":1}"""), 1500);
+        Is(glance.TaskAt(1500)!.Part, null, "no count of steps: no bar");
+        glance.Handle("progress.show", Json("""{"title":"Backup","note":"","done":7,"total":7,"state":"done","count":1,"chime":true}"""), 2000);
+        t = glance.TaskAt(2000)!;
+        Is((t.Word, t.Part, t.Finished), ("Done", (double?)1, true), "done: full bar");
+        Is(chimes, 1, "the chime Axis asked for");
+        // The same finished task told again (another task changed) does not restart its 90 s.
+        glance.Handle("progress.show", Json("""{"title":"Backup","state":"done","count":1}"""), 50_000);
+        Is(glance.TaskAt(2000 + Glance.DoneShownMs) != null, true, "still shown at 90 s");
+        Is(glance.TaskAt(2001 + Glance.DoneShownMs), null, "gone after 90 s");
+        glance.Handle("progress.show", Json("""{"title":"","note":"","done":-1,"total":0,"state":"none","count":0}"""), 3000);
+        Is(glance.Task, null, "no tasks: nothing");
+        Is(chimes, 1, "no chime without Axis asking");
+    }
+
+    static void Timers()
+    {
+        var glance = new Glance();
+        glance.Handle("timer.next", Json("""{"label":"Pasta","ms":272000,"count":2,"id":7}"""), 10_000);
+        var t = glance.TimerAt(10_000)!;
+        Is((t.Label, t.Clock(10_000), t.More, t.CanCancel, t.Id), ("Pasta", "4:32", "+1", true, (long?)7), "a timer");
+        Is(t.Clock(10_500), "4:32", "rounded up, as the web client");
+        Is(t.Final(10_000 + 262_000), true, "the last ten seconds");
+        Is(t.Final(10_000 + 261_000), false, "eleven left is not");
+        Is(t.Clock(10_000 + 272_000), "0:00", "rung");
+        Is(glance.TimerAt(10_000 + 275_000), null, "gone once rung");
+        glance.Handle("timer.next", Json("""{"label":"","ms":3_904_000,"count":1}""".Replace("_", "")), 0);
+        t = glance.TimerAt(0)!;
+        Is((t.Label, t.Clock(0), t.More, t.CanCancel), ("Timer", "1:05:04", "", false), "unnamed, over an hour, no id (older Axis)");
+        glance.Handle("timer.next", Json("""{"label":"","ms":0,"count":0}"""), 0);
+        Is(glance.Timer, null, "no timer");
+    }
+
+    static void SoundChecks()
+    {
+        Is(Sounds.MinutesOf("22:30"), 1350, "22:30");
+        Is(Sounds.MinutesOf("24:00"), null, "24:00 is not a time");
+        Is(Sounds.Quiet("22:30", "07:00", 23 * 60), true, "over midnight: 23:00 is quiet");
+        Is(Sounds.Quiet("22:30", "07:00", 6 * 60 + 59), true, "06:59 is quiet");
+        Is(Sounds.Quiet("22:30", "07:00", 7 * 60), false, "07:00 is not");
+        Is(Sounds.Quiet("13:00", "14:00", 13 * 60 + 30), true, "same day stretch");
+        Is(Sounds.Quiet("", "", 0), false, "none set");
+        Is(Sounds.Quiet("08:00", "08:00", 8 * 60), false, "equal: none");
+
+        var sounds = new Sounds();
+        var night = new DateTime(2026, 10, 20, 23, 0, 0);
+        var day = new DateTime(2026, 10, 20, 12, 0, 0);
+        sounds.UseSettings(Values("""{"quietFrom":"22:00","quietTo":"07:00","taskChime":false}"""));
+        Is((sounds.May(SoundKind.Chime, night), sounds.May(SoundKind.Listen, night)), (false, false), "nothing in quiet hours");
+        Is((sounds.May(SoundKind.Chime, day), sounds.May(SoundKind.Listen, day), sounds.May(SoundKind.TaskDone, day)), (true, true, false), "task chime off");
+        sounds.UseSettings(Values("""{"listenCue":0}"""));
+        Is((sounds.May(SoundKind.Listen, day), sounds.May(SoundKind.TaskDone, day)), (false, true), "listening cue off as 0");
+
+        Is(Sounds.Envelope(0, 0.02, 0.5), 0.0, "silent at the start");
+        Is(Sounds.Envelope(0.02, 0.02, 0.5), 1.0, "full after the attack");
+        Is(Math.Round(Sounds.Envelope(0.4999, 0.02, 0.5), 3), 0.001, "a thousandth at the end");
+        Is(Sounds.Envelope(0.3, 0.02, 0.5) < Sounds.Envelope(0.2, 0.02, 0.5), true, "falling");
+        foreach (var (kind, ms) in new[] { (SoundKind.TaskDone, 660), (SoundKind.Chime, 950), (SoundKind.Listen, 140) })
+        {
+            var pcm = Sounds.Pcm(kind);
+            Is((int)Math.Round(pcm.Length * 1000.0 / Sounds.Rate), ms, $"{kind}: {ms} ms long");
+            var peak = pcm.Max(x => Math.Abs((int)x)) / 32768.0;
+            Is(peak is > 0.1 and < 0.6, true, $"{kind}: peak {peak:0.00}, heard and not harsh");
+            Is(Math.Abs((int)pcm[0]) < 200 && Math.Abs((int)pcm[^1]) < 200, true, $"{kind}: starts and ends near silence (no click)");
+        }
+    }
+
+    static void Pictures()
+    {
+        var link = new AxisLink(new Pairing("http://192.168.1.20:8440", "c1", "t", "PC"), DesktopIdentity.Create("0.0.0", true));
+        Is(DesktopIdentity.Create("0.0.0", true).Capabilities.Contains("images"), true, "images with talking on");
+        Is(DesktopIdentity.Create("0.0.0", false).Capabilities.Contains("images"), false, "no images with talking off");
+        var actions = DesktopIdentity.Create("0.0.0", false).Describe["actions"]!.AsArray().Select(a => a!["name"]!.GetValue<string>());
+        Is(actions.Contains("chime"), true, "the chime action declared either way");
+        Is(link.Address.Http.ToString(), "http://192.168.1.20:8440/", "the address pictures are fetched from");
     }
 }

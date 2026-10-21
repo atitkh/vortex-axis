@@ -18,6 +18,36 @@ public interface IVoiceIo
     bool StopPlayback();
     /** How loud what is coming out of the speakers is just now, 0 to 1, for the face. */
     double PlayLevel { get; }
+    /** A short sound of the app's own (a chime, the listening cue), beside any speech, to the same speaker. */
+    void PlaySound(short[] pcm, int sampleRate) { }
+}
+
+/** A typed turn (`text`, protocol `Text`): what the web client sends from its text box. */
+public static class TypedText
+{
+    public const int MaxLength = 4000;
+
+    /** The text as it is sent: trimmed; null when there is nothing, or more than Axis takes. */
+    public static string? Clean(string? text)
+    {
+        var t = (text ?? "").Trim();
+        return t.Length is > 0 and <= MaxLength ? t : null;
+    }
+
+    public static JsonObject Message(string turnId, string text) => new() { ["t"] = "text", ["turnId"] = turnId, ["text"] = text };
+}
+
+/**
+ * The talk key, when a tap on it types: the microphone opens at once (so the first syllable of a hold is kept), and
+ * the key coming up before TapMs makes it a tap (what was recorded is dropped) where staying down makes it a hold.
+ */
+public static class TalkPress
+{
+    public const int TapMs = 220;
+    /** At most this much is kept from before a hold is known to be one (frames of about 20 ms). */
+    public const int PreRollFrames = 50;
+
+    public static bool IsTap(long downAt, long upAt) => upAt - downAt < TapMs;
 }
 
 /** What the voice part is doing, for the app to show. */
@@ -49,6 +79,9 @@ public sealed class Voice
     string? turn;           // the turn last heard of from Axis
     string? replyTurn;      // the turn the reply shown belongs to
     int ids;
+    // The talk key is down and it is not yet known whether it is a tap or a hold: the microphone is on, nothing sent.
+    bool armed;
+    readonly List<short[]> preRoll = [];
 
     public VoiceMode Mode { get; private set; }
     /** What was heard, then the reply as it comes; cleared on the next turn. */
@@ -64,6 +97,15 @@ public sealed class Voice
     public double Loudness => Mode == VoiceMode.Listening ? Level : Mode == VoiceMode.Speaking ? io.PlayLevel : -1;
     /** The microphone's level just now, 0 to 1, for a meter. */
     public double Level { get; private set; }
+    /** A picture that came with the reply (`reply.image`), as a full address; cleared with the reply. */
+    public Uri? Picture { get; private set; }
+    string? pictureTurn;
+    /** When the app's sounds may play, from Axis's settings. */
+    public Sounds Sounds { get; } = new();
+    /** Every message this part sends Axis, as it goes (for the checks and the log). */
+    public event Action<JsonObject>? Sent;
+    /** Every frame of microphone audio sent, as it goes. */
+    public event Action<byte[]>? SentAudio;
     /** Anything shown changed. */
     public event Action? Changed;
 
@@ -84,9 +126,33 @@ public sealed class Voice
             var was = Mode;
             if (playing != null) { io.StopPlayback(); playing = null; }
             if (askId != null) { askId = null; Question = null; Choices = []; }
+            if (armed) Disarm();
             if (was is VoiceMode.Transcribing or VoiceMode.Thinking or VoiceMode.Speaking) { Doing = null; Set(VoiceMode.Idle); }
             else Changed?.Invoke();
         }
+    }
+
+    Task<bool> Send(JsonObject message)
+    {
+        Sent?.Invoke(message);
+        return link.TrySendAsync(message);
+    }
+
+    Task<bool> SendAudio(byte[] pcm)
+    {
+        SentAudio?.Invoke(pcm);
+        return link.TrySendAudioAsync(pcm);
+    }
+
+    /** Plays one of the app's sounds if the settings and the hour allow it, and nothing is being said. True when it played. */
+    public bool Play(SoundKind kind)
+    {
+        if (!Sounds.May(kind, DateTime.Now)) return false;
+        // A finished task's notes never over the agent's voice or the person's.
+        if (kind == SoundKind.TaskDone && (playing != null || recording != null)) return false;
+        try { io.PlaySound(Sounds.Pcm(kind), Sounds.Rate); }
+        catch (Exception e) { Failed?.Invoke($"sound: {e.Message}"); return false; }
+        return true;
     }
 
     bool Busy => Mode is VoiceMode.Transcribing or VoiceMode.Thinking or VoiceMode.Speaking;
@@ -126,7 +192,7 @@ public sealed class Voice
             Question = null;
             Choices = [];
         }
-        _ = link.TrySendAsync(new JsonObject { ["t"] = "answer", ["askId"] = id, ["choice"] = choice });
+        _ = Send(new JsonObject { ["t"] = "answer", ["askId"] = id, ["choice"] = choice });
         Changed?.Invoke();
     }
 
@@ -147,28 +213,129 @@ public sealed class Voice
         }
     }
 
-    void Start(string trigger)
+    string NewId() => $"pc-{Environment.TickCount64:x}-{++ids}";
+
+    /**
+     * The talk key went down where a tap types (no separate typing key). As Press while listening, thinking or speaking
+     * (and false); otherwise the microphone opens with nothing sent yet, and true: then Commit (a hold) or Disarm (a tap).
+     */
+    public bool Arm()
     {
-        var id = $"pc-{Environment.TickCount64:x}-{++ids}";
+        lock (gate)
+        {
+            if (recording != null || Busy || playing != null || armed)
+            {
+                if (!armed) Press();
+                return false;
+            }
+            preRoll.Clear();
+            armed = true;
+            try { io.StartCapture(OnFrame); }
+            catch (Exception e)
+            {
+                armed = false;
+                Reply = $"The microphone could not start: {e.Message}";
+                Set(VoiceMode.Error);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /** The key is still down after TapMs: a hold. Listening starts with what was recorded since the key went down. */
+    public void Commit()
+    {
+        lock (gate)
+        {
+            if (!armed) return;
+            armed = false;
+            Start(askId != null ? "question" : "hold", capturing: true);
+            holding = true;
+            var kept = preRoll.ToList();
+            preRoll.Clear();
+            foreach (var frame in kept)
+            {
+                var bytes = new byte[frame.Length * 2];
+                Buffer.BlockCopy(frame, 0, bytes, 0, bytes.Length);
+                _ = SendAudio(bytes);
+            }
+            // Speech in the pre-roll counts as speech.
+            if (kept.Any(f => Rms(f) > SpeechLevel)) spoke = true;
+        }
+    }
+
+    /** The key came up before TapMs: a tap. What was recorded is dropped and nothing was sent. True when it was armed. */
+    public bool Disarm()
+    {
+        lock (gate)
+        {
+            if (!armed) return false;
+            armed = false;
+            preRoll.Clear();
+            try { io.StopCapture(); } catch { }
+            return true;
+        }
+    }
+
+    static double Rms(short[] samples)
+    {
+        double energy = 0;
+        foreach (var x in samples) energy += (double)x * x;
+        return Math.Sqrt(energy / Math.Max(1, samples.Length)) / 32768.0;
+    }
+
+    /**
+     * A typed turn, as the web client sends it (web/client.js 1126-1139): whatever is being said or recorded stops,
+     * then `text` goes with a new turn id. Typed while a question is open, Axis takes it as the answer. False when
+     * there is nothing to send (empty, or over 4000 characters).
+     */
+    public bool Type(string text)
+    {
+        var clean = TypedText.Clean(text);
+        if (clean == null) return false;
+        lock (gate)
+        {
+            if (armed) Disarm();
+            Interrupt();
+            // Axis answers the question with it and ends it; the choices go now.
+            if (askId != null) { askId = null; Question = null; Choices = []; }
+            var id = NewId();
+            Heard = clean;
+            Reply = "";
+            Picture = null;
+            replyTurn = id;
+            _ = Send(TypedText.Message(id, clean));
+            Doing = null;
+            Set(VoiceMode.Thinking);
+        }
+        return true;
+    }
+
+    void Start(string trigger, bool capturing = false)
+    {
+        var id = NewId();
         recording = id;
         holding = false;
         spoke = false;
         quietSince = 0;
         startedAt = Environment.TickCount64;
         Heard = Reply = "";
+        Picture = null;
         Set(VoiceMode.Listening);
-        _ = link.TrySendAsync(new JsonObject
+        _ = Send(new JsonObject
         {
             ["t"] = "audio.start",
             ["turnId"] = id,
             ["format"] = new JsonObject { ["encoding"] = "pcm_s16le", ["sampleRate"] = MicRate, ["channels"] = 1 },
             ["trigger"] = trigger,
         });
+        Play(SoundKind.Listen);
+        if (capturing) return;
         try { io.StartCapture(OnFrame); }
         catch (Exception e)
         {
             recording = null;
-            _ = link.TrySendAsync(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = "cancel" });
+            _ = Send(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = "cancel" });
             Reply = $"The microphone could not start: {e.Message}";
             Set(VoiceMode.Error);
         }
@@ -179,6 +346,13 @@ public sealed class Voice
         byte[] bytes;
         lock (gate)
         {
+            if (armed)
+            {
+                // Not yet known to be a hold: kept, and sent if it becomes one.
+                if (preRoll.Count >= TalkPress.PreRollFrames) preRoll.RemoveAt(0);
+                preRoll.Add(samples);
+                return;
+            }
             if (recording == null) return;
             double energy = 0;
             foreach (var x in samples) energy += (double)x * x;
@@ -196,7 +370,7 @@ public sealed class Voice
             }
             bytes = new byte[samples.Length * 2];
             Buffer.BlockCopy(samples, 0, bytes, 0, bytes.Length);
-            _ = link.TrySendAudioAsync(bytes);
+            _ = SendAudio(bytes);
             if (!holding && spoke && quietSince != 0 && now - quietSince > QuietMs) Finish("silence");
             else if (now - startedAt > MaxMs) Finish("max");
             else if (!holding && !spoke && now - startedAt > NothingSaidMs) Finish("cancel");
@@ -213,7 +387,7 @@ public sealed class Voice
         holding = false;
         Level = 0;
         try { io.StopCapture(); } catch { }
-        _ = link.TrySendAsync(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = reason });
+        _ = Send(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = reason });
         Set(reason == "cancel" ? VoiceMode.Idle : VoiceMode.Transcribing);
     }
 
@@ -225,8 +399,8 @@ public sealed class Voice
             if (recording != null) Finish("cancel");
             var was = playing;
             playing = null;
-            if (io.StopPlayback() && was != null) _ = link.TrySendAsync(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
-            _ = link.TrySendAsync(new JsonObject { ["t"] = "interrupt" });
+            if (io.StopPlayback() && was != null) _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
+            _ = Send(new JsonObject { ["t"] = "interrupt" });
             Set(VoiceMode.Idle);
         }
     }
@@ -279,8 +453,18 @@ public sealed class Voice
                     var final = m.TryGetProperty("final", out var f) && f.ValueKind == JsonValueKind.True;
                     // Another turn's words (an announcement after an answer) start afresh.
                     if (S("turnId") != replyTurn) Reply = "";
+                    if (S("turnId") != pictureTurn) Picture = null;
                     replyTurn = S("turnId");
                     Reply = final ? text : Reply + text;
+                    Changed?.Invoke();
+                    break;
+                }
+                case "reply.image":
+                {
+                    var url = S("url");
+                    if (url == null || !Uri.TryCreate(link.Address.Http, url, out var full) || full.Scheme is not ("http" or "https")) break;
+                    Picture = full;
+                    pictureTurn = S("turnId");
                     Changed?.Invoke();
                     break;
                 }
@@ -294,7 +478,7 @@ public sealed class Voice
                     if (playing != null) io.StopPlayback();
                     playing = id;
                     io.PlayBegin(rate);
-                    _ = link.TrySendAsync(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "started" });
+                    _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "started" });
                     Set(VoiceMode.Speaking);
                     break;
                 }
@@ -308,7 +492,7 @@ public sealed class Voice
                         {
                             if (playing != id) return;
                             playing = null;
-                            _ = link.TrySendAsync(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "finished" });
+                            _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "finished" });
                             if (Mode == VoiceMode.Speaking) Set(VoiceMode.Idle);
                         }
                     });
@@ -333,7 +517,7 @@ public sealed class Voice
                 {
                     var was = playing;
                     playing = null;
-                    if (io.StopPlayback() && was != null) _ = link.TrySendAsync(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
+                    if (io.StopPlayback() && was != null) _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
                     if (Mode == VoiceMode.Speaking) Set(VoiceMode.Idle);
                     break;
                 }
