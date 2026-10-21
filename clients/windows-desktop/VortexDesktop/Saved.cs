@@ -29,6 +29,8 @@ public sealed class Saved
     public bool KeepFace { get; set; }
     /** The talk key, one of App.TalkKeys. */
     public string TalkKey { get; set; } = "ctrl+alt+space";
+    /** A key of its own for typing to the agent, one of App.TalkKeys; empty: a tap on the talk key types. */
+    public string TypingKey { get; set; } = "";
     /** Microphone and speaker by Windows' number for them; -1 is Windows' default. */
     public int MicDevice { get; set; } = -1;
     public int SpeakerDevice { get; set; } = -1;

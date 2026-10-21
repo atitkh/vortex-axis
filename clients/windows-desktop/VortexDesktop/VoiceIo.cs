@@ -186,6 +186,32 @@ sealed class VoiceIo : IVoiceIo
         });
     }
 
+    /** A short sound beside the speech, to the same speaker, on a player of its own so speech is not disturbed. */
+    public void PlaySound(short[] pcm, int sampleRate)
+    {
+        var bytes = new byte[pcm.Length * 2];
+        Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
+        foreach (var device in OutputDevice == -1 ? new[] { -1 } : new[] { OutputDevice, -1 })
+        {
+            var source = new RawSourceWaveStream(new System.IO.MemoryStream(bytes), new WaveFormat(sampleRate, 16, 1));
+            var wave = new WaveOutEvent { DeviceNumber = device, DesiredLatency = 100 };
+            try
+            {
+                wave.Init(source);
+                // Disposing from inside its own stopped event is not allowed, so that waits a moment.
+                wave.PlaybackStopped += (_, _) => System.Threading.Tasks.Task.Delay(200).ContinueWith(_ => { wave.Dispose(); source.Dispose(); });
+                wave.Play();
+                return;
+            }
+            catch (Exception e)
+            {
+                wave.Dispose();
+                source.Dispose();
+                Diag.Log($"speaker {device} did not play a sound: {e.Message}");
+            }
+        }
+    }
+
     public bool StopPlayback()
     {
         lock (gate) return StopPlaybackLocked();

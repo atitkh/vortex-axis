@@ -34,6 +34,35 @@ static class Native
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+    /** Left out of every capture of the screen (Windows 10 2004 and later). */
+    public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    /**
+     * Brings one of the app's own windows to the front with the keyboard focus. Windows lets only the app in front do
+     * that, so for a moment this app's input is joined to the one in front.
+     */
+    public static void ForceFront(IntPtr hwnd)
+    {
+        var front = GetForegroundWindow();
+        if (front == hwnd) return;
+        var theirs = GetWindowThreadProcessId(front, out _);
+        var ours = GetCurrentThreadId();
+        var joined = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true);
+        try
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (joined) AttachThreadInput(ours, theirs, false);
+        }
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
     [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);

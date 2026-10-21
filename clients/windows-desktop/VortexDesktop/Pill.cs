@@ -10,8 +10,8 @@ namespace Axis.Desktop.App;
 
 /**
  * The look the app's notices at the top of the screen share: a dark rounded pill with a soft shadow, a thin
- * edge and a glowing dot in the colour of what is going on, fading in and out. Click-through, and it never
- * takes the focus. What goes inside is the notice's own.
+ * edge and a glowing dot in the colour of what is going on, fading in and out. Click-through, it never
+ * takes the focus (the typing pill alone does), and it is left out of captures of the screen. What goes inside is the notice's own.
  */
 abstract class Pill : Window
 {
@@ -58,6 +58,8 @@ abstract class Pill : Window
             var hwnd = new WindowInteropHelper(this).Handle;
             var style = Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE);
             Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, style | Native.WS_EX_TRANSPARENT | Native.WS_EX_LAYERED | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
+            // Never in a capture of the screen (an agent's look or picture, or anyone's screenshot): what it shows is the person's.
+            Native.SetWindowDisplayAffinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
         };
         SizeChanged += (_, _) => Place();
     }

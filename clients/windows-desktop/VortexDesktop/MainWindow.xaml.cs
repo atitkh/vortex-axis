@@ -37,6 +37,7 @@ public partial class MainWindow : Window
         filling = true;
         var saved = AppNow.Saved;
         Fill(KeyBox, App.TalkKeys.Select(k => (k.Id, k.Label)), saved.TalkKey);
+        Fill(TypingKeyBox, App.TypingKeys, saved.TypingKey);
         // Listing the sound devices asks Windows, which can fail: the page then offers the default only.
         Fill(MicBox, Devices(() => VoiceIo.Inputs().Select(d => (d.Id.ToString(), d.Name))), saved.MicDevice.ToString());
         Fill(SpeakerBox, Devices(() => VoiceIo.Outputs().Select(d => (d.Id.ToString(), d.Name))), saved.SpeakerDevice.ToString());
@@ -117,6 +118,11 @@ public partial class MainWindow : Window
     void OnKey(object sender, SelectionChangedEventArgs e)
     {
         if (!filling) AppNow.SetTalkKey(Chosen(KeyBox));
+    }
+
+    void OnTypingKey(object sender, SelectionChangedEventArgs e)
+    {
+        if (!filling) AppNow.SetTypingKey(Chosen(TypingKeyBox));
     }
 
     void OnDevices(object sender, SelectionChangedEventArgs e)

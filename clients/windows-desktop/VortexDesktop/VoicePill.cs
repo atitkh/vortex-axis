@@ -9,8 +9,8 @@ namespace Axis.Desktop.App;
 /**
  * At the top of the main screen while talking from this computer (under the "using this computer" pill when
  * both show): a dot and a word in the colour of the moment (listening, thinking, speaking; the dot swells
- * with the voice while listening), what was heard in quotes, and the reply. A question waiting here shows
- * with its choices. It fades a few seconds after the answer.
+ * with the voice while listening), what was heard (or typed) in quotes, the reply, and a picture that came
+ * with it. A question waiting here shows with its choices. It fades a few seconds after the answer.
  */
 sealed class VoicePill : Pill
 {
@@ -20,6 +20,9 @@ sealed class VoicePill : Pill
     readonly Border rule = new() { Height = 1, Margin = new Thickness(0, 7, 0, 6), Background = Frozen(new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF))) };
     readonly WrapPanel buttons = new() { Margin = new Thickness(0, 9, 0, 0), Visibility = Visibility.Collapsed };
     readonly DispatcherTimer linger = new() { Interval = TimeSpan.FromSeconds(6) };
+    // A picture from the reply: rounded, at most 360 by 240, fetched from Axis by its unguessable address.
+    readonly Image image = new() { MaxWidth = 360, MaxHeight = 240, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 9, 0, 0), Visibility = Visibility.Collapsed };
+    Uri? pictureShown;
 
     public VoicePill()
     {
@@ -36,7 +39,9 @@ sealed class VoicePill : Pill
         text.Children.Add(heard);
         text.Children.Add(rule);
         text.Children.Add(reply);
+        text.Children.Add(image);
         text.Children.Add(buttons);
+        image.SizeChanged += (_, e) => image.Clip = new RectangleGeometry(new Rect(e.NewSize), 10, 10);
         var row = new DockPanel();
         DockPanel.SetDock(Dot, Dock.Left);
         row.Children.Add(Dot);
@@ -92,6 +97,30 @@ sealed class VoicePill : Pill
         if (IsVisible) Place();
     }
 
+    void Picture(Uri? url)
+    {
+        if (url == pictureShown) return;
+        pictureShown = url;
+        image.Source = null;
+        image.Visibility = Visibility.Collapsed;
+        if (url == null) return;
+        try
+        {
+            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = url;
+            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = 720;
+            bitmap.EndInit();
+            // A picture that is gone (kept a day) or cannot be read is simply not shown.
+            bitmap.DownloadFailed += (_, _) => { if (pictureShown == url) image.Visibility = Visibility.Collapsed; };
+            bitmap.DecodeFailed += (_, _) => { if (pictureShown == url) image.Visibility = Visibility.Collapsed; };
+            image.Source = bitmap;
+            image.Visibility = Visibility.Visible;
+        }
+        catch (Exception e) { Diag.Log($"picture {url}: {e.Message}"); }
+    }
+
     void Lines(string? said, string? answer)
     {
         heard.Text = said ?? "";
@@ -117,7 +146,7 @@ sealed class VoicePill : Pill
         };
         // A question waiting here: said in the pill, with its choices, until answered.
         var asking = voice.Question != null && voice.Mode is VoiceMode.Idle or VoiceMode.Listening;
-        if (asking && voice.Mode == VoiceMode.Idle) (words, colour) = ($"Question · {App.TalkKeyLabel} to answer", Color.FromRgb(0x4D, 0x94, 0xFF));
+        if (asking && voice.Mode == VoiceMode.Idle) (words, colour) = (App.TypingKeyLabel == null ? $"Question · hold {App.TalkKeyLabel} to answer, tap to type" : $"Question · {App.TalkKeyLabel} to answer", Color.FromRgb(0x4D, 0x94, 0xFF));
         status.Text = words;
         status.Foreground = new SolidColorBrush(colour);
         Tint(colour);
@@ -126,6 +155,7 @@ sealed class VoicePill : Pill
         if (asking)
         {
             Lines(voice.Question, "");
+            Picture(null);
             Buttons(voice.Choices);
             heard.FontStyle = FontStyles.Normal;
             linger.Stop();
@@ -135,10 +165,15 @@ sealed class VoicePill : Pill
         Buttons([]);
         heard.FontStyle = FontStyles.Italic;
         Lines(voice.Heard.Length > 0 ? $"“{voice.Heard}”" : "", voice.Reply);
+        Picture(voice.Picture);
+        // A picture is given longer to be looked at.
+        // (Set only when it changes: setting it starts the count again, and this is called many times a second.)
+        var stay = TimeSpan.FromSeconds(voice.Picture != null ? 12 : 6);
+        if (linger.Interval != stay) linger.Interval = stay;
         if (voice.Mode == VoiceMode.Idle)
         {
             // Done: the answer stays a moment to be read, then the pill goes. Nothing said: it goes now.
-            if (voice.Reply.Length == 0 && voice.Heard.Length == 0) { linger.Stop(); FadeOut(); }
+            if (voice.Reply.Length == 0 && voice.Heard.Length == 0 && voice.Picture == null) { linger.Stop(); FadeOut(); }
             else if (Up && !linger.IsEnabled) linger.Start();
             return;
         }
@@ -152,5 +187,12 @@ sealed class VoicePill : Pill
     {
         linger.Stop();
         Vanish();
+    }
+
+    /** Out of the way while the typing pill has its place; the next Show brings it back. */
+    public void Away()
+    {
+        linger.Stop();
+        if (Up) Vanish();
     }
 }

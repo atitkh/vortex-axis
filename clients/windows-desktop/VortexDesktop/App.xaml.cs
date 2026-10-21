@@ -26,7 +26,7 @@ public partial class App : System.Windows.Application
     public static string Version { get; } =
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
 
-    const int HotkeyId = 0xA515, TalkKeyId = 0xA516;
+    const int HotkeyId = 0xA515, TalkKeyId = 0xA516, TypingKeyId = 0xA517;
 
     /** Talk keys to choose from: modifiers and the virtual key Windows knows it by. */
     public static readonly (string Id, string Label, uint Mods, int Vk)[] TalkKeys =
@@ -42,6 +42,13 @@ public partial class App : System.Windows.Application
     int talkVk = 0x20;
     Voice? voice;
     VoicePill? pill;
+    // Tasks and timers Axis tells every client with a screen about, and the pill that shows them.
+    readonly Glance glance = new();
+    TaskPill? taskPill;
+    TypingPill? typing;
+    // The window that was in front when the typing pill opened, to give the front back to.
+    IntPtr typingFrom;
+    WindowsDesktop? desktop;
     ControlPill? controlPill;
     FaceWindow? faceWindow;
     readonly VoiceIo voiceIo = new();
@@ -101,7 +108,7 @@ public partial class App : System.Windows.Application
         RemoveOldBuild();
         overlay = new Overlay();
         var reader = new ScreenReader();
-        var desktop = new WindowsDesktop(reader, overlay, () => pointerSize) { StepAside = () => { controlPill?.StepAside(); faceWindow?.StepAside(); } };
+        desktop = new WindowsDesktop(reader, overlay, () => pointerSize) { StepAside = () => { controlPill?.StepAside(); faceWindow?.StepAside(); } };
         commands = new DesktopCommands(desktop) { Paused = saved.Paused };
         commands.Did += line => Dispatcher.BeginInvoke(() =>
         {
@@ -109,6 +116,28 @@ public partial class App : System.Windows.Application
             controlPill?.Did(line);
         });
         controlPill = new ControlPill();
+        // Stacked at the top: the "using this computer" pill, tasks and timers, then the voice or typing pill.
+        taskPill = new TaskPill
+        {
+            Below = () => controlPill?.Room ?? 0,
+            CancelTimer = id => _ = CancelTimerAsync(id),
+            PutAway = () => _ = link?.TrySendAsync(new System.Text.Json.Nodes.JsonObject { ["t"] = "gesture", ["gesture"] = "swipe_down" }),
+        };
+        controlPill.Moved += taskPill.Replace;
+        typing = new TypingPill { Below = () => (controlPill?.Room ?? 0) + (taskPill?.Room ?? 0) };
+        typing.Send += SendTyped;
+        typing.Cancel += giveBack => CloseTyping(giveBack);
+        typing.Chose += choice =>
+        {
+            voice?.Answer(choice);
+            CloseTyping(true);
+        };
+        glance.Changed += () =>
+        {
+            if (saved.Voice) taskPill.Show(glance);
+            else taskPill.Dismiss();
+        };
+        glance.TaskChime += () => voice?.Play(SoundKind.TaskDone);
         faceWindow = new FaceWindow();
         faceWindow.Loudness = () => voice?.Loudness ?? -1;
         faceWindow.Clicked += () => { if (voice != null && !Paused && State == LinkState.Online) voice.Press(); };
@@ -176,6 +205,13 @@ public partial class App : System.Windows.Application
             OnCommand = (name, p, ct) =>
             {
                 if (name == "update") return UpdateAsync(pairing, p, ct);
+                // The task line and the timer: shown in the task pill (Axis sends them only while talking is on: `screen`).
+                if (name is "progress.show" or "timer.next")
+                    return Dispatcher.InvokeAsync(() => { glance.Handle(name, p, Environment.TickCount64); return CommandAnswer.Done(); }).Task;
+                // Axis's chime, before it says a timer has finished.
+                if (name == "chime")
+                    return Task.FromResult(voice == null ? CommandAnswer.Fail("talking from this computer is off")
+                        : voice.Play(SoundKind.Chime) ? CommandAnswer.Done() : CommandAnswer.Fail("no sound now: quiet hours"));
                 // An agent at this computer is shown for as long as it is (not the admin page's "Show the pointer").
                 if (name.StartsWith("desktop.", StringComparison.Ordinal) && name != "desktop.hello" && !Paused && saved.ShowControl)
                     Dispatcher.BeginInvoke(() => controlPill?.Touch());
@@ -187,6 +223,8 @@ public partial class App : System.Windows.Application
         {
             StateWhy = why;
             if (state == LinkState.Refused) Note(why ?? "Axis refused this computer");
+            // Axis tells tasks and timers again on the next connection; until then they may be out of date.
+            if (state != LinkState.Online && state != LinkState.Connecting) glance.Clear();
             UpdateTray();
             Changed?.Invoke();
         });
@@ -195,6 +233,7 @@ public partial class App : System.Windows.Application
             commands!.UseSettings(values);
             faceWindow?.UseSettings(values);
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
+            voice?.Sounds.UseSettings(values);
         });
         if (saved.Voice)
         {
@@ -202,12 +241,14 @@ public partial class App : System.Windows.Application
             voice.Failed += why => Diag.Log($"voice: {why}");
             if (pill == null)
             {
-                pill = new VoicePill { Below = () => controlPill?.Room ?? 0, Chose = choice => voice?.Answer(choice) };
+                pill = new VoicePill { Below = () => (controlPill?.Room ?? 0) + (taskPill?.Room ?? 0), Chose = choice => voice?.Answer(choice) };
                 if (controlPill != null) controlPill.Moved += () => pill.Replace();
+                if (taskPill != null) taskPill.Moved += () => pill.Replace();
             }
             voice.Changed += () => Dispatcher.BeginInvoke(() =>
             {
-                if (voice != null) pill.Show(voice);
+                // While typing, the typing pill has the place; the voice pill comes back when it closes.
+                if (voice != null && typing?.IsOpen != true) pill.Show(voice);
                 ShowFace();
             });
         }
@@ -229,9 +270,11 @@ public partial class App : System.Windows.Application
         saved.Voice = on;
         saved.Store();
         if (voiceItem != null) voiceItem.Checked = on;
+        if (typing?.IsOpen == true) CloseTyping(true);
         voice?.Interrupt();
         voice = null;
         pill?.Dismiss();
+        glance.Clear();
         if (link != null && saved.Pairing is { } pairing)
         {
             await link.StopAsync();
@@ -399,28 +442,87 @@ public partial class App : System.Windows.Application
         tray.Text = $"VorteX Axis: {state}";
     }
 
-    /** After the talk key: still down after a moment makes it a hold, which ends when Space comes up. */
-    void WatchTalkKey()
+    /**
+     * After the talk key: still down after a moment makes it a hold, which ends when the key comes up. `armed` (a tap
+     * types): the microphone is already on; up before TalkPress.TapMs is a tap, which drops it and opens the typing pill.
+     */
+    void WatchTalkKey(bool armed)
     {
-        var pressed = DateTime.UtcNow;
+        var pressed = Environment.TickCount64;
         var held = false;
         var watch = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
         watch.Tick += (_, _) =>
         {
+            var now = Environment.TickCount64;
             var down = (Native.GetAsyncKeyState(talkVk) & 0x8000) != 0;
             if (down)
             {
-                if (!held && DateTime.UtcNow - pressed > TimeSpan.FromMilliseconds(350))
+                if (!held && now - pressed >= (armed ? TalkPress.TapMs : 350))
                 {
                     held = true;
-                    voice?.Hold();
+                    if (armed) voice?.Commit();
+                    else voice?.Hold();
                 }
                 return;
             }
             watch.Stop();
             if (held) voice?.Release();
+            else if (armed && voice?.Disarm() == true) OpenTyping();
         };
         watch.Start();
+    }
+
+    // --- typing to the agent --------------------------------------------------------------------
+
+    /** A tap on the talk key (or the typing key): the typing pill, in the voice pill's place. Again while open: closes it. */
+    void OpenTyping()
+    {
+        if (typing == null) return;
+        if (typing.IsOpen) { CloseTyping(true); return; }
+        if (voice == null) { Note("Typing to Vortex needs \"Talk from this computer\" on (Settings)"); return; }
+        if (Paused || State != LinkState.Online) return;
+        typingFrom = Native.GetForegroundWindow();
+        pill?.Away();
+        typing.Open(voice.Question, voice.Choices);
+    }
+
+    void SendTyped(string text)
+    {
+        var v = voice;
+        if (v == null || State != LinkState.Online)
+        {
+            Note("⚠ Not connected to Axis; what you typed was not sent");
+            CloseTyping(true);
+            return;
+        }
+        // Sent first, so the voice pill that takes the place back already says it is thinking.
+        v.Type(text);
+        CloseTyping(true);
+    }
+
+    /** Closes the typing pill; `giveBack`: the window that was in front before it is in front again. */
+    void CloseTyping(bool giveBack)
+    {
+        typing?.Shut(giveBack ? GiveBackFront : null);
+        typingFrom = giveBack ? IntPtr.Zero : typingFrom;
+        if (voice != null) pill?.Show(voice);
+    }
+
+    void GiveBackFront()
+    {
+        var to = typingFrom;
+        if (to == IntPtr.Zero || !Native.IsWindow(to) || typing == null) return;
+        Native.SetForegroundWindow(to);
+        // An agent that acted while the pill had the keyboard would otherwise type into the pill's place.
+        desktop?.GaveBack(typing.Handle, to);
+    }
+
+    /** × on the timer: as the web client's cancel button. Axis then sends the next timer, or none, to every screen. */
+    async Task CancelTimerAsync(long id)
+    {
+        if (link == null) return;
+        var ok = await link.PostAsync("/v1/timers/cancel", new System.Text.Json.Nodes.JsonObject { ["id"] = id });
+        if (!ok) Note("⚠ The timer could not be cancelled");
     }
 
     public void OpenWindow()
@@ -447,11 +549,51 @@ public partial class App : System.Windows.Application
     /** The talk key as people read it. */
     public static string TalkKeyLabel { get; private set; } = "Ctrl+Alt+Space";
 
+    /** Typing keys to choose from: none (a tap on the talk key types), or one of the talk keys' list. */
+    public static IEnumerable<(string Id, string Label)> TypingKeys =>
+        new[] { ("", "None: a tap on the talk key") }.Concat(TalkKeys.Select(k => (k.Id, k.Label)));
+
+    /** Registers the typing key, if one is chosen and it is not the talk key. */
+    void ApplyTypingKey()
+    {
+        if (hotkeyWindow == IntPtr.Zero) return;
+        Native.UnregisterHotKey(hotkeyWindow, TypingKeyId);
+        var key = TalkKeys.FirstOrDefault(k => k.Id == saved.TypingKey);
+        if (key.Label == null || key.Id == (TalkKeys.Any(k => k.Id == saved.TalkKey) ? saved.TalkKey : TalkKeys[0].Id))
+        {
+            TypingKeyLabel = null;
+            return;
+        }
+        if (!Native.RegisterHotKey(hotkeyWindow, TypingKeyId, key.Mods | Native.MOD_NOREPEAT, (uint)key.Vk))
+        {
+            Note($"⚠ {key.Label} is taken by another app; pick another typing key in Settings");
+            TypingKeyLabel = null;
+            return;
+        }
+        TypingKeyLabel = key.Label;
+    }
+
+    /** The typing key as people read it; null when a tap on the talk key types. */
+    public static string? TypingKeyLabel { get; private set; }
+
+    /** A tap on the talk key types, unless a typing key of its own is chosen. */
+    bool TapTypes => TypingKeyLabel == null;
+
+    public void SetTypingKey(string id)
+    {
+        saved.TypingKey = id;
+        saved.Store();
+        ApplyTypingKey();
+        Note(TypingKeyLabel != null ? $"Typing key: {TypingKeyLabel}" : $"Typing: a tap on {TalkKeyLabel}");
+    }
+
     public void SetTalkKey(string id)
     {
         saved.TalkKey = id;
         saved.Store();
         ApplyTalkKey();
+        // The typing key may have been the same key.
+        ApplyTypingKey();
         Note($"Talk key: {TalkKeyLabel}");
     }
 
@@ -500,14 +642,28 @@ public partial class App : System.Windows.Application
         // agent thinks or speaks, it stops it.
         hotkeyWindow = hwnd;
         ApplyTalkKey();
+        ApplyTypingKey();
         HwndSource.FromHwnd(hwnd)!.AddHook((IntPtr h, int msg, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (msg == Native.WM_HOTKEY && w.ToInt32() == TalkKeyId)
             {
                 handled = true;
                 if (voice == null || Paused || State != LinkState.Online) return IntPtr.Zero;
-                voice.Press();
-                WatchTalkKey();
+                // The talk key while typing: the typing is put away, and the key does what it always does.
+                if (typing?.IsOpen == true) CloseTyping(true);
+                // With no typing key, a tap types and a hold talks; the microphone opens at once either way.
+                if (TapTypes) { if (voice.Arm()) WatchTalkKey(armed: true); }
+                else
+                {
+                    voice.Press();
+                    WatchTalkKey(armed: false);
+                }
+                return IntPtr.Zero;
+            }
+            if (msg == Native.WM_HOTKEY && w.ToInt32() == TypingKeyId)
+            {
+                handled = true;
+                OpenTyping();
                 return IntPtr.Zero;
             }
             if (msg == Native.WM_HOTKEY && w.ToInt32() == HotkeyId)
@@ -569,6 +725,15 @@ sealed class WindowsDesktop : IDesktop
     }
 
     void IntendFront() => Intend(Native.GetForegroundWindow());
+
+    /**
+     * The typing pill gave the front back to `front`. Had an agent acted while the pill had the keyboard, it took the
+     * pill for its window; it works in `front` again.
+     */
+    public void GaveBack(IntPtr pill, IntPtr front)
+    {
+        if (intended == pill) Intend(front);
+    }
 
     /**
      * Before typing or keys: makes sure the window the agent is working in is in front (a dialog it owns

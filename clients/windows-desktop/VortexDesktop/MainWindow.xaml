@@ -100,7 +100,10 @@
                     </CheckBox>
                     <TextBlock Text="Talk key" Style="{StaticResource Label}" />
                     <ComboBox x:Name="KeyBox" SelectionChanged="OnKey" />
-                    <TextBlock Text="A press listens until you pause, held it listens until you let go, and while Vortex thinks or speaks it stops it." Style="{StaticResource Help}" Margin="0,6,0,0" />
+                    <TextBlock Text="Held, it listens until you let go; tapped, it opens a field to type to Vortex (or, with a typing key below, it listens until you pause). While Vortex thinks or speaks it stops it." Style="{StaticResource Help}" Margin="0,6,0,0" />
+                    <TextBlock Text="Typing key" Style="{StaticResource Label}" />
+                    <ComboBox x:Name="TypingKeyBox" SelectionChanged="OnTypingKey" />
+                    <TextBlock Text="Opens a field at the top of the screen: Enter sends, Shift+Enter starts a new line, Esc cancels, Up brings back the last message. The reply is shown and spoken as for talking." Style="{StaticResource Help}" Margin="0,6,0,0" />
                     <TextBlock Text="Microphone" Style="{StaticResource Label}" />
                     <ComboBox x:Name="MicBox" SelectionChanged="OnDevices" />
                     <TextBlock Text="Speaker" Style="{StaticResource Label}" />
