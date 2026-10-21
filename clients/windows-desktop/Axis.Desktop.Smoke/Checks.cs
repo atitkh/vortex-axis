@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Axis.Desktop;
 
-/** The Core's checks that need no Axis: where clicks land, and ids after a scroll. `smoke check`. */
+/** The Core's checks that need no Axis: where clicks land, ids after a scroll, the face's settings. `smoke check`. */
 static class Checks
 {
     static int failed, passed;
@@ -19,6 +19,7 @@ static class Checks
         Clipping();
         ChromeBand();
         await AfterScrollAsync();
+        FaceSettings();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -73,6 +74,100 @@ static class Checks
         Is(Geometry.ChromeRefusal(chrome, 50, true, null) != null, true, "in a page with no box: refused");
         Is(Geometry.ChromeRefusal(chrome with { Y = -8 }, -8 + 99, true, null) != null, true, "a maximized window's band starts at its own top");
         Is(Geometry.ChromeRefusal(null, 50, true, page), null, "no window in front: not refused");
+    }
+
+    static Dictionary<string, JsonElement> Values(string json) =>
+        Json(json).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
+
+    /** Runs a face for `seconds` in steps of a tenth, and gives the last frame. */
+    static (List<Face.Circle> Dots, Face.Circle? Core, Face.Pen? Icon) Run(Face face, double seconds)
+    {
+        var frame = face.Frame(0);
+        for (var t = 0.0; t < seconds - 1e-9; t += 0.1) frame = face.Frame(0.1);
+        return frame;
+    }
+
+    static int ShapeDots(List<Face.Circle> dots) => dots.Count(d => Math.Abs(d.Radius - FaceIcons.ShapeDot) < 1e-9);
+
+    static void FaceSettings()
+    {
+        // toolIconDots, as web/vortex.js: dot n is in the shape when n < dots, at point floor(n * 78 / dots).
+        Is(Face.ShapePoint(0, 78), 0, "all 78: dot 0 at point 0");
+        Is(Face.ShapePoint(77, 78), 77, "all 78: dot 77 at point 77");
+        Is(Face.ShapePoint(11, 12), 71, "12 dots: dot 11 at point 71");
+        Is(Face.ShapePoint(12, 12), -1, "12 dots: dot 12 stays on its arm");
+        Is(Face.ShapePoint(39, 40), 76, "40 dots: dot 39 at point 76");
+        Is(Face.ShapePoint(5, 40), 9, "40 dots: dot 5 at point 9");
+
+        // The settings as Axis sends them; out of range brought in, missing is the usual.
+        var face = new Face();
+        face.UseSettings(Values("""{"toolIcons":"line","toolIconMs":5000,"toolIconDots":5}"""));
+        Is(face.IconStyle, "line", "toolIcons line");
+        Is(face.IconMs, 3000.0, "toolIconMs at most 3000");
+        Is(face.IconDots, 12, "toolIconDots at least 12");
+        face.UseSettings(Values("""{"toolIcons":"sparkles","toolIconMs":100,"toolIconDots":40.5}"""));
+        Is(face.IconStyle, "dots", "an unknown style is dots");
+        Is(face.IconMs, 150.0, "toolIconMs at least 150");
+        Is(face.IconDots, 41, "toolIconDots rounded as Math.round");
+        face.UseSettings(Values("{}"));
+        Is((face.IconStyle, face.IconMs, face.IconDots), ("dots", 700.0, 78), "no settings: dots, 700 ms, 78 dots");
+
+        // 12 dots in the shape: once formed, 12 dots are the shape's size and the other 66 stand 80 or more from the middle.
+        face = new Face();
+        face.SetIconTuning(null, 12);
+        face.SetMode("thinking");
+        face.SetDoing("search");
+        var (dots, core, pen) = Run(face, 1.5);
+        Is(ShapeDots(dots), 12, "12 dots in the shape");
+        Is(dots.Count(d => Math.Abs(d.Radius - FaceIcons.ShapeDot) >= 1e-9 && Math.Sqrt(Math.Pow(d.X - 120, 2) + Math.Pow(d.Y - 120, 2)) >= 80 - 1e-6), 66, "the other 66 in a ring 80 out");
+        Is((core == null, pen == null), (true, true), "no core and no pen once formed");
+        // All 78: every dot is in the shape.
+        face.SetIconTuning(null, null);
+        (dots, _, _) = Run(face, 0.1);
+        Is(ShapeDots(dots), 78, "78 dots in the shape");
+
+        // toolIconMs: at 3000 ms the shape is far from formed after 0.7 s.
+        face = new Face();
+        face.SetIconTuning(3000, null);
+        face.SetMode("thinking");
+        face.SetDoing("search");
+        (dots, core, _) = Run(face, 0.7);
+        Is(ShapeDots(dots), 0, "3000 ms: not formed after 0.7 s");
+        Is(core != null, true, "3000 ms: the core still shows after 0.7 s");
+
+        // toolIcons off: no icon at all; line: a pen and no shape.
+        face = new Face { IconStyle = "off" };
+        face.SetMode("thinking");
+        face.SetDoing("search");
+        (dots, core, pen) = Run(face, 1.5);
+        Is((core != null, pen == null, ShapeDots(dots)), (true, true, 0), "off: the core, no icon");
+        face.IconStyle = "line";
+        (dots, core, pen) = Run(face, 1.5);
+        Is((core == null, pen != null, ShapeDots(dots)), (true, true, 0), "line: the pen in place of the core");
+
+        // idleLooksOff: only sway left on; it is the one shown, and stays.
+        var allButSway = string.Join(", ", Face.IdleNames.Where(n => n != "sway").Select(n => n.ToUpperInvariant()));
+        face = new Face();
+        face.SetIdleOff(allButSway + ",nonsense");
+        face.SetMode("idle");
+        Is(face.IdleName, "sway", "only sway on: sway");
+        Run(face, 40);
+        Is(face.IdleName, "sway", "only sway on: still sway after 40 s");
+        // Switched off while on show: moves off at once, and never comes back.
+        face = new Face();
+        face.SetMode("idle");
+        var showing = face.IdleName;
+        face.UseSettings(Values($$"""{"idleLooksOff":"{{showing}}"}"""));
+        Is(face.IdleName != showing, true, $"{showing} switched off while shown: moved off");
+        var back = false;
+        for (var i = 0; i < 30; i++) { Run(face, 17.1); back |= face.IdleName == showing; }
+        Is(back, false, $"{showing} never comes back");
+        // Every look named: the first stays.
+        face = new Face();
+        face.SetIdleOff(string.Join(",", Face.IdleNames));
+        face.SetMode("idle");
+        Run(face, 40);
+        Is(face.IdleName, "calm", "every look off: calm stays");
     }
 
     static async Task AfterScrollAsync()

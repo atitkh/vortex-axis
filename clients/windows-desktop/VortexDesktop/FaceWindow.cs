@@ -183,6 +183,9 @@ sealed class FaceWindow : Window
         BeginAnimation(OpacityProperty, fade);
     }
 
+    /** The face settings Axis sends (the admin page's Face page and Screen group): idle looks off, tool icons, their timing and dots. */
+    public void UseSettings(System.Collections.Generic.IReadOnlyDictionary<string, System.Text.Json.JsonElement> values) => face.UseSettings(values);
+
     /** Whether it stays on screen between turns (idle, drifting through its looks). */
     public void Keep(bool on)
     {

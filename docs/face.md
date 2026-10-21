@@ -7,7 +7,9 @@ Two implementations exist and must stay in step with this page and with each oth
 - `firmware/waveshare-amoled-1.8/src/vortex.cpp` (the original, C++, RGB565 into a 240 by 240 buffer)
 - `web/vortex.js` (a port, canvas)
 
-A change to a number or a rule goes into this page and both files in the same commit.
+Two more copies draw it on computers and follow the same settings (`idleLooksOff`, `toolIcons`, `toolIconMs`, `toolIconDots`): `clients/windows-desktop/Axis.Desktop.Core/Face.cs` and `clients/macos-desktop/Sources/AxisDesktopCore/Face.swift`, each a line-for-line port of `web/vortex.js`.
+
+A change to a number or a rule goes into this page and both files in the same commit. Keep the two computer copies in step too.
 
 Nothing is streamed as pixels: each client draws the face itself from the turn state Axis sends.
 

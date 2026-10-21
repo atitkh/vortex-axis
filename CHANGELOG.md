@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.10.5 (2026-10-20)
+
+- **The face follows the admin page's Face page, as the boards do**: `toolIcons` (dots, line, off), `toolIconMs` (time to form, 150 to 3000 ms), `toolIconDots` (12 to 78 dots in a shape; the rest stand off in a ring 80 out and go on turning) and `idleLooksOff` (idle looks it never drifts into; one on show when it is switched off is left at once), live, from the settings Axis sends (all layers: global, type, device). Before, the face always drew 78 dots in 700 ms, every idle look, and ignored `toolIcons`. Ported from `web/vortex.js` (`Face.SetIconTuning`, `SetIdleOff`, `UseSettings`, `ShapePoint`), checked in `Axis.Desktop.Smoke check`. Not built into the data folder.
+
 ## Mac desktop app 0.3.1 (2026-10-20)
 
 - **The pointer like the Windows one**: an arrow in the face's cyan with a glow, its tip on the spot, a ring breathing round the tip (still with Reduce motion), the agent's words in a dark pill with a cyan edge on the roomier side of the pointer, kept on the display, off the tip and out of the notch (`PointerLayout.bubble`, tested at every edge and corner, on a display above and left of the main one, under the notch). It glides 220 ms from its last spot and an action waits 250 ms for it (100 ms when it appears; `PointerLayout.waitMs`, as on Windows); after open, switch and window commands it points at the window's title bar, as before. Out of screen captures like the face and the pills. Not compiled yet.

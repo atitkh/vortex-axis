@@ -193,6 +193,7 @@ public partial class App : System.Windows.Application
         link.SettingsChanged += values => Dispatcher.BeginInvoke(() =>
         {
             commands!.UseSettings(values);
+            faceWindow?.UseSettings(values);
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
         });
         if (saved.Voice)
