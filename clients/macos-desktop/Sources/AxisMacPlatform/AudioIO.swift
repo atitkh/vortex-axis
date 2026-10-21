@@ -296,6 +296,60 @@ public final class AudioIO: VoiceIO, @unchecked Sendable {
         DispatchQueue.global().async { done() }
     }
 
+    // MARK: Sounds
+
+    private var sound: AVAudioEngine?
+    private var soundGeneration = 0
+
+    /**
+     * Plays a short sound made in code (`Sounds.render`: mono floats at `rate`) on the chosen speaker, or the default
+     * one, with an engine of its own so it never cuts into speech. A new sound replaces one still sounding. False when
+     * there is no speaker to play it on.
+     */
+    @discardableResult
+    public func playSound(_ samples: [Float], rate: Double = Sounds.rate) -> Bool {
+        queue.sync { soundNow(samples, rate) }
+    }
+
+    private func soundNow(_ samples: [Float], _ rate: Double) -> Bool {
+        stopSoundNow()
+        guard !samples.isEmpty, let fmt = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1),
+              let buffer = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(samples.count)),
+              let channel = buffer.floatChannelData?[0] else { return false }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        for i in 0..<samples.count { channel[i] = samples[i] }
+        for uid in outputUID.isEmpty ? [""] : [outputUID, ""] {
+            let engine = AVAudioEngine()
+            if !uid.isEmpty, !AudioDevices.use(uid, on: engine.outputNode) { continue }
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: fmt)
+            engine.prepare()
+            do { try engine.start() } catch { continue }
+            soundGeneration += 1
+            let mine = soundGeneration
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                guard let self else { return }
+                // Let go of the engine a moment after the last sample, on the queue (never inside the callback).
+                self.queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    guard let self, self.soundGeneration == mine else { return }
+                    self.stopSoundNow()
+                }
+            }
+            node.play()
+            sound = engine
+            return true
+        }
+        return false
+    }
+
+    private func stopSoundNow() {
+        guard let engine = sound else { return }
+        sound = nil
+        soundGeneration += 1
+        engine.stop()
+    }
+
     @discardableResult
     public func stopPlayback() -> Bool {
         queue.sync { stopNow() }

@@ -11,6 +11,7 @@ struct VoiceSettings: View {
     @State private var inputs: [AudioDevice] = []
     @State private var outputs: [AudioDevice] = []
     @State private var keyMessage: String?
+    @State private var typingMessage: String?
 
     var body: some View {
         Section("Talking from this Mac") {
@@ -32,8 +33,26 @@ struct VoiceSettings: View {
                     Text(trouble).font(.callout).foregroundStyle(.orange)
                 }
                 Text(model.talkKey.isFn
-                     ? "Hold Fn (Globe) to talk. Set System Settings > Keyboard > \"Press 🌐 key to\" to Do Nothing, or macOS acts on it too."
-                     : "Press it and talk: it listens until you pause. Hold it: it listens until you let go. Press it while the agent speaks: it stops.")
+                     ? "Hold Fn (Globe) to talk, tap it to type. Set System Settings > Keyboard > \"Press 🌐 key to\" to Do Nothing, or macOS acts on it too."
+                     : "Hold it and talk: it listens until you let go. Tap it: a field opens at the top of the screen to type to the agent. Press it while the agent speaks: it stops.")
+                    .font(.callout).foregroundStyle(.secondary)
+                LabeledContent("Typing key") {
+                    HStack {
+                        Picker("Typing key", selection: Binding(get: { model.typingKey?.description ?? "" }, set: { pickTyping($0) })) {
+                            Text("None: tap the talk key").tag("")
+                            ForEach(typingChoices, id: \.description) { Text($0.label).tag($0.description) }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 170)
+                        TalkKeyRecorder { key in typingMessage = model.setTypingKey(key) }
+                    }
+                }
+                if let trouble = typingMessage ?? model.typingKeyTrouble {
+                    Text(trouble).font(.callout).foregroundStyle(.orange)
+                }
+                Text(model.typingKey == nil
+                     ? "Typing: Return sends, Shift+Return starts a new line, Esc closes, ↑ brings back the last message. The answer is spoken and shown as for talking."
+                     : "With a typing key of its own, a tap of the talk key listens until you pause, as before.")
                     .font(.callout).foregroundStyle(.secondary)
                 Picker("Microphone", selection: Binding(get: { model.saved.micDevice },
                                                         set: { model.setDevices(mic: $0, speaker: model.saved.speakerDevice) })) {
@@ -59,6 +78,17 @@ struct VoiceSettings: View {
     func pick(_ id: String) {
         guard let key = TalkKey.parse(id) else { return }
         keyMessage = model.setTalkKey(key)
+    }
+
+    /** The presets that can be the typing key (not the talk key, not Fn), and a recorded one. */
+    var typingChoices: [TalkKey] {
+        let presets = TalkKey.presets.filter { !$0.isFn && $0 != model.talkKey }
+        guard let now = model.typingKey, !presets.contains(now) else { return presets }
+        return presets + [now]
+    }
+
+    func pickTyping(_ id: String) {
+        typingMessage = model.setTypingKey(id.isEmpty ? nil : TalkKey.parse(id))
     }
 
     /** The devices there are, and the chosen one marked when it is not connected (it is used again once it is). */

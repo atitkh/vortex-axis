@@ -50,6 +50,9 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
             let talk = entry("Talk now (\(model.talkKey.label))", #selector(talkNow))
             talk.isEnabled = model.state == .online && !model.paused
             menu.addItem(talk)
+            let typing = entry("Type to VorteX… (\(model.typingKey?.label ?? "tap \(model.talkKey.label)"))", #selector(typeNow))
+            typing.isEnabled = model.state == .online && !model.paused
+            menu.addItem(typing)
         }
         let keepFace = entry("Keep the face on screen", #selector(toggleKeepFace))
         keepFace.state = model.saved.keepFace && model.saved.showFace ? .on : .off
@@ -78,6 +81,7 @@ public final class StatusMenu: NSObject, NSMenuDelegate {
     @objc func showPointer() { model.showPointer() }
     @objc func toggleVoice() { Task { await model.setVoice(!model.saved.voice) } }
     @objc func talkNow() { model.talkNow() }
+    @objc func typeNow() { model.typeNow() }
     @objc func toggleKeepFace() { model.setKeepFace(!model.saved.keepFace) }
     @objc func quit() { NSApp.terminate(nil) }
 }

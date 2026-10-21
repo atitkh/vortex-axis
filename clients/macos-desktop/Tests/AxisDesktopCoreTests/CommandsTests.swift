@@ -281,12 +281,18 @@ final class IdentityTests: XCTestCase {
      */
     func testVoiceAddsTheWindowsCapabilities() throws {
         let talking = DesktopIdentity.create(version: "0.3.0", voice: true)
-        XCTAssertEqual(talking.capabilities, ["desktop", "mic", "speaker", "screen"])
+        XCTAssertEqual(talking.capabilities, ["desktop", "mic", "speaker", "screen", "images"], "0.4.0: pictures in replies too")
         XCTAssertEqual(DesktopIdentity.create(version: "0.3.0", voice: false).capabilities, ["desktop"])
-        XCTAssertEqual(talking.describe, DesktopIdentity.create(version: "0.3.0").describe, "the same settings, actions and links")
         let keys = try XCTUnwrap(talking.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
-        XCTAssertEqual(keys, ["allowLook", "allowInput", "bubble", "allowScreenshot", "autoUpdate", "confirmRisky", "autoOcr", "pointerSize"],
-                       "the Windows app's order")
+        XCTAssertEqual(keys, ["allowLook", "allowInput", "bubble", "allowScreenshot", "autoUpdate", "confirmRisky", "autoOcr", "pointerSize",
+                              "listenCue", "taskChime"], "the Windows app's order, then the boards' two sound switches")
+        let actions = try XCTUnwrap(talking.describe["actions"]?.arrayValue).compactMap { $0["name"]?.stringValue }
+        XCTAssertEqual(actions, ["desktop.hello", "chime"], "a chime, so Axis rings a timer before saying it")
+        let quiet = DesktopIdentity.create(version: "0.3.0")
+        XCTAssertEqual(try XCTUnwrap(quiet.describe["actions"]?.arrayValue).count, 1, "no speaker, no chime")
+        for s in try XCTUnwrap(talking.describe["settings"]?.arrayValue) {
+            XCTAssertLessThanOrEqual(s["help"]?.stringValue?.utf16.count ?? 0, 240, s["key"]?.stringValue ?? "")
+        }
     }
 }
 

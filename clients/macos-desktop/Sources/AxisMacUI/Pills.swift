@@ -24,7 +24,7 @@ final class PillStage: ObservableObject {
  */
 @MainActor
 final class PillHost {
-    private let panel: FloatingPanel
+    let panel: FloatingPanel
     private let stage: PillStage
     private let host: FirstClickHostingView<PillChrome>
     private var words = AnyView(EmptyView())
@@ -39,12 +39,17 @@ final class PillHost {
     /** Where the pill itself is just now (to place one under it). */
     private(set) var pillRect: PanelRect?
     private var placed: PillLayout.Placed?
+    /** It came, went or changed size: the pills under it move (`PillStack`). */
+    var onMoved: (() -> Void)?
+    /** The bottom of the pill (AppKit y) while it is up, for the pills under it. */
+    var bottom: Double? { up ? pillRect?.y : nil }
 
-    init(maxWidth: CGFloat) {
+    /** `keyable`: the typing pill, whose panel takes the keyboard (never the app's activation). */
+    init(maxWidth: CGFloat, keyable: Bool = false) {
         self.maxWidth = maxWidth
         let stage = PillStage()
         self.stage = stage
-        panel = FloatingPanel.make(level: FloatingPanel.overMenuBar)
+        panel = FloatingPanel.make(level: FloatingPanel.overMenuBar, keyable: keyable)
         host = FirstClickHostingView(rootView: PillChrome(stage: stage, words: AnyView(EmptyView())))
         // The panel's frame is set here, from PillLayout; the hosting view is not to resize it to its content.
         host.sizingOptions = []
@@ -58,6 +63,15 @@ final class PillHost {
         let measure = NSHostingController(rootView: view)
         let fits = measure.sizeThatFits(in: CGSize(width: maxWidth, height: 600))
         wordsSize = CGSize(width: ceil(min(fits.width, maxWidth)), height: ceil(fits.height))
+        host.rootView = PillChrome(stage: stage, words: words)
+        place()
+    }
+
+    /** Words whose size is known (the typing pill's): not measured, so no second copy of its field is ever made. */
+    func show(_ view: some View, tint: PillTint, size: CGSize) {
+        words = AnyView(view)
+        stage.tint = tint
+        wordsSize = CGSize(width: ceil(min(size.width, maxWidth)), height: ceil(size.height))
         host.rootView = PillChrome(stage: stage, words: words)
         place()
     }
@@ -78,6 +92,7 @@ final class PillHost {
         pillRect = placed.pill
         // The voice part reports with every frame of the microphone: nothing to do when nothing moved.
         guard placed != self.placed else { return }
+        let resized = self.placed != nil && self.placed?.pill.h != placed.pill.h
         self.placed = placed
         stage.attached = placed.attached
         stage.topInset = placed.topInset
@@ -86,6 +101,7 @@ final class PillHost {
         stage.collapsedWidth = placed.collapsed.w
         stage.collapsedHeight = placed.collapsed.h
         panel.setFrame(Screens.nsRect(placed.panel), display: true)
+        if resized && up { onMoved?() }
     }
 
     func fadeIn() {
@@ -99,6 +115,7 @@ final class PillHost {
             c.duration = 0.18
             panel.animator().alphaValue = 1
         }
+        onMoved?()
         // Grown on the next turn of the run loop, so SwiftUI sees the change and springs it.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.up else { return }
@@ -124,6 +141,7 @@ final class PillHost {
                     self.panel.orderOut(nil)
                     self.pillRect = nil
                     self.placed = nil
+                    self.onMoved?()
                 }
             })
         }
@@ -138,6 +156,36 @@ final class PillHost {
         panel.orderOut(nil)
         pillRect = nil
         placed = nil
+        onMoved?()
+    }
+}
+
+/**
+ * The pills top to bottom: the "using this computer" pill, the voice pill (or the typing pill in its slot), the task
+ * pill, the timer pill. Each goes under the lowest one above it that is up (`PillLayout.under`); the first one up
+ * grows out of the notch. Any of them coming, going or growing moves the ones under it.
+ */
+@MainActor
+final class PillStack {
+    private let hosts: [PillHost]
+    private var placing = false
+
+    init(_ hosts: [PillHost]) {
+        self.hosts = hosts
+        for (i, host) in hosts.enumerated() {
+            let above = Array(hosts[..<i])
+            host.under = { PillLayout.under(above.map { $0.bottom }) }
+            host.onMoved = { [weak self, weak host] in self?.restack(after: host) }
+        }
+    }
+
+    /** Every pill under `host` placed again (all of them when nil). */
+    func restack(after host: PillHost? = nil) {
+        guard !placing else { return }
+        placing = true
+        defer { placing = false }
+        let from = host.flatMap { h in hosts.firstIndex { $0 === h } }.map { $0 + 1 } ?? 0
+        for h in hosts[from...] where h.up { h.place() }
     }
 }
 
@@ -225,6 +273,13 @@ struct PillDot: View {
     var breathes = false
     @State private var dimmed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // Written out: the private state would make the memberwise one private, and the task pill is in another file.
+    init(tint: PillTint, scale: Double = 1, breathes: Bool = false) {
+        self.tint = tint
+        self.scale = scale
+        self.breathes = breathes
+    }
 
     var body: some View {
         let c = PillColour.of(tint)
@@ -344,20 +399,27 @@ final class VoicePill {
     private var lingering = false
     private var generation = 0
     private var shown: VoicePillWords?
+    private var shownPicture: NSImage?
     /** Called with the choice a button was pressed for. */
     var onChoice: ((String) -> Void)?
+    /** Held back while the typing pill is in its slot. */
+    var held = false
 
     init() { host = PillHost(maxWidth: 480) }
 
-    func show(_ snapshot: VoiceSnapshot, talkKey: String) {
+    /** `picture`: the reply's picture once it has been fetched (`words.picture` names it before that). */
+    func show(_ snapshot: VoiceSnapshot, talkKey: String, picture: NSImage? = nil) {
+        guard !held else { return }
         let w = VoicePillWords.of(snapshot, talkKey: talkKey)
-        if w != shown {
+        let image = w.picture == nil ? nil : picture
+        if w != shown || image !== shownPicture {
             // While listening the dot swells with every frame of the microphone: only the words changing are measured again.
             var sized = w
             sized.dotScale = shown?.dotScale ?? w.dotScale
-            let view = VoicePillView(words: w, chose: { [weak self] in self?.onChoice?($0) })
-            if sized == shown { host.refresh(view) } else { host.show(view, tint: w.tint) }
+            let view = VoicePillView(words: w, picture: image, chose: { [weak self] in self?.onChoice?($0) })
+            if sized == shown && image === shownPicture { host.refresh(view) } else { host.show(view, tint: w.tint) }
             shown = w
+            shownPicture = image
             host.clickable(!w.choices.isEmpty)
         }
         switch w.then {
@@ -380,11 +442,18 @@ final class VoicePill {
     func dismiss() {
         stopLinger()
         shown = nil
+        shownPicture = nil
         host.vanish()
     }
 
     /** Back in place (the pill above came or went, the displays changed). */
     func replace() { if host.up { host.place() } }
+
+    /** The typing pill takes the slot (`on`), or gives it back; shown again from the next change. */
+    func hold(_ on: Bool) {
+        held = on
+        if on { dismiss() }
+    }
 
     private func linger() {
         lingering = true
@@ -405,7 +474,15 @@ final class VoicePill {
 
 struct VoicePillView: View {
     let words: VoicePillWords
+    var picture: NSImage? = nil
     let chose: (String) -> Void
+
+    /** The picture's size in the pill: at most 360 by 240 points, never enlarged. */
+    static func fit(_ size: CGSize) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return .zero }
+        let scale = min(1, 360 / size.width, 240 / size.height)
+        return CGSize(width: floor(size.width * scale), height: floor(size.height * scale))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -436,6 +513,17 @@ struct VoicePillView: View {
                         .lineSpacing(2)
                         .lineLimit(5)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let picture {
+                    let size = Self.fit(picture.size)
+                    Image(nsImage: picture)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: size.width, height: size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                        .padding(.top, 8)
+                        .accessibilityLabel(words.reply.isEmpty ? "A picture from the agent" : "A picture with the reply")
                 }
                 if !words.choices.isEmpty {
                     HStack(spacing: 8) {

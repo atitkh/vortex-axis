@@ -6,18 +6,23 @@ import AxisDesktopCore
 private let talkSignature: OSType = 0x5658_4158
 
 /**
- * The talk key, anywhere on the Mac: a press, then a hold once it has stayed down 350 ms, then its release (the
- * Windows app's talk key and `WatchTalkKey`). A combination with a key is a Carbon hot key (`RegisterEventHotKey`),
- * which tells press and release apart and needs no permission. `fn` alone is watched through AppKit's monitors of
- * modifier changes, which macOS lets an app with Accessibility access see (no Input Monitoring needed for that).
+ * The talk key (or the typing key), anywhere on the Mac: a press, then a hold once it has stayed down
+ * `TapHold.tapMs` (220 ms; let go sooner it is a tap), then its release, reported either way. A combination with a
+ * key is a Carbon hot key (`RegisterEventHotKey`), which tells press and release apart and needs no permission (no
+ * Input Monitoring: it is not a key monitor). `fn` alone is watched through AppKit's monitors of modifier changes,
+ * which macOS lets an app with Accessibility access see. Each watcher has its own hot key id, so the talk key's and
+ * the typing key's never reach each other.
  */
 @MainActor
 public final class TalkKeyWatcher {
     public var onPress: (() -> Void)?
     public var onHold: (() -> Void)?
+    /** The key came up, after a hold or a tap (`TapHold`). */
     public var onRelease: (() -> Void)?
 
-    static let holdMs: UInt64 = 350
+    static let holdMs: UInt64 = TapHold.tapMs
+    /** This watcher's hot key id, under the app's signature. */
+    nonisolated let hotKeyId: UInt32
 
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
@@ -26,7 +31,8 @@ public final class TalkKeyWatcher {
     private var held = false
     private var presses = 0
 
-    public init() {}
+    /** `id`: 1 for the talk key, 2 for the typing key. */
+    public init(id: UInt32 = 1) { hotKeyId = id }
 
     /** Watches `key` in place of the one before. Returns why it cannot, in words, or nil when it is watched. */
     public func use(_ key: TalkKey) -> String? {
@@ -40,7 +46,7 @@ public final class TalkKeyWatcher {
         if key.ctrl { mods |= UInt32(controlKey) }
         if key.shift { mods |= UInt32(shiftKey) }
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(UInt32(code), mods, EventHotKeyID(signature: talkSignature, id: 1), GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(UInt32(code), mods, EventHotKeyID(signature: talkSignature, id: hotKeyId), GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else {
             if status == OSStatus(eventHotKeyExistsErr) { return "\(key.label) is taken by another app; pick another talk key in Settings" }
             return "\(key.label) could not be set as the talk key (error \(status))"
@@ -72,9 +78,10 @@ public final class TalkKeyWatcher {
             var id = EventHotKeyID()
             let got = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
                                         MemoryLayout<EventHotKeyID>.size, nil, &id)
-            guard got == noErr, id.signature == talkSignature else { return OSStatus(eventNotHandledErr) }
-            let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
             let watcher = Unmanaged<TalkKeyWatcher>.fromOpaque(user).takeUnretainedValue()
+            // The other watcher's key: left for its own handler, installed on the same target.
+            guard got == noErr, id.signature == talkSignature, id.id == watcher.hotKeyId else { return OSStatus(eventNotHandledErr) }
+            let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
             Task { @MainActor in
                 if pressed { watcher.down() } else { watcher.up() }
             }
@@ -135,9 +142,7 @@ public final class TalkKeyWatcher {
     private func up() {
         guard isDown else { return }
         isDown = false
-        if held {
-            held = false
-            onRelease?()
-        }
+        held = false
+        onRelease?()
     }
 }

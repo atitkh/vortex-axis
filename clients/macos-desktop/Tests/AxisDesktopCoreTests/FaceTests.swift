@@ -431,11 +431,11 @@ final class FaceTests: XCTestCase {
         XCTAssertEqual(Set(MenuIconState.allCases.map(\.words)).count, MenuIconState.allCases.count)
     }
 
-    /** The face's and pills' switches are the person's own, kept on the Mac: Axis's describe stays the eight settings. */
+    /** The face's and pills' switches are the person's own, kept on the Mac: Axis's describe has the eight settings and the boards' two sound switches. */
     func testTheFaceAndPillSwitchesAreNotInDescribe() throws {
         let id = DesktopIdentity.create(version: "0.3.0", voice: true)
         let keys = try XCTUnwrap(id.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
-        XCTAssertEqual(keys.count, 8)
+        XCTAssertEqual(keys.count, 10, "the eight and the two sound switches")
         for local in ["showFace", "keepFace", "faceSize", "facePlace", "showControl", "voice", "talkKey"] {
             XCTAssertFalse(keys.contains(local), local)
         }

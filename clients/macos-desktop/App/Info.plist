@@ -15,7 +15,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.2</string>
+	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -29,7 +29,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>VorteX Axis connects to your Axis hub on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>VorteX Axis listens when you press its talk key, so you can talk to your agent from this Mac.</string>
+	<string>VorteX Axis listens while you hold its talk key, so you can talk to your agent from this Mac. A short tap opens a field to type instead; what the microphone heard during the tap is thrown away.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

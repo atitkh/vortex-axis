@@ -268,8 +268,9 @@ public final class AxisLink: @unchecked Sendable {
                 if let extra = root["data"] { params["data"] = extra }
                 let received = DispatchTime.now()
                 // Each command runs on its own, so a slow look does not hold up a point.
-                Task { await self.answer(id: id, name: name, params: .object(params), received: received) }
-            case "turn", "transcript", "reply.text", "speak.start", "speak.end", "stop", "ask", "ask.end", "status":
+                let given = params
+                Task { await self.answer(id: id, name: name, params: .object(given), received: received) }
+            case "turn", "transcript", "reply.text", "reply.image", "speak.start", "speak.end", "stop", "ask", "ask.end", "status":
                 onMessage?(t, root)
             case "error":
                 let code = root["code"]?.stringValue
@@ -331,6 +332,35 @@ public final class AxisLink: @unchecked Sendable {
     @discardableResult
     public func trySendAudio(_ pcm: Data) async -> Bool {
         do { try await sendFrame(.data(pcm)); return true } catch { return false }
+    }
+
+    /** The request for cancelling a timer from its countdown (the web client's ×): `POST /v1/timers/cancel`. */
+    public static func cancelTimerRequest(address: AxisAddress, pairing: Pairing, id: Int) -> URLRequest {
+        var request = URLRequest(url: address.http("/v1/timers/cancel")!, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        request.setValue(pairing.clientId, forHTTPHeaderField: "X-Axis-Client")
+        request.httpBody = try? JSONValue.object(["id": .int(id)]).encoded()
+        return request
+    }
+
+    /** Cancels the timer the countdown shows; Axis then sends every screen the next one, or none. */
+    public func cancelTimer(id: Int) async throws {
+        let (_, response) = try await session.data(for: Self.cancelTimerRequest(address: address, pairing: pairing, id: id))
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else { throw PairError(message: "Axis said \(status) to cancelling the timer.") }
+    }
+
+    /** A picture from a reply (`reply.image`): its bytes, fetched from Axis (no credentials: the address is the secret). */
+    public func picture(_ path: String) async throws -> Data {
+        guard let url = address.http(path) else { throw PairError(message: "a picture with no address") }
+        let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 15))
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status), !data.isEmpty, data.count <= 8 << 20 else {
+            throw PairError(message: "the picture could not be fetched (\(status))")
+        }
+        return data
     }
 
     private func send(_ message: JSONValue) async throws {

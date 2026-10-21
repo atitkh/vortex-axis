@@ -36,6 +36,13 @@ public struct AxisAddress: Equatable, Sendable, CustomStringConvertible {
     public var description: String { "\(scheme)://\(authority)" }
 
     public var pair: URL { URL(string: "\(scheme)://\(authority)\(Self.pairPath)")! }
+    /** A path on Axis ("/v1/media/abc", a reply's picture) as a full address; a full http(s) address as it is. */
+    public func http(_ path: String) -> URL? {
+        let lower = path.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return URL(string: path) }
+        guard path.hasPrefix("/") else { return nil }
+        return URL(string: "\(scheme)://\(authority)\(path)")
+    }
     public var socket: URL { URL(string: "\(scheme == "https" ? "wss" : "ws")://\(authority)\(Self.socketPath)")! }
 
     /**

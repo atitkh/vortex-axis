@@ -43,7 +43,40 @@ public struct VoiceSnapshot: Equatable, Sendable {
     public var level: Double
     /** The loudness to show: the person's voice while listening, the agent's while it speaks; -1 otherwise. */
     public var loudness: Double
+    /** A picture that came with the reply (`reply.image`), until the next turn. */
+    public var picture: VoicePicture?
+
+    public init(mode: VoiceMode, heard: String, reply: String, question: String?, choices: [String], doing: String?,
+                level: Double, loudness: Double, picture: VoicePicture? = nil) {
+        self.mode = mode
+        self.heard = heard
+        self.reply = reply
+        self.question = question
+        self.choices = choices
+        self.doing = doing
+        self.level = level
+        self.loudness = loudness
+        self.picture = picture
+    }
 }
+
+/** A picture in a reply: `url` is a path on Axis that needs no credentials (`media.ts`); `alt` says what it shows. */
+public struct VoicePicture: Equatable, Sendable {
+    public var url: String
+    public var alt: String
+    public var turnId: String
+
+    public init(url: String, alt: String, turnId: String) {
+        self.url = url
+        self.alt = alt
+        self.turnId = turnId
+    }
+}
+
+/** What a key-down did: stopped the agent, finished a recording, or started the microphone to see if it is held. */
+public enum KeyDown: Equatable, Sendable { case stopped, finished, waiting }
+/** What letting go did: a tap (nothing sent), the end of a hold, or nothing. */
+public enum KeyUp: Equatable, Sendable { case tap, released, none }
 
 /**
  * Sends what the voice part says to Axis one at a time, in the order it was said: audio.start, the frames, audio.end.
@@ -108,11 +141,21 @@ public final class Voice: @unchecked Sendable {
     private var choices: [String] = []
     private var doing: String?
     private var level = 0.0
+    private var picture: VoicePicture?
+
+    // From a key-down until it is known to be a hold or a tap: the microphone runs, its frames kept.
+    private var waiting = false
+    private var waitCapturing = false
+    private var waitError: Error?
+    private var waitAt: UInt64 = 0
+    private var preRoll = PreRoll()
 
     /** Anything shown changed. Called on whichever thread changed it: hop to the main thread before drawing. */
     public var onChange: (@Sendable () -> Void)?
     /** Something went wrong handling a message from Axis (for the app's list). */
     public var onFailed: (@Sendable (String) -> Void)?
+    /** A recording has just started (for the listening cue). Called under the voice part's lock: hop before doing much. */
+    public var onListening: (@Sendable () -> Void)?
 
     /** `out` sends in order (an `Outbox`); `clock` is milliseconds from any fixed start. */
     public init(io: VoiceIO, out: @escaping @Sendable (VoiceOutgoing) -> Void, clock: @escaping @Sendable () -> UInt64 = Voice.uptimeMs) {
@@ -126,7 +169,8 @@ public final class Voice: @unchecked Sendable {
     public var snapshot: VoiceSnapshot {
         lock.lock(); defer { lock.unlock() }
         let loud = mode == .listening ? level : mode == .speaking ? io.playLevel : -1
-        return VoiceSnapshot(mode: mode, heard: heard, reply: reply, question: question, choices: choices, doing: doing, level: level, loudness: loud)
+        return VoiceSnapshot(mode: mode, heard: heard, reply: reply, question: question, choices: choices, doing: doing, level: level,
+                             loudness: loud, picture: picture)
     }
 
     public var currentMode: VoiceMode { lock.lock(); defer { lock.unlock() }; return mode }
@@ -207,16 +251,141 @@ public final class Voice: @unchecked Sendable {
         finish(spoke || clock() - startedAt > Self.heldEnoughMs ? "silence" : "cancel")
     }
 
+    // MARK: Hold to talk, tap to type
+
+    /**
+     * The talk key went down. While listening it finishes; while the agent thinks or speaks it stops it; otherwise the
+     * microphone starts at once and its frames are kept (`PreRoll`) until `keyHeld` (a hold: they are sent) or `keyUp`
+     * (a tap: they are thrown away).
+     */
+    @discardableResult
+    public func keyDown() -> KeyDown {
+        lock.lock(); defer { lock.unlock() }
+        if recording != nil {
+            finish(spoke ? "silence" : "cancel")
+            return .finished
+        }
+        if busy || playing != nil {
+            interrupt()
+            return .stopped
+        }
+        if waiting { return .waiting }
+        waiting = true
+        waitAt = clock()
+        waitError = nil
+        preRoll.clear()
+        do {
+            try io.startCapture { [weak self] samples in self?.frame(samples) }
+            waitCapturing = true
+        } catch {
+            // Said only if it turns out to be a hold: a tap types, and needs no microphone.
+            waitCapturing = false
+            waitError = error
+        }
+        return .waiting
+    }
+
+    /** The key has stayed down `TapHold.tapMs`: a hold. The turn starts with what the microphone heard since key-down. */
+    public func keyHeld() {
+        lock.lock(); defer { lock.unlock() }
+        guard waiting else { return }
+        waiting = false
+        commit(askId != nil ? "question" : "hold", holding: true)
+    }
+
+    /**
+     * The key came up. Before `keyHeld`: a tap, and what was heard is dropped (or, with `tapListens`, the recording
+     * goes on until a pause, as a press did before 0.4.0). After it: the end of the hold.
+     */
+    @discardableResult
+    public func keyUp(tapListens: Bool = false) -> KeyUp {
+        lock.lock(); defer { lock.unlock() }
+        if waiting {
+            waiting = false
+            if tapListens {
+                commit(askId != nil ? "question" : "tap", holding: false)
+                return .tap
+            }
+            if waitCapturing { io.stopCapture() }
+            waitCapturing = false
+            preRoll.clear()
+            level = 0
+            onChange?()
+            return .tap
+        }
+        if recording != nil && holding {
+            release()
+            return .released
+        }
+        return .none
+    }
+
+    /** Starts the turn on the microphone already running since key-down (under the lock). */
+    private func commit(_ trigger: String, holding hold: Bool) {
+        let kept = preRoll.take()
+        if let error = waitError, !waitCapturing {
+            waitError = nil
+            failToStart(error)
+            return
+        }
+        begin(trigger, at: waitAt)
+        holding = hold
+        waitCapturing = false
+        for f in kept { consume(f) }
+        if recording != nil { onChange?() }
+    }
+
+    // MARK: Typing
+
+    /**
+     * A typed turn (the web client's text box): speech and any recording stop, Axis is told to stop the turn under
+     * way, then `{t: "text", turnId, text}`. While a question is open Axis takes the text as its answer. False when
+     * there is nothing to send.
+     */
+    @discardableResult
+    public func type(_ text: String) -> Bool {
+        guard let clean = TypedText.clean(text) else { return false }
+        lock.lock(); defer { lock.unlock() }
+        if waiting {
+            waiting = false
+            if waitCapturing { io.stopCapture() }
+            waitCapturing = false
+            preRoll.clear()
+        }
+        interrupt()
+        ids += 1
+        let id = "pc-\(String(clock(), radix: 16))-\(ids)"
+        turn = id
+        heard = clean
+        reply = ""
+        picture = nil
+        doing = nil
+        send(["t": "text", "turnId": .string(id), "text": .string(clean)])
+        set(.thinking)
+        return true
+    }
+
     private func start(_ trigger: String) {
+        begin(trigger, at: clock())
+        do {
+            try io.startCapture { [weak self] samples in self?.frame(samples) }
+        } catch {
+            failToStart(error)
+        }
+    }
+
+    /** A new recording's id and audio.start (under the lock); the microphone is the caller's. */
+    private func begin(_ trigger: String, at: UInt64) {
         ids += 1
         let id = "pc-\(String(clock(), radix: 16))-\(ids)"
         recording = id
         holding = false
         spoke = false
         quietSince = 0
-        startedAt = clock()
+        startedAt = at
         heard = ""
         reply = ""
+        picture = nil
         set(.listening)
         send([
             "t": "audio.start",
@@ -224,36 +393,49 @@ public final class Voice: @unchecked Sendable {
             "format": ["encoding": "pcm_s16le", "sampleRate": .int(Self.micRate), "channels": 1],
             "trigger": .string(trigger),
         ])
-        do {
-            try io.startCapture { [weak self] samples in self?.frame(samples) }
-        } catch {
+        onListening?()
+    }
+
+    private func failToStart(_ error: Error) {
+        if let id = recording {
             recording = nil
             send(["t": "audio.end", "turnId": .string(id), "reason": "cancel"])
-            reply = "The microphone could not start: \(describeError(error))"
-            set(.error)
         }
+        reply = "The microphone could not start: \(describeError(error))"
+        set(.error)
     }
 
     /** One frame from the microphone. Internal for the tests; the IO calls it through `startCapture`'s closure. */
     func frame(_ samples: [Int16]) {
         do {
             lock.lock(); defer { lock.unlock() }
-            guard recording != nil else { return }
-            let rms = PCM.rms(samples)
-            level = PCM.micLevel(rms: rms)
-            let now = clock()
-            if rms > Self.speechLevel {
-                spoke = true
-                quietSince = 0
-            } else if spoke, quietSince == 0 {
-                quietSince = now
+            if waiting {
+                // Not yet known to be a hold: kept, not sent.
+                preRoll.push(samples)
+                return
             }
-            out(.audio(PCM.bytes(samples)))
-            if !holding && spoke && quietSince != 0 && now - quietSince > Self.quietMs { finish("silence") }
-            else if now - startedAt > Self.maxMs { finish("max") }
-            else if !holding && !spoke && now - startedAt > Self.nothingSaidMs { finish("cancel") }
+            guard recording != nil else { return }
+            consume(samples)
         }
         onChange?()
+    }
+
+    /** One frame of a recording: its level, speech or quiet, sent, and the recording ended when it is time (under the lock). */
+    private func consume(_ samples: [Int16]) {
+        guard recording != nil else { return }
+        let rms = PCM.rms(samples)
+        level = PCM.micLevel(rms: rms)
+        let now = clock()
+        if rms > Self.speechLevel {
+            spoke = true
+            quietSince = 0
+        } else if spoke, quietSince == 0 {
+            quietSince = now
+        }
+        out(.audio(PCM.bytes(samples)))
+        if !holding && spoke && quietSince != 0 && now - quietSince > Self.quietMs { finish("silence") }
+        else if now - startedAt > Self.maxMs { finish("max") }
+        else if !holding && !spoke && now - startedAt > Self.nothingSaidMs { finish("cancel") }
     }
 
     /** Ends the recording (under the lock). */
@@ -311,6 +493,10 @@ public final class Voice: @unchecked Sendable {
             }
             if state == "error", let why = s("detail"), !why.isEmpty { reply = why }
             set(next)
+        case "reply.image":
+            guard let url = s("url"), !url.isEmpty else { break }
+            picture = VoicePicture(url: url, alt: s("alt") ?? "", turnId: s("turnId") ?? "")
+            onChange?()
         case "transcript":
             heard = s("text") ?? ""
             onChange?()
@@ -318,7 +504,10 @@ public final class Voice: @unchecked Sendable {
             let text = s("text") ?? ""
             let final = m["final"]?.boolValue == true
             // Another turn's words (an announcement after an answer) start afresh.
-            if s("turnId") != replyTurn { reply = "" }
+            if s("turnId") != replyTurn {
+                reply = ""
+                if let p = picture, p.turnId != s("turnId") { picture = nil }
+            }
             replyTurn = s("turnId")
             reply = final ? text : reply + text
             onChange?()

@@ -6,7 +6,8 @@ import AxisMacPlatform
  * The app's state and its one link to Axis: what the settings window shows and the menu bar item acts on.
  * Holds the pairing (address, client id and name on disk; the token in the Keychain), the commands and the desktop,
  * and the voice part (talk key, microphone, speakers) when talking from this Mac is on; and what it shows on screen
- * besides the pointer: the face, the "using this computer" pill and the voice pill.
+ * besides the pointer: the face, the "using this computer" pill, the voice pill (or the typing pill in its place),
+ * the task pill and the timer pill, and the sounds (`Notices`).
  */
 @MainActor
 public final class AppModel: ObservableObject {
@@ -23,6 +24,8 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var voiceNow: VoiceSnapshot?
     /** Why the talk key is not watched (taken by another app), or nil. */
     @Published public private(set) var talkKeyTrouble: String?
+    /** Why the typing key is not watched, or nil. */
+    @Published public private(set) var typingKeyTrouble: String?
     /** An agent is using this Mac just now (from its first desktop command until a few seconds after the last). */
     @Published public private(set) var agentHere = false
 
@@ -32,8 +35,18 @@ public final class AppModel: ObservableObject {
     public let face: FacePanel
     let controlPill: ControlPill
     let voicePill: VoicePill
+    let typingPill = TypingPill()
+    let taskPill = TaskPill()
+    let timerPill = TimerPill()
+    private var pills: PillStack?
+    /** The long-task line, the next timer and the sounds: what Axis asks a screen for besides the voice. */
+    public let notices = Notices()
     public let audio = AudioIO()
-    let talkKeys = TalkKeyWatcher()
+    let talkKeys = TalkKeyWatcher(id: 1)
+    let typingKeys = TalkKeyWatcher(id: 2)
+    /** The reply's picture once fetched, and the address it came from. */
+    private var pictureURL: String?
+    private var pictureImage: NSImage?
     private var link: AxisLink?
     private(set) var voice: Voice?
     private var outbox: Outbox?
@@ -49,9 +62,15 @@ public final class AppModel: ObservableObject {
         desktop.usePointer(pointer)
         commands.onDid = { [weak self] line in Task { @MainActor in self?.did(line) } }
         audio.use(mic: saved.micDevice, speaker: saved.speakerDevice)
-        talkKeys.onPress = { [weak self] in self?.talkPressed() }
-        talkKeys.onHold = { [weak self] in self?.voice?.hold() }
-        talkKeys.onRelease = { [weak self] in self?.voice?.release() }
+        // Held: talk (the microphone runs from key-down); tapped: type (or, with a typing key of its own, listen).
+        talkKeys.onPress = { [weak self] in self?.talkDown() }
+        talkKeys.onHold = { [weak self] in
+            // Held while typing: talking wins, the typing pill goes.
+            self?.typingPill.close()
+            self?.voice?.keyHeld()
+        }
+        talkKeys.onRelease = { [weak self] in self?.talkUp() }
+        typingKeys.onPress = { [weak self] in self?.toggleTyping() }
         applyTalkKey()
         face.loudness = { [weak self] in self?.voice?.loudness ?? -1 }
         face.onClick = { [weak self] in self?.talkPressed() }
@@ -63,13 +82,21 @@ public final class AppModel: ObservableObject {
             }
         }
         controlPill.onChange = { [weak self] in self?.agentChanged() }
-        voicePill.host.under = { [weak self] in self?.controlPill.bottom }
+        pills = PillStack([controlPill.host, voicePill.host, typingPill.host, taskPill.host, timerPill.host])
         voicePill.onChoice = { [weak self] choice in self?.voice?.answer(choice) }
+        typingPill.onSend = { [weak self] text in _ = self?.voice?.type(text) }
+        typingPill.onChoice = { [weak self] choice in self?.voice?.answer(choice) }
+        typingPill.onClose = { [weak self] in
+            self?.voicePill.hold(false)
+            self?.voiceChanged()
+        }
+        taskPill.onDismiss = { [weak self] in self?.notices.dismissDone() }
+        timerPill.onCancel = { [weak self] id in self?.cancelTimer(id) }
+        let audio = self.audio
+        notices.onChime = { sound in audio.playSound(Sounds.samples(sound)) }
+        notices.onChange = { [weak self] in Task { @MainActor in self?.noticesChanged() } }
         _ = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.controlPill.replace()
-                self?.voicePill.replace()
-            }
+            Task { @MainActor in self?.pills?.restack() }
         }
         applyFace()
     }
@@ -108,16 +135,24 @@ public final class AppModel: ObservableObject {
         let voice = saved.voice ? makeVoice(for: link) : nil
         // The Windows app's 8000: Axis paces speech to what the Mac can hold ahead.
         link.audioBufferMs = voice != nil ? 8000 : 0
+        let notices = self.notices
         link.onState = { [weak self] state, why in
             voice?.linkChanged(online: state == .online)
+            notices.linkChanged(online: state == .online)
             Task { @MainActor in self?.linked(state, why) }
         }
-        link.onSettings = { [weak self] values in Task { @MainActor in self?.useSettings(values) } }
+        link.onSettings = { [weak self] values in
+            notices.useSettings(values)
+            Task { @MainActor in self?.useSettings(values) }
+        }
         link.onTrouble = { [weak self] line in Task { @MainActor in self?.note("⚠ " + line) } }
         link.onCommand = { [weak self, commands] name, params in
+            // The task line, the next timer and the chime are the screen's, not the desktop tool's.
+            if Notices.commands.contains(name) { return notices.handle(name, params) }
             await self?.commandComing(name)
             return await commands.handle(name, params)
         }
+        notices.send = { [weak link] message in Task { _ = await link?.trySend(message) } }
         if let voice {
             link.onMessage = { type, message in voice.handle(type, message) }
             link.onAudio = { pcm in voice.audio(pcm) }
@@ -139,6 +174,9 @@ public final class AppModel: ObservableObject {
         }
         let voice = Voice(io: audio, out: { outbox.put($0) })
         voice.onChange = { [weak self] in Task { @MainActor in self?.voiceChanged() } }
+        // The listening cue, as the boards play it (the `listenCue` setting; never in quiet hours).
+        let notices = self.notices
+        voice.onListening = { _ = notices.play(.listening) }
         voice.onFailed = { [weak self] why in Task { @MainActor in self?.note("⚠ voice: \(why)") } }
         self.outbox = outbox
         return voice
@@ -157,8 +195,66 @@ public final class AppModel: ObservableObject {
 
     func voiceChanged() {
         voiceNow = voice?.snapshot
-        if let now = voiceNow { voicePill.show(now, talkKey: talkKey.label) }
+        if let now = voiceNow {
+            fetchPicture(now.picture)
+            if typingPill.isOpen { typingPill.ask(now.question, choices: now.choices) }
+            voicePill.show(now, talkKey: talkKey.label, picture: pictureURL == now.picture?.url ? pictureImage : nil)
+        }
         showFace()
+    }
+
+    /** A reply's picture, fetched once from Axis; the pill shows it when it is here (and loses it with the reply). */
+    private func fetchPicture(_ picture: VoicePicture?) {
+        guard let picture, picture.url != pictureURL, let link else { return }
+        pictureURL = picture.url
+        pictureImage = nil
+        let url = picture.url
+        Task { [weak self] in
+            do {
+                let data = try await link.picture(url)
+                guard let self, self.pictureURL == url else { return }
+                guard let image = NSImage(data: data) else { throw DesktopError("the picture could not be read") }
+                self.pictureImage = image
+                self.voiceChanged()
+            } catch {
+                self?.note("⚠ A picture in the reply: \(describeError(error))")
+            }
+        }
+    }
+
+    // MARK: The task and timer pills
+
+    /** The task line or the next timer changed (or a finished task's time on show ran out). */
+    func noticesChanged() {
+        guard voice != nil else {
+            taskPill.vanish()
+            timerPill.vanish()
+            return
+        }
+        let task = notices.task
+        taskPill.show(TaskPillWords.of(task))
+        let notices = self.notices
+        let timer = notices.timer
+        timerPill.show(timer, now: { notices.now })
+        // Look again when a finished task or a rung timer is due to go, in case Axis says nothing more.
+        var next: UInt64?
+        if task.state == .done { next = Notices.doneShownMs }
+        if let timer {
+            let gone = timer.endsAt + Notices.rungShownMs
+            let wait = gone > notices.now ? gone - notices.now : 0
+            next = min(next ?? wait, wait)
+        }
+        if let next {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(next) + 200)) { [weak self] in self?.noticesChanged() }
+        }
+    }
+
+    /** The timer pill's ×: Axis cancels it and sends every screen the next one. */
+    func cancelTimer(_ id: Int) {
+        guard let link else { return }
+        Task { [weak self] in
+            do { try await link.cancelTimer(id: id) } catch { self?.note("⚠ The timer could not be cancelled: \(describeError(error))") }
+        }
     }
 
     /** An agent came to this Mac or left it: the pill under it moves, the face and the menu bar icon follow. */
@@ -197,12 +293,18 @@ public final class AppModel: ObservableObject {
 
     public func stop() async {
         if let voice, voice.currentMode != .idle { voice.interrupt() }
+        typingPill.close()
         await link?.stop()
         link = nil
         voice = nil
         outbox = nil
         voiceNow = nil
+        pictureURL = nil
+        pictureImage = nil
         voicePill.dismiss()
+        notices.linkChanged(online: false)
+        taskPill.vanish()
+        timerPill.vanish()
         showFace()
     }
 
@@ -311,6 +413,52 @@ public final class AppModel: ObservableObject {
         voice.press()
     }
 
+    /** The talk key went down: the microphone starts at once (or the agent is stopped, or listening finishes). */
+    func talkDown() {
+        guard let voice, !paused, state == .online else { return }
+        voice.keyDown()
+    }
+
+    /** The talk key came up: the end of a hold, or a tap, which opens the typing pill (unless it has a key of its own). */
+    func talkUp() {
+        guard let voice else { return }
+        let ownKey = typingKey != nil
+        if voice.keyUp(tapListens: ownKey) == .tap && !ownKey { toggleTyping() }
+    }
+
+    // MARK: Typing to the agent
+
+    /** The typing key, when one of its own is set; nil: a tap of the talk key opens the typing pill. */
+    public var typingKey: TalkKey? {
+        guard let k = TalkKey.parse(saved.typingKey), k.refused() == nil, !k.isFn else { return nil }
+        return k
+    }
+
+    /** Opens the typing pill in the voice pill's slot, or closes it. Only while talking from this Mac is on and online. */
+    public func toggleTyping() {
+        if typingPill.isOpen {
+            typingPill.close()
+            return
+        }
+        guard voice != nil, state == .online, !paused else { return }
+        voicePill.hold(true)
+        typingPill.open(question: voiceNow?.question, choices: voiceNow?.choices ?? [])
+    }
+
+    /** Uses `key` to open the typing pill (nil: a tap of the talk key does). Returns why it cannot be, or nil. */
+    @discardableResult
+    public func setTypingKey(_ key: TalkKey?) -> String? {
+        if let key {
+            if key.isFn { return "Fn alone can only be the talk key" }
+            if let why = key.refused() { return why }
+            if key == talkKey { return "that is the talk key" }
+        }
+        change { $0.typingKey = key?.description ?? "" }
+        applyTalkKey()
+        if typingKeyTrouble == nil { note("Typing key: \(key?.label ?? "a tap of the talk key")") }
+        return typingKeyTrouble
+    }
+
     /** Talking from this Mac on or off: Axis hears of it on the next connection, so the link starts again now. */
     public func setVoice(_ on: Bool) async {
         change { $0.voice = on }
@@ -336,11 +484,20 @@ public final class AppModel: ObservableObject {
     func applyTalkKey() {
         guard saved.voice else {
             talkKeys.stop()
+            typingKeys.stop()
             talkKeyTrouble = nil
+            typingKeyTrouble = nil
             return
         }
         talkKeyTrouble = talkKeys.use(talkKey)
         if let trouble = talkKeyTrouble { note("⚠ \(trouble)") }
+        if let key = typingKey, key != talkKey {
+            typingKeyTrouble = typingKeys.use(key)
+            if let trouble = typingKeyTrouble { note("⚠ \(trouble)") }
+        } else {
+            typingKeys.stop()
+            typingKeyTrouble = nil
+        }
     }
 
     /** The microphone and speaker by UID; empty is the system's default. From the next recording or answer. */
@@ -354,6 +511,9 @@ public final class AppModel: ObservableObject {
 
     /** The window's and the menu's "Talk now": a press of the talk key. */
     public func talkNow() { talkPressed() }
+
+    /** The menu's "Type to VorteX…". */
+    public func typeNow() { toggleTyping() }
 
     /** A few words for the menu and the window. */
     public var stateLine: String {

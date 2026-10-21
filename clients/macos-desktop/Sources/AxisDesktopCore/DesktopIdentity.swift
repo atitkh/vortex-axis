@@ -7,16 +7,22 @@ public enum DesktopIdentity {
     /**
      * With `voice` (Talk from this Mac, on unless switched off), also a microphone, speakers and a screen (the voice
      * pill, which shows what was heard, the reply and Axis's questions with their choices): the Mac is talked to like
-     * a board, as the Windows app is. Without it only `desktop`: advertising `screen` obliges the app to show questions.
+     * a board, as the Windows app is; and (0.4.0) `images`, the pictures in replies shown under the reply. Without it only `desktop`: advertising `screen` obliges the app to show questions.
      * The settings are the Windows app's eight; its switches for voice, the face and the pills are the person's own,
      * kept on the Mac, not on the admin page (the same on Windows).
      */
     public static func capabilities(voice: Bool) -> [String] {
-        voice ? ["desktop", "mic", "speaker", "screen"] : ["desktop"]
+        voice ? ["desktop", "mic", "speaker", "screen", "images"] : ["desktop"]
     }
 
     public static func create(version: String, voice: Bool = false) -> ClientIdentity {
-        ClientIdentity(type: type, version: version, capabilities: capabilities(voice: voice), describe: [
+        // Talking on, the Mac has speakers: the boards' two sound switches, and a `chime` Axis plays before a timer is said.
+        let sound: [JSONValue] = voice ? [
+            soundSetting("listenCue", "Listening cue", "A short rising tone when it starts listening (the talk key held). Never in quiet hours."),
+            soundSetting("taskChime", "Task chime", "Two soft notes when an agent's long task finishes. Never in quiet hours."),
+        ] : []
+        let chime: [JSONValue] = voice ? [["name": "chime", "label": "Play the chime", "help": "The bell a timer rings with, on this Mac's speaker (not in quiet hours)."]] : []
+        return ClientIdentity(type: type, version: version, capabilities: capabilities(voice: voice), describe: [
             "settings": .array([
                 setting("allowLook", "Let agents read the screen", "Off refuses every look. The person at the Mac can also pause the app from its menu bar item.", "1"),
                 setting("allowInput", "Let agents click and type", "Off refuses clicks, typing and key presses; looking and pointing go on. The app never types into a password field or presses lock, log out, Force Quit or cmd+Q.", "1"),
@@ -26,12 +32,16 @@ public enum DesktopIdentity {
                 setting("confirmRisky", "Ask before risky actions", "Axis asks you first (Allow or Deny, here or on a device near you) when an agent would click Send, Delete, Buy and the like, or press Enter in a chat, mail or payment window.", "1"),
                 setting("autoOcr", "Read pixels when a window says little", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels. Needs Screen Recording access.", "1"),
                 ["key": "pointerSize", "label": "Pointer size", "kind": "number", "group": "Desktop", "default": 44, "min": 24, "max": 120, "unit": "pt"],
-            ]),
+            ] + sound),
             "actions": .array([
                 ["name": "desktop.hello", "label": "Show the pointer", "help": "The pointer appears in the middle of the screen for a few seconds."],
-            ]),
+            ] + chime),
             "links": .array([]),
         ])
+    }
+
+    static func soundSetting(_ key: String, _ label: String, _ help: String) -> JSONValue {
+        ["key": .string(key), "label": .string(label), "kind": "toggle", "group": "Sound", "help": .string(help), "default": "1"]
     }
 
     static func setting(_ key: String, _ label: String, _ help: String, _ def: String) -> JSONValue {

@@ -62,6 +62,12 @@ public enum PillLayout {
      * A pill whose words take `w` by `h` points (padding included), on `screen`; `under` is the bottom (AppKit y) of the
      * pill above it, or nil when it is the first.
      */
+    /**
+     * What a pill goes under, given the bottoms (AppKit y) of the pills above it in their order (nil for one not up):
+     * the lowest of them, or nil when none is up, and then it is the first (out of the notch).
+     */
+    public static func under(_ bottoms: [Double?]) -> Double? { bottoms.compactMap { $0 }.min() }
+
     public static func place(w: Double, h: Double, on screen: PillScreen, under: Double? = nil) -> Placed {
         if under == nil, let notch = screen.notch {
             let pw = max(w, notch.w + wings * 2), ph = notch.h + h

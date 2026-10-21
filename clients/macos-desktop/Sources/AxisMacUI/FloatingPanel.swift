@@ -6,7 +6,7 @@ import AxisDesktopCore
  * never takes the focus; on every Space and over full-screen apps; out of every screen capture (`sharingType`), which
  * is the Mac's way of the Windows app stepping its face and pills aside for a screenshot; click-through until asked.
  */
-final class FloatingPanel: NSPanel {
+class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     // A borderless window may sit over the menu bar (a pill grown out of the notch); AppKit is not to push it down.
@@ -17,9 +17,13 @@ final class FloatingPanel: NSPanel {
     /** Over the menu bar: the pills, which may grow out of the notch. */
     static let overMenuBar = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
 
-    static func make(level: NSWindow.Level) -> FloatingPanel {
-        let p = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless, .nonactivatingPanel],
-                              backing: .buffered, defer: true)
+    /** `keyable`: the typing pill's panel, which takes the keyboard without making the app active (`KeyablePanel`). */
+    static func make(level: NSWindow.Level, keyable: Bool = false) -> FloatingPanel {
+        let frame = NSRect(x: 0, y: 0, width: 10, height: 10)
+        let style: NSWindow.StyleMask = [.borderless, .nonactivatingPanel]
+        let p: FloatingPanel = keyable
+            ? KeyablePanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
+            : FloatingPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = false
@@ -27,7 +31,7 @@ final class FloatingPanel: NSPanel {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         p.isFloatingPanel = true
         p.hidesOnDeactivate = false
-        p.becomesKeyOnlyIfNeeded = true
+        p.becomesKeyOnlyIfNeeded = !keyable
         p.isReleasedWhenClosed = false
         p.animationBehavior = .none
         p.sharingType = .none
@@ -35,6 +39,15 @@ final class FloatingPanel: NSPanel {
         p.alphaValue = 0
         return p
     }
+}
+
+/**
+ * The typing pill's panel: it may become the key window, so keystrokes reach its field, but it is still a
+ * non-activating panel: the app is not brought forward and the app in front stays the one in front (and its window
+ * gets the keyboard back as soon as this one resigns), so the desktop tool's typing still goes where it went.
+ */
+final class KeyablePanel: FloatingPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 /** The main display (the one with the menu bar) and the rest, in the shapes Core's layouts take. */

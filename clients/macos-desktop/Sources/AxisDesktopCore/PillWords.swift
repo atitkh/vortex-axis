@@ -3,6 +3,8 @@ import Foundation
 /** The colour of what is going on, for a pill's dot, its edge and its first line (the Windows app's colours). */
 public enum PillTint: String, Equatable, Sendable {
     case listening, hearing, thinking, speaking, error, question, control
+    /** An agent's long task under way, one waiting for the person, one finished; a timer counting down. */
+    case task, needsYou, done, timer
 
     /** Red, green and blue, 0 to 255. */
     public var rgb: (r: Int, g: Int, b: Int) {
@@ -14,6 +16,10 @@ public enum PillTint: String, Equatable, Sendable {
         case .error: return (0xFF, 0x5C, 0x4A)
         case .question: return (0x4D, 0x94, 0xFF)
         case .control: return (0xFF, 0x52, 0x9E)
+        case .task: return (0x8C, 0xB4, 0xFF)
+        case .needsYou: return (0xFF, 0xB3, 0x3D)
+        case .done: return (0x3D, 0xDC, 0x84)
+        case .timer: return (0xFF, 0xD2, 0x4D)
         }
     }
 }
@@ -61,6 +67,8 @@ public struct VoicePillWords: Equatable, Sendable {
     /** How big the dot is: it swells with the voice while listening. */
     public var dotScale: Double
     public var then: Then
+    /** The address of a picture that came with the reply, shown under it (and gone with it). */
+    public var picture: String? = nil
 
     public static func of(_ s: VoiceSnapshot, talkKey: String) -> VoicePillWords {
         var (status, tint) = word(s.mode)
@@ -79,7 +87,7 @@ public struct VoicePillWords: Equatable, Sendable {
         default: then = .show
         }
         return VoicePillWords(status: status, tint: tint, heard: heard, heardIsSpeech: true, reply: s.reply, choices: [],
-                              dotScale: scale, then: then)
+                              dotScale: scale, then: then, picture: s.picture?.url)
     }
 
     static func word(_ mode: VoiceMode) -> (String, PillTint) {
@@ -92,6 +100,74 @@ public struct VoicePillWords: Equatable, Sendable {
         case .idle: return ("", .speaking)
         }
     }
+}
+
+/**
+ * The task pill (an agent's long work, `progress.show`): its title, how far ("3/5", or the note), a bar when the steps
+ * are counted, "+N" for the other tasks, and the list a click opens: the other tasks first, then this one's steps.
+ */
+public struct TaskPillWords: Equatable, Sendable {
+    public struct Row: Equatable, Sendable {
+        public enum Kind: String, Equatable, Sendable { case task, needsYou, done, running, pending }
+        public var kind: Kind
+        public var text: String
+    }
+
+    /** The most rows the open list shows; the rest are on the admin page's Live page. */
+    public static let maxRows = 8
+
+    public var title: String
+    /** "3/5", "needs you: …", "done", or the note. */
+    public var detail: String
+    public var tint: PillTint
+    /** 0 to 1, or nil for no bar. */
+    public var fraction: Double?
+    /** "+2", or empty. */
+    public var more: String
+    public var rows: [Row]
+    /** A finished task can be put away. */
+    public var dismissible: Bool
+
+    public static func of(_ t: TaskLine) -> TaskPillWords? {
+        guard t.shows else { return nil }
+        let tint: PillTint = t.state == .done ? .done : t.state == .blocked ? .needsYou : .task
+        let count = t.total > 0 ? "\(max(0, t.done))/\(t.total)" : ""
+        let detail: String
+        switch t.state {
+        case .done: detail = "done"
+        case .blocked: detail = ["needs you", t.note].filter { !$0.isEmpty }.joined(separator: ": ")
+        default: detail = [count, t.note].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        var rows = t.others.map { Row(kind: $0.needsYou ? .needsYou : $0.text.hasSuffix(" done") ? .done : .task, text: $0.text) }
+        rows += t.steps.map { Row(kind: $0.state == .done ? .done : $0.state == .running ? .running : .pending, text: $0.text) }
+        if rows.count > maxRows { rows = Array(rows.prefix(maxRows - 1)) + [Row(kind: .pending, text: "… \(rows.count - maxRows + 1) more")] }
+        return TaskPillWords(title: t.title, detail: detail, tint: tint, fraction: t.fraction,
+                             more: t.others.isEmpty ? "" : "+\(t.others.count)", rows: rows, dismissible: t.state == .done)
+    }
+}
+
+/** The timer pill (`timer.next`): its name, the time left, "+N" for more timers; red in the last 10 s, as the boards glow. */
+public struct TimerPillWords: Equatable, Sendable {
+    public static let warnSeconds = 10
+
+    public var label: String
+    public var clock: String
+    public var tint: PillTint
+    public var cancellable: Bool
+
+    public static func of(_ t: NextTimer, now: UInt64) -> TimerPillWords {
+        let left = t.secondsLeft(now: now)
+        let more = t.count > 1 ? " +\(t.count - 1)" : ""
+        return TimerPillWords(label: t.label.isEmpty ? "Timer" : t.label, clock: NextTimer.clock(left) + more,
+                              tint: left <= warnSeconds ? .error : .timer, cancellable: t.id != nil && left > 0)
+    }
+}
+
+/** The typing pill's first line: "Typing", or the question it will answer. */
+public enum TypingPillWords {
+    public static let status = "Typing"
+    public static let placeholder = "Ask VorteX…  (Return sends, ⇧Return new line, Esc closes)"
+    public static let answerPlaceholder = "Type your answer…"
 }
 
 /** What the menu bar icon shows: the app's state at a glance. */

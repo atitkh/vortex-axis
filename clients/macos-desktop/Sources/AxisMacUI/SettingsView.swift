@@ -45,6 +45,8 @@ public struct SettingsView: View {
                 permission("Microphone (talking from this Mac)", granted: model.microphone,
                            ask: { let m = model; Permissions.askMicrophone { _ in Task { @MainActor in m.refreshPermissions() } } },
                            open: Permissions.openMicrophoneSettings)
+                Text("The talk and typing keys need no permission: they are hot keys, not a key monitor (no Input Monitoring). The typing field takes your keys only while it is open.")
+                    .font(.callout).foregroundStyle(.secondary)
                 Button("Check again") { model.refreshPermissions() }
             }
             Section("Recently") {

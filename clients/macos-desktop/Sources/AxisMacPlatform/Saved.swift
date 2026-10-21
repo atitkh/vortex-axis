@@ -20,6 +20,8 @@ public struct Saved: Codable, Equatable {
     /** Keep the face on screen between turns; then a click on it talks. */
     public var keepFace = false
     public var talkKey = TalkKeyDefault.id
+    /** A key of its own that opens the typing pill; empty: a tap of the talk key opens it. */
+    public var typingKey = ""
     public var micDevice = ""
     public var speakerDevice = ""
     /** small, medium or large (`FaceLayout.sizes`). */
@@ -32,6 +34,7 @@ public struct Saved: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case address = "Address", clientId = "ClientId", name = "Name", paused = "Paused"
         case voice = "Voice", showControl = "ShowControl", showFace = "ShowFace", keepFace = "KeepFace", talkKey = "TalkKey"
+        case typingKey = "TypingKey"
         case micDevice = "MicDevice", speakerDevice = "SpeakerDevice", faceSize = "FaceSize", facePlace = "FacePlace"
         case faceX = "FaceX", faceY = "FaceY"
     }
@@ -50,6 +53,7 @@ public struct Saved: Codable, Equatable {
         showFace = (try? c.decodeIfPresent(Bool.self, forKey: .showFace)) ?? true
         keepFace = (try? c.decodeIfPresent(Bool.self, forKey: .keepFace)) ?? false
         talkKey = (try? c.decodeIfPresent(String.self, forKey: .talkKey)) ?? TalkKeyDefault.id
+        typingKey = (try? c.decodeIfPresent(String.self, forKey: .typingKey)) ?? ""
         micDevice = (try? c.decodeIfPresent(String.self, forKey: .micDevice)) ?? ""
         speakerDevice = (try? c.decodeIfPresent(String.self, forKey: .speakerDevice)) ?? ""
         faceSize = (try? c.decodeIfPresent(String.self, forKey: .faceSize)) ?? "medium"
