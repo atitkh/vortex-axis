@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.4.0 (2026-10-20)
+
+- **Typing to the agent.** Tap the talk key (or the optional typing key) for a typing pill; hold it to talk as before (the mic opens at key-down with a one-second pre-roll; a release under 220 ms is a tap and drops the audio). Return sends, Shift/Option+Return adds a line, Esc closes, Up recalls the last message. It answers an open question too. A "Type to VorteX…" menu item. Needs talking on.
+- **Task and timer pills** (progress.show, timer.next): title, progress bar, +N, steps on a click, "needs you"; a finished task leaves after 90 s or with its ×, which sends swipe_down; timers count down and cancel with ×.
+- **Sounds** generated in code: timer bell (the chime action), task-finished chime, listening cue; never in quiet hours. **Pictures in replies** (images capability while talking is on).
+- Never compiled on a Mac in the AppKit/SwiftUI part; the Core's 166 tests pass under Swift 5.10 on Linux.
+
+## Desktop app 0.11.0 (2026-10-20)
+
+- **Typing to the agent**, the same way as on the Mac: tap the talk key (or a Typing key) for a typing pill, hold to talk with the mic opened at key-down; the previous window gets the focus back on send or Esc.
+- **Task and timer pill** (progress.show, timer.next) with the step list on a click, × to put away or cancel; chime, task chime and listening cue (never in quiet hours); pictures in the voice pill. The `images` capability is declared while talking is on.
+- All pills are kept out of screen captures now (the old ones too).
+
 ## Mac desktop app 0.3.2 (2026-10-20)
 
 - **The face follows the Face page's settings, as the boards and the Windows app 0.10.5 do**: `toolIcons`, `toolIconMs`, `toolIconDots`, `idleLooksOff`, live from the settings Axis sends (`Face.useSettings`, `setIconTuning`, `setIdleOff`, `shapePoint`, ported from `web/vortex.js`). `Face.swift` and its tests compiled and passed under Swift 5.10 on Linux; the app itself not compiled.
