@@ -397,6 +397,9 @@ export class Hub implements TurnPort {
       case "hello":
         this.send(session, { t: "error", code: "bad_message", message: "hello was already sent" });
         return;
+      case "ping":
+        this.send(session, { t: "pong" });
+        return;
       case "settings.get":
         if (message.have !== this.store.settingsVersion()) this.sendSettings(session);
         return;

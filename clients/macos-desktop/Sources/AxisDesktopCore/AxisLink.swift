@@ -71,7 +71,16 @@ public struct DesktopError: SaysWhy, LocalizedError {
     public var errorDescription: String? { message }
 }
 
-/** Whether a ping was answered. */
+/** When Axis was last heard from on this connection. */
+final class HeardBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var at = DispatchTime.now()
+    func touch() { lock.withLock { at = DispatchTime.now() } }
+    /** Seconds since the last frame. */
+    var silentFor: Double { lock.withLock { Double(DispatchTime.now().uptimeNanoseconds - at.uptimeNanoseconds) / 1e9 } }
+}
+
+/** A flag shared with a callback. */
 final class PongBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _got = false
@@ -276,15 +285,16 @@ public final class AxisLink: @unchecked Sendable {
         }
         ws.resume()
         defer { ws.cancel(with: .goingAway, reason: nil) }
-        let pinging = Task { [weak ws] in
-            // The Windows app's KeepAlive: 20 s. A ping nobody answers in 10 s is a dead connection: dropped, so the
-            // loop connects again (after a sleep or a network change the socket can look open for minutes).
+        let heard = HeardBox()
+        let pinging = Task { [weak self, weak ws] in
+            // A `ping` to Axis every 15 s (it answers `pong`); a connection that has said nothing for 40 s is dead
+            // (after a sleep or a network change the socket can look open for minutes): dropped, so the loop connects again.
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                let answered = PongBox()
-                ws?.sendPing { error in if error == nil { answered.set() } }
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                if !Task.isCancelled, !answered.got { ws?.cancel(with: .abnormalClosure, reason: nil) }
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                if Task.isCancelled { return }
+                _ = await self?.trySend(.object(["t": "ping"]))
+                ws?.sendPing { _ in }
+                if heard.silentFor > 40 { ws?.cancel(with: .abnormalClosure, reason: nil) }
             }
         }
         defer { pinging.cancel() }
@@ -314,10 +324,12 @@ public final class AxisLink: @unchecked Sendable {
             switch message {
             case .string(let s): text = s
             case .data(let audio):
+                heard.touch()
                 onAudio?(audio)
                 continue
             @unknown default: continue
             }
+            heard.touch()
             guard let root = try? JSONValue.parse(text), let t = root["t"]?.stringValue else { continue }
             switch t {
             case "welcome":

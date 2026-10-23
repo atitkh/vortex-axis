@@ -120,6 +120,16 @@ export const Gesture = message("gesture", {
   gesture: Type.Union(GESTURES.map((g) => Type.Literal(g))),
 });
 
+/**
+ * A heartbeat from a client that cannot see the WebSocket's own pings (browsers, .NET and Apple's URLSession hide
+ * them): Axis answers with `pong`. A client that hears nothing for a while knows the connection is dead and
+ * connects again.
+ */
+export const Ping = message("ping", {});
+
+/** The answer to `ping`. */
+export const Pong = message("pong", {});
+
 /** Asks for settings newer than the version the client holds. */
 export const SettingsGet = message("settings.get", {
   have: Type.Integer({ minimum: 0 }),
@@ -366,6 +376,7 @@ export const CLIENT_MESSAGE_SCHEMAS = [
   Playback,
   Sense,
   Gesture,
+  Ping,
   SettingsGet,
   CommandResult,
   Describe,
@@ -388,6 +399,7 @@ export const SERVER_MESSAGE_SCHEMAS = [
   AskEnd,
   Stop,
   Status,
+  Pong,
   Command,
   ErrorMessage,
 ] as const;
@@ -405,6 +417,8 @@ export type Answer = Static<typeof Answer>;
 export type Playback = Static<typeof Playback>;
 export type Sense = Static<typeof Sense>;
 export type Gesture = Static<typeof Gesture>;
+export type Ping = Static<typeof Ping>;
+export type Pong = Static<typeof Pong>;
 export type SettingsGet = Static<typeof SettingsGet>;
 export type CommandResult = Static<typeof CommandResult>;
 export type Describe = Static<typeof Describe>;

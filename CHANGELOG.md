@@ -4,6 +4,22 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.48.0 (2026-10-23)
+
+- **`ping` / `pong`.** A client that cannot see the WebSocket's own pings (browsers, .NET, Apple's URLSession) sends `ping` and Axis answers `pong`, so a client can tell a silently dead connection from a quiet one. Additive: protocol stays 1; old clients never send it.
+- `scripts/release-check.mjs` and `docs/release.md`: one checklist for versions, CHANGELOG, CLAUDE.md, tags, pushes, the running server and the shelf.
+
+## Mac desktop app 0.4.1 (2026-10-23)
+
+- **Recovers from sleep.** On wake, screen wake and session return the link drops its (probably dead) socket and connects at once, the talk and typing keys are registered again, the face and pills are put in front again (a fade cut off by the sleep could leave the face invisible), a half-done turn is cancelled when going to sleep. The network coming back also reconnects (NWPathMonitor).
+- **Silent drops.** A `ping` every 15 s; 40 s without a frame from Axis drops the connection and reconnects.
+- Not compiled on a Mac yet.
+
+## Desktop app 0.11.1 (2026-10-23)
+
+- **Recovers from sleep.** Resume, unlock and the network coming back drop the old connection and connect at once (no leftover wait); the pause, talk and typing keys are registered again; the face and pills are put in front again; a half-done turn is cancelled when going to sleep.
+- **Silent drops.** A `ping` every 15 s (needs Axis 0.48.0; an older Axis answers with an error, which also counts as heard); 40 s without a frame aborts the connection and it connects again.
+
 ## Mac desktop app 0.4.0 (2026-10-20)
 
 - **Typing to the agent.** Tap the talk key (or the optional typing key) for a typing pill; hold it to talk as before (the mic opens at key-down with a one-second pre-roll; a release under 220 ms is a tap and drops the audio). Return sends, Shift/Option+Return adds a line, Esc closes, Up recalls the last message. It answers an open question too. A "Type to VorteX…" menu item. Needs talking on.

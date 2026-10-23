@@ -440,6 +440,20 @@
         }
       }
     },
+    "ping": {
+      "$id": "ping",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t"
+      ],
+      "properties": {
+        "t": {
+          "const": "ping",
+          "type": "string"
+        }
+      }
+    },
     "settings.get": {
       "$id": "settings.get",
       "additionalProperties": false,
@@ -1238,6 +1252,20 @@
               ]
             }
           }
+        }
+      }
+    },
+    "pong": {
+      "$id": "pong",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t"
+      ],
+      "properties": {
+        "t": {
+          "const": "pong",
+          "type": "string"
         }
       }
     },

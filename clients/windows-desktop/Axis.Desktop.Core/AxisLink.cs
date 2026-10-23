@@ -190,6 +190,25 @@ public sealed class AxisLink : IAsyncDisposable
         if (AudioBufferMs > 0) hello["audioBufferMs"] = AudioBufferMs;
         await SendAsync(hello, ct);
 
+        // A `ping` to Axis every 15 s (it answers `pong`); a connection that has said nothing for 40 s is dead (after a
+        // sleep or a network change the socket can look open for minutes): aborted, so the loop connects again.
+        var heard = Environment.TickCount64;
+        using var beating = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(15000, beating.Token);
+                    try { await SendAsync(new JsonObject { ["t"] = "ping" }, beating.Token); } catch (Exception e) when (e is not OperationCanceledException) { }
+                    if (Environment.TickCount64 - Interlocked.Read(ref heard) > 40000) { try { ws.Abort(); } catch { } return; }
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+        try
+        {
         var buffer = new byte[64 * 1024];
         using var message = new MemoryStream();
         while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
@@ -199,6 +218,7 @@ public sealed class AxisLink : IAsyncDisposable
             do
             {
                 result = await ws.ReceiveAsync(buffer, ct);
+                Interlocked.Exchange(ref heard, Environment.TickCount64);
                 if (result.MessageType == WebSocketMessageType.Close) return CloseReason(ws);
                 message.Write(buffer, 0, result.Count);
             } while (!result.EndOfMessage);
@@ -249,6 +269,8 @@ public sealed class AxisLink : IAsyncDisposable
             }
         }
         return null;
+        }
+        finally { beating.Cancel(); }
     }
 
     static string? CloseReason(ClientWebSocket ws) =>

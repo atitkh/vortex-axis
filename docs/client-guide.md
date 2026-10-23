@@ -142,6 +142,7 @@ A device that can update itself over the network implements `update`: answer `ok
 ## 11. Staying honest with Axis
 
 - Answer WebSocket pings. Axis drops a client that misses them and shows it offline.
+- A client that cannot see those pings (a browser, .NET, URLSession) sends `ping` every 15 s; Axis answers `pong`. Treat 40 s without any frame from Axis as a dead connection: close it, and connect again straight away when the device wakes or the network returns, without the usual wait.
 - Send `sense` about once a minute with at least signal strength, free memory and uptime, so the admin page can show a device's health.
 - Reconnect by itself, without a limit, with a few seconds between tries.
 - Keep a log a person can read without a cable when the device has the memory for it (the Waveshare board serves its last 64 KB at `/logs`), and list it under `links` in `describe`.

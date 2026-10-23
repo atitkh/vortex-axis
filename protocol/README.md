@@ -114,7 +114,7 @@ Command names and their parameters are not fixed in version 1. They are defined 
 
 ## Message list
 
-Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `settings.get`, `command.result`, `describe`.
+Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `ping`, `settings.get`, `command.result`, `describe`.
 
 Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `speak.start`, `speak.end`, `ask`, `ask.end`, `stop`, `status`, `command`, `error`.
 
