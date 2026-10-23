@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.4.3 (2026-10-23)
+
+- **The face, pills and pointer are on every Space more reliably.** Each showing sets the all-Spaces behaviour again before ordering the panel in; a panel faded out and back in could return on the current Space only. Not compiled on a Mac yet.
+
 ## Mac desktop app 0.4.2 (2026-10-23)
 
 - **Fix: 0.4.1 could stay at "Connecting…" for good.** The network watcher's first report called `nudge`, which could cancel the socket before it was started. The socket is now started before anything can cancel it, and the watcher acts only when the network comes back from none.

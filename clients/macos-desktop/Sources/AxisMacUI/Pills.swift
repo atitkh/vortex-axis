@@ -110,7 +110,7 @@ final class PillHost {
         up = true
         generation += 1
         stage.expanded = false
-        panel.orderFrontRegardless()
+        panel.bringUp()
         NSAnimationContext.runAnimationGroup { c in
             c.duration = 0.18
             panel.animator().alphaValue = 1
@@ -156,7 +156,7 @@ final class PillHost {
             return
         }
         panel.alphaValue = 1
-        panel.orderFrontRegardless()
+        panel.bringUp()
         place()
     }
 

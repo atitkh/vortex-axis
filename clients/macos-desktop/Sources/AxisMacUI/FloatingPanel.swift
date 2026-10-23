@@ -17,6 +17,19 @@ class FloatingPanel: NSPanel {
     /** Over the menu bar: the pills, which may grow out of the notch. */
     static let overMenuBar = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
 
+    static let everywhere: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+
+    /**
+     * Onto the screen, on every Space. The behaviour is set again at each showing: a window ordered out and in again
+     * (the face and pills fade away and come back) can come back on the Space that is current only, and a panel
+     * shown while a Space change is under way can stay on the Space it began on.
+     */
+    func bringUp() {
+        collectionBehavior = []
+        collectionBehavior = Self.everywhere
+        orderFrontRegardless()
+    }
+
     /** `keyable`: the typing pill's panel, which takes the keyboard without making the app active (`KeyablePanel`). */
     static func make(level: NSWindow.Level, keyable: Bool = false) -> FloatingPanel {
         let frame = NSRect(x: 0, y: 0, width: 10, height: 10)
@@ -28,7 +41,7 @@ class FloatingPanel: NSPanel {
         p.backgroundColor = .clear
         p.hasShadow = false
         p.level = level
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        p.collectionBehavior = everywhere
         p.isFloatingPanel = true
         p.hidesOnDeactivate = false
         p.becomesKeyOnlyIfNeeded = !keyable

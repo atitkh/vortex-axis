@@ -129,7 +129,7 @@ public final class FacePanel: NSObject {
         layout()
         last = 0
         panel.alphaValue = 0
-        panel.orderFrontRegardless()
+        panel.bringUp()
         ticker?.start()
         NSAnimationContext.runAnimationGroup { c in
             c.duration = 0.22

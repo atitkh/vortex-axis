@@ -76,7 +76,7 @@ public final class PointerPanel: PointerDrawing {
         } else {
             arrowPanel.setFrame(arrowFrame, display: true)
             arrowPanel.alphaValue = 0
-            arrowPanel.orderFrontRegardless()
+            arrowPanel.bringUp()
             fadeIn(arrowPanel)
             appear(bubbleFrame)
         }
@@ -122,7 +122,7 @@ public final class PointerPanel: PointerDrawing {
         }
         bubblePanel.setFrame(frame, display: true)
         bubblePanel.alphaValue = 0
-        bubblePanel.orderFrontRegardless()
+        bubblePanel.bringUp()
         bubbleView.needsDisplay = true
         fadeIn(bubblePanel)
         bubbleShown = true
