@@ -229,8 +229,9 @@ public final class AxisLink: @unchecked Sendable {
             let up = path.status == .satisfied
             let wasUp = was.got
             was.put(up)
-            // Back from none (a sleep, a Wi-Fi change, a cable): connect now; while it is fine, leave it be.
-            if up && (!wasUp || self?.state != .online) { self?.nudge() }
+            // Only when it comes back from none (a sleep, a Wi-Fi change, a cable). The first report, and any report
+            // while connecting, are left alone: they would cut off the connection that is being made.
+            if up && !wasUp { self?.nudge() }
         }
         monitor.start(queue: DispatchQueue(label: "axis.link.path"))
         pathWatch = monitor
@@ -279,11 +280,13 @@ public final class AxisLink: @unchecked Sendable {
         let ws = session.webSocketTask(with: request)
         // Axis's documented limit for a JSON frame.
         ws.maximumMessageSize = 1 << 20
+        // Started before it is published: a `nudge` that cancels a task not yet resumed can leave the connection
+        // hanging for good (0.4.1 stuck at "Connecting…").
+        ws.resume()
         lock.withLock {
             socket = ws
             sendTail = nil
         }
-        ws.resume()
         defer { ws.cancel(with: .goingAway, reason: nil) }
         let heard = HeardBox()
         let pinging = Task { [weak self, weak ws] in
