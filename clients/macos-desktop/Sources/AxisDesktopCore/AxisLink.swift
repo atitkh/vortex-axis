@@ -2,6 +2,9 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(Network)
+import Network
+#endif
 
 /** Who this client is, as it tells Axis on every connection. */
 public struct ClientIdentity: Sendable {
@@ -68,6 +71,15 @@ public struct DesktopError: SaysWhy, LocalizedError {
     public var errorDescription: String? { message }
 }
 
+/** Whether a ping was answered. */
+final class PongBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _got = false
+    var got: Bool { lock.withLock { _got } }
+    func set() { put(true) }
+    func put(_ value: Bool) { lock.withLock { _got = value } }
+}
+
 /** An error that says what went wrong in words, or names its domain and code when it has none. */
 public func describeError(_ error: Error) -> String {
     if let says = error as? SaysWhy { return says.message }
@@ -114,6 +126,10 @@ public final class AxisLink: @unchecked Sendable {
     private var sendTail: Task<Void, Error>?
     private var settingsVersion = 0
     private var _state = LinkState.stopped
+    private var woke = false
+    #if canImport(Network)
+    private var pathWatch: NWPathMonitor?
+    #endif
 
     public var state: LinkState { lock.withLock { _state } }
 
@@ -162,6 +178,7 @@ public final class AxisLink: @unchecked Sendable {
             guard running == nil else { return }
             running = Task { [weak self] in await self?.run() }
         }
+        watchNetwork()
     }
 
     public func stop() async {
@@ -171,9 +188,44 @@ public final class AxisLink: @unchecked Sendable {
             socket?.cancel(with: .goingAway, reason: nil)
             return t
         }
+        #if canImport(Network)
+        pathWatch?.cancel()
+        pathWatch = nil
+        #endif
         task?.cancel()
         await task?.value
         setState(.stopped, nil)
+    }
+
+    /**
+     * The Mac woke or the network came back: the socket it holds is most likely dead without knowing it (a sleep
+     * leaves it open on this side for minutes), so it is dropped and the connection made again at once, with no
+     * wait left over from earlier failures.
+     */
+    public func nudge() {
+        lock.withLock {
+            guard running != nil else { return }
+            woke = true
+            socket?.cancel(with: .goingAway, reason: nil)
+        }
+    }
+
+    private func watchNetwork() {
+        #if canImport(Network)
+        guard pathWatch == nil else { return }
+        let monitor = NWPathMonitor()
+        let was = PongBox()
+        was.set()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let up = path.status == .satisfied
+            let wasUp = was.got
+            was.put(up)
+            // Back from none (a sleep, a Wi-Fi change, a cable): connect now; while it is fine, leave it be.
+            if up && (!wasUp || self?.state != .online) { self?.nudge() }
+        }
+        monitor.start(queue: DispatchQueue(label: "axis.link.path"))
+        pathWatch = monitor
+        #endif
     }
 
     private func setState(_ state: LinkState, _ why: String?) {
@@ -199,7 +251,16 @@ public final class AxisLink: @unchecked Sendable {
             let wait = Self.backoffSeconds[min(attempt, Self.backoffSeconds.count - 1)]
             attempt += 1
             setState(.offline, why ?? "connection closed")
-            do { try await Task.sleep(nanoseconds: wait * 1_000_000_000) } catch { return }
+            // Waited in slices, so a wake or a network coming back cuts the wait short.
+            var waited: UInt64 = 0
+            while waited < wait * 1000 {
+                if lock.withLock({ let w = woke; woke = false; return w }) {
+                    attempt = 0
+                    break
+                }
+                do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+                waited += 250
+            }
         }
     }
 
@@ -216,10 +277,14 @@ public final class AxisLink: @unchecked Sendable {
         ws.resume()
         defer { ws.cancel(with: .goingAway, reason: nil) }
         let pinging = Task { [weak ws] in
-            // The Windows app's KeepAlive: 20 s.
+            // The Windows app's KeepAlive: 20 s. A ping nobody answers in 10 s is a dead connection: dropped, so the
+            // loop connects again (after a sleep or a network change the socket can look open for minutes).
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
-                ws?.sendPing { _ in }
+                let answered = PongBox()
+                ws?.sendPing { error in if error == nil { answered.set() } }
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if !Task.isCancelled, !answered.got { ws?.cancel(with: .abnormalClosure, reason: nil) }
             }
         }
         defer { pinging.cancel() }

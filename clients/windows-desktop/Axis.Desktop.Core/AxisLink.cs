@@ -97,6 +97,20 @@ public sealed class AxisLink : IAsyncDisposable
         running = Task.Run(() => RunAsync(stop.Token));
     }
 
+    volatile bool woke;
+
+    /**
+     * The computer woke or the network came back: the socket it holds is most likely dead without knowing it (after a
+     * sleep it can look open for minutes), so it is dropped and the connection made again at once, with no wait left
+     * over from earlier failures.
+     */
+    public void Nudge()
+    {
+        if (running == null) return;
+        woke = true;
+        try { socket?.Abort(); } catch { }
+    }
+
     public async Task StopAsync()
     {
         if (stop == null) return;
@@ -137,7 +151,16 @@ public sealed class AxisLink : IAsyncDisposable
             catch (Exception e) { why = e.Message; }
             var wait = BackoffSeconds[Math.Min(attempt++, BackoffSeconds.Length - 1)];
             SetState(LinkState.Offline, why ?? "connection closed");
-            try { await Task.Delay(TimeSpan.FromSeconds(wait), ct); } catch (OperationCanceledException) { return; }
+            // Waited in slices, so a wake or a network coming back cuts the wait short.
+            try
+            {
+                for (var waited = 0; waited < wait * 1000; waited += 250)
+                {
+                    if (woke) { woke = false; attempt = 0; break; }
+                    await Task.Delay(250, ct);
+                }
+            }
+            catch (OperationCanceledException) { return; }
         }
     }
 
@@ -145,8 +168,7 @@ public sealed class AxisLink : IAsyncDisposable
     async Task<string?> SessionAsync(CancellationToken ct)
     {
         using var ws = new ClientWebSocket();
-        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-        socket = ws;
+        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);        socket = ws;
         using (var connectCt = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
             connectCt.CancelAfter(TimeSpan.FromSeconds(15));

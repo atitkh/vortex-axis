@@ -50,6 +50,7 @@ public final class AppModel: ObservableObject {
     private var link: AxisLink?
     private(set) var voice: Voice?
     private var outbox: Outbox?
+    private var lastWoke = Date.distantPast
 
     public init(version: String) {
         self.version = version
@@ -98,7 +99,43 @@ public final class AppModel: ObservableObject {
         _ = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.pills?.restack() }
         }
+        // Sleep, wake and the screen coming back: the connection, the keys, the face and the pills are made good again.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            _ = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.woke() }
+            }
+        }
+        _ = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.sleeping() }
+        }
         applyFace()
+    }
+
+    /** The Mac is going to sleep: nothing half-said, half-heard or half-typed goes with it. */
+    func sleeping() {
+        if let voice, voice.currentMode != .idle { voice.interrupt() }
+        typingPill.close()
+        pointer.hide()
+    }
+
+    /** The Mac woke (or its screens or session came back): whatever the sleep broke is set up again. */
+    func woke() {
+        // Wake, screens wake and the session coming back arrive together: once is enough.
+        if Date().timeIntervalSince(lastWoke) < 3 { return }
+        lastWoke = Date()
+        note("Woke: reconnecting")
+        link?.nudge()
+        // The talk key's registration and the permissions can both be lost over a sleep.
+        applyTalkKey()
+        refreshPermissions()
+        // A moment on, when the screens are back, the face and pills are put in front again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.face.refresh()
+            self.showFace()
+            self.pills?.refresh()
+        }
     }
 
     public var paired: Bool { saved.clientId != nil && saved.address != nil }

@@ -147,6 +147,19 @@ final class PillHost {
         }
     }
 
+    /** After a sleep or a change of screens: whatever is up is put in front again, at full strength, in its place. */
+    func refresh() {
+        generation += 1
+        // Going when the sleep came: a fade that never finished must not leave the window up.
+        guard up else {
+            if panel.isVisible { vanish() }
+            return
+        }
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        place()
+    }
+
     /** Gone at once. */
     func vanish() {
         up = false
@@ -177,6 +190,12 @@ final class PillStack {
             host.under = { PillLayout.under(above.map { $0.bottom }) }
             host.onMoved = { [weak self, weak host] in self?.restack(after: host) }
         }
+    }
+
+    /** Every pill that is up shown again in front, after a sleep. */
+    func refresh() {
+        for h in hosts { h.refresh() }
+        restack()
     }
 
     /** Every pill under `host` placed again (all of them when nil). */

@@ -85,6 +85,21 @@ public final class FacePanel: NSObject {
         update()
     }
 
+    /**
+     * After a sleep (or a lock): a fade cut off by it can leave the face invisible but "shown", or the frame timer
+     * stopped. Forgets what it thought it was doing, puts the window right and shows what is wanted afresh.
+     */
+    public func refresh() {
+        generation += 1
+        presence.reset()
+        leaveScheduled = nil
+        panel.orderOut(nil)
+        ticker?.stop()
+        panel.alphaValue = 0
+        layout()
+        update()
+    }
+
     private var wanted = false
     /** When the leave check is set for, so each leave is scheduled once. */
     private var leaveScheduled: Double?

@@ -90,6 +90,22 @@ public partial class App : System.Windows.Application
         };
         // A monitor plugged or unplugged, or the resolution changed: the face goes back inside the screens.
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(() => faceWindow?.Replace());
+        // Sleep, unlock and the network coming back: the connection, the keys, the face and the pills are made good again.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += (_, args) =>
+        {
+            if (args.Mode == Microsoft.Win32.PowerModes.Suspend) Dispatcher.BeginInvoke(Sleeping);
+            else if (args.Mode == Microsoft.Win32.PowerModes.Resume) Dispatcher.BeginInvoke(Woke);
+        };
+        Microsoft.Win32.SystemEvents.SessionSwitch += (_, args) =>
+        {
+            if (args.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.ConsoleConnect
+                or Microsoft.Win32.SessionSwitchReason.RemoteConnect or Microsoft.Win32.SessionSwitchReason.SessionLogon)
+                Dispatcher.BeginInvoke(Woke);
+        };
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += (_, args) =>
+        {
+            if (args.IsAvailable) link?.Nudge();
+        };
         // A floor under the pool, so a few slow Windows calls cannot leave answers to Axis waiting for a thread.
         System.Threading.ThreadPool.GetMinThreads(out var workers, out var io);
         System.Threading.ThreadPool.SetMinThreads(Math.Max(workers, 32), Math.Max(io, 16));
@@ -254,6 +270,36 @@ public partial class App : System.Windows.Application
         }
         else voice = null;
         link.Start();
+    }
+
+    DateTime lastWoke = DateTime.MinValue;
+
+    /** The computer is going to sleep: nothing half-said, half-heard or half-typed goes with it. */
+    void Sleeping()
+    {
+        if (typing?.IsOpen == true) CloseTyping(true);
+        voice?.Interrupt();
+    }
+
+    /** The computer woke or was unlocked: whatever the sleep broke is set up again. On the UI thread. */
+    void Woke()
+    {
+        // Resume and unlock arrive together: once is enough.
+        if (DateTime.UtcNow - lastWoke < TimeSpan.FromSeconds(3)) return;
+        lastWoke = DateTime.UtcNow;
+        Note("Woke: reconnecting");
+        link?.Nudge();
+        // The talk key's registration can be lost over a sleep.
+        RegisterShortcuts();
+        // A moment on, when the screens are back, the face and pills are put in front again.
+        _ = Task.Delay(1000).ContinueWith(_ => Dispatcher.BeginInvoke(() =>
+        {
+            faceWindow?.Refresh();
+            ShowFace();
+            pill?.Replace();
+            taskPill?.Replace();
+            typing?.Replace();
+        }));
     }
 
     /** The face follows the voice part and whether an agent is at this computer. On the UI thread. */
@@ -633,16 +679,24 @@ public partial class App : System.Windows.Application
         Changed?.Invoke();
     }
 
+    /** The pause key and the talk and typing keys, registered (again: after a sleep). */
+    void RegisterShortcuts()
+    {
+        if (hotkeyWindow == IntPtr.Zero) return;
+        // Ctrl+Alt+S: pause or resume, from anywhere.
+        Native.UnregisterHotKey(hotkeyWindow, HotkeyId);
+        Native.RegisterHotKey(hotkeyWindow, HotkeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x53);
+        // The talk key (Settings; Ctrl+Alt+Space unless changed). A press listens until a pause; held, it listens until let go; while the
+        // agent thinks or speaks, it stops it.
+        ApplyTalkKey();
+        ApplyTypingKey();
+    }
+
     void RegisterHotkey()
     {
         var hwnd = new WindowInteropHelper(window!).EnsureHandle();
-        // Ctrl+Alt+S: pause or resume, from anywhere.
-        Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x53);
-        // The talk key (Settings; Ctrl+Alt+Space unless changed). A press listens until a pause; held, it listens until let go; while the
-        // agent thinks or speaks, it stops it.
         hotkeyWindow = hwnd;
-        ApplyTalkKey();
-        ApplyTypingKey();
+        RegisterShortcuts();
         HwndSource.FromHwnd(hwnd)!.AddHook((IntPtr h, int msg, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (msg == Native.WM_HOTKEY && w.ToInt32() == TalkKeyId)

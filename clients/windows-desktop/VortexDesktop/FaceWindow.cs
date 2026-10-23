@@ -146,6 +146,15 @@ sealed class FaceWindow : Window
         if (IsVisible) Place();
     }
 
+    /** After a sleep or an unlock: in front again (Windows can drop a topmost window behind) and in its place. */
+    public void Refresh()
+    {
+        if (!IsVisible) return;
+        Topmost = false;
+        Topmost = true;
+        Place();
+    }
+
     /** Back where it belongs (the screens changed). */
     public void Replace()
     {
