@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.4.2 (2026-10-23)
+
+- **Fix: 0.4.1 could stay at "Connecting…" for good.** The network watcher's first report called `nudge`, which could cancel the socket before it was started. The socket is now started before anything can cancel it, and the watcher acts only when the network comes back from none.
+
 ## Axis 0.48.0 (2026-10-23)
 
 - **`ping` / `pong`.** A client that cannot see the WebSocket's own pings (browsers, .NET, Apple's URLSession) sends `ping` and Axis answers `pong`, so a client can tell a silently dead connection from a quiet one. Additive: protocol stays 1; old clients never send it.
