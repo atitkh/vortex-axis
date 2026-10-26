@@ -27,7 +27,8 @@ jobs:
         id: v
         run: |
           axis=$(node -p "require('./package.json').version")
-          firmware=$(sed -n 's/#define AXIS_FIRMWARE_VERSION "\(.*\)"/\1/p' firmware/common/src/axis_client.h)
+          # Each board type counts its own firmware version (scripts/firmware-version.mjs).
+          firmware=$(for b in firmware/waveshare-amoled-1.8 firmware/waveshare-amoled-1.75; do printf '%s %s, ' "$(basename "$b")" "$(node scripts/firmware-version.mjs "$b")"; done | sed 's/, $//')
           desktop=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' clients/windows-desktop/Directory.Build.props)
           echo "axis=$axis" >> "$GITHUB_OUTPUT"
           echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
@@ -50,19 +51,20 @@ jobs:
           mkdir -p out bundled/firmware
           echo "[" > bundled/firmware/manifest.json
           first=1
-          for board in firmware/waveshare-amoled-1.8; do
+          for board in firmware/waveshare-amoled-1.8 firmware/waveshare-amoled-1.75; do
             type=$(basename "$board")
+            fw=$(node scripts/firmware-version.mjs "$board")
             pio run -d "$board"
             build=$(ls -d "$board"/.pio/build/*/ | head -1)
             # For updates over Wi-Fi: the application image. For a board's first flash: the factory image.
             cp "$build/firmware.bin" "bundled/firmware/$type.bin"
             # The factory image with its header set for this board's flash size (scripts/factory-image.mjs says why).
             node scripts/factory-image.mjs "$board" "bundled/firmware/$type.factory.bin"
-            cp "$build/firmware.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}.bin"
-            cp "bundled/firmware/$type.factory.bin" "out/firmware-$type-${{ steps.v.outputs.firmware }}-factory.bin"
+            cp "$build/firmware.bin" "out/firmware-$type-$fw.bin"
+            cp "bundled/firmware/$type.factory.bin" "out/firmware-$type-$fw-factory.bin"
             [ $first = 1 ] || echo "," >> bundled/firmware/manifest.json
             first=0
-            printf '{"type":"%s","version":"%s","file":"%s.bin","factory":"%s.factory.bin"}' "$type" "${{ steps.v.outputs.firmware }}" "$type" "$type" >> bundled/firmware/manifest.json
+            printf '{"type":"%s","version":"%s","file":"%s.bin","factory":"%s.factory.bin"}' "$type" "$fw" "$type" "$type" >> bundled/firmware/manifest.json
           done
           echo "]" >> bundled/firmware/manifest.json
           cat bundled/firmware/manifest.json
@@ -74,7 +76,7 @@ jobs:
       - name: Browser flasher
         run: |
           node scripts/fetch-esp-web-tools.mjs
-          node scripts/make-flasher.mjs firmware/waveshare-amoled-1.8 out/flasher
+          node scripts/make-flasher.mjs firmware/waveshare-amoled-1.8 firmware/waveshare-amoled-1.75 out/flasher
           ls -la out/flasher
       - uses: actions/upload-pages-artifact@v3
         if: env.ON_GITHUB == 'true'

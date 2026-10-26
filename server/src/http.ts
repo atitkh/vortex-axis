@@ -443,6 +443,17 @@ export function createHttpHandler(deps: HttpDeps) {
       const types = firmware.shelves().map((shelf) => shelf.type);
       const wanted = url.searchParams.get("type");
       const ready = (wanted ? [wanted] : types).map((t) => firmware.factory(t)).find((f) => f !== undefined);
+      // Every type it can install, so the page can offer a choice of board when there is more than one.
+      if (parts.length === 2 && parts[1] === "types.json") {
+        return sendJson(
+          res,
+          200,
+          types
+            .map((t) => firmware.factory(t))
+            .filter((f) => f !== undefined)
+            .map((f) => ({ type: f.type, name: store.getMeta(`type_label:${f.type}`) || f.type, version: f.version, manifest: `manifest.json?type=${encodeURIComponent(f.type)}` })),
+        );
+      }
       if (parts.length === 2 && parts[1] === "manifest.json") {
         if (!ready) throw new HttpError(404, "there is no firmware with a factory image on this hub");
         return sendJson(res, 200, {

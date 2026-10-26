@@ -122,7 +122,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 
 Actions are how a person tests a device from the admin page and how an agent looks after one (`vortex.axis.admin`). A new board should offer at least a sound test when it has a speaker and a microphone level reading when it has one.
 
-A client with a screen should also report its size in its regular `sense` readings, as `screenW` and `screenH` in pixels, the way up it stands now. The admin page draws the device at that shape.
+A client with a screen should also report its size in its regular `sense` readings, as `screenW` and `screenH` in pixels, the way up it stands now. The admin page draws the device at that shape. A round screen also reports `screenRound` 1: the admin page then draws it, and its edge glow preview, as a circle.
 
 A client may also report the room it is in, and Axis shows it in Home Assistant when the MQTT link is set up:
 - `soundDb`: how loud the room has been over the last few seconds, in dB of the microphone's full scale (a whole number, not calibrated sound pressure), and `soundActive`: 1 while there has been sound well above the room's usual level lately, else 0. Levels only, never audio, with the device's own speech left out. Send them only when they change, and offer a setting to turn them off. They become a **Sound level** sensor and a **Sound** binary sensor.

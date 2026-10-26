@@ -45,6 +45,16 @@ describe("the flasher page", () => {
       expect(got.equals(factory)).toBe(true);
       expect((await get("/flash/firmware/other.bin")).status).toBe(404);
 
+      // A second kind of board: the page is told both, and each has its own manifest.
+      expect(await (await get("/flash/types.json")).json()).toEqual([{ type: "board", name: "board", version: "1.2.0", manifest: "manifest.json?type=board" }]);
+      expect((await upload("/admin/firmware/round?version=0.1.0", image(3))).status).toBe(201);
+      expect((await upload("/admin/firmware/round?version=0.1.0&part=factory", image(4, 200 * 1024))).status).toBe(201);
+      const types = (await (await get("/flash/types.json")).json()) as { type: string; manifest: string }[];
+      expect(types.map((t) => t.type).sort()).toEqual(["board", "round"]);
+      const round = await (await get(`/flash/${types.find((t) => t.type === "round")!.manifest}`)).json();
+      expect(round).toMatchObject({ version: "0.1.0", builds: [{ parts: [{ path: "firmware/round.bin" }] }] });
+      expect((await admin("DELETE", "/admin/firmware/round/0.1.0")).status).toBe(200);
+
       // Removing the build takes its factory image with it.
       expect((await admin("DELETE", "/admin/firmware/board/1.2.0")).status).toBe(200);
       expect((await get("/flash/manifest.json")).status).toBe(404);

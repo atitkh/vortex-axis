@@ -21,6 +21,7 @@
   code { background: #14151c; border: 1px solid #262833; border-radius: 4px; padding: 1px 5px; font-size: 14px; color: #e9eaf0; }
   .box { background: #0d0e14; border: 1px solid #262833; border-radius: 14px; padding: 20px 22px; margin: 22px 0; }
   .box strong { color: #e9eaf0; }
+  select { font: inherit; color: #e9eaf0; background: #14151c; border: 1px solid #262833; border-radius: 6px; padding: 4px 8px; }
   button[slot="activate"] { font: inherit; font-weight: 600; color: #050507; background: #8cf2ff; border: 0; border-radius: 999px; padding: 11px 26px; cursor: pointer; }
   button[slot="activate"]:hover { background: #b5f7ff; }
   .note { font-size: 14px; }
@@ -35,6 +36,7 @@
   <p class="warn" id="insecure" hidden>This page was opened over plain http, where browsers do not allow USB access. Open it through your hub's https address, or from the machine Axis runs on as <code>http://localhost:8440/flash</code>.</p>
 
   <div class="box">
+    <p id="choose" hidden><label>Which board: <select id="board"></select></label></p>
     <p><strong id="what">Waveshare ESP32-S3-Touch-AMOLED-1.8</strong><br><span class="note" id="version">firmware</span></p>
     <esp-web-install-button id="install" manifest="manifest.json">
       <button slot="activate">Connect and install</button>

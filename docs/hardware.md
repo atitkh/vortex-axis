@@ -4,7 +4,7 @@ What you can talk to Axis through, and how to get each one going. A browser need
 
 ## The board: Waveshare ESP32-S3-Touch-AMOLED-1.8
 
-The one board Axis has firmware for today. It is sold by Waveshare and its resellers under that name; nothing has to be soldered or added.
+The first board Axis had firmware for (the round 1.75 below is the other). It is sold by Waveshare and its resellers under that name; nothing has to be soldered or added.
 
 | | |
 | --- | --- |
@@ -57,6 +57,21 @@ Its settings (volume, brightness, rotation, wake word, how long it waits for you
 - Saying the wake word over the board's own voice does not interrupt it; tap instead. (There is an experimental setting, `bargeIn`.)
 - Two boards in one room both hear you; Axis lets one answer.
 - The firmware is not signed.
+
+## The round board: Waveshare ESP32-S3-Touch-AMOLED-1.75 (new)
+
+The same firmware as the 1.8, laid out on a round screen. Type `waveshare-amoled-1.75`; it counts its own firmware versions (0.1.0 is the first). New in this checkout and not yet used by a person: see `firmware/README.md`, "The round board", for what has been checked on a real one.
+
+| | |
+| --- | --- |
+| Chip | ESP32-S3R8: dual core, Wi-Fi, 8 MB PSRAM, 16 MB flash |
+| Screen | 1.75 inch round AMOLED, 466 x 466, touch |
+| Sound | Two microphones on an ES7210, a small speaker on an ES8311 |
+| Also on it | A motion sensor, a battery connector and charger, a clock, a TF card slot, USB-C. The `-G` version adds GPS, which the firmware does not use. |
+
+It does everything the 1.8 does, the same way: face, "Hey Vortex", tap to talk, questions with buttons, timers, pictures, long tasks, edge glows (round here), gestures, updates over Wi-Fi. Text and buttons are fitted inside the circle. The two microphones are averaged; the speaker's own sound comes back to the ES7210 for the echo canceller, as on the 1.8.
+
+First install and setup are the same as for the 1.8: the browser flasher offers a choice of board when the hub has both, or `firmware-waveshare-amoled-1.75-<version>-factory.bin` from a release written at offset 0, or `pio run --target upload` in `firmware/waveshare-amoled-1.75`.
 
 ## A computer (Windows)
 

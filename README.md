@@ -83,6 +83,7 @@ To speak from a browser, it needs `https` or `localhost` (browsers allow the mic
 | --- | --- | --- |
 | Web page | Any browser or phone; installs as an app, with notifications | Open Axis's address, enter a pairing code |
 | Board | Waveshare ESP32-S3-Touch-AMOLED-1.8: face, microphone, speaker, wake word | Flash once from the browser or by cable ([docs/hardware.md](docs/hardware.md)), then set up from your phone; updates over Wi-Fi from the admin page |
+| Round board (new) | Waveshare ESP32-S3-Touch-AMOLED-1.75: the same, on a round screen, with two microphones | The same as the 1.8; not yet used by a person |
 | Computer | Windows app (experimental): talk key, speakers, and the agent's hands on the screen | Download from the admin page's **Add a device**, enter a pairing code; it updates itself |
 | Meta Quest | Android app (experimental): the agent reads and uses the headset's 2D panels (Store, Browser, Settings, Android apps); no voice | Developer mode, then install the APK with `adb`, enter a pairing code ([docs/hardware.md](docs/hardware.md)); it updates itself |
 

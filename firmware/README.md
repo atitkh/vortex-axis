@@ -6,12 +6,15 @@ Clients for VorteX Axis that run on microcontrollers.
 | --- | --- |
 | `common/` | The shared client core: Wi-Fi setup, pairing, the socket to Axis, settings sync, audio framing. Board-independent. |
 | `waveshare-amoled-1.8/` | Waveshare ESP32-S3-Touch-AMOLED-1.8: pins, audio codec, display, touch, and the face. |
+| `waveshare-amoled-1.75/` | Waveshare ESP32-S3-Touch-AMOLED-1.75, the round one: the same firmware laid out in a circle, with two microphones. See "The round board" below. |
 | `wake/` | The wake word detector (`axis-wake`): the TFLite Micro audio frontend and a streaming model. Board-independent. |
 | `models/` | Wake word models. See its README. |
 | `lib/` | Vendored libraries: TensorFlow Lite Micro with the ESP-NN kernels, and its audio frontend. Each has a `PATCHES.md` saying where it comes from and what was changed. |
-| `tools/` | Build helpers: `gen_model_header.py` turns a model into a C header, `model_header.py` runs it during the build. |
+| `tools/` | Build helpers: `gen_model_header.py` turns a model into a C header, `model_header.py` runs it during the build. Bench helpers for the round board: `screen_shot.py`, `send_file.py`. |
 
 Each board folder is a PlatformIO project. A new board should mostly describe its hardware and reuse `common/`.
+
+Firmware versions are counted per board type. The 1.8 uses the client core's default (`AXIS_FIRMWARE_VERSION` in `common/src/axis_client.h`); a board that counts its own sets `-D AXIS_FIRMWARE_VERSION=\"x.y.z\"` in its `platformio.ini`. `node scripts/firmware-version.mjs <board folder>` prints the one a folder builds, and the release and upload scripts use it.
 
 ## Building
 
@@ -55,6 +58,22 @@ The same page stays available at the device's own address afterwards, to change 
 The serial port takes the same things as typed commands: `status`, `wifi <name> <password>`, `setup <axis://...>`, `text <words>` (a typed turn), `stop` (stop speaking), `forget`, `forget wifi`, `reboot`.
 
 A setup string that starts `axis+tls://` (the admin page makes one when the device address is typed with `https://`) makes the device talk to Axis over TLS, on port 443 unless another is given. Axis must then present a certificate from a public authority. Type `tlscheck https://that-address/` on the serial console first: it says whether the device can reach and trust it. Since 0.8.2; checked against public sites, not yet against a real Axis address.
+
+## The round board (Waveshare ESP32-S3-Touch-AMOLED-1.75)
+
+`waveshare-amoled-1.75/`, type `waveshare-amoled-1.75`, its own firmware versions from 0.1.0. It does what the 1.8 does, with its `main.cpp` following the 1.8's line for line; the face (`vortex.cpp`, `icons.h`) and the fonts are the 1.8's files, linked, so there is still one copy of the board face. What differs, and why:
+
+- **Screen.** 466 by 466, round, CO5300 driver with its own reset pin (nothing behind the IO expander). The panel's columns start 6 in (`screenOffset` defaults to 6; "Show screen edges" draws a ring along the glass). Rotation is still done in software; the panel is square, so the layout is the same each way up. Default `rotation` 0.
+- **Layout in a circle.** A line of text is only as wide as the chord across the circle at its row (`display::roomAt`): headings are cut to it, replies are wrapped row by row to it (broken at the narrowest width when they run over and scroll), rows narrower than 270 pixels are not used, question buttons share the chord of their row with a margin to the edge, and a question that takes the whole screen starts where the circle is wide enough. The face sits 12 pixels from the top while there is text and in the middle otherwise.
+- **Edge glow** is a ring 12 pixels deep just inside the glass, drawn in bands; there are no corners, so there is no `glowCorner` setting. The board reports `screenRound` 1, and the admin page draws it, and its glow preview, as a circle.
+- **Touch** is a CST9217 at 0x5A with its own reset pin. It needs a repeated start between the register address and the read (with a STOP it carries on reading from where it was), and its interrupt only pulses, so it is read every frame; a finger counts as lifted after 200 ms without a report.
+- **Sound.** ES8311 plays, ES7210 records, on one 16 kHz I2S stream with 32-bit slots. With four inputs on, the ES7210 packs two 16-bit samples into each slot: MIC1 then MIC3 on the left, MIC2 then MIC4 on the right. MIC1 and MIC2 are the two microphones, averaged into the one stream the client core and the wake word use; MIC3 is the ES8311's output, the echo canceller's reference (the 1.8 gets the same from its codec's loopback). Same 30 dB microphone gain as the 1.8, 0 dB on the reference. The amplifier enable (GPIO46) is switched on once at boot and left alone.
+- **Motion.** QMI8658 at 0x6B as on the 1.8; the axes are taken to run as on the 1.8 (X towards the panel's top, Y towards its right), which is what Waveshare's own tilt demo implies. Not yet seen turning by a person.
+- **Not used yet:** the IO expander's inputs (power button state, RTC, power chip and motion interrupts), the power chip's battery readings, the clock, the TF card slot.
+
+Serial commands on this board besides the shared ones: `mics` (rms of the four 16-bit inputs as they arrive, `mics tone` plays a 1 kHz tone meanwhile), `motion` (gravity and the rotation it calls for), `touch` (raw reports), `pcm` (a file sent over the cable, played as speech or shown as a JPEG), `edges`, `glow <kind>`, `preview <state>` (a made-up question, reply, timer, task or error laid over the screen for a minute, to check a layout without Axis), and `shot`, which prints the whole screen as runs of colour (draws everything again into a kept copy first, since the panel cannot be read back). `tools/screen_shot.py` turns `shot` into a PNG (it can send a `preview` first), and `tools/send_file.py` sends a file for `pcm` ("Hey Vortex" from the speech service, or a test JPEG).
+
+Measured on the real board (2026-10-26, nobody watching the screen; the screen checked through `shot`): 29 fps with the face at 21.7 ms a frame, the wake word 3.2 ms a run, no microphone stalls, touch read 30 times a second with no failed reads, a 1 kHz tone through the speech path heard at 1000 Hz with the 2nd harmonic 35 dB down, room level about 15 (rms) on each microphone in a quiet room.
 
 ## Settings a device reads
 

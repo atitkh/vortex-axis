@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Round board firmware 0.1.0 (2026-10-26)
+
+- **A second board: the round Waveshare ESP32-S3-Touch-AMOLED-1.75** (`firmware/waveshare-amoled-1.75`, type `waveshare-amoled-1.75`, its own firmware versions). Everything the 1.8 does, with the same face (the 1.8's `vortex.cpp` and `icons.h`, linked), laid out inside a 466 by 466 circle: text fitted to the chord at each row, question buttons kept off the edge, a round edge glow, a ring for "Show screen edges". Two microphones on an ES7210, averaged; the speaker's own output comes back on the ES7210's third input as the echo canceller's reference. CST9217 touch. No `glowCorner` (no corners); `screenOffset` defaults to 6 and `rotation` to 0.
+- Checked on a real board over serial and through screen captures (the new `shot` console command): boots, setup network, 29 fps, touch read with no bus errors, its own spoken "Hey Vortex" woke it three times out of three (0.90 to 0.98), a 1 kHz tone through the speech path came back clean, a 466 by 466 JPEG shown, and the setup, question, reply, timer, task, thinking and glow screens all drawn inside the circle. Not yet used by a person: touch, gestures and turning with the board have not been tried by hand, and it has not been on Wi-Fi or paired.
+- Console diagnostics on this board: `shot`, `preview <state>`, `pcm` (sound or a JPEG over the cable), `mics`, `motion`, `touch`, `edges`, `glow <kind>`.
+- The 1.8's firmware is unchanged (0.18.2). The client core's `AXIS_FIRMWARE_VERSION` is now a default a board can override from its `platformio.ini`.
+
+## Axis 0.49.0 (2026-10-26)
+
+- **The flasher offers a choice of board** when the hub has factory images for more than one type (`/flash/types.json`; `scripts/make-flasher.mjs` takes several board folders and writes the same for the published page). One type looks as before.
+- **Round screens on the admin page.** A device that reports `screenRound` 1 is drawn round, and its edge glow preview is a ring with no corner controls.
+- Firmware versions are read per board (`scripts/firmware-version.mjs`) by `push-firmware.mjs`, `make-flasher.mjs`, `release-check.mjs` and the release workflow, which now builds both boards.
+
 ## Mac desktop app 0.4.3 (2026-10-23)
 
 - **The face, pills and pointer are on every Space more reliably.** Each showing sets the all-Spaces behaviour again before ordering the panel in; a panel faded out and back in could return on the current Space only. Not compiled on a Mac yet.

@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { boardTypes, firmwareVersion } from "./firmware-version.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -33,7 +34,9 @@ const serverV = JSON.parse(read("server/package.json")).version;
 const protocolV = JSON.parse(read("protocol/package.json")).version;
 const desktop = /<Version>(.*?)<\/Version>/.exec(read("clients/windows-desktop/Directory.Build.props"))?.[1];
 const mac = /let appVersion = "(.*?)"/.exec(read("clients/macos-desktop/Sources/VortexAxisMac/App.swift"))?.[1];
-const firmware = /AXIS_FIRMWARE_VERSION "(.*?)"/.exec(read("firmware/common/src/axis_client.h"))?.[1];
+// Board firmware is counted per board type (scripts/firmware-version.mjs).
+const boards = boardTypes().map((type) => [type, firmwareVersion(type)]);
+const firmware = boards.map(([type, version]) => `${type} ${version}`).join(", ");
 
 check(axis === serverV && axis === protocolV, `Axis ${axis} (root, server and protocol packages agree)`,
   `package versions differ: root ${axis}, server ${serverV}, protocol ${protocolV} (npm version X --workspaces --include-workspace-root --no-git-tag-version)`);
@@ -51,7 +54,9 @@ for (const [name, heading, version, mention] of [
   check(changelog.includes(`## ${heading} ${version} (`), `CHANGELOG has ${name} ${version}`, `CHANGELOG has no "## ${heading} ${version} (date)" entry`);
   check(versionsLine.includes(mention), `CLAUDE.md Versions line names ${name} ${version}`, `CLAUDE.md Versions line does not say "${mention}"`);
 }
-check(versionsLine.includes(`firmware ${firmware}`), `CLAUDE.md names firmware ${firmware}`, `CLAUDE.md Versions line does not say "firmware ${firmware}"`);
+for (const [type, version] of boards) {
+  check(versionsLine.includes(`firmware ${version}`), `CLAUDE.md names ${type} firmware ${version}`, `CLAUDE.md Versions line does not say "firmware ${version}" (${type})`);
+}
 
 // --- git -----------------------------------------------------------------------------------------------
 const dirty = sh("git status --porcelain");

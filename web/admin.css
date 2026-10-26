@@ -470,6 +470,8 @@ table.numbers td.num, table.numbers th.num { text-align: right; font-variant-num
 .device-frame { margin: 0 auto; background: #111; border: 1px solid #333; box-shadow: 0 1px 0 #000 inset; }
 .device-frame.board { width: 164px; padding: 10px; border-radius: 26px; }
 .device-frame.board .device-screen { aspect-ratio: 368 / 448; border-radius: 16px; }
+.device-frame.board.round { border-radius: 50%; }
+.device-frame.board.round .device-screen { border-radius: 50%; }
 .device-frame.browser { width: 216px; padding: 18px 6px 6px; border-radius: 8px; position: relative; }
 .device-frame.browser::before { content: "● ● ●"; position: absolute; top: 2px; left: 8px; font-size: 8px; letter-spacing: 2px; color: #666; }
 .device-frame.browser .device-screen { aspect-ratio: 16 / 10; border-radius: 3px; }
@@ -770,6 +772,7 @@ pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radi
 /* Device page: the edge glow preview. */
 .glow-preview { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .glow-preview .glow-frame { background: #111; border: 1px solid #333; border-radius: 22px; padding: 8px; }
+.glow-preview .glow-frame.round { border-radius: 50%; }
 .glow-preview canvas { display: block; background: #000; }
 .glow-preview .glow-controls { flex: 1 1 260px; display: grid; gap: 10px; }
 .glow-preview .glow-states { display: flex; flex-wrap: wrap; gap: 6px; }

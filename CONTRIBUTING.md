@@ -35,7 +35,7 @@ npm run browser-check         # the admin page and web client in headless Chrome
 
 Run Axis from the repository: `cp .env.example .env`, set `AXIS_ADMIN_TOKEN` (24 characters or more), `mkdir -p data`, `docker compose up -d --build`, then `http://localhost:8440/admin`.
 
-- **Firmware:** `pio run` in `firmware/waveshare-amoled-1.8` ([firmware/README.md](firmware/README.md)).
+- **Firmware:** `pio run` in `firmware/waveshare-amoled-1.8` and `firmware/waveshare-amoled-1.75` (a change to `firmware/common/` must build in both) ([firmware/README.md](firmware/README.md)).
 - **Desktop app:** `scripts/build-desktop.sh` builds it in a .NET container. Mind what the script says: it puts the build where a running Axis hands it to every paired computer. `clients/windows-desktop/README.md` has the rest.
 - **Quest app:** `scripts/build-quest-client.sh` builds the APK in a Docker container and puts it where a running Axis hands it to every paired headset. `clients/quest-client/README.md` has the rest.
 

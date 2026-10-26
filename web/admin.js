@@ -1056,6 +1056,8 @@ function renderDeviceSketch(client) {
   const known = can("screen") && w > 0 && hgt > 0;
   const ratio = known ? Math.min(2.4, Math.max(0.42, w / hgt)) : 0;
   frame.classList.toggle("measured", known);
+  // A device that says its screen is round (screenRound) is drawn round.
+  frame.classList.toggle("round", known && Number(client.readings?.screenRound) === 1);
   // Fit inside 200 by 230, whichever side runs out first.
   frame.style.width = known ? `${Math.round(Math.min(200, 230 * ratio)) + (client.type === "web" ? 12 : 20)}px` : "";
   screenBox.style.aspectRatio = known ? String(ratio) : "";
@@ -1627,13 +1629,18 @@ const GLOW_STATES = [
 const GLASS_KEY = "axis.glassCorner";
 let glowPreview;
 
-/** Every pixel the glow can reach, with how strong it is there at full strength and where it sits round the screen. */
-function glowMap(w, hgt, radius) {
+/**
+ * Every pixel the glow can reach, with how strong it is there at full strength and where it sits round the screen.
+ * On a round screen (`round`) it is a ring inside the circle and `radius` does not matter.
+ */
+function glowMap(w, hgt, radius, round = false) {
   const index = [], fall = [], turn = [];
   for (let py = 0; py < hgt; py++) {
     for (let px = 0; px < w; px++) {
       const cx = Math.min(Math.max(px, radius), w - 1 - radius), cy = Math.min(Math.max(py, radius), hgt - 1 - radius);
-      const d = cx !== px && cy !== py ? radius - Math.hypot(px - cx, py - cy) : Math.min(px, py, w - 1 - px, hgt - 1 - py);
+      const d = round
+        ? Math.min(w, hgt) / 2 - Math.hypot(px - (w - 1) / 2, py - (hgt - 1) / 2)
+        : cx !== px && cy !== py ? radius - Math.hypot(px - cx, py - cy) : Math.min(px, py, w - 1 - px, hgt - 1 - py);
       if (d >= GLOW_DEPTH) continue;
       const f = d <= 0 ? 1 : 1 - d / GLOW_DEPTH;
       let t = Math.atan2(px - w / 2, hgt / 2 - py) / (2 * Math.PI);
@@ -1646,15 +1653,19 @@ function glowMap(w, hgt, radius) {
   return { index: Int32Array.from(index), fall: Float32Array.from(fall), turn: Float32Array.from(turn) };
 }
 
-/** Builds the preview for a device whose firmware draws the glow (it offers glowCorner), or brings it up to date. */
+/**
+ * Builds the preview for a device whose firmware draws the glow (it offers glowCorner, or its screen is round and
+ * has no corners to set), or brings it up to date.
+ */
 function renderGlowPreview(client, schema, devicePath) {
   const box = $("device-glow-box");
-  const def = schema.settings.find((d) => d.key === "glowCorner");
+  const round = Number(client.readings?.screenRound) === 1 && client.capabilities.includes("screen");
+  const def = schema.settings.find((d) => d.key === "glowCorner") ?? (round ? { key: "glowCorner", default: 56 } : undefined);
   box.hidden = !def;
   if (!def) return stopGlowPreview();
   const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
   const saved = Number(client.settings.glowCorner ?? def.default ?? 56);
-  if (glowPreview?.clientId === client.id && glowPreview.w === w && glowPreview.hgt === hgt) {
+  if (glowPreview?.clientId === client.id && glowPreview.w === w && glowPreview.hgt === hgt && glowPreview.round === round) {
     // Follows a value saved elsewhere, unless the slider is being moved.
     if (!glowPreview.dirty && glowPreview.radius !== saved) glowPreview.setRadius(saved);
     glowPreview.start();
@@ -1666,7 +1677,7 @@ function renderGlowPreview(client, schema, devicePath) {
   const canvas = h("canvas", { width: w, height: hgt, style: `width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px` });
   const ctx = canvas.getContext("2d");
   const image = ctx.createImageData(w, hgt);
-  const p = { clientId: client.id, w, hgt, radius: saved, dirty: false, state: GLOW_STATES[0], glass: Number(localStorage.getItem(GLASS_KEY)) || 40, map: glowMap(w, hgt, saved), frame: 0 };
+  const p = { clientId: client.id, w, hgt, round, radius: saved, dirty: false, state: GLOW_STATES[0], glass: Number(localStorage.getItem(GLASS_KEY)) || 40, map: glowMap(w, hgt, saved, round), frame: 0 };
 
   const radiusOut = h("span", { class: "mono" }, `${saved} px`);
   const radiusIn = h("input", { type: "range", min: def.min ?? 12, max: def.max ?? 120, value: saved });
@@ -1675,7 +1686,7 @@ function renderGlowPreview(client, schema, devicePath) {
   const glassIn = h("input", { type: "range", min: 0, max: 120, value: p.glass });
   p.setRadius = (r) => {
     p.radius = r;
-    p.map = glowMap(w, hgt, r);
+    p.map = glowMap(w, hgt, r, round);
     radiusIn.value = r;
     radiusOut.textContent = `${r} px`;
   };
@@ -1710,17 +1721,22 @@ function renderGlowPreview(client, schema, devicePath) {
   const showButton = h("button", { class: "small", type: "button", onclick: (event) => act(event.target, "device-note", async () => {
     const result = await api("POST", `/admin/clients/${encodeURIComponent(client.id)}/glow`, { kind: p.state.key, corner: p.radius });
     if (!result.ok) throw new Error(result.error === "not implemented on this device" ? `${client.name} needs newer firmware to show a glow from here.` : result.error || "the device did not show it");
-    note("device-note", `${client.name} is showing ${p.state.label.toLowerCase()} for ${result.ms / 1000} s, with a ${p.radius} px curve${p.dirty ? " (not saved yet)" : ""}.`, "good");
+    note("device-note", round ? `${client.name} is showing ${p.state.label.toLowerCase()} for ${result.ms / 1000} s.` : `${client.name} is showing ${p.state.label.toLowerCase()} for ${result.ms / 1000} s, with a ${p.radius} px curve${p.dirty ? " (not saved yet)" : ""}.`, "good");
   }) }, "Show on the device");
 
+  // A round screen has no corners: no curve to set and no glass corner to guide by.
   $("device-glow").replaceChildren(
-    h("div", { class: "glow-frame" }, canvas),
+    h("div", { class: `glow-frame${round ? " round" : ""}` }, canvas),
     h("div", { class: "glow-controls" },
       h("div", { class: "glow-states" }, ...buttons),
-      h("label", {}, "Glow corner curve", radiusIn, radiusOut),
-      h("label", { title: "Only for this preview: where the glass hides the panel's corners. Kept in this browser." }, "Glass corner (guide)", glassIn, glassOut),
-      h("div", { class: "inline" }, save, showButton),
-      h("p", { class: "help" }, `${w} × ${hgt}, the way up it stands now.`),
+      ...(round
+        ? [h("div", { class: "inline" }, showButton), h("p", { class: "help" }, `${w} × ${hgt}, round.`)]
+        : [
+            h("label", {}, "Glow corner curve", radiusIn, radiusOut),
+            h("label", { title: "Only for this preview: where the glass hides the panel's corners. Kept in this browser." }, "Glass corner (guide)", glassIn, glassOut),
+            h("div", { class: "inline" }, save, showButton),
+            h("p", { class: "help" }, `${w} × ${hgt}, the way up it stands now.`),
+          ]),
     ),
   );
 
@@ -1764,8 +1780,16 @@ function renderGlowPreview(client, schema, devicePath) {
       data[o + 2] = Math.round(b * a * 31) * 255 / 31;
     }
     ctx.putImageData(image, 0, 0);
-    // Where the glass hides the corners: dim outside it, and a dashed guide along it.
-    if (p.glass > 0) {
+    // Where the glass hides the corners: dim outside it, and a dashed guide along it. A round screen: outside the circle.
+    if (round) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, hgt);
+      ctx.arc(w / 2, hgt / 2, Math.min(w, hgt) / 2, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(17,17,17,0.85)";
+      ctx.fill("evenodd");
+      ctx.restore();
+    } else if (p.glass > 0) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, hgt);

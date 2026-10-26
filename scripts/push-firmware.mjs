@@ -1,7 +1,7 @@
 // Hands a firmware build to a running Axis, and with --update tells the
 // devices of that type to install it over Wi-Fi.
 //
-//   AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 [--update]
+//   AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 [--update]   (or waveshare-amoled-1.75)
 //
 // Build first (`pio run` in firmware/<type>). AXIS_URL defaults to http://127.0.0.1:8440.
 import { execFileSync } from "node:child_process";
@@ -9,6 +9,7 @@ import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { firmwareVersion } from "./firmware-version.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const [type, ...flags] = process.argv.slice(2);
@@ -19,8 +20,8 @@ if (!type || !token) {
   process.exit(2);
 }
 
-const version = /AXIS_FIRMWARE_VERSION "([^"]+)"/.exec(readFileSync(join(root, "firmware/common/src/axis_client.h"), "utf8"))?.[1];
-if (!version) throw new Error("could not read AXIS_FIRMWARE_VERSION from firmware/common/src/axis_client.h");
+// Each board type counts its own version (scripts/firmware-version.mjs).
+const version = firmwareVersion(type);
 const buildDir = join(root, "firmware", type, ".pio/build");
 const env = readdirSync(buildDir, { withFileTypes: true }).find((entry) => entry.isDirectory());
 if (!env) throw new Error(`nothing built in ${buildDir}; run pio there first`);

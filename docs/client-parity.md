@@ -6,7 +6,7 @@ Written 2026-10-20 from the code at Axis 0.47.1, board firmware 0.18.2, Windows 
 
 The four clients:
 
-- **Board**: `firmware/waveshare-amoled-1.8/src/main.cpp`, `vortex.cpp`, and `firmware/common/src/axis_client.cpp` (the protocol). Capabilities `screen`, `speaker`, `mic`, `image-frames`.
+- **Board**: `firmware/waveshare-amoled-1.8/src/main.cpp`, `vortex.cpp`, and `firmware/common/src/axis_client.cpp` (the protocol). Capabilities `screen`, `speaker`, `mic`, `image-frames`. The round Waveshare 1.75 (`firmware/waveshare-amoled-1.75`, added 2026-10-26, firmware 0.1.0) behaves as the 1.8 in every row below; its `main.cpp` follows the 1.8's and it draws the 1.8's `vortex.cpp`. What differs is only geometry and hardware: everything laid out in a circle (no `glowCorner`, a round glow), two microphones averaged, `screenRound` reported.
 - **Web**: `web/client.js`, `web/vortex.js`. Capabilities `speaker`, `screen`, `buttons`, `images`, and `mic` when the browser has one.
 - **Windows**: `clients/windows-desktop/` (`Axis.Desktop.Core/Voice.cs`, `Face.cs`, `DesktopCommands.cs`, `VortexDesktop/App.xaml.cs`). Capability `desktop`; with "Talk from this computer" on, also `mic`, `speaker`, `screen`.
 - **Mac**: `clients/macos-desktop/` (`AxisDesktopCore/Voice.swift`, `Face.swift`, `DesktopIdentity.swift`, `AxisMacUI/AppModel.swift`). Same capabilities and the same switch as Windows.
