@@ -20,6 +20,8 @@ const capabilities = [...(micAvailable ? ["mic"] : []), "speaker", "screen", "bu
 
 let identity = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null");
 let settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{"version":0,"values":{}}');
+// What an admin switched off for this device (the `capabilitiesOff` setting). Usually nothing.
+let capsOff = new Set();
 let socket;
 let online = false;
 let reconnectTimer;
@@ -191,6 +193,7 @@ function renderFace() {
     : mode === "thinking" ? "Thinking. Tap to stop."
     : mode === "speaking" ? "Tap to stop."
     : down.length ? `${down.join(" and ")} ${down.length === 1 ? "is" : "are"} down.`
+    : capsOff.has("mic") ? "The microphone is switched off for this device. Type below."
     : micAvailable ? "Tap the vortex to talk."
     : "The microphone needs https or localhost. Type below.";
 }
@@ -445,6 +448,7 @@ function onMessage(message) {
       face.setIconStyle(settings.values.toolIcons);
       face.setIconTuning(settings.values.toolIconMs, settings.values.toolIconDots);
 face.setIconStyle(settings.values.toolIcons);
+      applyCapsOff(settings.values.capabilitiesOff);
       break;
     case "status":
       upstream = message.upstream;
@@ -593,6 +597,21 @@ face.setIconStyle(settings.values.toolIcons);
   renderPills();
 }
 
+// --- what an admin switched off ----------------------------------------------
+// Axis no longer uses what `capabilitiesOff` lists here; the page stops doing it too, and comes back when it goes.
+// screen: no face or words; speaker: nothing plays; mic: no listening, typing still works.
+
+function applyCapsOff(value) {
+  const next = new Set(String(value ?? "").split(",").map((c) => c.trim()).filter(Boolean));
+  if (!next.size && !capsOff.size) return;
+  capsOff = next;
+  document.body.classList.toggle("screen-off", capsOff.has("screen"));
+  const turnId = player.turnId;
+  if (capsOff.has("speaker") && player.stop()) send({ t: "playback", turnId, state: "stopped" });
+  if (capsOff.has("mic") && capture) stopCapture(false);
+  renderFace();
+}
+
 // --- questions and timers --------------------------------------------------
 
 let ask;
@@ -684,7 +703,7 @@ const player = {
 
   /** Two soft notes for an agent's task that has just finished. Silent when muted or when the page cannot make sound. */
   chime() {
-    if (muted || this.volume === 0 || this.context?.state !== "running") return;
+    if (muted || capsOff.has("speaker") || this.volume === 0 || this.context?.state !== "running") return;
     const context = this.context, at = context.currentTime;
     [659.25, 880].forEach((hz, i) => {
       const tone = context.createOscillator(), level = context.createGain();
@@ -775,7 +794,7 @@ const player = {
 
   begin(turnId, sampleRate) {
     // Muted: say so at once, so Axis neither sends the audio nor waits for it to be played. The words still show.
-    if (muted) return send({ t: "playback", turnId, state: "blocked" });
+    if (muted || capsOff.has("speaker")) return send({ t: "playback", turnId, state: "blocked" });
     this.ensure();
     this.turnId = turnId;
     this.rate = sampleRate;
@@ -867,7 +886,7 @@ let starting = false;
 
 /** `trigger` is what made the page listen ("tap" or "hold"), told to Axis for its record of the turn. */
 async function startCapture(trigger = "tap") {
-  if (capture || starting || !online) return;
+  if (capture || starting || !online || capsOff.has("mic")) return;
   starting = true;
   // Speaking over a reply interrupts it, like a button on a device would.
   if (player.stop() || turnState !== "idle") send({ t: "interrupt" });
@@ -993,7 +1012,7 @@ function endHold() {
 }
 
 $("mic").addEventListener("pointerdown", (event) => {
-  if (event.button > 0 || !identity || !online || !micAvailable || capture || starting) return;
+  if (event.button > 0 || !identity || !online || !micAvailable || capsOff.has("mic") || capture || starting) return;
   if (player.turnId || ["transcribing", "thinking", "speaking"].includes(turnState)) return; // a tap stops those
   // A finger never stays quite still. Keeping hold of the touch means drifting off the face, or the
   // phone deciding the touch is a scroll, does not end the hold: only lifting the finger does.
@@ -1025,7 +1044,7 @@ $("mic").addEventListener("click", () => {
   // Only a reply on its way is stopped by a tap. After a failed turn the state stays "error"
   // until the next one, and a tap then must start listening, not just stop.
   if (player.turnId || ["transcribing", "thinking", "speaking"].includes(turnState)) return stopEverything();
-  if (micAvailable) startCapture();
+  if (micAvailable && !capsOff.has("mic")) startCapture();
   else $("say").focus();
 });
 
@@ -1359,5 +1378,6 @@ renderSound();
 
 checkOpenAsks();
 
+applyCapsOff(settings.values.capabilitiesOff);
 if (identity) start();
 else show("pair", true);

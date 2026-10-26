@@ -54,6 +54,8 @@ The four clients:
 
 ## 3. Feasibility: an admin editing a device's capabilities
 
+**Built** (2026-10-26) as designed below: Axis 0.50.0 (server, admin page, web client), Windows desktop app 0.12.0, Mac desktop app 0.5.0, board firmware 0.19.0 (Waveshare 1.8) and 0.2.0 (round 1.75). The screen-off edge case asks the question on another device that can answer it (one with a microphone, or a screen when there are choices; a speaker preferred), else by voice on the same device if it still has a microphone, else ends it unanswered. What follows is the analysis as written before it was built.
+
 ### What happens today [code]
 
 - A client states its capabilities in `hello`. `hub.handleHello` calls `store.recordHello` (`store.ts` 506), which **overwrites** the stored list on every connection, then reads the record back into `session.client`. So an admin edit stored in the same column would be lost on the next connect.

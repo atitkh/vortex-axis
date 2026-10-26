@@ -136,7 +136,10 @@ public final class Notices: @unchecked Sendable {
     /** Plays `sound` if it may play now (never in quiet hours; the task chime and the cue only while switched on). */
     @discardableResult
     public func play(_ sound: Sound) -> Bool {
-        let may = lock.withLock { SoundRules.allowed(sound, settings: settings, minuteOfDay: minuteOfDay()) }
+        // The speaker switched off on the admin page: no sounds at all.
+        let may = lock.withLock {
+            !DesktopCommands.capabilitiesOff(settings).contains("speaker") && SoundRules.allowed(sound, settings: settings, minuteOfDay: minuteOfDay())
+        }
         return may && onChime?(sound) == true
     }
 

@@ -102,6 +102,10 @@ public sealed class Voice
     string? pictureTurn;
     /** When the app's sounds may play, from Axis's settings. */
     public Sounds Sounds { get; } = new();
+    /** What an admin switched off for this computer (`DesktopCommands.CapabilitiesOff`): `mic`, `speaker`, `screen`. Usually empty. */
+    public IReadOnlySet<string> Off { get; private set; } = new HashSet<string>();
+    bool MicOff => Off.Contains("mic");
+    bool SpeakerOff => Off.Contains("speaker");
     /** Every message this part sends Axis, as it goes (for the checks and the log). */
     public event Action<JsonObject>? Sent;
     /** Every frame of microphone audio sent, as it goes. */
@@ -144,9 +148,36 @@ public sealed class Voice
         return link.TrySendAudioAsync(pcm);
     }
 
+    /**
+     * An admin switched something off for this computer, or on again. The microphone off: no listening (what is being
+     * recorded is dropped); the speaker off: nothing plays (what is playing stops, and Axis is told it was blocked).
+     */
+    public void UseCapabilitiesOff(IReadOnlySet<string> off)
+    {
+        lock (gate)
+        {
+            if (Off.Count == 0 && off.Count == 0) return;
+            Off = off;
+            if (MicOff)
+            {
+                if (armed) Disarm();
+                if (recording != null) Finish("cancel");
+            }
+            if (SpeakerOff && playing != null)
+            {
+                var was = playing;
+                playing = null;
+                if (io.StopPlayback()) _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
+                if (Mode == VoiceMode.Speaking) Mode = VoiceMode.Idle;
+            }
+        }
+        Changed?.Invoke();
+    }
+
     /** Plays one of the app's sounds if the settings and the hour allow it, and nothing is being said. True when it played. */
     public bool Play(SoundKind kind)
     {
+        if (SpeakerOff) return false;
         if (!Sounds.May(kind, DateTime.Now)) return false;
         // A finished task's notes never over the agent's voice or the person's.
         if (kind == SoundKind.TaskDone && (playing != null || recording != null)) return false;
@@ -165,6 +196,7 @@ public sealed class Voice
     {
         lock (gate)
         {
+            if (MicOff) return;
             if (recording != null)
             {
                 // A second press while listening finishes, as a tap on the board does.
@@ -223,6 +255,7 @@ public sealed class Voice
     {
         lock (gate)
         {
+            if (MicOff) return false;
             if (recording != null || Busy || playing != null || armed)
             {
                 if (!armed) Press();
@@ -473,6 +506,12 @@ public sealed class Voice
                     var id = S("turnId");
                     if (id == null) break;
                     var rate = m.TryGetProperty("format", out var fmt) && fmt.TryGetProperty("sampleRate", out var r) ? r.GetInt32() : 24000;
+                    // The speaker switched off: nothing plays, and Axis hears so at once.
+                    if (SpeakerOff)
+                    {
+                        _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "blocked" });
+                        break;
+                    }
                     // Speech that comes while the person is talking to it waits its turn: theirs comes first.
                     if (recording != null) Finish("silence");
                     if (playing != null) io.StopPlayback();

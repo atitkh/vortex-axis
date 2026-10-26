@@ -183,6 +183,40 @@ public final class Voice: @unchecked Sendable {
 
     private var busy: Bool { mode == .transcribing || mode == .thinking || mode == .speaking }
 
+    /** What an admin switched off for this computer (`DesktopCommands.capabilitiesOff`): `mic`, `speaker`, `screen`. Usually empty. */
+    private var off: Set<String> = []
+    private var micOff: Bool { off.contains("mic") }
+    private var speakerOff: Bool { off.contains("speaker") }
+
+    /**
+     * An admin switched something off for this computer, or on again (the Windows app's `UseCapabilitiesOff`). The
+     * microphone off: no listening (what is being recorded is dropped); the speaker off: nothing plays (what is
+     * playing stops, and Axis is told).
+     */
+    public func useCapabilitiesOff(_ next: Set<String>) {
+        lock.lock(); defer { lock.unlock() }
+        if off.isEmpty && next.isEmpty { return }
+        off = next
+        if micOff {
+            if waiting {
+                waiting = false
+                if waitCapturing { io.stopCapture() }
+                waitCapturing = false
+                preRoll.clear()
+            }
+            if recording != nil { finish("cancel") }
+        }
+        if speakerOff, let was = playing {
+            playing = nil
+            if io.stopPlayback() { send(["t": "playback", "turnId": .string(was), "state": "stopped"]) }
+            if mode == .speaking { mode = .idle }
+        }
+        onChange?()
+    }
+
+    /** The talk key does nothing while the microphone is switched off on the admin page. */
+    public var listens: Bool { lock.lock(); defer { lock.unlock() }; return !micOff }
+
     private func send(_ m: [String: JSONValue]) { out(.message(.object(m))) }
 
     /** The link to Axis came or went: a turn that was waiting on it will never finish, so let go of it. */
@@ -210,6 +244,7 @@ public final class Voice: @unchecked Sendable {
     /** The talk key went down: starts listening; while listening, finishes; while the agent thinks or speaks, stops it. */
     public func press() {
         lock.lock(); defer { lock.unlock() }
+        if micOff { return }
         if recording != nil {
             // A second press while listening finishes, as a tap on the board does.
             finish(spoke ? "silence" : "cancel")
@@ -515,6 +550,11 @@ public final class Voice: @unchecked Sendable {
             guard let id = s("turnId") else { break }
             let rate = m["format"]?["sampleRate"]?.intValue ?? 24000
             // Speech that comes while the person is talking to it waits its turn: theirs comes first.
+            // The speaker switched off: nothing plays, and Axis hears so at once.
+            if speakerOff {
+                send(["t": "playback", "turnId": .string(id), "state": "blocked"])
+                break
+            }
             if recording != nil { finish("silence") }
             if playing != nil { io.stopPlayback() }
             playing = id

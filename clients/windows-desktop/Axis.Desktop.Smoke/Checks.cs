@@ -27,6 +27,7 @@ static class Checks
         Timers();
         SoundChecks();
         Pictures();
+        await CapabilitiesOffAsync();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -294,6 +295,33 @@ static class Checks
         sent.Clear();
         Is(voice.Arm(), false, "key down while thinking is not a tap or hold");
         Is(Kinds(sent), "interrupt", "it stops the agent");
+    }
+
+    /** What an admin switched off on the Axis admin page (`capabilitiesOff`): read, refused, and back on again. */
+    static async Task CapabilitiesOffAsync()
+    {
+        var ct = CancellationToken.None;
+        Is(DesktopCommands.CapabilitiesOff(Values("{}")).Count, 0, "not set: nothing off");
+        Is(DesktopCommands.CapabilitiesOff(Values("""{"capabilitiesOff":""}""")).Count, 0, "empty: nothing off");
+        Is(string.Join("|", DesktopCommands.CapabilitiesOff(Values("""{"capabilitiesOff":"mic, desktop"}""")).Order()), "desktop|mic", "two off");
+
+        var commands = new DesktopCommands(new FakeDesktop());
+        commands.UseSettings(Values("""{"capabilitiesOff":"desktop"}"""));
+        var refused = await commands.HandleAsync("desktop.look", Json("{}"), ct);
+        Is(refused.Ok, false, "desktop off: a look is refused");
+        Is(refused.Error?.Contains("switched off"), true, $"says why ({refused.Error})");
+        commands.UseSettings(Values("""{"capabilitiesOff":"screen"}"""));
+        Is((await commands.HandleAsync("desktop.look", Json("{}"), ct)).Ok, true, "desktop on again: a look");
+
+        var (voice, io, sent, _) = NewVoice();
+        voice.UseCapabilitiesOff(DesktopCommands.CapabilitiesOff(Values("""{"capabilitiesOff":"mic,speaker"}""")));
+        voice.Press();
+        Is((voice.Mode, io.Starts, sent.Count), (VoiceMode.Idle, 0, 0), "mic off: the talk key does nothing");
+        Is(voice.Arm(), false, "mic off: nothing to arm");
+        Is(voice.Play(SoundKind.Listen), false, "speaker off: no sounds");
+        voice.UseCapabilitiesOff(new HashSet<string>());
+        voice.Press();
+        Is((voice.Mode, io.Starts), (VoiceMode.Listening, 1), "on again: the talk key listens");
     }
 
     static void Typing()

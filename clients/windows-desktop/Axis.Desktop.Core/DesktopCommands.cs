@@ -192,6 +192,15 @@ public sealed class DesktopCommands
 
     public void UseSettings(IReadOnlyDictionary<string, JsonElement> values) => settings = values;
 
+    /**
+     * What an admin switched off for this computer: the names in the `capabilitiesOff` setting (`mic`, `speaker`,
+     * `screen`, `desktop`), separated by commas. Empty when it is not set, which is usual.
+     */
+    public static IReadOnlySet<string> CapabilitiesOff(IReadOnlyDictionary<string, JsonElement> values) =>
+        values.TryGetValue("capabilitiesOff", out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string>();
+
     bool Toggle(string key, bool fallback) =>
         settings.TryGetValue(key, out var v) ? v.ValueKind switch
         {
@@ -255,6 +264,8 @@ public sealed class DesktopCommands
     {
         if (name.StartsWith("desktop.", StringComparison.Ordinal) && Paused)
             return CommandAnswer.Fail("the person at the computer has paused the VorteX Axis desktop app");
+        if (name.StartsWith("desktop.", StringComparison.Ordinal) && CapabilitiesOff(settings).Contains("desktop"))
+            return CommandAnswer.Fail("the desktop is switched off for this computer on the VorteX Axis admin page");
         switch (name)
         {
             case "desktop.look":

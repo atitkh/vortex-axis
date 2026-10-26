@@ -345,3 +345,6 @@ body:not(.busy) .stop { display: none; }
 .task[data-state="blocked"] .task-bar i { background: var(--warn); }
 .task[data-state="done"] .task-steps, .task[data-state="done"] .task-note { color: var(--listen); }
 .task[data-state="done"] .task-bar i { background: var(--listen); }
+
+/* An admin switched this device's screen off (the capabilitiesOff setting): no face and no words. */
+body.screen-off #face, body.screen-off #caption, body.screen-off #choices, body.screen-off #timer, body.screen-off #task { visibility: hidden; }

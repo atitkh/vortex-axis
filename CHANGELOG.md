@@ -4,12 +4,22 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.12.0 (2026-10-26)
+
+- **Follows what an admin switched off for this computer** (Axis 0.50.0, the `capabilitiesOff` setting). `mic` off: the talk key does nothing (a recording under way is dropped); `speaker` off: nothing plays, no sounds, and Axis is told the speech was blocked; `screen` off: no face, no voice, task or typing pill; `desktop` off: every `desktop.*` command is refused, as when paused. Each comes back when switched on again. With nothing switched off nothing differs.
+- Built in the .NET SDK container and its smoke checks run (164 passing, new ones for this included); not run on Windows. Not put in the data folder.
+
+## Mac desktop app 0.5.0 (2026-10-26)
+
+- **The same as the Windows app 0.12.0**: `mic`, `speaker`, `screen` and `desktop` switched off on the admin page are followed live, the same way. `AxisDesktopCore` (with the new tests) was type-checked and its XCTest checks run on Linux under Swift 5.10, with two stand-ins for Apple-only calls (`NSLock.withLock`, `URLSession.data`) kept outside the repository: 168 passing. The AppKit part (`AppModel.swift`) is not compiled.
+
 ## Axis 0.50.0 (2026-10-26)
 
 - **An admin can switch off what a device can do.** The device's page has a switch for each capability it reports (`mic`, `speaker`, `screen`, `desktop` and so on), on when Axis uses it. Switching one off only takes away: Axis stops using it on that device at once (where speech goes, questions, wake words, the desktop tool, the agent's turn header), and the device is told through a new built-in setting, `capabilitiesOff`, so one that knows it stops doing it too. Nothing a device does not report can be switched on.
 - Stored apart from what the device reports (a new `capabilities_off` column, empty unless set), so a reconnect does not undo it. Set with `PATCH /admin/clients/:id { capabilitiesOff: [...] }`; the client's record on the admin API now carries `reported` and `off` beside the effective `capabilities`. The setting itself cannot be written through the settings routes.
 - A question open on a device whose screen is switched off is ended there and put to another device that can answer it, for the time it had left; with none it ends unanswered.
 - With nothing switched off, nothing differs: the setting is absent and every device is sent exactly what it was before.
+- The web client follows it: `screen` off hides the face and the words, `speaker` off plays nothing (Axis is told it was blocked), `mic` off leaves the face as a button for nothing and says to type. Each comes back when switched on again.
 
 ## Round board firmware 0.1.0 (2026-10-26)
 

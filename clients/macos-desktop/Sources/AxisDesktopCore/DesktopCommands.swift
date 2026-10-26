@@ -57,6 +57,15 @@ public final class DesktopCommands: @unchecked Sendable {
 
     public func useSettings(_ values: [String: JSONValue]) { lock.withLock { settings = values } }
 
+    /**
+     * What an admin switched off for this computer: the names in the `capabilitiesOff` setting (`mic`, `speaker`,
+     * `screen`, `desktop`), separated by commas. Empty when it is not set, which is usual.
+     */
+    public static func capabilitiesOff(_ values: [String: JSONValue]) -> Set<String> {
+        guard let text = values["capabilitiesOff"]?.stringValue else { return [] }
+        return Set(text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+    }
+
     /** A setting read leniently: true/false, a number not 0, or "1"/"true"; missing, `fallback`. */
     func toggle(_ key: String, _ fallback: Bool) -> Bool {
         switch lock.withLock({ settings[key] }) {
@@ -158,6 +167,9 @@ public final class DesktopCommands: @unchecked Sendable {
 
     func run(_ name: String, _ p: JSONValue) async throws -> CommandAnswer {
         if name.hasPrefix("desktop."), paused { return .fail("the person at the computer has paused the VorteX Axis desktop app") }
+        if name.hasPrefix("desktop."), Self.capabilitiesOff(lock.withLock { settings }).contains("desktop") {
+            return .fail("the desktop is switched off for this computer on the VorteX Axis admin page")
+        }
         switch name {
         case "desktop.look":
             guard toggle("allowLook", true) else { return .fail("reading the screen is switched off for this computer") }

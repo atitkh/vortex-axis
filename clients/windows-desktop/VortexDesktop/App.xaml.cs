@@ -63,6 +63,9 @@ public partial class App : System.Windows.Application
     Forms.ToolStripMenuItem? pauseItem;
     MainWindow? window;
     double pointerSize = 44;
+    /** What an admin switched off for this computer (the `capabilitiesOff` setting). Usually empty. */
+    IReadOnlySet<string> capsOff = new HashSet<string>();
+    bool ScreenOff => capsOff.Contains("screen");
 
     public ObservableCollection<Recent> Recently { get; } = new();
     public Saved Saved => saved;
@@ -150,7 +153,7 @@ public partial class App : System.Windows.Application
         };
         glance.Changed += () =>
         {
-            if (saved.Voice) taskPill.Show(glance);
+            if (saved.Voice && !ScreenOff) taskPill.Show(glance);
             else taskPill.Dismiss();
         };
         glance.TaskChime += () => voice?.Play(SoundKind.TaskDone);
@@ -229,7 +232,7 @@ public partial class App : System.Windows.Application
                     return Task.FromResult(voice == null ? CommandAnswer.Fail("talking from this computer is off")
                         : voice.Play(SoundKind.Chime) ? CommandAnswer.Done() : CommandAnswer.Fail("no sound now: quiet hours"));
                 // An agent at this computer is shown for as long as it is (not the admin page's "Show the pointer").
-                if (name.StartsWith("desktop.", StringComparison.Ordinal) && name != "desktop.hello" && !Paused && saved.ShowControl)
+                if (name.StartsWith("desktop.", StringComparison.Ordinal) && name != "desktop.hello" && !Paused && !capsOff.Contains("desktop") && saved.ShowControl)
                     Dispatcher.BeginInvoke(() => controlPill?.Touch());
                 return commands!.HandleAsync(name, p, ct);
             },
@@ -250,10 +253,13 @@ public partial class App : System.Windows.Application
             faceWindow?.UseSettings(values);
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
             voice?.Sounds.UseSettings(values);
+            var off = DesktopCommands.CapabilitiesOff(values);
+            if (off.Count > 0 || capsOff.Count > 0) UseCapabilitiesOff(off);
         });
         if (saved.Voice)
         {
             voice = new Voice(link, voiceIo);
+            voice.UseCapabilitiesOff(capsOff);
             voice.Failed += why => Diag.Log($"voice: {why}");
             if (pill == null)
             {
@@ -264,7 +270,7 @@ public partial class App : System.Windows.Application
             voice.Changed += () => Dispatcher.BeginInvoke(() =>
             {
                 // While typing, the typing pill has the place; the voice pill comes back when it closes.
-                if (voice != null && typing?.IsOpen != true) pill.Show(voice);
+                if (voice != null && typing?.IsOpen != true && !ScreenOff) pill.Show(voice);
                 ShowFace();
             });
         }
@@ -306,8 +312,32 @@ public partial class App : System.Windows.Application
     void ShowFace()
     {
         if (faceWindow == null) return;
-        if (!saved.ShowFace || Paused) { faceWindow.Set(VoiceMode.Idle, -1, null, false); return; }
+        if (!saved.ShowFace || Paused || ScreenOff) { faceWindow.Set(VoiceMode.Idle, -1, null, false); return; }
         faceWindow.Set(voice?.Mode ?? VoiceMode.Idle, voice?.Level ?? -1, voice?.Doing, controlPill?.Active ?? false);
+    }
+
+    /**
+     * An admin switched part of this computer off on the Axis admin page, or on again. Each part off is that part of
+     * talking off: `mic` no talk key, `speaker` nothing played, `screen` no face and no pills (nor typing, whose answer
+     * would show nowhere). `desktop` off refuses every desktop command (`DesktopCommands`). On the UI thread.
+     */
+    void UseCapabilitiesOff(IReadOnlySet<string> off)
+    {
+        capsOff = off;
+        voice?.UseCapabilitiesOff(off);
+        if (ScreenOff)
+        {
+            if (typing?.IsOpen == true) CloseTyping(true);
+            pill?.Dismiss();
+            taskPill?.Dismiss();
+        }
+        else
+        {
+            if (voice != null && typing?.IsOpen != true) pill?.Show(voice);
+            if (saved.Voice) taskPill?.Show(glance);
+        }
+        ShowFace();
+        Note(off.Count > 0 ? $"Switched off on the Axis admin page: {string.Join(", ", off)}" : "Everything switched on again on the Axis admin page");
     }
 
     /** Talking from this computer on or off: the hub hears of it on the next connection, so it reconnects now. */
@@ -526,6 +556,7 @@ public partial class App : System.Windows.Application
         if (typing == null) return;
         if (typing.IsOpen) { CloseTyping(true); return; }
         if (voice == null) { Note("Typing to Vortex needs \"Talk from this computer\" on (Settings)"); return; }
+        if (ScreenOff) { Note("Typing needs the screen, which is switched off for this computer on the Axis admin page"); return; }
         if (Paused || State != LinkState.Online) return;
         typingFrom = Native.GetForegroundWindow();
         pill?.Away();
@@ -551,7 +582,7 @@ public partial class App : System.Windows.Application
     {
         typing?.Shut(giveBack ? GiveBackFront : null);
         typingFrom = giveBack ? IntPtr.Zero : typingFrom;
-        if (voice != null) pill?.Show(voice);
+        if (voice != null && !ScreenOff) pill?.Show(voice);
     }
 
     void GiveBackFront()

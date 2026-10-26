@@ -51,6 +51,9 @@ public final class AppModel: ObservableObject {
     private(set) var voice: Voice?
     private var outbox: Outbox?
     private var lastWoke = Date.distantPast
+    /** What an admin switched off for this Mac (the `capabilitiesOff` setting). Usually empty. */
+    private var capsOff: Set<String> = []
+    private var screenOff: Bool { capsOff.contains("screen") }
 
     public init(version: String) {
         self.version = version
@@ -210,6 +213,7 @@ public final class AppModel: ObservableObject {
             }
         }
         let voice = Voice(io: audio, out: { outbox.put($0) })
+        voice.useCapabilitiesOff(capsOff)
         voice.onChange = { [weak self] in Task { @MainActor in self?.voiceChanged() } }
         // The listening cue, as the boards play it (the `listenCue` setting; never in quiet hours).
         let notices = self.notices
@@ -227,7 +231,7 @@ public final class AppModel: ObservableObject {
 
     /** Before a command runs: an agent at this Mac is shown for as long as it is (not the admin page's "Show the pointer"). */
     func commandComing(_ name: String) {
-        if ControlPillWords.shows(name, paused: paused, switchedOn: saved.showControl) { controlPill.touch() }
+        if ControlPillWords.shows(name, paused: paused || capsOff.contains("desktop"), switchedOn: saved.showControl) { controlPill.touch() }
     }
 
     func voiceChanged() {
@@ -235,7 +239,7 @@ public final class AppModel: ObservableObject {
         if let now = voiceNow {
             fetchPicture(now.picture)
             if typingPill.isOpen { typingPill.ask(now.question, choices: now.choices) }
-            voicePill.show(now, talkKey: talkKey.label, picture: pictureURL == now.picture?.url ? pictureImage : nil)
+            if !screenOff { voicePill.show(now, talkKey: talkKey.label, picture: pictureURL == now.picture?.url ? pictureImage : nil) }
         }
         showFace()
     }
@@ -263,7 +267,7 @@ public final class AppModel: ObservableObject {
 
     /** The task line or the next timer changed (or a finished task's time on show ran out). */
     func noticesChanged() {
-        guard voice != nil else {
+        guard voice != nil, !screenOff else {
             taskPill.vanish()
             timerPill.vanish()
             return
@@ -303,7 +307,7 @@ public final class AppModel: ObservableObject {
 
     /** The face follows the voice part and whether an agent is at this Mac (the Windows app's `ShowFace`). */
     func showFace() {
-        guard saved.showFace, !paused else {
+        guard saved.showFace, !paused, !screenOff else {
             face.set(FaceShow.of(.idle, doing: nil, agentHere: false))
             return
         }
@@ -326,6 +330,30 @@ public final class AppModel: ObservableObject {
         commands.useSettings(values)
         face.useSettings(values)
         if let size = values["pointerSize"]?.intValue { pointer.size = CGFloat(min(max(size, 24), 120)) }
+        let off = DesktopCommands.capabilitiesOff(values)
+        if !off.isEmpty || !capsOff.isEmpty { useCapabilitiesOff(off) }
+    }
+
+    /**
+     * An admin switched part of this Mac off on the Axis admin page, or on again (the Windows app's
+     * `UseCapabilitiesOff`). Each part off is that part of talking off: `mic` no talk key, `speaker` nothing played,
+     * `screen` no face and no pills (nor typing, whose answer would show nowhere). `desktop` off refuses every desktop
+     * command (`DesktopCommands`).
+     */
+    func useCapabilitiesOff(_ off: Set<String>) {
+        capsOff = off
+        voice?.useCapabilitiesOff(off)
+        if screenOff {
+            typingPill.close()
+            voicePill.dismiss()
+            taskPill.vanish()
+            timerPill.vanish()
+        } else {
+            voiceChanged()
+            noticesChanged()
+        }
+        showFace()
+        note(off.isEmpty ? "Everything switched on again on the Axis admin page" : "Switched off on the Axis admin page: \(off.sorted().joined(separator: ", "))")
     }
 
     public func stop() async {
@@ -446,13 +474,13 @@ public final class AppModel: ObservableObject {
     public var talkKey: TalkKey { TalkKey.saved(saved.talkKey) }
 
     func talkPressed() {
-        guard let voice, !paused, state == .online else { return }
+        guard let voice, !paused, state == .online, voice.listens else { return }
         voice.press()
     }
 
     /** The talk key went down: the microphone starts at once (or the agent is stopped, or listening finishes). */
     func talkDown() {
-        guard let voice, !paused, state == .online else { return }
+        guard let voice, !paused, state == .online, voice.listens else { return }
         voice.keyDown()
     }
 
@@ -477,7 +505,7 @@ public final class AppModel: ObservableObject {
             typingPill.close()
             return
         }
-        guard voice != nil, state == .online, !paused else { return }
+        guard voice != nil, state == .online, !paused, !screenOff else { return }
         voicePill.hold(true)
         typingPill.open(question: voiceNow?.question, choices: voiceNow?.choices ?? [])
     }

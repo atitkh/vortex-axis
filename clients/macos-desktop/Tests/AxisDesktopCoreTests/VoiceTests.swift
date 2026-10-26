@@ -169,6 +169,20 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(io.written, 960, "audio after the stretch is not played")
     }
 
+    func testSwitchedOffOnTheAdminPage() {
+        voice.useCapabilitiesOff(DesktopCommands.capabilitiesOff(["capabilitiesOff": "mic,speaker"]))
+        voice.press()
+        XCTAssertEqual(voice.currentMode, .idle, "mic off: the talk key does nothing")
+        XCTAssertFalse(io.capturing)
+        XCTAssertFalse(voice.listens)
+        voice.handle("speak.start", ["t": "speak.start", "turnId": "t1", "format": ["sampleRate": 24000]])
+        XCTAssertEqual(io.began, [], "speaker off: nothing plays")
+        XCTAssertEqual(sent.last("playback")?["state"], "blocked")
+        voice.useCapabilitiesOff([])
+        voice.press()
+        XCTAssertEqual(voice.currentMode, .listening, "on again: the talk key listens")
+    }
+
     func testTheRateIs24kHzWhenNotSaid() {
         voice.handle("speak.start", ["t": "speak.start", "turnId": "t1"])
         XCTAssertEqual(io.began, [24000])

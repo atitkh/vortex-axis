@@ -192,6 +192,18 @@ final class CommandsTests: XCTestCase {
         XCTAssertEqual(fake.hidden, 1)
     }
 
+    func testDesktopSwitchedOffOnTheAdminPage() async {
+        XCTAssertEqual(DesktopCommands.capabilitiesOff([:]), [])
+        XCTAssertEqual(DesktopCommands.capabilitiesOff(["capabilitiesOff": ""]), [])
+        XCTAssertEqual(DesktopCommands.capabilitiesOff(["capabilitiesOff": "mic, desktop"]), ["mic", "desktop"])
+        commands.useSettings(["capabilitiesOff": "desktop"])
+        let refused = await run("desktop.look")
+        XCTAssertEqual(refused.error, "the desktop is switched off for this computer on the VorteX Axis admin page")
+        commands.useSettings(["capabilitiesOff": "screen"])
+        let looked = await run("desktop.look")
+        XCTAssertTrue(looked.ok)
+    }
+
     func testPausedAndSwitchedOff() async {
         commands.paused = true
         let r5 = await run("desktop.hello")
