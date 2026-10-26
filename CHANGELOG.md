@@ -18,6 +18,10 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 - **The same as the Windows app 0.12.0**: `mic`, `speaker`, `screen` and `desktop` switched off on the admin page are followed live, the same way. `AxisDesktopCore` (with the new tests) was type-checked and its XCTest checks run on Linux under Swift 5.10, with two stand-ins for Apple-only calls (`NSLock.withLock`, `URLSession.data`) kept outside the repository: 168 passing. The AppKit part (`AppModel.swift`) is not compiled.
 
+## Board firmware waveshare-amoled-1.75 0.2.1 (2026-10-26)
+
+- **Listening no longer ends mid-sentence.** The two microphones hear a voice quieter than the 1.8's (room 8, speech peaking near 176 against a keep threshold of 76), so ordinary speech counted as silence. Microphone gain is up 6 dB (ES7210 step 12 instead of 10).
+
 ## Axis 0.50.0 (2026-10-26)
 
 - **An admin can switch off what a device can do.** The device's page has a switch for each capability it reports (`mic`, `speaker`, `screen`, `desktop` and so on), on when Axis uses it. Switching one off only takes away: Axis stops using it on that device at once (where speech goes, questions, wake words, the desktop tool, the agent's turn header), and the device is told through a new built-in setting, `capabilitiesOff`, so one that knows it stops doing it too. Nothing a device does not report can be switched on.

@@ -10,7 +10,7 @@ namespace {
 I2SClass stream;
 
 // Gain of the microphones' amplifiers, in 3 dB steps: 10 is the 30 dB the 1.8 also uses for a voice across the room.
-const uint8_t MIC_GAIN = 10;
+const uint8_t MIC_GAIN = 12;  // 0.2.1: +6 dB over 10; speech peaked near 176 against a keep threshold of 76, so sentences were cut short
 // The reference (MIC3) is the speaker's own drive, not a microphone: little gain, or it clips.
 const uint8_t REF_GAIN = 0;
 
