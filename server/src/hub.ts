@@ -20,6 +20,7 @@ import {
 import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
+import { sentDefaults } from "./schema.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 import type { SpeechShare } from "./speech.js";
@@ -477,8 +478,16 @@ export class Hub implements TurnPort {
     this.send(session, {
       t: "settings",
       version: this.store.settingsVersion(),
-      values: withQuiet(this.store.resolveSettings(session.client), Date.now(), this.timeZone),
+      values: withQuiet(this.sentSettings(session.client), Date.now(), this.timeZone),
     });
+  }
+
+  /**
+   * The settings as a device is sent them, before quiet hours: the shared listening defaults (`sentDefaults`) beneath
+   * the stored layers, so every client listens by the same numbers without holding its own.
+   */
+  sentSettings(client: Pick<ClientRecord, "id" | "type">): ScalarMap {
+    return { ...sentDefaults(), ...this.store.resolveSettings(client) };
   }
 
   /** True when this client is in its quiet hours right now. */

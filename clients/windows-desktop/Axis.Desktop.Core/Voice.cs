@@ -22,6 +22,25 @@ public interface IVoiceIo
     void PlaySound(short[] pcm, int sampleRate) { }
 }
 
+/**
+ * How long to listen, from Axis's shared Listening settings (`onsetMs`, `silenceMs`, `maxSpeechMs`, `followUpMs`),
+ * which Axis sends every client. The fallbacks, the boards' own numbers, only matter with an
+ * Axis older than 0.51.0, which did not send them.
+ */
+public sealed record Listening(int OnsetMs, int SilenceMs, int MaxMs, int FollowUpMs)
+{
+    public static readonly Listening Default = new(6000, 900, 20000, 6000);
+
+    public static Listening Read(IReadOnlyDictionary<string, JsonElement> values) => new(
+        Number(values, "onsetMs", Default.OnsetMs, 1000, 20000),
+        Number(values, "silenceMs", Default.SilenceMs, 300, 5000),
+        Number(values, "maxSpeechMs", Default.MaxMs, 3000, 60000),
+        Number(values, "followUpMs", Default.FollowUpMs, 0, 30000));
+
+    static int Number(IReadOnlyDictionary<string, JsonElement> values, string key, int fallback, int min, int max) =>
+        values.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.Number ? (int)Math.Clamp(Math.Round(v.GetDouble()), min, max) : fallback;
+}
+
 /** A typed turn (`text`, protocol `Text`): what the web client sends from its text box. */
 public static class TypedText
 {
@@ -62,8 +81,6 @@ public enum VoiceMode { Idle, Listening, Transcribing, Thinking, Speaking, Error
 public sealed class Voice
 {
     public const int MicRate = 16000;
-    /** A pause this long after speech ends the recording; a recording with no speech in this long is dropped. */
-    const int QuietMs = 1200, NothingSaidMs = 6000, MaxMs = 30000;
     /** Louder than this (0..1 RMS) counts as speech. */
     const double SpeechLevel = 0.02;
 
@@ -74,6 +91,8 @@ public sealed class Voice
     string? recording;      // the turn being recorded
     bool holding;
     long startedAt, quietSince;
+    int waitMs;             // how long this recording waits for the first word
+    string? voiceTurn;      // the last turn recorded here: a spoken answer to it is followed by a short listen
     bool spoke;
     string? playing;        // the turn being played
     string? turn;           // the turn last heard of from Axis
@@ -104,6 +123,10 @@ public sealed class Voice
     public Sounds Sounds { get; } = new();
     /** What an admin switched off for this computer (`DesktopCommands.CapabilitiesOff`): `mic`, `speaker`, `screen`. Usually empty. */
     public IReadOnlySet<string> Off { get; private set; } = new HashSet<string>();
+    /** How long to listen, from Axis's settings. */
+    public Listening Limits { get; private set; } = Listening.Default;
+    /** The milliseconds clock (the checks give their own). */
+    public Func<long> Clock { get; set; } = () => Environment.TickCount64;
     bool MicOff => Off.Contains("mic");
     bool SpeakerOff => Off.Contains("speaker");
     /** Every message this part sends Axis, as it goes (for the checks and the log). */
@@ -117,7 +140,7 @@ public sealed class Voice
     {
         this.link = link;
         this.io = io;
-        link.Message += OnMessage;
+        link.Message += Receive;
         link.Audio += pcm => { if (playing != null) io.PlayWrite(pcm); };
         link.StateChanged += (state, _) => { if (state != LinkState.Online) Dropped(); };
     }
@@ -172,6 +195,12 @@ public sealed class Voice
             }
         }
         Changed?.Invoke();
+    }
+
+    /** The settings Axis sent: how long to listen. */
+    public void UseSettings(IReadOnlyDictionary<string, JsonElement> values)
+    {
+        lock (gate) Limits = Listening.Read(values);
     }
 
     /** Plays one of the app's sounds if the settings and the hour allow it, and nothing is being said. True when it played. */
@@ -241,11 +270,11 @@ public sealed class Voice
         {
             if (recording == null || !holding) return;
             holding = false;
-            Finish(spoke || Environment.TickCount64 - startedAt > 900 ? "silence" : "cancel");
+            Finish(spoke || Clock() - startedAt > 900 ? "silence" : "cancel");
         }
     }
 
-    string NewId() => $"pc-{Environment.TickCount64:x}-{++ids}";
+    string NewId() => $"pc-{Clock():x}-{++ids}";
 
     /**
      * The talk key went down where a tap types (no separate typing key). As Press while listening, thinking or speaking
@@ -344,14 +373,16 @@ public sealed class Voice
         return true;
     }
 
-    void Start(string trigger, bool capturing = false)
+    void Start(string trigger, bool capturing = false, int? wait = null)
     {
         var id = NewId();
         recording = id;
+        voiceTurn = id;
         holding = false;
         spoke = false;
         quietSince = 0;
-        startedAt = Environment.TickCount64;
+        startedAt = Clock();
+        waitMs = wait ?? Limits.OnsetMs;
         Heard = Reply = "";
         Picture = null;
         Set(VoiceMode.Listening);
@@ -362,16 +393,30 @@ public sealed class Voice
             ["format"] = new JsonObject { ["encoding"] = "pcm_s16le", ["sampleRate"] = MicRate, ["channels"] = 1 },
             ["trigger"] = trigger,
         });
-        Play(SoundKind.Listen);
+        // A follow-up has no cue: the pill turning green is enough when the computer was just talking (as on the boards).
+        if (trigger != "follow_up") Play(SoundKind.Listen);
         if (capturing) return;
         try { io.StartCapture(OnFrame); }
         catch (Exception e)
         {
             recording = null;
             _ = Send(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = "cancel" });
+            // A follow-up nobody asked for fails quietly.
+            if (trigger == "follow_up") { Set(VoiceMode.Idle); return; }
             Reply = $"The microphone could not start: {e.Message}";
             Set(VoiceMode.Error);
         }
+    }
+
+    /**
+     * After a spoken answer to what the person said here, listen `followUpMs` more without the key, so a conversation
+     * goes on as it does with a board (docs/client-guide.md section 3). Silence ends it quietly. Never after speech
+     * nobody here asked for (an announcement, a timer), nor when the answer was cut off (under the lock).
+     */
+    void FollowUp(string answered)
+    {
+        if (answered != voiceTurn || Limits.FollowUpMs <= 0 || MicOff || recording != null || armed) return;
+        Start("follow_up", wait: Math.Max(1000, Limits.FollowUpMs));
     }
 
     void OnFrame(short[] samples)
@@ -391,7 +436,7 @@ public sealed class Voice
             foreach (var x in samples) energy += (double)x * x;
             var level = Math.Sqrt(energy / Math.Max(1, samples.Length)) / 32768.0;
             Level = Math.Min(1, Math.Sqrt(Math.Max(0, (level - 0.004) / 0.08)));
-            var now = Environment.TickCount64;
+            var now = Clock();
             if (level > SpeechLevel)
             {
                 spoke = true;
@@ -404,9 +449,9 @@ public sealed class Voice
             bytes = new byte[samples.Length * 2];
             Buffer.BlockCopy(samples, 0, bytes, 0, bytes.Length);
             _ = SendAudio(bytes);
-            if (!holding && spoke && quietSince != 0 && now - quietSince > QuietMs) Finish("silence");
-            else if (now - startedAt > MaxMs) Finish("max");
-            else if (!holding && !spoke && now - startedAt > NothingSaidMs) Finish("cancel");
+            if (!holding && spoke && quietSince != 0 && now - quietSince > Limits.SilenceMs) Finish("silence");
+            else if (now - startedAt > Limits.MaxMs) Finish("max");
+            else if (!holding && !spoke && now - startedAt > waitMs) Finish("cancel");
         }
         Changed?.Invoke();
     }
@@ -438,7 +483,8 @@ public sealed class Voice
         }
     }
 
-    void OnMessage(string type, JsonElement m)
+    /** A message from Axis (the link's, or a check's). */
+    public void Receive(string type, JsonElement m)
     {
         // A failure while handling one message must not take the connection with it.
         try { Handle(type, m); }
@@ -533,6 +579,7 @@ public sealed class Voice
                             playing = null;
                             _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "finished" });
                             if (Mode == VoiceMode.Speaking) Set(VoiceMode.Idle);
+                            FollowUp(id);
                         }
                     });
                     break;

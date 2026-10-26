@@ -43,6 +43,10 @@ final class FakeVoiceIO: VoiceIO, @unchecked Sendable {
     }
 }
 
+final class Count: @unchecked Sendable {
+    var n = 0
+}
+
 final class FakeClock: @unchecked Sendable {
     var ms: UInt64 = 1000
 }
@@ -98,9 +102,9 @@ final class VoiceTests: XCTestCase {
         XCTAssertTrue(start["turnId"]?.stringValue?.hasPrefix("pc-") == true)
         at(100, loud)
         at(200, quiet)
-        at(1300, quiet)
-        XCTAssertEqual(voice.currentMode, .listening, "1.1 s of quiet is not yet a pause")
-        at(1500, quiet)
+        at(1000, quiet)
+        XCTAssertEqual(voice.currentMode, .listening, "0.8 s of quiet is not yet a pause (silenceMs 900 unless set)")
+        at(1200, quiet)
         XCTAssertEqual(sent.types, ["audio.start", "audio", "audio", "audio", "audio", "audio.end"])
         XCTAssertEqual(sent.last("audio.end")?["reason"], "silence")
         XCTAssertEqual(sent.last("audio.end")?["turnId"], start["turnId"])
@@ -118,12 +122,79 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(voice.currentMode, .idle)
     }
 
-    func testThirtySecondsIsTheMost() {
+    func testTwentySecondsIsTheMostUnlessSet() {
         voice.press()
         voice.hold()
-        at(29000, loud)
-        at(30100, loud)
+        at(19000, loud)
+        XCTAssertNil(sent.last("audio.end"))
+        at(20100, loud)
         XCTAssertEqual(sent.last("audio.end")?["reason"], "max")
+    }
+
+    func testTheSharedListeningSettingsAreFollowed() {
+        XCTAssertEqual(Listening.read([:]), .standard)
+        XCTAssertEqual(Listening.read(["silenceMs": 10, "maxSpeechMs": 999_999, "onsetMs": "x"]),
+                       Listening(onsetMs: 6000, silenceMs: 300, maxMs: 60000, followUpMs: 6000), "held to the ranges")
+        voice.useSettings(["silenceMs": 1500, "onsetMs": 3000, "maxSpeechMs": 5000, "followUpMs": 4000])
+        voice.press()
+        at(100, loud)
+        at(200, quiet)
+        at(1600, quiet)
+        XCTAssertEqual(voice.currentMode, .listening, "1.4 s of quiet does not end it with silenceMs 1500")
+        at(1800, quiet)
+        XCTAssertEqual(sent.last("audio.end")?["reason"], "silence")
+        voice.handle("turn", ["t": "turn", "state": "idle"])
+        voice.press()
+        at(4700, quiet)
+        XCTAssertEqual(voice.currentMode, .listening, "inside onsetMs")
+        at(4900, quiet)
+        XCTAssertEqual(sent.last("audio.end")?["reason"], "cancel", "past onsetMs: given up")
+        voice.press()
+        voice.hold()
+        at(10200, loud)
+        XCTAssertEqual(sent.last("audio.end")?["reason"], "max", "past maxSpeechMs")
+    }
+
+    func testASpokenAnswerIsFollowedByAShortListen() throws {
+        let cues = Count()
+        voice.onListening = { cues.n += 1 }
+        voice.useSettings(["followUpMs": 4000])
+        voice.press()
+        at(100, loud)
+        voice.press()
+        let turn = try XCTUnwrap(sent.last("audio.start")?["turnId"])
+        XCTAssertEqual(cues.n, 1)
+        voice.handle("speak.start", ["t": "speak.start", "turnId": turn])
+        voice.handle("speak.end", ["t": "speak.end", "turnId": turn])
+        io.drain()
+        XCTAssertEqual(voice.currentMode, .listening, "listening again after the answer")
+        XCTAssertEqual(sent.last("audio.start")?["trigger"], "follow_up")
+        XCTAssertEqual(cues.n, 1, "no cue for a follow-up")
+        at(4000, quiet)
+        XCTAssertEqual(voice.currentMode, .listening, "inside followUpMs")
+        at(4300, quiet)
+        XCTAssertEqual(voice.currentMode, .idle, "nothing said: it ends quietly")
+        XCTAssertEqual(sent.last("audio.end")?["reason"], "cancel")
+
+        // Speech nobody here asked for: no follow-up.
+        sent.clear()
+        voice.handle("speak.start", ["t": "speak.start", "turnId": "say-1"])
+        voice.handle("speak.end", ["t": "speak.end", "turnId": "say-1"])
+        io.drain()
+        XCTAssertFalse(sent.types.contains("audio.start"))
+        XCTAssertEqual(voice.currentMode, .idle)
+    }
+
+    func testNoFollowUpWhenSwitchedOff() throws {
+        voice.useSettings(["followUpMs": 0])
+        voice.press()
+        at(100, loud)
+        voice.press()
+        let turn = try XCTUnwrap(sent.last("audio.start")?["turnId"])
+        voice.handle("speak.start", ["t": "speak.start", "turnId": turn])
+        voice.handle("speak.end", ["t": "speak.end", "turnId": turn])
+        io.drain()
+        XCTAssertEqual(voice.currentMode, .idle)
     }
 
     func testAHoldListensUntilLetGo() {

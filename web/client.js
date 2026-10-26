@@ -12,7 +12,19 @@ const SETTINGS_KEY = "axis-client-settings";
 const MIC_RATE = 16000;
 /** Samples per upstream frame: 100 ms of audio. */
 const MIC_FRAME = 1600;
-const MAX_UTTERANCE_MS = 30000;
+
+/**
+ * How long to wait for the first word, the quiet that ends a sentence and the longest sentence: Axis's shared
+ * Listening settings, the same numbers every client listens by. The fallbacks (the boards' own) are only for a
+ * copy of the settings from an older Axis that did not send them.
+ */
+function listening() {
+  const n = (key, fallback, min, max) => {
+    const v = settings.values[key];
+    return typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+  };
+  return { onsetMs: n("onsetMs", 6000, 1000, 20000), silenceMs: n("silenceMs", 900, 300, 5000), maxMs: n("maxSpeechMs", 20000, 3000, 60000) };
+}
 
 // A browser only hands out the microphone on https or on localhost.
 const micAvailable = Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode);
@@ -922,7 +934,7 @@ async function startCapture(trigger = "tap") {
   source.connect(node);
 
   const turnId = newTurnId();
-  capture = { stream, context, source, node, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0, last: 0 };
+  capture = { stream, context, source, node, turnId, position: 0, startedAt: Date.now(), spoke: false, quietSince: 0, frame: new Int16Array(MIC_FRAME), filled: 0, room: undefined, voice: 0, last: 0, limits: listening() };
   const step = context.sampleRate / MIC_RATE;
 
   node.port.onmessage = (event) => {
@@ -968,10 +980,10 @@ async function startCapture(trigger = "tap") {
       capture.quietSince = 0;
     } else if (capture.spoke) {
       capture.quietSince ||= now;
-      if (!holding && now - capture.quietSince > 1200) return stopCapture(true, "silence");
+      if (!holding && now - capture.quietSince > capture.limits.silenceMs) return stopCapture(true, "silence");
     }
-    if (now - capture.startedAt > MAX_UTTERANCE_MS) stopCapture(true, "max");
-    else if (!holding && !capture.spoke && now - capture.startedAt > 6000) stopCapture(true, "cancel");
+    if (now - capture.startedAt > capture.limits.maxMs) stopCapture(true, "max");
+    else if (!holding && !capture.spoke && now - capture.startedAt > capture.limits.onsetMs) stopCapture(true, "cancel");
   };
 
   send({ t: "audio.start", turnId, format: { encoding: "pcm_s16le", sampleRate: MIC_RATE, channels: 1 }, trigger });

@@ -1,4 +1,4 @@
-import type { ActionDef, LinkDef, Scalar, SettingDef } from "@vortex-axis/protocol";
+import type { ActionDef, LinkDef, Scalar, ScalarMap, SettingDef } from "@vortex-axis/protocol";
 
 /** What the admin page can show and do for one kind of client. */
 export interface ClientSchema {
@@ -134,6 +134,48 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     help: "With tool icons shown as dots: how many of the face's 78 dots draw the shape. The rest keep turning in a ring round it.",
   },
   {
+    key: "followUpMs",
+    label: "Follow-up listening",
+    kind: "number",
+    group: "Listening",
+    min: 0,
+    max: 30000,
+    unit: "ms",
+    default: 6000,
+    help: "After a spoken answer, keep listening this long without the wake word. 0 turns it off.",
+  },
+  {
+    key: "onsetMs",
+    label: "Wait for the first word",
+    kind: "number",
+    group: "Listening",
+    min: 1000,
+    max: 20000,
+    unit: "ms",
+    default: 6000,
+    help: "How long to wait for you to start talking after a wake or a tap.",
+  },
+  {
+    key: "silenceMs",
+    label: "Quiet that ends a sentence",
+    kind: "number",
+    group: "Listening",
+    min: 300,
+    max: 5000,
+    unit: "ms",
+    default: 900,
+  },
+  {
+    key: "maxSpeechMs",
+    label: "Longest sentence",
+    kind: "number",
+    group: "Listening",
+    min: 3000,
+    max: 60000,
+    unit: "ms",
+    default: 20000,
+  },
+  {
     key: "capabilitiesOff",
     label: "Capabilities switched off",
     kind: "text",
@@ -143,6 +185,35 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };
+
+/**
+ * Built-in settings whose defaults Axis sends every client beneath the stored layers, so that every client listens
+ * by the same numbers and none needs its own: a value saved for everything, a type or a device still wins.
+ */
+export const SENT_DEFAULT_KEYS = ["followUpMs", "onsetMs", "silenceMs", "maxSpeechMs"] as const;
+
+/** The defaults of `SENT_DEFAULT_KEYS`, as sent. */
+export function sentDefaults(): ScalarMap {
+  const out: ScalarMap = {};
+  for (const def of BUILT_IN_SETTINGS) {
+    if ((SENT_DEFAULT_KEYS as readonly string[]).includes(def.key) && def.default !== undefined) out[def.key] = def.default;
+  }
+  return out;
+}
+
+/**
+ * What a client type declared as the default of each of `keys`, as numbers (a description may give them as text).
+ * Quiet hours cap a device's volume from here when nothing is saved for it.
+ */
+export function declaredDefaults(schema: ClientSchema | undefined, keys: string[]): ScalarMap {
+  const out: ScalarMap = {};
+  for (const def of schema?.settings ?? []) {
+    if (!keys.includes(def.key) || def.kind !== "number") continue;
+    const value = typeof def.default === "number" ? def.default : Number(def.default);
+    if (def.default !== undefined && def.default !== null && def.default !== "" && Number.isFinite(value)) out[def.key] = value;
+  }
+  return out;
+}
 
 /**
  * The wake word setting. Its choices are whatever is on the Wake words page at

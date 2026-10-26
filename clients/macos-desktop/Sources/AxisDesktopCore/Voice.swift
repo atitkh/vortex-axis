@@ -73,6 +73,33 @@ public struct VoicePicture: Equatable, Sendable {
     }
 }
 
+/**
+ * How long to listen, from Axis's shared Listening settings (`onsetMs`, `silenceMs`, `maxSpeechMs`, `followUpMs`), which
+ * Axis sends every client (the Windows app's `Listening`). The fallbacks, the boards' own numbers, only matter with an
+ * Axis older than 0.51.0, which did not send them.
+ */
+public struct Listening: Equatable, Sendable {
+    public var onsetMs: UInt64, silenceMs: UInt64, maxMs: UInt64, followUpMs: UInt64
+
+    public init(onsetMs: UInt64, silenceMs: UInt64, maxMs: UInt64, followUpMs: UInt64) {
+        self.onsetMs = onsetMs
+        self.silenceMs = silenceMs
+        self.maxMs = maxMs
+        self.followUpMs = followUpMs
+    }
+
+    public static let standard = Listening(onsetMs: 6000, silenceMs: 900, maxMs: 20000, followUpMs: 6000)
+
+    public static func read(_ values: [String: JSONValue]) -> Listening {
+        func n(_ key: String, _ fallback: UInt64, _ low: Int, _ high: Int) -> UInt64 {
+            guard let v = values[key]?.intValue else { return fallback }
+            return UInt64(min(max(v, low), high))
+        }
+        return Listening(onsetMs: n("onsetMs", standard.onsetMs, 1000, 20000), silenceMs: n("silenceMs", standard.silenceMs, 300, 5000),
+                         maxMs: n("maxSpeechMs", standard.maxMs, 3000, 60000), followUpMs: n("followUpMs", standard.followUpMs, 0, 30000))
+    }
+}
+
 /** What a key-down did: stopped the agent, finished a recording, or started the microphone to see if it is held. */
 public enum KeyDown: Equatable, Sendable { case stopped, finished, waiting }
 /** What letting go did: a tap (nothing sent), the end of a hold, or nothing. */
@@ -112,8 +139,6 @@ public final class Outbox: @unchecked Sendable {
  */
 public final class Voice: @unchecked Sendable {
     public static let micRate = 16000
-    /** A pause this long after speech ends the recording; a recording with no speech in this long is dropped. */
-    static let quietMs: UInt64 = 1200, nothingSaidMs: UInt64 = 6000, maxMs: UInt64 = 30000
     /** Louder than this (0..1 RMS) counts as speech. */
     static let speechLevel = 0.02
     /** Released after this long counts as having said something, even quietly. */
@@ -128,6 +153,11 @@ public final class Voice: @unchecked Sendable {
     private var recording: String?
     private var holding = false
     private var startedAt: UInt64 = 0, quietSince: UInt64 = 0
+    /** How long this recording waits for the first word. */
+    private var waitMs: UInt64 = 0
+    /** The last turn recorded here: a spoken answer to it is followed by a short listen. */
+    private var voiceTurn: String?
+    private var limits = Listening.standard
     private var spoke = false
     private var playing: String?
     private var turn: String?
@@ -213,6 +243,15 @@ public final class Voice: @unchecked Sendable {
         }
         onChange?()
     }
+
+    /** The settings Axis sent: how long to listen. */
+    public func useSettings(_ values: [String: JSONValue]) {
+        lock.lock(); defer { lock.unlock() }
+        limits = Listening.read(values)
+    }
+
+    /** How long to listen just now (for the tests). */
+    public var listening: Listening { lock.lock(); defer { lock.unlock() }; return limits }
 
     /** The talk key does nothing while the microphone is switched off on the admin page. */
     public var listens: Bool { lock.lock(); defer { lock.unlock() }; return !micOff }
@@ -400,20 +439,39 @@ public final class Voice: @unchecked Sendable {
         return true
     }
 
-    private func start(_ trigger: String) {
-        begin(trigger, at: clock())
+    private func start(_ trigger: String, wait: UInt64? = nil) {
+        begin(trigger, at: clock(), wait: wait)
         do {
             try io.startCapture { [weak self] samples in self?.frame(samples) }
         } catch {
+            // A follow-up nobody asked for fails quietly.
+            if trigger == "follow_up", let id = recording {
+                recording = nil
+                send(["t": "audio.end", "turnId": .string(id), "reason": "cancel"])
+                set(.idle)
+                return
+            }
             failToStart(error)
         }
     }
 
+    /**
+     * After a spoken answer to what the person said here, listen `followUpMs` more without the key, so a conversation
+     * goes on as it does with a board (docs/client-guide.md section 3). Silence ends it quietly. Never after speech
+     * nobody here asked for (an announcement, a timer), nor when the answer was cut off (under the lock).
+     */
+    private func followUp(_ answered: String) {
+        guard answered == voiceTurn, limits.followUpMs > 0, !micOff, recording == nil, !waiting else { return }
+        start("follow_up", wait: max(1000, limits.followUpMs))
+    }
+
     /** A new recording's id and audio.start (under the lock); the microphone is the caller's. */
-    private func begin(_ trigger: String, at: UInt64) {
+    private func begin(_ trigger: String, at: UInt64, wait: UInt64? = nil) {
         ids += 1
         let id = "pc-\(String(clock(), radix: 16))-\(ids)"
         recording = id
+        voiceTurn = id
+        waitMs = wait ?? limits.onsetMs
         holding = false
         spoke = false
         quietSince = 0
@@ -428,7 +486,8 @@ public final class Voice: @unchecked Sendable {
             "format": ["encoding": "pcm_s16le", "sampleRate": .int(Self.micRate), "channels": 1],
             "trigger": .string(trigger),
         ])
-        onListening?()
+        // A follow-up has no cue: the pill turning green is enough when the Mac was just talking (as on the boards).
+        if trigger != "follow_up" { onListening?() }
     }
 
     private func failToStart(_ error: Error) {
@@ -468,9 +527,9 @@ public final class Voice: @unchecked Sendable {
             quietSince = now
         }
         out(.audio(PCM.bytes(samples)))
-        if !holding && spoke && quietSince != 0 && now - quietSince > Self.quietMs { finish("silence") }
-        else if now - startedAt > Self.maxMs { finish("max") }
-        else if !holding && !spoke && now - startedAt > Self.nothingSaidMs { finish("cancel") }
+        if !holding && spoke && quietSince != 0 && now - quietSince > limits.silenceMs { finish("silence") }
+        else if now - startedAt > limits.maxMs { finish("max") }
+        else if !holding && !spoke && now - startedAt > waitMs { finish("cancel") }
     }
 
     /** Ends the recording (under the lock). */
@@ -592,6 +651,7 @@ public final class Voice: @unchecked Sendable {
         playing = nil
         send(["t": "playback", "turnId": .string(id), "state": "finished"])
         if mode == .speaking { set(.idle) }
+        followUp(id)
     }
 
     private func set(_ next: VoiceMode) {

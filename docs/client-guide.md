@@ -89,15 +89,16 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `listenCue` | Play a tone when listening starts. | 1 |
 | `wakeListen` | Listen for the wake word. | 1 |
 | `wakeSense` | Wake word cutoff in percent, 0 for the model's own. | 0 |
-| `followUpMs` | Listen after a spoken answer; 0 is off. | 6000 |
-| `onsetMs` | Wait for the first word. | 6000 |
-| `silenceMs` | Quiet that ends a sentence. | 900 |
-| `maxSpeechMs` | Longest sentence. | 20000 |
+| `followUpMs` | Listen after a spoken answer; 0 is off. Axis's (below). | 6000 |
+| `onsetMs` | Wait for the first word. Axis's (below). | 6000 |
+| `silenceMs` | Quiet that ends a sentence. Axis's (below). | 900 |
+| `maxSpeechMs` | Longest sentence. Axis's (below). | 20000 |
 | `rotation` | Screen rotation in degrees. | per board |
 | `autoRotate` | Turn the picture with the device. | 1 |
 | `brightness` | Screen brightness, 10 to 255. | per board |
 
 - `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client: Axis sends a lower `volume` and `brightness` while they last.)
+- The four listening keys (`followUpMs`, `onsetMs`, `silenceMs`, `maxSpeechMs`) are Axis's built-in settings (group Listening). Axis always sends them, its defaults beneath whatever is saved, so a `mic` client reads them and needs no numbers of its own beyond a fallback for an older Axis; it need not describe them (a description of the same key is overridden by Axis's). Its own loudness threshold for speech stays its own.
 - `toolIcons` is Axis's too: how a client with the vortex face shows the `doing` of a `turn` while thinking, `dots`, `line` or `off` (`docs/face.md`, section 8).
 - `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).
 - `capabilitiesOff` is Axis's too, set by an admin for one device: the capabilities, of those the device reported, that it should stop using, separated by commas (`mic,screen`). Axis already stops using them; a client that reads it should also stop doing them at once and come back when they leave the list: `screen` shows nothing, `speaker` plays nothing (answer `playback` with `blocked`), `mic` never opens the microphone, `desktop` refuses every `desktop.*` command. Absent or empty means nothing is off. Keep sending the full list in `hello`.

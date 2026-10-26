@@ -28,6 +28,7 @@ static class Checks
         SoundChecks();
         Pictures();
         await CapabilitiesOffAsync();
+        ListeningChecks();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -434,5 +435,70 @@ static class Checks
         var actions = DesktopIdentity.Create("0.0.0", false).Describe["actions"]!.AsArray().Select(a => a!["name"]!.GetValue<string>());
         Is(actions.Contains("chime"), true, "the chime action declared either way");
         Is(link.Address.Http.ToString(), "http://192.168.1.20:8440/", "the address pictures are fetched from");
+    }
+
+    /** Speech for `turn` from Axis, played to the end (the fake speaker finishes at once). */
+    static void Spoken(Voice voice, string turn)
+    {
+        var id = JsonSerializer.Serialize(turn);
+        voice.Receive("speak.start", Json($"{{\"turnId\":{id},\"format\":{{\"sampleRate\":24000}}}}"));
+        voice.Receive("speak.end", Json($"{{\"turnId\":{id}}}"));
+    }
+
+    /** Axis's shared Listening settings: the end of a sentence, giving up, the longest, and listening on after an answer. */
+    static void ListeningChecks()
+    {
+        Is(Listening.Read(Values("{}")), Listening.Default, "nothing sent: the boards' numbers");
+        Is(Listening.Read(Values("""{"onsetMs":3000,"silenceMs":1500,"maxSpeechMs":10000,"followUpMs":0}""")), new Listening(3000, 1500, 10000, 0), "read");
+        Is(Listening.Read(Values("""{"silenceMs":10,"maxSpeechMs":999999,"onsetMs":"x"}""")), new Listening(6000, 300, 60000, 6000), "held to the ranges");
+
+        long now = 1000;
+        var (voice, io, sent, _) = NewVoice();
+        voice.Clock = () => now;
+        voice.UseSettings(Values("""{"silenceMs":1500,"onsetMs":3000,"maxSpeechMs":5000,"followUpMs":4000}"""));
+        var loud = Enumerable.Repeat((short)8000, 320).ToArray();
+        voice.Press();
+        io.Frame!(loud);
+        now += 1400; io.Frame!(new short[320]);
+        now += 1400; io.Frame!(new short[320]);
+        Is(voice.Mode, VoiceMode.Listening, "1.4 s of quiet does not end it with silenceMs 1500");
+        now += 200; io.Frame!(new short[320]);
+        Is(sent.Last()["reason"]?.GetValue<string>(), "silence", "past silenceMs: sent");
+        var turn = sent[0]["turnId"]!.GetValue<string>();
+
+        // Its answer spoken to the end: it listens again, with no cue, for followUpMs.
+        var sounds = io.Sounds;
+        Spoken(voice, turn);
+        Is(voice.Mode, VoiceMode.Listening, "after the spoken answer: listening");
+        Is(sent.Last(m => m["t"]!.GetValue<string>() == "audio.start")["trigger"]?.GetValue<string>(), "follow_up", "as a follow-up");
+        Is(io.Sounds, sounds, "no cue for a follow-up");
+        now += 3900; io.Frame!(new short[320]);
+        Is(voice.Mode, VoiceMode.Listening, "still waiting inside followUpMs");
+        now += 200; io.Frame!(new short[320]);
+        Is((voice.Mode, sent.Last()["reason"]?.GetValue<string>()), (VoiceMode.Idle, "cancel"), "nothing said: ends quietly");
+
+        // Speech nobody here asked for: no follow-up.
+        var count = sent.Count;
+        Spoken(voice, "say-1");
+        Is(sent.Skip(count).Any(m => m["t"]!.GetValue<string>() == "audio.start"), false, "no follow-up after an announcement");
+
+        // A tap gives up after onsetMs with nothing said; maxSpeechMs caps a hold.
+        voice.Press();
+        now += 2900; io.Frame!(new short[320]);
+        Is(voice.Mode, VoiceMode.Listening, "inside onsetMs");
+        now += 200; io.Frame!(new short[320]);
+        Is(sent.Last()["reason"]?.GetValue<string>(), "cancel", "past onsetMs: given up");
+        voice.Press(); voice.Hold();
+        now += 5100; io.Frame!(loud);
+        Is(sent.Last()["reason"]?.GetValue<string>(), "max", "past maxSpeechMs: ended");
+
+        // followUpMs 0: no follow-up.
+        (voice, io, sent, _) = NewVoice();
+        voice.Clock = () => now;
+        voice.UseSettings(Values("""{"followUpMs":0}"""));
+        voice.Press(); voice.Hold(); io.Frame!(loud); voice.Release();
+        turn = sent[0]["turnId"]!.GetValue<string>();
+        Spoken(voice, turn);
+        Is(voice.Mode, VoiceMode.Idle, "followUpMs 0: no follow-up");
     }
 }

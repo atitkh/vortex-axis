@@ -253,6 +253,7 @@ public partial class App : System.Windows.Application
             faceWindow?.UseSettings(values);
             if (values.TryGetValue("pointerSize", out var size) && size.ValueKind == JsonValueKind.Number) pointerSize = size.GetDouble();
             voice?.Sounds.UseSettings(values);
+            voice?.UseSettings(values);
             var off = DesktopCommands.CapabilitiesOff(values);
             if (off.Count > 0 || capsOff.Count > 0) UseCapabilitiesOff(off);
         });

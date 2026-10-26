@@ -1,3 +1,4 @@
+import { sentDefaults } from "./schema.js";
 import { DesktopApp } from "./desktopapp.js";
 import { QuestApp } from "./questapp.js";
 import { titleFrom } from "./background.js";
@@ -98,6 +99,13 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const store = new Store(config.dataDir);
   // What an admin saved on the Integrations page wins over the environment, from here on.
   applySavedHubSettings(store, config);
+  // A built-in default that is sent to devices changed with this version of Axis: devices that already hold the
+  // settings' version number would not ask again, so it moves on.
+  const defaults = JSON.stringify(sentDefaults());
+  if (store.getMeta("sentDefaults") !== defaults) {
+    store.touchSettings();
+    store.setMeta("sentDefaults", defaults);
+  }
   const activity = new Activity(store, { retentionMs: config.activityDays * 86_400_000 });
   activity.start();
 

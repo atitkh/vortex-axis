@@ -4,6 +4,20 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.51.0 (2026-10-26)
+
+- **One set of listening numbers for every client.** `onsetMs` (wait for the first word), `silenceMs` (quiet that ends a sentence), `maxSpeechMs` (longest sentence) and `followUpMs` (listening on after a spoken answer) are now Axis's own settings (group Listening, the boards' labels, ranges and defaults: 6000, 900, 20000, 6000 ms), and Axis sends their defaults to every client beneath what is saved, so a value set for everything, a type or a device reaches boards, the web client and both desktop apps alike. Nothing is stored for them unless an admin saves a value; the admin page shows them at every level as before. The boards still declare the same four (Axis's definition wins, as for every built-in), so their firmware is unchanged. When the defaults sent change, Axis moves the settings' version on once at start, so devices holding the old copy take the new one.
+- The web client listens by them: a sentence ends after `silenceMs` (900 ms, was a fixed 1.2 s), it gives up after `onsetMs` (6 s, as before) and stops at `maxSpeechMs` (20 s, was 30 s). It still has no follow-up listening (a browser would open the microphone unasked; not built).
+
+## Desktop app 0.13.0 (2026-10-26)
+
+- **Listens by Axis's shared Listening settings** instead of its own fixed 1.2 s, 6 s and 30 s: a sentence ends after `silenceMs`, a press with nothing said gives up after `onsetMs`, a recording stops at `maxSpeechMs`. Its own loudness threshold for speech is unchanged.
+- **Follow-up listening, as on the boards:** after a spoken answer to what was said at this computer has played to the end, it listens `followUpMs` more (6 s unless set, 0 turns it off) without the talk key and with no cue; silence ends it quietly. Never after an announcement or a timer, nor when the answer was stopped.
+
+## Mac desktop app 0.6.0 (2026-10-26)
+
+- **The same as the Windows app 0.13.0**: the shared Listening settings and follow-up listening, ported line for line in `AxisDesktopCore/Voice.swift`.
+
 ## Board firmware 0.19.0 (Waveshare 1.8) and round board firmware 0.2.0 (Waveshare 1.75) (2026-10-26)
 
 - **Both boards follow what an admin switched off** (Axis 0.50.0, the `capabilitiesOff` setting). `screen` off: the panel goes blank (cleared, brightness 0) and nothing is drawn, pictures are dropped, the connection stays and a tap still talks; only while paired, so Wi-Fi setup and pairing always show. `speaker` off: volume 0, and speech from Axis is answered `playback` blocked (what is playing stops). `mic` off: no wake word, and nothing opens the microphone (a tap, a question, a follow-up). Each comes back when switched on again; with nothing switched off the board does what it did. The client core gained `Client::setOff` (two flags, false unless set).

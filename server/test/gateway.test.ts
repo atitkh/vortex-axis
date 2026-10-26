@@ -6,6 +6,7 @@ import { NODE_COMMANDS, NODE_TOOLS } from "../src/commands.js";
 import type { SpeechToText, TextToSpeech } from "../src/speech.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { admin, ctx, ready, restart, useServer } from "./harness.js";
+import { sentDefaults } from "../src/schema.js";
 
 const tts: TextToSpeech = {
   format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
@@ -393,7 +394,7 @@ describe("commands from an agent", () => {
 
     const changed = await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: 80 });
     expect(changed.payload).toEqual({ client: "Desk", settings: { volume: 80 } });
-    expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ volume: 80 });
+    expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ ...sentDefaults(), volume: 80 });
 
     expect((await gateway.invoke("vortex.axis.config", { client: "Desk" })).payload.settings).toEqual({ volume: 80 });
     expect((await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: [1] })).ok).toBe(false);

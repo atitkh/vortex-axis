@@ -329,6 +329,7 @@ public final class AppModel: ObservableObject {
     func useSettings(_ values: [String: JSONValue]) {
         commands.useSettings(values)
         face.useSettings(values)
+        voice?.useSettings(values)
         if let size = values["pointerSize"]?.intValue { pointer.size = CGFloat(min(max(size, 24), 120)) }
         let off = DesktopCommands.capabilitiesOff(values)
         if !off.isEmpty || !capsOff.isEmpty { useCapabilitiesOff(off) }
