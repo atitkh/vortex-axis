@@ -11,6 +11,10 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - Console diagnostics on this board: `shot`, `preview <state>`, `pcm` (sound or a JPEG over the cable), `mics`, `motion`, `touch`, `edges`, `glow <kind>`.
 - The 1.8's firmware is unchanged (0.18.2). The client core's `AXIS_FIRMWARE_VERSION` is now a default a board can override from its `platformio.ini`.
 
+## Axis 0.49.1 (2026-10-26)
+
+- **The admin page's glow preview works on the round 1.75 board.** The server refused it ("has no edge glow") because that board has no `glowCorner` setting; it now accepts a board that reports a round screen.
+
 ## Axis 0.49.0 (2026-10-26)
 
 - **The flasher offers a choice of board** when the hub has factory images for more than one type (`/flash/types.json`; `scripts/make-flasher.mjs` takes several board folders and writes the same for the published page). One type looks as before.

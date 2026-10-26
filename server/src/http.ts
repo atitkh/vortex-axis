@@ -749,7 +749,9 @@ export function createHttpHandler(deps: HttpDeps) {
         if (typeof body.kind !== "string" || !kinds.includes(body.kind)) throw new HttpError(400, `kind must be one of ${kinds.join(", ")}`);
         const corner = Number(body.corner);
         if (!Number.isInteger(corner) || corner < 12 || corner > 120) throw new HttpError(400, "corner must be a whole number from 12 to 120");
-        if (!withBuiltIns(store.getSchema(client.type)).settings.some((s) => s.key === "glowCorner")) {
+        // A round board has no corner to turn (no glowCorner setting) but has an edge glow all the same: it says its screen is round.
+        const roundScreen = Boolean(session.readings?.screenRound);
+        if (!roundScreen && !withBuiltIns(store.getSchema(client.type)).settings.some((s) => s.key === "glowCorner")) {
           throw new HttpError(400, `${client.name} has no edge glow`);
         }
         const ms = body.kind === "timer" ? 10_000 : 5_000;
