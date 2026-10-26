@@ -16,6 +16,8 @@ namespace codec {
 
 /** Starts I2S, configures both chips, and enables the amplifier. False when either chip does not answer. */
 bool begin();
+/** Why begin() failed, for the log. */
+const char *failure();
 
 /**
  * Turns the microphones' analog gain down by `MIC_QUIET_DB` while the device itself talks, and back up after.

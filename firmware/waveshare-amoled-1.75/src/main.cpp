@@ -18,7 +18,9 @@
 #include "vortex.h"
 #include <JPEGDEC.h>
 #include "glow.h"
+#include "codec.h"
 #include <esp_heap_caps.h>
+#include <mbedtls/base64.h>
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
 // `Serial` goes nowhere unless this is used and ARDUINO_USB_CDC_ON_BOOT is set.
@@ -247,6 +249,12 @@ static int wantedRotation() {
 
 // While this is in the future the screen shows only a frame along its edges.
 static uint32_t edgesUntil = 0;
+// Console `shot` requests, counted up on the client's task and taken on the screen loop.
+static volatile uint32_t shotRequests = 0;
+// A JPEG sent over the cable (`pcm picture`), shown by the screen loop.
+static const uint8_t *volatile testPicture = nullptr;
+static volatile size_t testPictureSize = 0;
+static volatile uint32_t testPictureRequests = 0;
 static bool edgesDrawn = false;
 
 // ---- pictures from agent replies ---------------------------------------------------------
@@ -656,7 +664,7 @@ static AskLayout askLayout() {
         l.questionLines = max(1, wrapIn(display::plain(state.question), lines, 2, [top0](int i) { return questionRoom(top0, i); }));
         const int top = l.questionTop + l.questionLines * lineH + 4;
         const int room = bottom - top;
-        const int span = display::roomAt(bottom - 1, 1);
+        const int span = display::roomAt(bottom - 1, 1) - 28;  // pillCells keeps 14 each side
         const int maxCols = max(1, min(n, span / min(span, need)));
         l.cols = l.face ? maxCols : min(maxCols, n <= 3 ? 1 : 2);
         l.rows = (n + l.cols - 1) / l.cols;
@@ -773,6 +781,72 @@ static void onTap() {
     if (state.link == axis::Link::Online) client.startListening();
 }
 
+// ---- diagnostics: `preview NAME` puts a made-up state on the screen for a minute ----------------
+// For checking the round layout without Axis: what Axis would send is laid over the snapshot.
+static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "timer", "task", "steps", "error"};
+static const int PREVIEW_COUNT = sizeof PREVIEWS / sizeof PREVIEWS[0];
+static volatile int previewWanted = -1;
+static volatile uint32_t previewRequests = 0;
+static int previewShown = -1;
+static uint32_t previewUntil = 0, previewStarted = 0;
+
+static void applyPreview(axis::Snapshot &s, uint32_t now) {
+    const char *name = PREVIEWS[previewShown];
+    s.link = axis::Link::Online;
+    s.openclawUp = s.sttUp = s.ttsUp = true;
+    s.turn = axis::Turn::Idle;
+    if (!strncmp(name, "ask", 3)) {
+        static const char *const SHORT[] = {"Tea", "Coffee"};
+        static const char *const FOUR[] = {"Kitchen", "Living room", "Bedroom", "Office"};
+        static const char *const SIX[] = {"Turn them all off", "Only the kitchen", "Leave the hall on", "Dim to half", "Ask me later", "Never mind"};
+        const char *const *list = !strcmp(name, "ask") ? SHORT : !strcmp(name, "ask4") ? FOUR : SIX;
+        s.choiceCount = !strcmp(name, "ask") ? 2 : !strcmp(name, "ask4") ? 4 : 6;
+        for (int i = 0; i < s.choiceCount; i++) s.choices[i] = list[i];
+        s.askId = name;
+        s.question = s.choiceCount == 2 ? "Tea or coffee?" : s.choiceCount == 4 ? "Which room should I turn the lights on in?" : "The lights are still on downstairs. What should I do with them?";
+    } else if (!strcmp(name, "reply") || !strcmp(name, "speak")) {
+        s.reply = "Tomorrow looks dry and mild: about 14 degrees in the afternoon, a light wind from the west, and some cloud "
+                  "coming in after dark. You will not need an umbrella, but a jacket would be good for the evening walk.";
+        if (!strcmp(name, "speak")) s.turn = axis::Turn::Speaking;
+    } else if (!strcmp(name, "thinking")) {
+        s.turn = axis::Turn::Thinking;
+        s.transcript = "what is the weather like tomorrow";
+        s.doing = "search";
+    } else if (!strcmp(name, "timer")) {
+        s.timerLabel = "pasta";
+        s.timerCount = 2;
+        s.timerEndsAt = previewStarted + 75000;
+    } else if (!strcmp(name, "task") || !strcmp(name, "steps")) {
+        s.taskCount = 3;
+        s.taskTitle = "Backup";
+        s.taskTotal = 5;
+        s.taskDone = 2;
+        s.taskNote = "copying the photos";
+        s.taskSteps = "xFind the files\nxPack them\n>Copy the photos\n-Check the copy\n-Tidy up";
+        s.taskOthers = " Monthly report\n!Invoice: needs you";
+    } else if (!strcmp(name, "error")) {
+        s.turn = axis::Turn::Error;
+        s.note = "Hearing is down: the speech service did not answer";
+    }
+}
+
+/** Leaves a request for the screen loop to show one kind of glow for `ms`. False for a kind it does not know. */
+static bool requestGlow(const char *kind, uint32_t ms) {
+    static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
+    static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
+                                         glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking,
+                                         glow::State::Hands};
+    // The corner is the 1.8's setting; this round board has none and ignores it.
+    GlowRequest request = {glow::State::None, ms, 56};
+    for (int i = 0; i < 9; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
+    if (request.kind == glow::State::None) return false;
+    portENTER_CRITICAL(&requestLock);
+    glowRequest = request;
+    glowRequests++;
+    portEXIT_CRITICAL(&requestLock);
+    return true;
+}
+
 void setup() {
     USBSerial.begin(115200);
     logOut.begin();
@@ -789,7 +863,7 @@ void setup() {
     }
 
     hasSpeaker = speaker::begin();
-    logOut.printf("[boot] speaker %s\n", hasSpeaker ? "started" : "FAILED");
+    logOut.printf("[boot] speaker %s%s\n", hasSpeaker ? "started" : "FAILED: ", hasSpeaker ? "" : codec::failure());
     if (hasSpeaker) {
         client.setAudioSink(speaker::sink());
         client.onListenStart([] { speaker::cue(); }, speaker::CUE_MS + 60);
@@ -818,20 +892,7 @@ void setup() {
             return true;
         }
         if (!strcmp(name, "glow.show")) {
-            static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
-            static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
-                                                 glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking,
-                                                 glow::State::Hands};
-            const char *kind = params["kind"] | "";
-            GlowRequest request = {glow::State::None, (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
-                                   (int)(params["corner"] | (int)client.settingInt("glowCorner", 56))};
-            for (int i = 0; i < 9; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
-            if (request.kind == glow::State::None) return false;
-            portENTER_CRITICAL(&requestLock);
-            glowRequest = request;
-            glowRequests++;
-            portEXIT_CRITICAL(&requestLock);
-            return true;
+            return requestGlow(params["kind"] | "", (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000));
         }
         if (!strcmp(name, "find")) {
             portENTER_CRITICAL(&requestLock);
@@ -889,6 +950,73 @@ void setup() {
             speaker::cue();
             return true;
         }
+        if (word == "preview") {
+            int found = -1;
+            for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
+            if (found < 0 && rest != "off") {
+                String names;
+                for (int i = 0; i < PREVIEW_COUNT; i++) names += String(" ") + PREVIEWS[i];
+                logOut.printf("[preview] one of:%s off\n", names.c_str());
+                return true;
+            }
+            previewWanted = found;
+            previewRequests++;
+            return true;
+        }
+        if (word == "pcm") {
+            // Sound sent over the cable and played through the speech path: `pcm clear`, then `pcm <base64>` lines
+            // of 16-bit mono samples, then `pcm play RATE`. For trying the wake word on the device's own voice.
+            // `pcm picture` shows the same bytes as a JPEG instead.
+            static uint8_t *pcm = nullptr;
+            static size_t pcmLength = 0;
+            const size_t PCM_MAX = 512 * 1024;
+            if (!pcm) pcm = (uint8_t *)heap_caps_malloc(PCM_MAX, MALLOC_CAP_SPIRAM);
+            if (!pcm) return true;
+            if (rest == "clear") {
+                pcmLength = 0;
+            } else if (rest == "picture") {
+                // The same bytes taken as a JPEG and shown as a picture from a reply would be, on the screen loop.
+                testPicture = pcm;
+                testPictureSize = pcmLength;
+                testPictureRequests++;
+            } else if (rest.startsWith("play")) {
+                const int rate = rest.length() > 5 ? rest.substring(5).toInt() : 16000;
+                axis::AudioSink *sink = speaker::sink();
+                sink->streamBegin(rate > 0 ? rate : 16000);
+                for (size_t at = 0; at < pcmLength; at += 4800) sink->streamWrite(pcm + at, min((size_t)4800, pcmLength - at));
+                sink->streamEnd();
+                logOut.printf("[pcm] playing %u bytes at %d Hz\n", (unsigned)pcmLength, rate);
+            } else {
+                size_t got = 0;
+                if (mbedtls_base64_decode(pcm + pcmLength, PCM_MAX - pcmLength, &got, (const unsigned char *)rest.c_str(), rest.length()) == 0) pcmLength += got;
+                else logOut.println("[pcm] bad line");
+            }
+            return true;
+        }
+        if (word == "glow") {
+            if (!requestGlow(rest.c_str(), 15000)) logOut.println("[glow] one of: waiting question done timer find listening thinking speaking hands");
+            return true;
+        }
+        if (word == "edges") {
+            edgesUntil = millis() + 10000;
+            edgesDrawn = false;
+            return true;
+        }
+        if (word == "shot") {
+            // A picture of the screen: everything is drawn again into a kept copy, which is then printed.
+            display::mirror(true);
+            shotRequests++;
+            delay(1500);
+            display::dump(logOut);
+            display::mirror(false);
+            return true;
+        }
+        if (word == "motion") {
+            int x = 0, y = 0, z = 0;
+            imu::read(x, y, z);
+            logOut.printf("[motion] gravity x %d y %d z %d (thousandths of g), standing %d, rotation %d\n", x, y, z, imu::orientation(), wantedRotation());
+            return true;
+        }
         if (word == "touch") {
             touch::dump(logOut, 20);
             return true;
@@ -926,12 +1054,26 @@ void loop() {
     // The admin page draws this device at its real shape, the way up it is standing now.
     client.setReading("screenW", display::width());
     client.setReading("screenH", display::height());
+    client.setReading("screenRound", 1);  // and that it is round, so it is drawn as a circle there
     client.setReading("gestures", 1);  // says it can send them, so Axis gives it a Gesture entity
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
     const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 0.033f;
     lastFrame = started;
+
+    // `shot` on the console: everything drawn again, so the kept copy holds the whole screen.
+    static uint32_t seenShot = 0;
+    if (shotRequests != seenShot) {
+        seenShot = shotRequests;
+        display::clear();
+        glow::reset();
+        redrawAll = true;
+        askDrawn = "";
+        edgesDrawn = false;
+        if (pictureUntil) display::blitScreen(pictureFrame);
+    }
+
 
     const bool changed = client.revision() != seenRevision;
     if (changed) {
@@ -953,8 +1095,32 @@ void loop() {
             applySettings();
         }
     }
+    // A made-up state from the console (`preview`), laid over what Axis said, for a minute.
+    {
+        static uint32_t seenPreview = 0;
+        const bool wasShown = previewShown >= 0;
+        if (previewRequests != seenPreview) {
+            seenPreview = previewRequests;
+            previewShown = previewWanted;
+            previewStarted = started;
+            previewUntil = started + 60000;
+            stepsOpenUntil = previewShown >= 0 && !strcmp(PREVIEWS[previewShown], "steps") ? previewUntil : 0;
+        }
+        if (previewShown >= 0 && (int32_t)(started - previewUntil) >= 0) previewShown = -1;
+        if (previewShown >= 0 || wasShown) {
+            state = client.snapshot();
+            if (previewShown >= 0) applyPreview(state, started);
+        }
+    }
+
     // A picture from an agent's reply. A newer one replaces it.
     {
+        static uint32_t seenTestPicture = 0;
+        if (testPictureRequests != seenTestPicture) {
+            seenTestPicture = testPictureRequests;
+            logOut.printf("[picture] %u bytes from the console, %s\n", (unsigned)testPictureSize,
+                          showPicture(testPicture, testPictureSize) ? "shown" : "could not be shown");
+        }
         uint8_t *jpg = nullptr;
         size_t size = 0;
         String turnId;

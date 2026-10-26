@@ -40,7 +40,8 @@ uint16_t strip[STRIP];
 float alphaAt(int px, int py, float strength) {
     const float dx = px - CENTRE, dy = py - CENTRE;
     const float d = display::RADIUS - sqrtf(dx * dx + dy * dy);
-    if (d >= DEPTH) return 0.0f;
+    // Nothing past the edge of the glass, where it cannot be seen.
+    if (d >= DEPTH || d < -2.0f) return 0.0f;
     // Only the part of the way round still lit, measured clockwise from the top middle.
     if (drawnSweep < 1.0f) {
         if (drawnSweep <= 0.0f) return 0.0f;

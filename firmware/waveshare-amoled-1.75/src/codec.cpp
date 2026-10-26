@@ -29,10 +29,17 @@ uint8_t read(uint8_t address, uint8_t reg) {
     return Wire.read();
 }
 
+/** Whether a chip answers, given a few tries: just after a reset the bus can miss one. */
 bool present(uint8_t address) {
-    Wire.beginTransmission(address);
-    return Wire.endTransmission() == 0;
+    for (int i = 0; i < 5; i++) {
+        Wire.beginTransmission(address);
+        if (Wire.endTransmission() == 0) return true;
+        delay(20);
+    }
+    return false;
 }
+
+const char *problem = "";
 
 void es8311(uint8_t reg, uint8_t value) { write(ADDR_ES8311, reg, value); }
 void es7210(uint8_t reg, uint8_t value) { write(ADDR_ES7210, reg, value); }
@@ -106,6 +113,7 @@ void startCapture() {
 }  // namespace
 
 I2SClass &i2s() { return stream; }
+const char *failure() { return problem; }
 
 void quietMic(bool quiet) {
     const uint8_t gain = quiet ? MIC_GAIN - MIC_QUIET_DB / 3 : MIC_GAIN;
@@ -116,8 +124,18 @@ void quietMic(bool quiet) {
 bool begin() {
     // Both chips take their clocks from I2S, so I2S must be running before they are set up.
     stream.setPins(I2S_BCK_IO, I2S_WS_IO, I2S_DO_IO, I2S_DI_IO, I2S_MCK_IO);
-    if (!stream.begin(I2S_MODE_STD, RATE, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) return false;
-    if (!present(ADDR_ES8311) || !present(ADDR_ES7210)) return false;
+    if (!stream.begin(I2S_MODE_STD, RATE, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) {
+        problem = "I2S did not start";
+        return false;
+    }
+    if (!present(ADDR_ES8311)) {
+        problem = "the ES8311 (speaker) does not answer";
+        return false;
+    }
+    if (!present(ADDR_ES7210)) {
+        problem = "the ES7210 (microphones) does not answer";
+        return false;
+    }
     startPlayback();
     startCapture();
     // Without the amplifier enabled the speaker stays silent whatever else is right. It is switched on

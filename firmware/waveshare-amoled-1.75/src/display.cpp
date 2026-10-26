@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include "Arduino_GFX_Library.h"
 #include "pins.h"
+#include <esp_heap_caps.h>
 #include "fonts/FreeSans9pt7b.h"
 #include "fonts/FreeSans12pt7b.h"
 #include "fonts/FreeSansBold12pt7b.h"
@@ -25,9 +26,38 @@ class Panel : public Arduino_CO5300 {
 Panel *gfx = new Panel(bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
 int columnOffset = 6;
 
+// Diagnostics: a copy of everything sent to the panel, kept only while asked for (`shot` on the console),
+// since nothing can be read back from the panel itself.
+uint16_t *shadow = nullptr;
+
+void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
+    gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+    if (!shadow) return;
+    for (int j = 0; j < h; j++) {
+        if (y + j < 0 || y + j >= LCD_HEIGHT) continue;
+        for (int i = 0; i < w; i++) {
+            if (x + i >= 0 && x + i < LCD_WIDTH) shadow[(y + j) * LCD_WIDTH + x + i] = pixels[j * w + i];
+        }
+    }
+}
+void pixel(int16_t x, int16_t y, uint16_t color) {
+    gfx->drawPixel(x, y, color);
+    if (shadow && x >= 0 && x < LCD_WIDTH && y >= 0 && y < LCD_HEIGHT) shadow[y * LCD_WIDTH + x] = color;
+}
+void hline(int16_t x, int16_t y, int16_t w, uint16_t color) {
+    gfx->drawFastHLine(x, y, w, color);
+    for (int i = 0; shadow && i < w; i++) if (x + i >= 0 && x + i < LCD_WIDTH && y >= 0 && y < LCD_HEIGHT) shadow[y * LCD_WIDTH + x + i] = color;
+}
+void vline(int16_t x, int16_t y, int16_t h, uint16_t color) {
+    gfx->drawFastVLine(x, y, h, color);
+    for (int j = 0; shadow && j < h; j++) if (x >= 0 && x < LCD_WIDTH && y + j >= 0 && y + j < LCD_HEIGHT) shadow[(y + j) * LCD_WIDTH + x] = color;
+}
+
 const int BAND_MAX_HEIGHT = 56;
 // Space left around each pill button inside its cell.
 const int PILL_GAP = 4;
+// Room kept between a row of pills and the round edge, each side.
+const int PILL_MARGIN = 14;
 const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
@@ -79,11 +109,11 @@ void edges(uint16_t color) {
         const int steps = (int)(2.0f * PI * r * 1.5f);
         for (int i = 0; i < steps; i++) {
             const float a = 2.0f * PI * i / steps;
-            gfx->drawPixel((int16_t)lroundf(c + r * cosf(a)), (int16_t)lroundf(c + r * sinf(a)), color);
+            pixel((int16_t)lroundf(c + r * cosf(a)), (int16_t)lroundf(c + r * sinf(a)), color);
         }
     }
-    gfx->drawFastHLine(LCD_WIDTH / 2 - 30, LCD_HEIGHT / 2, 60, color);
-    gfx->drawFastVLine(LCD_WIDTH / 2, LCD_HEIGHT / 2 - 30, 60, color);
+    hline(LCD_WIDTH / 2 - 30, LCD_HEIGHT / 2, 60, color);
+    vline(LCD_WIDTH / 2, LCD_HEIGHT / 2 - 30, 60, color);
 }
 
 int roomAt(int y, int h) {
@@ -101,7 +131,7 @@ int height() { return rotation == 0 || rotation == 180 ? LCD_HEIGHT : LCD_WIDTH;
 // the address for the first 1024 pixels of a write, so fillScreen() and any
 // larger block fail after their first use; a row always stays under that.
 void clear() {
-    for (int16_t y = 0; y < LCD_HEIGHT; y++) gfx->drawFastHLine(0, y, LCD_WIDTH, RGB565_BLACK);
+    for (int16_t y = 0; y < LCD_HEIGHT; y++) hline(0, y, LCD_WIDTH, RGB565_BLACK);
 }
 
 void toLogical(int px, int py, int &x, int &y) {
@@ -125,10 +155,10 @@ void clearBand(int y, int rows) {
     for (int i = 0; i < rows; i++) {
         const int at = y + i;
         if (at < 0 || at >= height()) continue;
-        if (rotation == 0) gfx->drawFastHLine(0, at, LCD_WIDTH, RGB565_BLACK);
-        else if (rotation == 180) gfx->drawFastHLine(0, LCD_HEIGHT - 1 - at, LCD_WIDTH, RGB565_BLACK);
-        else if (rotation == 90) gfx->drawFastVLine(at, 0, LCD_HEIGHT, RGB565_BLACK);
-        else gfx->drawFastVLine(LCD_WIDTH - 1 - at, 0, LCD_HEIGHT, RGB565_BLACK);
+        if (rotation == 0) hline(0, at, LCD_WIDTH, RGB565_BLACK);
+        else if (rotation == 180) hline(0, LCD_HEIGHT - 1 - at, LCD_WIDTH, RGB565_BLACK);
+        else if (rotation == 90) vline(at, 0, LCD_HEIGHT, RGB565_BLACK);
+        else vline(LCD_WIDTH - 1 - at, 0, LCD_HEIGHT, RGB565_BLACK);
     }
 }
 
@@ -154,7 +184,7 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels) {
     // The face is round, so the same pixels go out whatever the rotation.
     const int rows = ROWS_PER_WRITE;
     for (int row = 0; row < size; row += rows) {
-        gfx->draw16bitRGBBitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
+        bitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
     }
 }
 
@@ -165,10 +195,10 @@ static void pushRows(const uint16_t *src, int y, int h) {
     if (rotation == 0 || rotation == 180) {
         for (int j = 0; j < h; j++) {
             if (rotation == 0) {
-                gfx->draw16bitRGBBitmap(0, y + j, const_cast<uint16_t *>(src + j * w), w, 1);
+                bitmap(0, y + j, const_cast<uint16_t *>(src + j * w), w, 1);
             } else {
                 for (int i = 0; i < w; i++) row[i] = src[(h - 1 - j) * w + (w - 1 - i)];
-                gfx->draw16bitRGBBitmap(0, LCD_HEIGHT - (y + h) + j, row, w, 1);
+                bitmap(0, LCD_HEIGHT - (y + h) + j, row, w, 1);
             }
         }
         return;
@@ -179,7 +209,7 @@ static void pushRows(const uint16_t *src, int y, int h) {
         for (int i = 0; i < h; i++) {
             row[i] = rotation == 90 ? src[i * w + (w - 1 - j)] : src[(h - 1 - i) * w + j];
         }
-        gfx->draw16bitRGBBitmap(px, j, row, h, 1);
+        bitmap(px, j, row, h, 1);
     }
 }
 /** Sends the top `h` rows of the band to the panel at logical `y`, turned to the current rotation. */
@@ -191,22 +221,22 @@ void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
     static uint16_t row[LCD_HEIGHT];
     if (w <= 0 || h <= 0 || w > LCD_HEIGHT || h > LCD_HEIGHT) return;
     if (rotation == 0) {
-        for (int j = 0; j < h; j++) gfx->draw16bitRGBBitmap(x, y + j, const_cast<uint16_t *>(pixels + j * w), w, 1);
+        for (int j = 0; j < h; j++) bitmap(x, y + j, const_cast<uint16_t *>(pixels + j * w), w, 1);
     } else if (rotation == 180) {
         for (int j = 0; j < h; j++) {
             for (int i = 0; i < w; i++) row[i] = pixels[(h - 1 - j) * w + (w - 1 - i)];
-            gfx->draw16bitRGBBitmap(LCD_WIDTH - (x + w), LCD_HEIGHT - (y + h) + j, row, w, 1);
+            bitmap(LCD_WIDTH - (x + w), LCD_HEIGHT - (y + h) + j, row, w, 1);
         }
     } else if (rotation == 90) {
         // The same turn as pushRows: a logical column becomes a panel row.
         for (int j = 0; j < w; j++) {
             for (int i = 0; i < h; i++) row[i] = pixels[i * w + (w - 1 - j)];
-            gfx->draw16bitRGBBitmap(y, width() - (x + w) + j, row, h, 1);
+            bitmap(y, width() - (x + w) + j, row, h, 1);
         }
     } else {
         for (int j = 0; j < w; j++) {
             for (int i = 0; i < h; i++) row[i] = pixels[(h - 1 - i) * w + j];
-            gfx->draw16bitRGBBitmap(height() - (y + h), x + j, row, h, 1);
+            bitmap(height() - (y + h), x + j, row, h, 1);
         }
     }
 }
@@ -290,7 +320,8 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPe
 void pillCells(int y, int h, int count, int cols, int &left, int &cell) {
     // The row is cut across the chord the round glass leaves it, not the whole width.
     h = min(h, BAND_MAX_HEIGHT);
-    cell = roomAt(y, h) / max(1, cols);
+    // A margin, or a pill's rounded ends meet the edge of the glass.
+    cell = max(0, roomAt(y, h) - 2 * PILL_MARGIN) / max(1, cols);
     // A row that is not full sits in the middle.
     left = (width() - cell * count) / 2;
 }
@@ -322,4 +353,40 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
     }
     pushBand(y, h);
 }
+void mirror(bool on) {
+    if (on && !shadow) {
+        shadow = (uint16_t *)heap_caps_calloc(LCD_WIDTH * LCD_HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    } else if (!on && shadow) {
+        heap_caps_free(shadow);
+        shadow = nullptr;
+    }
+}
+
+void dump(Print &out) {
+    if (!shadow) {
+        out.println("[shot] nothing kept");
+        return;
+    }
+    // Runs of one colour, as (count, colour) pairs of 16-bit numbers, written in hex a row at a time.
+    out.printf("[shot] begin %d %d\n", LCD_WIDTH, LCD_HEIGHT);
+    for (int y = 0; y < LCD_HEIGHT; y++) {
+        String line = "[shot] " + String(y) + " ";
+        uint32_t sum = 0;
+        for (int x = 0; x < LCD_WIDTH;) {
+            const uint16_t c = shadow[y * LCD_WIDTH + x];
+            int n = 1;
+            while (x + n < LCD_WIDTH && shadow[y * LCD_WIDTH + x + n] == c) n++;
+            char pair[10];
+            snprintf(pair, sizeof pair, "%03x%04x", n, c);
+            line += pair;
+            sum += n + c;
+            x += n;
+        }
+        line += " " + String(sum & 0xFFFF, HEX);
+        out.println(line);
+        delay(2);
+    }
+    out.println("[shot] end");
+}
+
 }  // namespace display

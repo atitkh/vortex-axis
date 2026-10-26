@@ -88,4 +88,9 @@ int buttonTextWidth(const String &text);
  */
 String plain(const String &text);
 
+/** Diagnostics: keeps a copy of everything sent to the panel from now on (or stops and frees it). */
+void mirror(bool on);
+/** Diagnostics: prints that copy, a row at a time, as runs of one colour. */
+void dump(Print &out);
+
 }  // namespace display
