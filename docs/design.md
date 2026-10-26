@@ -35,6 +35,8 @@ A client is described by what it can do: `mic`, `speaker`, `screen`, `buttons`, 
 
 Axis routes on capabilities. A spoken reply needs a speaker. A yes/no question can go to any client with buttons.
 
+An admin can switch off, per device, any of the capabilities it reports (0.50.0, the switches beside "Can" on the device's page; `docs/client-parity.md` section 3). Only removal: nothing a device does not report can be given to it. Axis keeps what the device reported (`capabilities`, rewritten by every `hello`) apart from what was switched off (`capabilities_off`), and every decision goes by the first less the second. The device is told through a built-in setting, `capabilitiesOff` (names separated by commas, device layer only, set only through `PATCH /admin/clients/:id`), and a client that knows it stops doing what was switched off; one that does not is simply no longer used for it. A question open on a device whose screen is switched off is ended there (`ask.end`) and put to another device that can answer it, for the time it had left. With nothing switched off, the setting is absent and nothing differs from before.
+
 ### 2.3 One conversation
 
 All clients share one OpenClaw session, so a question asked at one client can be followed up from another. Axis gives the agent context in three ways:

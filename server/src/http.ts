@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PAIR_PATH, PROTOCOL_VERSION, isPairRequest, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
+import { CAPABILITIES, PAIR_PATH, PROTOCOL_VERSION, isPairRequest, type Capability, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
 import type { Backup } from "./backup.js";
 import type { Delivery } from "./delivery.js";
@@ -329,6 +329,26 @@ export function createHttpHandler(deps: HttpDeps) {
     };
   }
 
+  /**
+   * Switches capabilities off for one client, or on again: only what it reports can be taken away, nothing given.
+   * The device is told through its own settings (`capabilitiesOff`); Axis itself goes by the record from now on.
+   */
+  function setCapabilitiesOff(id: string, value: unknown): void {
+    if (!Array.isArray(value) || value.some((c) => typeof c !== "string")) {
+      throw new HttpError(400, "capabilitiesOff must be a list of capability names, such as [\"mic\"]; an empty list switches everything back on");
+    }
+    const unknown = value.filter((c) => !(CAPABILITIES as readonly string[]).includes(c));
+    if (unknown.length) throw new HttpError(400, `not a capability: ${unknown.join(", ")} (known: ${CAPABILITIES.join(", ")})`);
+    const before = store.getClient(id);
+    if (!before) throw new HttpError(404, "no such client");
+    const off = CAPABILITIES.filter((c) => value.includes(c)) as Capability[];
+    if (off.join() === before.off.join()) return;
+    const client = store.setCapabilitiesOff(id, off)!;
+    store.patchLayer("device", id, { capabilitiesOff: off.length ? off.join(",") : null });
+    hub.capabilitiesChanged(client);
+    activity?.note("admin", id, off.length ? `${client.name}: switched off ${off.join(", ")}` : `${client.name}: everything it reports switched on again`);
+  }
+
   /** The schema for each client type that exists, built-ins included. */
   /**
    * What each client type in use offers, with the name a person gave it. The
@@ -367,6 +387,10 @@ export function createHttpHandler(deps: HttpDeps) {
     const body = (await readJson(req)) as { values?: unknown };
     if (!isScalarMap(body.values)) {
       throw new HttpError(400, "body must be { values: { key: string | number | boolean | null } }");
+    }
+    // Kept in step with the client's record, so it is only set through the client itself.
+    if ("capabilitiesOff" in body.values) {
+      throw new HttpError(400, "capabilitiesOff is set per device with PATCH /admin/clients/:id { capabilitiesOff: [...] }");
     }
     if (scope === "device") {
       const client = store.getClient(scopeId);
@@ -778,7 +802,11 @@ export function createHttpHandler(deps: HttpDeps) {
         const id = parts[2]!;
         if (method === "GET") return sendJson(res, 200, describeClient(id));
         if (method === "PATCH") {
-          const body = (await readJson(req)) as { name?: unknown };
+          const body = (await readJson(req)) as { name?: unknown; capabilitiesOff?: unknown };
+          if (body.capabilitiesOff !== undefined) {
+            setCapabilitiesOff(id, body.capabilitiesOff);
+            if (body.name === undefined) return sendJson(res, 200, describeClient(id));
+          }
           const name = typeof body.name === "string" ? body.name.trim() : "";
           if (!name || name.length > 60) throw new HttpError(400, "name must be 1 to 60 characters");
           const renamed = store.renameClient(id, name);

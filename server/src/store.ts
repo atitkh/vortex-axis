@@ -17,7 +17,12 @@ export interface ClientRecord {
   id: string;
   name: string;
   type: string;
+  /** What it can do: what it reported in its last `hello`, less what an admin switched off. Every decision reads this. */
   capabilities: Capability[];
+  /** What it reported in its last `hello`, all of it. */
+  reported: Capability[];
+  /** What an admin switched off for it (`capabilities_off`). Usually empty. */
+  off: Capability[];
   version: string;
   createdAt: number;
   lastSeenAt: number | null;
@@ -30,6 +35,7 @@ interface ClientRow {
   name: string;
   type: string;
   capabilities: string;
+  capabilities_off: string;
   version: string;
   token_hash: string;
   created_at: number;
@@ -187,6 +193,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE timers ADD COLUMN task TEXT;
   ALTER TABLE timers ADD COLUMN may_act INTEGER;
   `,
+  // What an admin switched off of what a client reports it can do. The reported list stays in `capabilities`.
+  `
+  ALTER TABLE clients ADD COLUMN capabilities_off TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -256,11 +266,15 @@ function toEvent(r: EventRow): EventRecord {
 }
 
 function toRecord(row: ClientRow): ClientRecord {
+  const reported = JSON.parse(row.capabilities) as Capability[];
+  const off = JSON.parse(row.capabilities_off || "[]") as Capability[];
   return {
     id: row.id,
     name: row.name,
     type: row.type,
-    capabilities: JSON.parse(row.capabilities) as Capability[],
+    capabilities: off.length ? reported.filter((c) => !off.includes(c)) : reported,
+    reported,
+    off,
     version: row.version,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
@@ -507,6 +521,12 @@ export class Store {
     this.db
       .prepare("UPDATE clients SET version = ?, capabilities = ?, last_seen_at = ? WHERE id = ?")
       .run(info.version, JSON.stringify(info.capabilities), this.now(), id);
+  }
+
+  /** Sets what an admin switched off of what the client reports. Only takes away: what it does not report it never gains. */
+  setCapabilitiesOff(id: string, off: Capability[]): ClientRecord | undefined {
+    const changed = this.db.prepare("UPDATE clients SET capabilities_off = ? WHERE id = ?").run(JSON.stringify(off), id);
+    return changed.changes === 1 ? this.getClient(id) : undefined;
   }
 
   touch(id: string): void {

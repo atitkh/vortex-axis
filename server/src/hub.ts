@@ -510,6 +510,32 @@ export class Hub implements TurnPort {
     }
   }
 
+  /**
+   * After an admin switched capabilities off or on again for `client` (its record already stored): a live session
+   * goes by the new record from now on, the device is sent its settings (`capabilitiesOff`), and a question it can
+   * no longer show is put to another client.
+   */
+  capabilitiesChanged(client: ClientRecord): void {
+    const session = this.online.get(client.id);
+    if (session) {
+      const lostScreen = session.client.capabilities.includes("screen") && !client.capabilities.includes("screen");
+      session.client = client;
+      if (lostScreen) this.turns.moveAsk(session, (choices, silent) => this.answerableElsewhere(session, choices, silent));
+    }
+    this.pushSettings((c) => c.id === client.id);
+  }
+
+  /**
+   * Where a question taken off `from` can be answered: another client by voice or by a tap, else `from` itself by
+   * voice. A silent one (an approval) needs a screen.
+   */
+  private answerableElsewhere(from: Session, choices: number, silent: boolean): Session | undefined {
+    const can = (s: Session) =>
+      silent ? s.client.capabilities.includes("screen") : s.client.capabilities.includes("mic") || (choices > 0 && s.client.capabilities.includes("screen"));
+    const others = [...this.online.values()].filter((s) => s !== from && can(s));
+    return others.find((s) => s.client.capabilities.includes("speaker")) ?? others[0] ?? (!silent && from.client.capabilities.includes("mic") ? from : undefined);
+  }
+
   /** Pushes current settings to every connected client a change could affect. */
   pushSettings(filter?: (client: ClientRecord) => boolean): void {
     for (const session of this.online.values()) {

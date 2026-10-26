@@ -1145,7 +1145,8 @@ function renderLocations() {
 // --- settings: one editor for every layer ---------------------------------------
 
 /** Keys whose place is the device's own header, not a settings table. */
-const DEVICE_ONLY = new Set(["location"]);
+// capabilitiesOff is set with the switches beside "Can" on the device's page, never as a value of its own.
+const DEVICE_ONLY = new Set(["location", "capabilitiesOff"]);
 const OWN_LABEL = { device: "this device", type: "this type", global: "all devices" };
 const FROM_LABEL = { type: "type", global: "all devices", default: "default" };
 
@@ -1396,6 +1397,56 @@ $("client-filter").addEventListener("input", renderClients);
 
 // --- one device ----------------------------------------------------------------
 
+/** What switching each capability off does, for the note under the switches. */
+const CAPABILITY_OFF = {
+  mic: "mic: no listening, by wake word, tap or talk key",
+  speaker: "speaker: nothing is spoken on it",
+  screen: "screen: nothing is shown; questions go to another device",
+  buttons: "buttons: its buttons are not used",
+  vibration: "vibration: no buzzing",
+  sensors: "sensors: its readings are not used",
+  images: "images: no pictures are sent to it",
+  "image-frames": "image-frames: no pictures are sent to it",
+  desktop: "desktop: agents cannot look at or act on this computer",
+};
+
+/**
+ * One switch for each thing the device reports it can do, on when Axis uses it. Switching one off only takes away:
+ * Axis stops using it at once, and the device is told through its settings and stops doing it.
+ */
+function capabilitySwitches(client) {
+  const reported = client.reported ?? client.capabilities;
+  if (!reported.length) return "nothing";
+  const off = new Set(client.off ?? []);
+  const save = async (capability, on, box) => {
+    const next = new Set(off);
+    if (on) next.delete(capability);
+    else next.add(capability);
+    box.disabled = true;
+    try {
+      await api("PATCH", `/admin/clients/${encodeURIComponent(client.id)}`, { capabilitiesOff: [...next] });
+      toast(on ? `${capability} is on again for ${client.name}.` : `${capability} is off for ${client.name}. The device may need a moment to follow.`);
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+    refresh();
+  };
+  return h("div", {},
+    h("div", { style: "display:flex;flex-wrap:wrap;gap:6px 14px" },
+      ...reported.map((capability) => {
+        const box = h("input", { type: "checkbox", "data-edit": `capability-${capability}`, checked: !off.has(capability), "aria-label": capability });
+        box.addEventListener("change", () => save(capability, box.checked, box));
+        return h("label", { class: "switch" }, box, h("span", {}, capability));
+      }),
+    ),
+    h("p", { class: "help" },
+      "Switch one off to stop Axis using it on this device; nothing is added that it does not report. Off means ",
+      reported.map((c) => CAPABILITY_OFF[c] ?? c).join("; "),
+      ". The device may need a moment to follow, and one that does not know the setting yet is simply no longer used for it.",
+    ),
+  );
+}
+
 function renderDevice() {
   const client = lastClients.find((c) => c.id === view.id);
   if (!client) {
@@ -1461,7 +1512,7 @@ function renderDevice() {
         }, `Update to ${held.version}`);
       })(),
     ),
-    ...row("Can", client.capabilities.join(", ") || "nothing"),
+    ...row("Can", capabilitySwitches(client)),
     ...(client.address ? row("Address", h("span", { class: "mono" }, client.address)) : []),
     ...(client.online && base && schema.links.length
       ? row("Pages", ...schema.links.flatMap((l, i) => [i ? " · " : "", h("a", { href: base + l.path, target: "_blank", rel: "noopener" }, l.label)]))

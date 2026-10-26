@@ -84,6 +84,10 @@ interface PendingAsk {
   timer: NodeJS.Timeout;
   /** When to stop waiting, even for somebody who is still talking. */
   hardStop: number;
+  /** When it times out, and what it was asked with: for putting it to another client (`moveAsk`). */
+  endsAt: number;
+  silent?: boolean | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 interface Capture {
@@ -690,6 +694,9 @@ export class TurnManager {
         resolve,
         timer: setTimeout(expire, timeoutMs),
         hardStop: Date.now() + timeoutMs + 30_000,
+        endsAt: Date.now() + timeoutMs,
+        silent: options.silent,
+        signal: options.signal,
       });
       for (const listener of this.askListeners) listener();
       this.port.send(session, { t: "ask", askId, question: question.slice(0, 500), choices, timeoutMs });
@@ -703,6 +710,34 @@ export class TurnManager {
   private answerFrom(clientId: string, said: string, how: "voice" | "typed"): AskResult {
     const choices = this.asks.get(clientId)?.choices ?? [];
     return { answer: matchChoice(said, choices) ?? null, said: said.slice(0, 2000), how };
+  }
+
+  /**
+   * Takes the question open on `session` off it (`ask.end`), as when its screen has been switched off, and puts it
+   * to the client `pick` gives for the time it had left; whoever asked gets the answer from there. With nowhere
+   * else it ends unanswered.
+   */
+  moveAsk(session: Session, pick: (choices: number, silent: boolean) => Session | undefined): void {
+    const id = session.client.id;
+    const pending = this.asks.get(id);
+    if (!pending) return;
+    const elsewhere = pick(pending.choices.length, Boolean(pending.silent));
+    this.asks.delete(id);
+    clearTimeout(pending.timer);
+    for (const listener of this.askListeners) listener();
+    this.port.send(session, { t: "ask.end", askId: pending.askId });
+    if (!elsewhere) {
+      pending.resolve({ answer: null });
+      return;
+    }
+    const left = Math.max(5_000, pending.endsAt - Date.now());
+    this.ask(elsewhere, pending.question, pending.choices, left, {
+      ...(pending.silent ? { silent: true } : {}),
+      ...(pending.signal ? { signal: pending.signal } : {}),
+    }).then(
+      pending.resolve,
+      () => pending.resolve({ answer: null }),
+    );
   }
 
   private endAsk(session: Session, result: AskResult, tellClient = true): void {

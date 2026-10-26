@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.50.0 (2026-10-26)
+
+- **An admin can switch off what a device can do.** The device's page has a switch for each capability it reports (`mic`, `speaker`, `screen`, `desktop` and so on), on when Axis uses it. Switching one off only takes away: Axis stops using it on that device at once (where speech goes, questions, wake words, the desktop tool, the agent's turn header), and the device is told through a new built-in setting, `capabilitiesOff`, so one that knows it stops doing it too. Nothing a device does not report can be switched on.
+- Stored apart from what the device reports (a new `capabilities_off` column, empty unless set), so a reconnect does not undo it. Set with `PATCH /admin/clients/:id { capabilitiesOff: [...] }`; the client's record on the admin API now carries `reported` and `off` beside the effective `capabilities`. The setting itself cannot be written through the settings routes.
+- A question open on a device whose screen is switched off is ended there and put to another device that can answer it, for the time it had left; with none it ends unanswered.
+- With nothing switched off, nothing differs: the setting is absent and every device is sent exactly what it was before.
+
 ## Round board firmware 0.1.0 (2026-10-26)
 
 - **A second board: the round Waveshare ESP32-S3-Touch-AMOLED-1.75** (`firmware/waveshare-amoled-1.75`, type `waveshare-amoled-1.75`, its own firmware versions). Everything the 1.8 does, with the same face (the 1.8's `vortex.cpp` and `icons.h`, linked), laid out inside a 466 by 466 circle: text fitted to the chord at each row, question buttons kept off the edge, a round edge glow, a ring for "Show screen edges". Two microphones on an ES7210, averaged; the speaker's own output comes back on the ES7210's third input as the echo canceller's reference. CST9217 touch. No `glowCorner` (no corners); `screenOffset` defaults to 6 and `rotation` to 0.

@@ -33,6 +33,7 @@ const clientSamples: ClientMessage[] = [
   { t: "audio.end", turnId: "t1", reason: "silence" },
   { t: "text", turnId: "t2", text: "what time is it" },
   { t: "interrupt" },
+  { t: "ping" },
   { t: "answer", askId: "a1", choice: "Yes" },
   { t: "playback", turnId: "t1", state: "finished" },
   { t: "sense", readings: { battery: 0.81, charging: false, room: "office" } },
@@ -74,6 +75,7 @@ const serverSamples: ServerMessage[] = [
   { t: "command", id: "k1", name: "config.set", params: { key: "volume", value: 60 } },
   { t: "command", id: "k9", name: "desktop.steps", data: { steps: [{ action: "click", name: "Send" }] } },
   { t: "error", code: "upstream_down", message: "speech recognition is unavailable" },
+  { t: "pong" },
 ];
 
 describe("protocol version", () => {

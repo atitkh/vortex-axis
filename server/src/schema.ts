@@ -133,6 +133,13 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     default: 78,
     help: "With tool icons shown as dots: how many of the face's 78 dots draw the shape. The rest keep turning in a ring round it.",
   },
+  {
+    key: "capabilitiesOff",
+    label: "Capabilities switched off",
+    kind: "text",
+    group: "Axis",
+    help: "What this device can do that an admin has switched off, separated by commas, such as mic,screen. Set with the switches on the device's page, for this one device only; Axis stops using what is listed and the device stops doing it.",
+  },
 ];
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };
