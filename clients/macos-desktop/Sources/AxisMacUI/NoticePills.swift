@@ -115,6 +115,17 @@ struct TaskPillView: View {
                 .frame(height: 3)
                 .padding(.top, 7)
             }
+            if !words.waiting.isEmpty {
+                // Questions waiting on another device: small and blue, as the boards' glow.
+                HStack(spacing: 8) {
+                    Circle().fill(PillColour.of(.question)).frame(width: 6, height: 6).padding(.leading, 1.5)
+                    Text(words.waiting)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(PillColour.dim)
+                        .lineLimit(1)
+                }
+                .padding(.top, 7)
+            }
             if open {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(Array(words.rows.enumerated()), id: \.offset) { _, row in

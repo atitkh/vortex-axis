@@ -224,8 +224,8 @@ public partial class App : System.Windows.Application
             OnCommand = (name, p, ct) =>
             {
                 if (name == "update") return UpdateAsync(pairing, p, ct);
-                // The task line and the timer: shown in the task pill (Axis sends them only while talking is on: `screen`).
-                if (name is "progress.show" or "timer.next")
+                // The task line, the timer and questions waiting elsewhere: shown in the task pill (Axis sends them only while talking is on: `screen`).
+                if (Glance.Commands.Contains(name))
                     return Dispatcher.InvokeAsync(() => { glance.Handle(name, p, Environment.TickCount64); return CommandAnswer.Done(); }).Task;
                 // Axis's chime, before it says a timer has finished.
                 if (name == "chime")

@@ -14,11 +14,12 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 - **Listens by Axis's shared Listening settings** instead of its own fixed 1.2 s, 6 s and 30 s: a sentence ends after `silenceMs`, a press with nothing said gives up after `onsetMs`, a recording stops at `maxSpeechMs`. Its own loudness threshold for speech is unchanged.
 - **Its own volume** (`volume`, Sound, 0 to 100, default 100): a gain on its own speech and sounds (the chime, the cue, the task chime); the computer's own volume is never touched. Announcements and timers are spoken through the same speech, so they follow it too; quiet hours lower it through Axis. The face is measured before the gain, so it moves the same at any volume.
+- **Questions waiting on another device** (`ask.waiting`, which it answered "not implemented" before): a small blue dot and a dim line, "A question waits for you elsewhere" (or "2 questions ..."), in the task pill, under a task or timer when there is one, alone when not; gone at 0 and when the link drops. Only with talking on (Axis sends it to screens only).
 - **Follow-up listening, as on the boards:** after a spoken answer to what was said at this computer has played to the end, it listens `followUpMs` more (6 s unless set, 0 turns it off) without the talk key and with no cue; silence ends it quietly. Never after an announcement or a timer, nor when the answer was stopped.
 
 ## Mac desktop app 0.6.0 (2026-10-26)
 
-- **The same as the Windows app 0.13.0**: the shared Listening settings and follow-up listening, ported line for line in `AxisDesktopCore/Voice.swift`; and `volume` (declared with talking on, default 100) as a gain on its own speech and sounds in `AudioIO`, never the Mac's volume.
+- **The same as the Windows app 0.13.0**: the shared Listening settings and follow-up listening, ported line for line in `AxisDesktopCore/Voice.swift`; `volume` (declared with talking on, default 100) as a gain on its own speech and sounds in `AudioIO`, never the Mac's volume; and `ask.waiting` as the same blue line in the task pill (`Notices`, `TaskPillWords.of(_:elsewhere:)`).
 
 ## Board firmware 0.19.0 (Waveshare 1.8) and round board firmware 0.2.0 (Waveshare 1.75) (2026-10-26)
 

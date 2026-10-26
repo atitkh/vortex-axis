@@ -137,7 +137,26 @@ final class NoticesTests: XCTestCase {
         XCTAssertTrue(night.handle("chime", [:]).ok, "out of quiet hours the timer's chime rings")
         XCTAssertFalse(night.play(.taskDone), "the task chime switched off")
         XCTAssertEqual(played.value, 1)
-        XCTAssertEqual(Notices.commands, ["progress.show", "timer.next", "chime"])
+        XCTAssertEqual(Notices.commands, ["progress.show", "timer.next", "chime", "ask.waiting"])
+    }
+
+    func testQuestionsWaitingElsewhere() throws {
+        let n = Notices(clock: { 0 })
+        XCTAssertEqual(n.asksElsewhere, 0)
+        XCTAssertEqual(n.handle("ask.waiting", ["elsewhere": 2]), .done())
+        XCTAssertEqual(n.asksElsewhere, 2)
+        XCTAssertNil(TaskPillWords.of(.none, elsewhere: 0), "nothing to show")
+        let alone = try XCTUnwrap(TaskPillWords.of(.none, elsewhere: 1))
+        XCTAssertEqual(alone.title, "A question waits for you elsewhere")
+        XCTAssertEqual(alone.tint, .question)
+        let under = try XCTUnwrap(TaskPillWords.of(TaskLine.of(["title": "Backup", "state": "running", "count": 1]), elsewhere: 2))
+        XCTAssertEqual(under.title, "Backup")
+        XCTAssertEqual(under.waiting, "2 questions wait for you elsewhere")
+        _ = n.handle("ask.waiting", ["elsewhere": 0])
+        XCTAssertEqual(n.asksElsewhere, 0, "cleared at 0")
+        _ = n.handle("ask.waiting", ["elsewhere": 3])
+        n.linkChanged(online: false)
+        XCTAssertEqual(n.asksElsewhere, 0, "forgotten when the link drops (Axis sends it again)")
     }
 
     func testTheCancelRequest() throws {

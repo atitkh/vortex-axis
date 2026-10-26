@@ -127,6 +127,23 @@ public struct TaskPillWords: Equatable, Sendable {
     public var rows: [Row]
     /** A finished task can be put away. */
     public var dismissible: Bool
+    /** A quiet second line when questions wait elsewhere (`ask.waiting`), or empty. */
+    public var waiting: String = ""
+
+    /** What `ask.waiting` says, as the Windows app says it: empty for none. */
+    public static func elsewhere(_ n: Int) -> String {
+        n <= 0 ? "" : n == 1 ? "A question waits for you elsewhere" : "\(n) questions wait for you elsewhere"
+    }
+
+    /** The task's words, with the questions waiting elsewhere under them; those alone when there is no task. */
+    public static func of(_ t: TaskLine, elsewhere: Int) -> TaskPillWords? {
+        let waiting = Self.elsewhere(elsewhere)
+        guard var words = of(t) else {
+            return waiting.isEmpty ? nil : TaskPillWords(title: waiting, detail: "", tint: .question, fraction: nil, more: "", rows: [], dismissible: false)
+        }
+        words.waiting = waiting
+        return words
+    }
 
     public static func of(_ t: TaskLine) -> TaskPillWords? {
         guard t.shows else { return nil }

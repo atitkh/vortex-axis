@@ -114,6 +114,7 @@ public final class Notices: @unchecked Sendable {
     private var _task = TaskLine.none
     private var doneSince: UInt64?
     private var _timer: NextTimer?
+    private var _elsewhere = 0
     private var settings: [String: JSONValue] = [:]
     private let minuteOfDay: @Sendable () -> Int
 
@@ -162,8 +163,11 @@ public final class Notices: @unchecked Sendable {
 
     public var now: UInt64 { clock() }
 
+    /** How many questions wait for the person on another device, or on none (`ask.waiting`); 0 for none. */
+    public var asksElsewhere: Int { lock.withLock { _elsewhere } }
+
     /** The commands this part answers; anything else is for `DesktopCommands`. */
-    public static let commands: Set<String> = ["progress.show", "timer.next", "chime"]
+    public static let commands: Set<String> = ["progress.show", "timer.next", "chime", "ask.waiting"]
 
     public func handle(_ name: String, _ p: JSONValue) -> CommandAnswer {
         switch name {
@@ -180,6 +184,12 @@ public final class Notices: @unchecked Sendable {
         case "timer.next":
             let next = NextTimer.of(p, now: clock())
             lock.withLock { _timer = next }
+            onChange?()
+            return .done()
+        case "ask.waiting":
+            // A question waiting where it is not shown here (server `asklight.ts`): a quiet line, as the boards glow blue.
+            let n = max(0, p["elsewhere"]?.intValue ?? 0)
+            lock.withLock { _elsewhere = n }
             onChange?()
             return .done()
         case "chime":
@@ -210,6 +220,7 @@ public final class Notices: @unchecked Sendable {
             _task = .none
             doneSince = nil
             _timer = nil
+            _elsewhere = 0
         }
         onChange?()
     }

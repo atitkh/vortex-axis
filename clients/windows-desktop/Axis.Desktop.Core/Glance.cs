@@ -91,6 +91,11 @@ public sealed class Glance
 
     public TaskLine? Task { get; private set; }
     public TimerLine? Timer { get; private set; }
+    /** How many questions wait for the person on another device, or on none (`ask.waiting`); 0 for none. */
+    public int Elsewhere { get; private set; }
+
+    /** What `ask.waiting` says, as the Mac app says it: empty for none. */
+    public static string ElsewhereWords(int n) => n <= 0 ? "" : n == 1 ? "A question waits for you elsewhere" : $"{n} questions wait for you elsewhere";
     long doneSince;
 
     /** Anything shown changed. */
@@ -98,7 +103,10 @@ public sealed class Glance
     /** A task has just finished and Axis asked for its chime. */
     public event Action? TaskChime;
 
-    /** Carries out `progress.show` or `timer.next`; false for any other command. `now` is a millisecond clock. */
+    /** The commands this part carries out (the screen's, not the desktop tool's). */
+    public static readonly IReadOnlySet<string> Commands = new HashSet<string> { "progress.show", "timer.next", "ask.waiting" };
+
+    /** Carries out `progress.show`, `timer.next` or `ask.waiting`; false for any other command. `now` is a millisecond clock. */
     public bool Handle(string name, JsonElement p, long now)
     {
         switch (name)
@@ -118,6 +126,11 @@ public sealed class Glance
                 Timer = TimerLine.Read(p, now);
                 Changed?.Invoke();
                 return true;
+            case "ask.waiting":
+                // A question waiting where it is not shown here (server `asklight.ts`): a quiet line, as the boards glow blue.
+                Elsewhere = p.ValueKind == JsonValueKind.Object && p.TryGetProperty("elsewhere", out var e) && e.ValueKind == JsonValueKind.Number ? Math.Max(0, (int)e.GetDouble()) : 0;
+                Changed?.Invoke();
+                return true;
         }
         return false;
     }
@@ -129,13 +142,14 @@ public sealed class Glance
     public TimerLine? TimerAt(long now) => Timer is { } t && t.EndsAt + 2000 > now ? t : null;
 
     /** Something to show at `now`. */
-    public bool Any(long now) => TaskAt(now) != null || TimerAt(now) != null;
+    public bool Any(long now) => TaskAt(now) != null || TimerAt(now) != null || Elsewhere > 0;
 
     /** The link went: what was shown may be out of date by the time it is back; Axis tells it all again on connecting. */
     public void Clear()
     {
         Task = null;
         Timer = null;
+        Elsewhere = 0;
         doneSince = 0;
         Changed?.Invoke();
     }

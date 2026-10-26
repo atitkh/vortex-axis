@@ -41,6 +41,10 @@ sealed class TaskPill : Pill
     // The bar's two parts, done and to do, as shares of its width.
     readonly ColumnDefinition doneShare = new(), leftShare = new();
     readonly StackPanel list = new() { Margin = new Thickness(20, 6, 0, 0), Visibility = Visibility.Collapsed };
+    // Questions waiting on another device: a small blue dot and a dim line, as the boards' blue glow.
+    static readonly Color Blue = Color.FromRgb(0x4D, 0x94, 0xFF);
+    readonly DockPanel askRow = new() { Visibility = Visibility.Collapsed };
+    readonly TextBlock askWords = Words(Dim, 12);
     readonly DispatcherTimer tick = new() { Interval = TimeSpan.FromSeconds(1) };
     Glance? glance;
     bool open;
@@ -98,9 +102,16 @@ sealed class TaskPill : Pill
         taskBlock.Children.Add(bar);
         taskBlock.Children.Add(list);
 
+        var askDot = new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(1, 0, 11, 0) };
+        Colour(askDot, Blue);
+        DockPanel.SetDock(askDot, Dock.Left);
+        askRow.Children.Add(askDot);
+        askRow.Children.Add(askWords);
+
         var rows = new StackPanel { MinWidth = 180, MaxWidth = 440 };
         rows.Children.Add(timerRow);
         rows.Children.Add(taskBlock);
+        rows.Children.Add(askRow);
         Frame.Child = rows;
         tick.Tick += (_, _) => Render();
         SizeChanged += (_, _) => Moved?.Invoke();
@@ -174,14 +185,18 @@ sealed class TaskPill : Pill
         var now = Environment.TickCount64;
         var timer = glance?.TimerAt(now);
         var task = glance?.TaskAt(now);
-        if (timer == null && task == null)
+        var asking = Glance.ElsewhereWords(glance?.Elsewhere ?? 0);
+        askRow.Visibility = asking.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        askWords.Text = asking;
+        askRow.Margin = new Thickness(0, timer != null || task != null ? 7 : 0, 0, 0);
+        if (timer == null && task == null && asking.Length == 0)
         {
             tick.Stop();
             open = false;
             FadeOut();
             return;
         }
-        if (!tick.IsEnabled) tick.Start();
+        if (!tick.IsEnabled && (timer != null || task != null)) tick.Start();
 
         timerRow.Visibility = timer != null ? Visibility.Visible : Visibility.Collapsed;
         if (timer != null)
@@ -216,7 +231,7 @@ sealed class TaskPill : Pill
         }
         else open = false;
         list.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        Tint(timer != null && timer.Final(now) ? Red : task == null ? Amber : task.Finished ? Green : task.NeedsYou ? Amber : Violet);
+        Tint(timer != null && timer.Final(now) ? Red : task == null ? (timer == null ? Blue : Amber) : task.Finished ? Green : task.NeedsYou ? Amber : Violet);
         FadeIn();
     }
 

@@ -29,6 +29,7 @@ static class Checks
         Pictures();
         await CapabilitiesOffAsync();
         ListeningChecks();
+        AsksElsewhere();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -511,5 +512,22 @@ static class Checks
         turn = sent[0]["turnId"]!.GetValue<string>();
         Spoken(voice, turn);
         Is(voice.Mode, VoiceMode.Idle, "followUpMs 0: no follow-up");
+    }
+
+    /** `ask.waiting`: questions waiting on another device, a quiet line in the task pill; cleared at 0 and when the link goes. */
+    static void AsksElsewhere()
+    {
+        var g = new Glance();
+        Is(Glance.Commands.Contains("ask.waiting"), true, "ask.waiting is the screen's");
+        Is(g.Handle("ask.waiting", Json("""{"elsewhere":2}"""), 0), true, "handled");
+        Is((g.Elsewhere, g.Any(0)), (2, true), "two waiting: something to show");
+        Is(Glance.ElsewhereWords(1), "A question waits for you elsewhere", "one");
+        Is(Glance.ElsewhereWords(2), "2 questions wait for you elsewhere", "two");
+        Is(Glance.ElsewhereWords(0), "", "none");
+        g.Handle("ask.waiting", Json("""{"elsewhere":0}"""), 0);
+        Is((g.Elsewhere, g.Any(0)), (0, false), "cleared at 0");
+        g.Handle("ask.waiting", Json("""{"elsewhere":1}"""), 0);
+        g.Clear();
+        Is(g.Elsewhere, 0, "forgotten when the link drops (Axis sends it again)");
     }
 }

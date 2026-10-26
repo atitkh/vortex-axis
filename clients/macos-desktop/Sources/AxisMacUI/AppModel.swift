@@ -273,7 +273,7 @@ public final class AppModel: ObservableObject {
             return
         }
         let task = notices.task
-        taskPill.show(TaskPillWords.of(task))
+        taskPill.show(TaskPillWords.of(task, elsewhere: notices.asksElsewhere))
         let notices = self.notices
         let timer = notices.timer
         timerPill.show(timer, now: { notices.now })
