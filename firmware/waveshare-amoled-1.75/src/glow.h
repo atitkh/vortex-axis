@@ -1,0 +1,45 @@
+#pragma once
+
+// A soft glow along the round edge of the screen that says what the device is doing (listening, thinking,
+// speaking) when something else has the whole screen and the face cannot show it: a picture now, and
+// anything full screen later. It is drawn over the pixels underneath, which the caller keeps, so taking
+// it away puts them back.
+
+#include <Arduino.h>
+
+namespace glow {
+
+enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find, Hands };
+
+/** A part of the screen the glow leaves alone (the face, which draws itself). Empty when w is 0. */
+struct Rect {
+    int x = 0, y = 0, w = 0, h = 0;
+};
+
+/**
+ * Call every frame while `under` (the whole screen, display::width() by display::height(), logical, row
+ * by row) is on show, or with `under` null over a screen that is black at its edges (the face's). `level`
+ * sets the strength, 0 to 1 (a voice, or a flash fading out), or below 0 to breathe at the state's pace.
+ * Draws about 20 times a second (10 over the face) while there is a state, and once more to take the glow
+ * away. Waiting is amber (something needs the person), Done is green (a task finished), Timer is red,
+ * Question is blue (a question waits elsewhere), Find is a quick white pulse (somebody looking for the device)
+ * and Hands is rose (an agent is using a computer nearby).
+ * `sweep` is how much of the way round the screen is lit, 0 to 1, clockwise from the top middle: a
+ * timer's last seconds, running out.
+ */
+void update(const uint16_t *under, State state, float level, Rect keepOut = {}, float sweep = 1.0f);
+
+/**
+ * Lays the glow now on show over `pixels`, the face's square frame (as blitSquare sends it, in the panel's
+ * own orientation) at logical (x, y), which `keepOut` left alone, so the glow runs on unbroken across it.
+ * Nothing when there is none.
+ */
+void tint(uint16_t *pixels, int x, int y, int size);
+
+/** How round the glow turns the corners on the 1.8; nothing on this round board, which has none. */
+void setCorner(int radius);
+
+/** Forgets what was drawn, for when the screen has been redrawn from scratch. */
+void reset();
+
+}  // namespace glow

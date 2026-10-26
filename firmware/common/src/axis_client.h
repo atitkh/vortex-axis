@@ -15,8 +15,14 @@
 /** Version of the client protocol this core speaks. See protocol/src/version.ts. */
 #define AXIS_PROTOCOL_VERSION 1
 
-/** Firmware version, without a leading "v". Reported to Axis on connect. */
+/**
+ * Firmware version, without a leading "v". Reported to Axis on connect. This is the
+ * Waveshare 1.8 board's; a board that counts its own sets it in its platformio.ini
+ * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
+ */
+#ifndef AXIS_FIRMWARE_VERSION
 #define AXIS_FIRMWARE_VERSION "0.18.2"
+#endif
 
 namespace axis {
 
