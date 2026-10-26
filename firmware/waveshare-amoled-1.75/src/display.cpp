@@ -30,8 +30,33 @@ int columnOffset = 6;
 // since nothing can be read back from the panel itself.
 uint16_t *shadow = nullptr;
 
+// What the panel holds, always kept (PSRAM): the CO5300 only takes windows that start on an even column and row
+// and cover an even number of each, so a write of one row, or one starting on an odd pixel, is widened to the
+// even window around it and the pixels it did not mean to touch are sent again from here.
+uint16_t *held = nullptr;
+uint16_t windowBuf[LCD_WIDTH * 4];
+
 void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
+    if (!held) held = (uint16_t *)heap_caps_calloc(LCD_WIDTH * LCD_HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (held && w > 0 && h > 0) {
+        // Keep what is inside the screen.
+        for (int j = 0; j < h; j++) {
+            if (y + j < 0 || y + j >= LCD_HEIGHT) continue;
+            for (int i = 0; i < w; i++) {
+                if (x + i >= 0 && x + i < LCD_WIDTH) held[(y + j) * LCD_WIDTH + x + i] = pixels[j * w + i];
+            }
+        }
+        const int x0 = max(0, (int)x) & ~1, y0 = max(0, (int)y) & ~1;
+        const int xe = min((int)LCD_WIDTH, (x + w + 1) & ~1), ye = min((int)LCD_HEIGHT, (y + h + 1) & ~1);
+        const int ww = xe - x0, hh = ye - y0;
+        if (ww > 0 && hh > 0 && ww * hh <= (int)(sizeof(windowBuf) / sizeof(windowBuf[0]))) {
+            for (int j = 0; j < hh; j++) memcpy(windowBuf + j * ww, held + (y0 + j) * LCD_WIDTH + x0, ww * sizeof(uint16_t));
+            gfx->draw16bitRGBBitmap(x0, y0, windowBuf, ww, hh);
+            goto shadowed;
+        }
+    }
     gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+shadowed:
     if (!shadow) return;
     for (int j = 0; j < h; j++) {
         if (y + j < 0 || y + j >= LCD_HEIGHT) continue;
@@ -131,7 +156,11 @@ int height() { return rotation == 0 || rotation == 180 ? LCD_HEIGHT : LCD_WIDTH;
 // the address for the first 1024 pixels of a write, so fillScreen() and any
 // larger block fail after their first use; a row always stays under that.
 void clear() {
-    for (int16_t y = 0; y < LCD_HEIGHT; y++) hline(0, y, LCD_WIDTH, RGB565_BLACK);
+    // Two rows at a time through the even-aligned path: single-row fills left the factory demo's picture showing.
+    static uint16_t black[LCD_WIDTH * 2];
+    memset(black, 0, sizeof(black));
+    if (held) memset(held, 0, LCD_WIDTH * LCD_HEIGHT * sizeof(uint16_t));
+    for (int16_t y = 0; y < LCD_HEIGHT; y += 2) gfx->draw16bitRGBBitmap(0, y, black, LCD_WIDTH, 2);
 }
 
 void toLogical(int px, int py, int &x, int &y) {
