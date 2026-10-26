@@ -435,7 +435,7 @@ final class FaceTests: XCTestCase {
     func testTheFaceAndPillSwitchesAreNotInDescribe() throws {
         let id = DesktopIdentity.create(version: "0.3.0", voice: true)
         let keys = try XCTUnwrap(id.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
-        XCTAssertEqual(keys.count, 10, "the eight and the two sound switches")
+        XCTAssertEqual(keys.count, 11, "the eight, the two sound switches and the volume")
         for local in ["showFace", "keepFace", "faceSize", "facePlace", "showControl", "voice", "talkKey"] {
             XCTAssertFalse(keys.contains(local), local)
         }

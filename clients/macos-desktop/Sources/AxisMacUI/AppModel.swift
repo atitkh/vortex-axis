@@ -330,6 +330,8 @@ public final class AppModel: ObservableObject {
         commands.useSettings(values)
         face.useSettings(values)
         voice?.useSettings(values)
+        // The sounds play through the same speaker part, with talking on or off.
+        audio.setVolume(Listening.volume(values))
         if let size = values["pointerSize"]?.intValue { pointer.size = CGFloat(min(max(size, 24), 120)) }
         let off = DesktopCommands.capabilitiesOff(values)
         if !off.isEmpty || !capsOff.isEmpty { useCapabilitiesOff(off) }

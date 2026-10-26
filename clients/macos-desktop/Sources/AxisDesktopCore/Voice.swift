@@ -17,6 +17,15 @@ public protocol VoiceIO: AnyObject, Sendable {
     @discardableResult func stopPlayback() -> Bool
     /** How loud what is coming out of the speakers is just now, 0 to 1, for the face. */
     var playLevel: Double { get }
+    /**
+     * How loud this app's own speech and sounds play, 0 to 1 (the `volume` setting): a gain on what it plays, never the
+     * Mac's own volume. `playLevel` is measured as if at full volume, so the face moves the same at any volume.
+     */
+    func setVolume(_ gain: Double)
+}
+
+public extension VoiceIO {
+    func setVolume(_ gain: Double) {}
 }
 
 /** What the voice part is doing, for the app to show. */
@@ -97,6 +106,12 @@ public struct Listening: Equatable, Sendable {
         }
         return Listening(onsetMs: n("onsetMs", standard.onsetMs, 1000, 20000), silenceMs: n("silenceMs", standard.silenceMs, 300, 5000),
                          maxMs: n("maxSpeechMs", standard.maxMs, 3000, 60000), followUpMs: n("followUpMs", standard.followUpMs, 0, 30000))
+    }
+
+    /** `volume` (0 to 100, 100 when not set: as loud as the Mac is set) as a gain, 0 to 1. */
+    public static func volume(_ values: [String: JSONValue]) -> Double {
+        guard let v = values["volume"]?.intValue else { return 1 }
+        return Double(min(max(v, 0), 100)) / 100
     }
 }
 
@@ -244,10 +259,16 @@ public final class Voice: @unchecked Sendable {
         onChange?()
     }
 
-    /** The settings Axis sent: how long to listen. */
+    /**
+     * The settings Axis sent: how long to listen, and how loud this app plays its speech and sounds (Axis lowers
+     * `volume` in quiet hours). Announcements and timers play through the same speech, so they follow it too.
+     */
     public func useSettings(_ values: [String: JSONValue]) {
-        lock.lock(); defer { lock.unlock() }
-        limits = Listening.read(values)
+        do {
+            lock.lock(); defer { lock.unlock() }
+            limits = Listening.read(values)
+        }
+        io.setVolume(Listening.volume(values))
     }
 
     /** How long to listen just now (for the tests). */

@@ -20,7 +20,7 @@ import {
 import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
-import { sentDefaults } from "./schema.js";
+import { declaredDefaults, sentDefaults } from "./schema.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 import type { SpeechShare } from "./speech.js";
@@ -410,7 +410,9 @@ export class Hub implements TurnPort {
       case "gesture":
         for (const listener of this.gestureListeners) listener(session, message.gesture);
         return;
-      case "describe":
+      case "describe": {
+        const keys = ["volume", "brightness"];
+        const before = JSON.stringify(declaredDefaults(this.store.getSchema(session.client.type), keys));
         this.store.saveSchema(session.client.type, {
           settings: message.settings,
           actions: message.actions,
@@ -418,7 +420,10 @@ export class Hub implements TurnPort {
         });
         session.address = message.address;
         session.links = message.links;
+        // In quiet hours the volume a device is sent may come from what it declares: a new declaration is applied now.
+        if (this.quiet(session.client) && JSON.stringify(declaredDefaults(this.store.getSchema(session.client.type), keys)) !== before) this.sendSettings(session);
         return;
+      }
       case "command.result": {
         const wait = this.pending.get(`${session.client.id}:${message.id}`);
         if (!wait) {
@@ -478,7 +483,7 @@ export class Hub implements TurnPort {
     this.send(session, {
       t: "settings",
       version: this.store.settingsVersion(),
-      values: withQuiet(this.sentSettings(session.client), Date.now(), this.timeZone),
+      values: withQuiet(this.sentSettings(session.client), Date.now(), this.timeZone, declaredDefaults(this.store.getSchema(session.client.type), ["volume", "brightness"])),
     });
   }
 

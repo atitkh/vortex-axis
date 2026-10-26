@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInvokeHandler } from "../src/commands.js";
 import { isQuiet, minuteOfDay, minutesOf, withQuiet } from "../src/quiet.js";
+import { declaredDefaults } from "../src/schema.js";
 import type { TextToSpeech } from "../src/speech.js";
 import { admin, ctx, ready, useServer } from "./harness.js";
 
@@ -58,6 +59,19 @@ describe("quiet hours, by the clock", () => {
     expect(withQuiet(night, at("12:00"), "UTC")).toMatchObject({ volume: 87, brightness: 255 });
     expect("brightness" in withQuiet({ quietFrom: "22:00", quietTo: "07:00", volume: 50 }, at("23:00"), "UTC")).toBe(false);
   });
+
+  it("caps what a device declares when nothing is saved for it, and leaves saved values first", () => {
+    const night = { quietFrom: "22:00", quietTo: "07:00" };
+    // A computer: no volume saved, its own default 100.
+    expect(withQuiet(night, at("23:00"), "UTC", { volume: 100 })).toMatchObject({ volume: 25 });
+    expect(withQuiet(night, at("12:00"), "UTC", { volume: 100 }).volume).toBeUndefined();
+    // A board with a volume saved for its type: that one is capped, whatever its default.
+    expect(withQuiet({ ...night, volume: 87 }, at("23:00"), "UTC", { volume: 60, brightness: 200 })).toMatchObject({ volume: 25, brightness: 40 });
+    expect(withQuiet({ ...night, volume: 10 }, at("23:00"), "UTC", { volume: 60 }).volume).toBe(10);
+    // Nothing saved and nothing declared (the web client): still nothing.
+    expect("volume" in withQuiet(night, at("23:00"), "UTC", {})).toBe(false);
+    expect(declaredDefaults({ settings: [{ key: "volume", label: "V", kind: "number", default: "100" }, { key: "brightness", label: "B", kind: "number" }], actions: [], links: [] }, ["volume", "brightness"])).toEqual({ volume: 100 });
+  });
 });
 
 describe("quiet hours on a device", () => {
@@ -85,6 +99,15 @@ describe("quiet hours on a device", () => {
     const end = await client.next("speak.end");
     client.send({ t: "playback", turnId: end.turnId, state: "finished" });
     expect(await spoken).toMatchObject({ heard: true });
+  });
+
+  it("quietens a computer that keeps its own volume, from what it declares", async () => {
+    const { identity, client } = await ready(["speaker", "screen"], { name: "Desk" });
+    client.send({ t: "describe", settings: [{ key: "volume", label: "Volume", kind: "number", group: "Sound", min: 0, max: 100, unit: "%", default: 100 }], actions: [], links: [] });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: aroundNow() });
+    expect((await client.next("settings", 0, (m) => m.values.quietFrom !== undefined)).values.volume).toBe(25);
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { quietVolume: 40 } });
+    expect((await client.next("settings", 0, (m) => m.values.quietVolume === 40)).values.volume).toBe(40);
   });
 
   it("leaves a device with no screen alone", async () => {

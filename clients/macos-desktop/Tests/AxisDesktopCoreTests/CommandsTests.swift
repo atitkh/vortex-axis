@@ -297,7 +297,7 @@ final class IdentityTests: XCTestCase {
         XCTAssertEqual(DesktopIdentity.create(version: "0.3.0", voice: false).capabilities, ["desktop"])
         let keys = try XCTUnwrap(talking.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
         XCTAssertEqual(keys, ["allowLook", "allowInput", "bubble", "allowScreenshot", "autoUpdate", "confirmRisky", "autoOcr", "pointerSize",
-                              "listenCue", "taskChime"], "the Windows app's order, then the boards' two sound switches")
+                              "listenCue", "taskChime", "volume"], "the Windows app's order, then the boards' two sound switches and the volume (0.6.0)")
         let actions = try XCTUnwrap(talking.describe["actions"]?.arrayValue).compactMap { $0["name"]?.stringValue }
         XCTAssertEqual(actions, ["desktop.hello", "chime"], "a chime, so Axis rings a timer before saying it")
         let quiet = DesktopIdentity.create(version: "0.3.0")

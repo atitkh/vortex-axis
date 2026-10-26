@@ -108,6 +108,12 @@ public final class AudioIO: VoiceIO, @unchecked Sendable {
 
     private let levelLock = NSLock()
     private var level = 0.0
+    /** The app's own volume, 0 to 1 (`setVolume`), under `levelLock`: applied to the samples it plays, never to the Mac's volume. */
+    private var gain = 1.0
+
+    public func setVolume(_ next: Double) {
+        levelLock.withLock { gain = min(1, max(0, next)) }
+    }
 
     public init() {}
 
@@ -223,8 +229,11 @@ public final class AudioIO: VoiceIO, @unchecked Sendable {
             engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
                 guard let self, let data = buffer.floatChannelData, buffer.frameLength > 0 else { return }
                 let rms = PCM.rms(UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength)))
-                // About 21 ms a buffer at 48 kHz: a fall of 0.8 a buffer is about a tenth of a second.
-                self.levelLock.withLock { self.level = PCM.playLevel(previous: self.level, rms: rms, fall: 0.8) }
+                // About 21 ms a buffer at 48 kHz: a fall of 0.8 a buffer is about a tenth of a second. Measured as if at
+                // full volume (the samples were scaled by `gain`), so the face moves the same at any volume.
+                self.levelLock.withLock {
+                    self.level = PCM.playLevel(previous: self.level, rms: self.gain > 0.001 ? rms / self.gain : 0, fall: 0.8)
+                }
             }
             engine.prepare()
             do {
@@ -252,7 +261,8 @@ public final class AudioIO: VoiceIO, @unchecked Sendable {
         guard !samples.isEmpty, let buffer = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(samples.count)),
               let channel = buffer.floatChannelData?[0] else { return }
         buffer.frameLength = AVAudioFrameCount(samples.count)
-        for i in 0..<samples.count { channel[i] = PCM.float(samples[i]) }
+        let g = Float(levelLock.withLock { gain })
+        for i in 0..<samples.count { channel[i] = PCM.float(samples[i]) * g }
         pending += 1
         drainsAt = max(drainsAt, Date()).addingTimeInterval(Double(samples.count) / fmt.sampleRate)
         let mine = generation
@@ -317,7 +327,8 @@ public final class AudioIO: VoiceIO, @unchecked Sendable {
               let buffer = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(samples.count)),
               let channel = buffer.floatChannelData?[0] else { return false }
         buffer.frameLength = AVAudioFrameCount(samples.count)
-        for i in 0..<samples.count { channel[i] = samples[i] }
+        let g = Float(levelLock.withLock { gain })
+        for i in 0..<samples.count { channel[i] = samples[i] * g }
         for uid in outputUID.isEmpty ? [""] : [outputUID, ""] {
             let engine = AVAudioEngine()
             if !uid.isEmpty, !AudioDevices.use(uid, on: engine.outputNode) { continue }

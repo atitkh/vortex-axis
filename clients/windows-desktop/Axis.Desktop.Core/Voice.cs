@@ -20,6 +20,11 @@ public interface IVoiceIo
     double PlayLevel { get; }
     /** A short sound of the app's own (a chime, the listening cue), beside any speech, to the same speaker. */
     void PlaySound(short[] pcm, int sampleRate) { }
+    /**
+     * How loud this app's own speech and sounds play, 0 to 1 (the `volume` setting): a gain on what it plays, never
+     * the computer's own volume. `PlayLevel` is measured before it, so the face moves the same at any volume.
+     */
+    double Volume { get => 1; set { } }
 }
 
 /**
@@ -36,6 +41,9 @@ public sealed record Listening(int OnsetMs, int SilenceMs, int MaxMs, int Follow
         Number(values, "silenceMs", Default.SilenceMs, 300, 5000),
         Number(values, "maxSpeechMs", Default.MaxMs, 3000, 60000),
         Number(values, "followUpMs", Default.FollowUpMs, 0, 30000));
+
+    /** `volume` (0 to 100, 100 when not set: as loud as the computer is set) as a gain, 0 to 1. */
+    public static double Volume(IReadOnlyDictionary<string, JsonElement> values) => Number(values, "volume", 100, 0, 100) / 100.0;
 
     static int Number(IReadOnlyDictionary<string, JsonElement> values, string key, int fallback, int min, int max) =>
         values.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.Number ? (int)Math.Clamp(Math.Round(v.GetDouble()), min, max) : fallback;
@@ -197,10 +205,14 @@ public sealed class Voice
         Changed?.Invoke();
     }
 
-    /** The settings Axis sent: how long to listen. */
+    /**
+     * The settings Axis sent: how long to listen, and how loud this app plays its speech and sounds (Axis lowers
+     * `volume` in quiet hours). Announcements and timers play through the same speech, so they follow it too.
+     */
     public void UseSettings(IReadOnlyDictionary<string, JsonElement> values)
     {
         lock (gate) Limits = Listening.Read(values);
+        io.Volume = Listening.Volume(values);
     }
 
     /** Plays one of the app's sounds if the settings and the hour allow it, and nothing is being said. True when it played. */

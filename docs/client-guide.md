@@ -63,7 +63,7 @@ For a `speaker` client:
 
 - `speak.start` opens a stream, binary frames carry it, `speak.end` closes it. What is already buffered still plays after `speak.end`.
 - Send `playback` with `started` when sound actually begins and `finished` when the last sample has played. Axis waits for `finished` before it calls the turn over, and tells an agent "heard" only on it. A client that could not make sound at all sends `blocked`. A client the person stopped sends `stopped`.
-- Volume is the `volume` setting, 0 to 100, applied on the device.
+- Volume is the `volume` setting, 0 to 100, applied on the device. Declare it with the default the device really uses (a board's own level, 100 for an app on a computer that plays at the computer's volume): in quiet hours Axis sends `volume` capped at `quietVolume`, from the saved value or, when nothing is saved, from that declared default. An app applies it as a gain on its own sound (speech and cues) and never touches the system's volume.
 
 ## 6. Showing
 
@@ -97,7 +97,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `autoRotate` | Turn the picture with the device. | 1 |
 | `brightness` | Screen brightness, 10 to 255. | per board |
 
-- `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client: Axis sends a lower `volume` and `brightness` while they last.)
+- `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client beyond reading `volume` and `brightness`: Axis sends them lower while they last, the saved value or else the client's declared default, capped.)
 - The four listening keys (`followUpMs`, `onsetMs`, `silenceMs`, `maxSpeechMs`) are Axis's built-in settings (group Listening). Axis always sends them, its defaults beneath whatever is saved, so a `mic` client reads them and needs no numbers of its own beyond a fallback for an older Axis; it need not describe them (a description of the same key is overridden by Axis's). Its own loudness threshold for speech stays its own.
 - `toolIcons` is Axis's too: how a client with the vortex face shows the `doing` of a `turn` while thinking, `dots`, `line` or `off` (`docs/face.md`, section 8).
 - `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).

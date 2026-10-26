@@ -20,6 +20,8 @@ public enum DesktopIdentity {
         let sound: [JSONValue] = voice ? [
             soundSetting("listenCue", "Listening cue", "A short rising tone when it starts listening (the talk key held). Never in quiet hours."),
             soundSetting("taskChime", "Task chime", "Two soft notes when an agent's long task finishes. Never in quiet hours."),
+            ["key": "volume", "label": "Volume", "kind": "number", "group": "Sound", "default": 100, "min": 0, "max": 100, "unit": "%",
+             "help": "Volume of VorteX's own sounds and speech on this Mac; the Mac's own volume is never touched. Quiet hours lower it to their volume."],
         ] : []
         let chime: [JSONValue] = voice ? [["name": "chime", "label": "Play the chime", "help": "The bell a timer rings with, on this Mac's speaker (not in quiet hours)."]] : []
         return ClientIdentity(type: type, version: version, capabilities: capabilities(voice: voice), describe: [

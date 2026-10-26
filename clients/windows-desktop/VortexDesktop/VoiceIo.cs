@@ -127,6 +127,22 @@ sealed class VoiceIo : IVoiceIo
     /** How loud what is being played is just now, 0 to 1 (it reaches the ear a little later: the device's own buffer). */
     public double PlayLevel { get; private set; }
 
+    /** The app's own volume, 0 to 1: applied to the samples it plays (speech and sounds), never to Windows' volume. */
+    public double Volume { get; set; } = 1;
+
+    /** `pcm` (16-bit mono) at `gain`, in place. */
+    static void Scale(byte[] pcm, int offset, int count, double gain)
+    {
+        if (gain >= 1) return;
+        for (var i = offset; i + 1 < offset + count; i += 2)
+        {
+            var x = (short)(pcm[i] | pcm[i + 1] << 8);
+            var y = (short)Math.Round(x * gain);
+            pcm[i] = (byte)y;
+            pcm[i + 1] = (byte)(y >> 8);
+        }
+    }
+
     /** Passes the speech through to the device and measures it on the way, a buffer at a time. */
     sealed class Meter(IWaveProvider source, VoiceIo owner) : IWaveProvider
     {
@@ -146,6 +162,8 @@ sealed class VoiceIo : IVoiceIo
             // Square root: ordinary speech fills most of the range. It rises at once and falls a little slower.
             var level = Math.Min(1, Math.Sqrt(rms / 0.22));
             owner.PlayLevel = level > owner.PlayLevel ? level : owner.PlayLevel * 0.6 + level * 0.4;
+            // Measured first, then made as loud as the app's volume says, so the face moves the same at any volume.
+            Scale(buffer, offset, read, owner.Volume);
             return read;
         }
     }
@@ -191,6 +209,7 @@ sealed class VoiceIo : IVoiceIo
     {
         var bytes = new byte[pcm.Length * 2];
         Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
+        Scale(bytes, 0, bytes.Length, Volume);
         foreach (var device in OutputDevice == -1 ? new[] { -1 } : new[] { OutputDevice, -1 })
         {
             var source = new RawSourceWaveStream(new System.IO.MemoryStream(bytes), new WaveFormat(sampleRate, 16, 1));

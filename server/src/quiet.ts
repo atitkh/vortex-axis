@@ -37,14 +37,18 @@ export function isQuiet(settings: ScalarMap, at: number, timeZone: string): bool
 
 /**
  * The settings a device is actually sent: during its quiet hours the volume
- * and brightness are capped. Only values the device already has are touched,
- * so a device with no screen is not handed a brightness.
+ * and brightness are capped. Only values the device has are touched, so a
+ * device with no screen is not handed a brightness: a value saved for it, or
+ * else the default its own description gives (`declared`, from
+ * `declaredDefaults`), so a device that keeps its own volume at 100 unless
+ * told otherwise (a computer) is still quietened.
  */
-export function withQuiet(settings: ScalarMap, at: number, timeZone: string): ScalarMap {
+export function withQuiet(settings: ScalarMap, at: number, timeZone: string, declared: ScalarMap = {}): ScalarMap {
   if (!isQuiet(settings, at, timeZone)) return settings;
   const cap = (key: string, limitKey: string, fallback: number): ScalarMap => {
     const limit = typeof settings[limitKey] === "number" ? (settings[limitKey] as number) : fallback;
-    return typeof settings[key] === "number" ? { [key]: Math.min(settings[key] as number, limit) } : {};
+    const value = typeof settings[key] === "number" ? settings[key] : declared[key];
+    return typeof value === "number" ? { [key]: Math.min(value, limit) } : {};
   };
   return { ...settings, ...cap("volume", "quietVolume", 25), ...cap("brightness", "quietBrightness", 40) };
 }

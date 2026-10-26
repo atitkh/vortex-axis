@@ -228,6 +228,7 @@ static class Checks
         public bool StopPlayback() => false;
         public double PlayLevel => 0;
         public void PlaySound(short[] pcm, int sampleRate) => Sounds++;
+        public double Volume { get; set; } = 1;
     }
 
     /** A voice part on a link that never connects: every send fails quietly, and is seen through Sent. */
@@ -491,6 +492,16 @@ static class Checks
         voice.Press(); voice.Hold();
         now += 5100; io.Frame!(loud);
         Is(sent.Last()["reason"]?.GetValue<string>(), "max", "past maxSpeechMs: ended");
+
+        // The app's own volume: a gain on what it plays; 100 when not set.
+        Is(io.Volume, 1.0, "no volume sent: as loud as the computer is set");
+        voice.UseSettings(Values("""{"volume":25}"""));
+        Is(io.Volume, 0.25, "volume 25 (quiet hours' cap): a quarter");
+        voice.UseSettings(Values("""{"volume":250}"""));
+        Is(io.Volume, 1.0, "held to 100");
+        var volume = DesktopIdentity.Create("0.0.0", true).Describe["settings"]!.AsArray().FirstOrDefault(x => x!["key"]!.GetValue<string>() == "volume");
+        Is(volume?["default"]?.GetValue<int>(), 100, "declares volume, default 100 (Axis caps it in quiet hours from this)");
+        Is(volume?["group"]?.GetValue<string>(), "Sound", "in Sound");
 
         // followUpMs 0: no follow-up.
         (voice, io, sent, _) = NewVoice();

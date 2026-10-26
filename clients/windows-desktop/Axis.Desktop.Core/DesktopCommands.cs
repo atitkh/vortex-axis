@@ -900,6 +900,7 @@ public static class DesktopIdentity
             Setting("autoOcr", "Read pixels when a window says little", "toggle", "Desktop", "When a window exposes few controls (games, canvases, some apps), also read its text from the pixels.", "1"),
             Setting("listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening. Never in quiet hours.", "1"),
             Setting("taskChime", "Task chime", "toggle", "Sound", "Two soft notes when an agent's long task finishes. Never in quiet hours.", "1"),
+            new JsonObject { ["key"] = "volume", ["label"] = "Volume", ["kind"] = "number", ["group"] = "Sound", ["default"] = 100, ["min"] = 0, ["max"] = 100, ["unit"] = "%", ["help"] = "Volume of VorteX's own sounds and speech on this computer; the computer's own volume is never touched. Quiet hours lower it to their volume." },
             new JsonObject { ["key"] = "pointerSize", ["label"] = "Pointer size", ["kind"] = "number", ["group"] = "Desktop", ["default"] = 44, ["min"] = 24, ["max"] = 120, ["unit"] = "px" }),
         ["actions"] = new JsonArray(
             new JsonObject { ["name"] = "desktop.hello", ["label"] = "Show the pointer", ["help"] = "The pointer appears in the middle of the screen for a few seconds." },

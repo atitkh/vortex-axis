@@ -7,16 +7,18 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 ## Axis 0.51.0 (2026-10-26)
 
 - **One set of listening numbers for every client.** `onsetMs` (wait for the first word), `silenceMs` (quiet that ends a sentence), `maxSpeechMs` (longest sentence) and `followUpMs` (listening on after a spoken answer) are now Axis's own settings (group Listening, the boards' labels, ranges and defaults: 6000, 900, 20000, 6000 ms), and Axis sends their defaults to every client beneath what is saved, so a value set for everything, a type or a device reaches boards, the web client and both desktop apps alike. Nothing is stored for them unless an admin saves a value; the admin page shows them at every level as before. The boards still declare the same four (Axis's definition wins, as for every built-in), so their firmware is unchanged. When the defaults sent change, Axis moves the settings' version on once at start, so devices holding the old copy take the new one.
+- **Quiet hours quieten a device that has no volume saved**, from the default it declares: the desktop apps (which now declare `volume`, default 100) get `quietVolume` (25 unless set), and so does a board with nothing saved for its type or itself (its own default is 60). A volume saved anywhere is capped as before; a client that declares no `volume` (the web client) is still left alone. The same for `brightness`. A device that describes itself during quiet hours with a new default is sent its settings again at once.
 - The web client listens by them: a sentence ends after `silenceMs` (900 ms, was a fixed 1.2 s), it gives up after `onsetMs` (6 s, as before) and stops at `maxSpeechMs` (20 s, was 30 s). It still has no follow-up listening (a browser would open the microphone unasked; not built).
 
 ## Desktop app 0.13.0 (2026-10-26)
 
 - **Listens by Axis's shared Listening settings** instead of its own fixed 1.2 s, 6 s and 30 s: a sentence ends after `silenceMs`, a press with nothing said gives up after `onsetMs`, a recording stops at `maxSpeechMs`. Its own loudness threshold for speech is unchanged.
+- **Its own volume** (`volume`, Sound, 0 to 100, default 100): a gain on its own speech and sounds (the chime, the cue, the task chime); the computer's own volume is never touched. Announcements and timers are spoken through the same speech, so they follow it too; quiet hours lower it through Axis. The face is measured before the gain, so it moves the same at any volume.
 - **Follow-up listening, as on the boards:** after a spoken answer to what was said at this computer has played to the end, it listens `followUpMs` more (6 s unless set, 0 turns it off) without the talk key and with no cue; silence ends it quietly. Never after an announcement or a timer, nor when the answer was stopped.
 
 ## Mac desktop app 0.6.0 (2026-10-26)
 
-- **The same as the Windows app 0.13.0**: the shared Listening settings and follow-up listening, ported line for line in `AxisDesktopCore/Voice.swift`.
+- **The same as the Windows app 0.13.0**: the shared Listening settings and follow-up listening, ported line for line in `AxisDesktopCore/Voice.swift`; and `volume` (declared with talking on, default 100) as a gain on its own speech and sounds in `AudioIO`, never the Mac's volume.
 
 ## Board firmware 0.19.0 (Waveshare 1.8) and round board firmware 0.2.0 (Waveshare 1.75) (2026-10-26)
 

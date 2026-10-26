@@ -30,6 +30,8 @@ final class FakeVoiceIO: VoiceIO, @unchecked Sendable {
         }
     }
     var playLevel: Double { lock.withLock { level } }
+    var volume = 1.0
+    func setVolume(_ gain: Double) { lock.withLock { volume = gain } }
 
     /** The speakers ran dry: what `playEnd` was given is called. */
     func drain() {
@@ -183,6 +185,19 @@ final class VoiceTests: XCTestCase {
         io.drain()
         XCTAssertFalse(sent.types.contains("audio.start"))
         XCTAssertEqual(voice.currentMode, .idle)
+    }
+
+    func testTheVolumeIsAGainOnWhatThisAppPlays() {
+        voice.useSettings([:])
+        XCTAssertEqual(io.volume, 1, "not set: as loud as the Mac is set")
+        voice.useSettings(["volume": 25])
+        XCTAssertEqual(io.volume, 0.25, "quiet hours' cap")
+        voice.useSettings(["volume": 250])
+        XCTAssertEqual(io.volume, 1)
+        let settings = DesktopIdentity.create(version: "0", voice: true).describe["settings"]?.arrayValue ?? []
+        let declared = settings.first { $0["key"]?.stringValue == "volume" }
+        XCTAssertEqual(declared?["default"]?.intValue, 100, "Axis caps it in quiet hours from this default")
+        XCTAssertEqual(declared?["group"]?.stringValue, "Sound")
     }
 
     func testNoFollowUpWhenSwitchedOff() throws {
