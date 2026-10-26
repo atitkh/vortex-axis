@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.19.0 (Waveshare 1.8) and round board firmware 0.2.0 (Waveshare 1.75) (2026-10-26)
+
+- **Both boards follow what an admin switched off** (Axis 0.50.0, the `capabilitiesOff` setting). `screen` off: the panel goes blank (cleared, brightness 0) and nothing is drawn, pictures are dropped, the connection stays and a tap still talks; only while paired, so Wi-Fi setup and pairing always show. `speaker` off: volume 0, and speech from Axis is answered `playback` blocked (what is playing stops). `mic` off: no wake word, and nothing opens the microphone (a tap, a question, a follow-up). Each comes back when switched on again; with nothing switched off the board does what it did. The client core gained `Client::setOff` (two flags, false unless set).
+- The round board's console has `capsoff <names>`, which acts as if Axis had sent that setting. Tried on the round board over USB (it stays paired with a running Axis that does not know the setting yet): `capsoff screen` left the screen black in a capture while the link stayed online, and `capsoff` brought the face and task line back; `capsoff mic` made `talk` refuse; `capsoff speaker` kept a test tone off the speaker's reference input (room level, 12 to 15, against about 770 with it on). Not tried: speech from Axis being refused, by eye or ear, or anything on the 1.8 (not connected; built only).
+
 ## Desktop app 0.12.0 (2026-10-26)
 
 - **Follows what an admin switched off for this computer** (Axis 0.50.0, the `capabilitiesOff` setting). `mic` off: the talk key does nothing (a recording under way is dropped); `speaker` off: nothing plays, no sounds, and Axis is told the speech was blocked; `screen` off: no face, no voice, task or typing pill; `desktop` off: every `desktop.*` command is refused, as when paused. Each comes back when switched on again. With nothing switched off nothing differs.

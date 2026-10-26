@@ -216,6 +216,27 @@ static bool hasSpeaker = false, hasMic = false;
 
 // A question with choices: the face stays, the question goes under it and the choices are buttons below.
 static bool askShown = false;
+// What an admin switched off on the Axis admin page (the capabilitiesOff setting): usually nothing.
+static bool screenOff = false, speakerOff = false, micOff = false;
+// The panel has been blanked for screenOff; drawing starts again from nothing once it is back.
+static bool screenBlanked = false;
+// The console's `capsoff`: stands in for the capabilitiesOff setting, for trying it on the bench. Empty: the setting.
+static char capsOffTest[64] = "";
+static volatile uint32_t capsOffRequests = 0;
+
+/** True when `name` is one of the names, separated by commas, in `list`. */
+static bool listed(const String &list, const char *name) {
+    int from = 0;
+    while (from < (int)list.length()) {
+        int comma = list.indexOf(',', from);
+        if (comma < 0) comma = list.length();
+        String item = list.substring(from, comma);
+        item.trim();
+        if (item == name) return true;
+        from = comma + 1;
+    }
+    return false;
+}
 static String askDrawn;
 static bool askDrawnListening = false;
 static const uint16_t COLOR_PILL = 0x1CCA;  // the listening face's mint, dimmed
@@ -302,17 +323,24 @@ static bool showPicture(const uint8_t *data, size_t size) {
 }
 
 static void applySettings() {
+    const String off = capsOffTest[0] ? String(capsOffTest) : client.setting("capabilitiesOff");
+    screenOff = listed(off, "screen");
+    speakerOff = listed(off, "speaker");
+    micOff = listed(off, "mic");
+    client.setOff(micOff, speakerOff);
+    // A recording under way when the microphone is switched off goes nowhere.
+    if (micOff && client.listening()) client.stopListening(true);
     display::setColumnOffset((int)client.settingInt("screenOffset", 6));
     edgesDrawn = false;
     display::setRotation(wantedRotation());
     vortex::setRotation(wantedRotation());
-    display::setBrightness((uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
+    display::setBrightness(screenBlanked ? 0 : (uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
     glow::setCorner((int)client.settingInt("glowCorner", 56));
-    speaker::setVolume((int)client.settingInt("volume", 60));
+    speaker::setVolume(speakerOff ? 0 : (int)client.settingInt("volume", 60));
     vortex::setIdleOff(client.setting("idleLooksOff").c_str());
     vortex::setIconStyle(client.setting("toolIcons").c_str());
     vortex::setIconTuning((int)client.settingInt("toolIconMs", 700), (int)client.settingInt("toolIconDots", 78));
-    mic::setWakeEnabled(client.settingInt("wakeListen", 1) != 0);
+    mic::setWakeEnabled(!micOff && client.settingInt("wakeListen", 1) != 0);
     mic::setWakeSensitivity((uint8_t)constrain(client.settingInt("wakeSense", 0), 0, 99));
     mic::setBargeIn(client.settingInt("bargeIn", 0) != 0);
     mic::setEchoCancel(client.settingInt("echoCancel", 1) != 0);
@@ -753,7 +781,7 @@ static void onTap() {
     // A task with named steps: a tap anywhere under the face lists them, and another puts the list away.
     // The line alone was too small to hit. A tap on the face still starts listening.
     const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
-    if (quiet && state.link == axis::Link::Online && state.taskCount && !(state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) {
+    if (!screenOff && quiet && state.link == axis::Link::Online && state.taskCount && !(state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) {
         int px, py, x, y;
         touch::tapPoint(px, py);
         display::toLogical(px, py, x, y);
@@ -778,6 +806,7 @@ static void onTap() {
         client.interrupt();
         return;
     }
+    if (micOff) return;
     if (state.link == axis::Link::Online) client.startListening();
 }
 
@@ -950,6 +979,12 @@ void setup() {
             speaker::cue();
             return true;
         }
+        if (word == "capsoff") {
+            // `capsoff mic,screen` acts as if Axis had switched those off; `capsoff` alone goes back to the setting.
+            snprintf(capsOffTest, sizeof(capsOffTest), "%s", rest.c_str());
+            capsOffRequests++;
+            return true;
+        }
         if (word == "preview") {
             int found = -1;
             for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
@@ -1095,6 +1130,14 @@ void loop() {
             applySettings();
         }
     }
+    {
+        static uint32_t seenCapsOff = 0;
+        if (capsOffRequests != seenCapsOff) {
+            seenCapsOff = capsOffRequests;
+            applySettings();
+            logOut.printf("[capsoff] screen %d, speaker %d, mic %d\n", screenOff, speakerOff, micOff);
+        }
+    }
     // A made-up state from the console (`preview`), laid over what Axis said, for a minute.
     {
         static uint32_t seenPreview = 0;
@@ -1125,10 +1168,36 @@ void loop() {
         size_t size = 0;
         String turnId;
         if (client.takePicture(jpg, size, turnId)) {
-            const bool shown = !edgesUntil && showPicture(jpg, size);
+            const bool shown = !edgesUntil && !screenOff && showPicture(jpg, size);
             heap_caps_free(jpg);
             logOut.printf("[picture] %u bytes, %s\n", (unsigned)size, shown ? "shown" : "could not be shown");
         }
+    }
+    // The screen switched off on the admin page: the panel is blank and nothing is drawn, the connection stays and
+    // a tap still talks. Only while paired, so Wi-Fi setup and pairing always show. Back on, everything is drawn
+    // again from nothing.
+    if (screenOff && (state.link == axis::Link::Online || state.link == axis::Link::Connecting)) {
+        if (!screenBlanked || pictureUntil || edgesUntil) {
+            screenBlanked = true;
+            pictureUntil = 0;
+            edgesUntil = 0;
+            glow::reset();
+            display::clear();
+            display::setBrightness(0);
+        }
+        const touch::Gesture g = touch::poll();
+        if (g == touch::Gesture::Tap) onTap();
+        else if (g != touch::Gesture::None) onGesture(g);
+        return;
+    }
+    if (screenBlanked) {
+        screenBlanked = false;
+        applySettings();  // the brightness back, and everything drawn again
+        display::clear();
+        redrawAll = true;
+        askShown = false;
+        askDrawn = "";
+        faceY = -1;
     }
     if (pictureUntil) {
         const touch::Gesture g = touch::poll();

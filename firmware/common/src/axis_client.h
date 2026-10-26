@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.18.2"
+#define AXIS_FIRMWARE_VERSION "0.19.0"
 #endif
 
 namespace axis {
@@ -254,6 +254,16 @@ class Client {
     /** True from a wake or a tap until the recording has gone to Axis. */
     bool listening() const { return recording_; }
 
+    /**
+     * What an admin switched off on the Axis admin page (the `capabilitiesOff` setting), set by the board from its
+     * settings. Microphone off: nothing opens it (a tap, a question, a follow-up). Speaker off: speech is not played
+     * and Axis is told "blocked"; what is playing stops. Both false unless set.
+     */
+    void setOff(bool mic, bool speaker) {
+        micOff_ = mic;
+        speakerOff_ = speaker;
+    }
+
     /** Numbers for tuning. All are mean absolute sample values. */
     struct MicStats {
         uint32_t floor = 0, onset = 0, peak = 0, dropped = 0;
@@ -268,6 +278,8 @@ class Client {
     volatile int8_t wantAnswer_ = -1;
     const char *volatile wantGesture_ = nullptr;
     volatile bool recording_ = false;
+    volatile bool micOff_ = false;
+    volatile bool speakerOff_ = false;
     volatile bool online_ = false;
     /** True while the device is playing Axis's voice; its own sound must not pass for the room. */
     volatile bool speaking_ = false;

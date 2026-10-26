@@ -817,6 +817,13 @@ struct Client::Impl {
             picSize = picGot = 0;
         } else if (!strcmp(t, "speak.start")) {
             if (!self.sink_) return;
+            if (self.speakerOff_) {
+                // The speaker switched off on the admin page: nothing plays, and Axis hears so at once.
+                speakTurn = doc["turnId"] | "";
+                reportPlayback("blocked");
+                speakTurn = "";
+                return;
+            }
             enterTurn(doc["turnId"]);
             speakTurn = doc["turnId"] | "";
             speakEnded = false;
@@ -1215,6 +1222,8 @@ struct Client::Impl {
     /** Tells Axis when sound really starts and really ends, not when the bytes arrived. */
     void speechTick() {
         if (!self.sink_ || speakTurn.isEmpty()) return;
+        // Switched off on the admin page while speaking: it stops there.
+        if (self.speakerOff_) return quiet();
         if (!speakStartReported && self.sink_->started()) {
             speakStartReported = true;
             reportPlayback("started");
@@ -1593,7 +1602,7 @@ struct Client::Impl {
 
     /** Opens the microphone without a wake word or a tap, for `waitMs` of silence at most. Client task only. */
     void listenUnasked(long waitMs, bool withCue, const char *why) {
-        if (!outRing || !self.online_) return;
+        if (!outRing || !self.online_ || self.micOff_) return;
         const VadLimits limits = vadLimits();
         const size_t cue = withCue ? cueSamples() : 0;
         bool started = false;
@@ -1922,7 +1931,7 @@ void Client::wakeHeard(float score, float level) {
 
 bool Client::startListening() {
     Impl &m = *impl_;
-    if (!m.outRing || recording_ || !online_) return false;
+    if (!m.outRing || recording_ || !online_ || micOff_) return false;
     const Impl::VadLimits limits = m.vadLimits();
     const size_t cue = m.cueSamples();
     bool started = false;
