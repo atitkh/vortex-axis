@@ -424,11 +424,16 @@ try {
       { key: "listenCue", label: "Listening cue", kind: "toggle", group: "Sound", default: 1 },
       { key: "rotation", label: "Rotation", kind: "choice", group: "Screen", options: [0, 90, 180, 270], default: 90 },
     ],
-    actions: [{ name: "diag", label: "Diagnostics" }],
+    actions: [{ name: "diag", label: "Diagnostics" }, { name: "mic", label: "Microphone levels" }],
     links: [],
   });
   await admin.run(`document.querySelector('#client-table tbody a').click()`);
   step("device editor", await admin.until(`${byId("device")}.classList.contains('on') && (t => /volume/.test(t) && t)([...document.querySelectorAll('#device-settings .mono')].map(e => e.textContent).join(', '))`, "the device settings (the page polls every 3 s)"));
+  // The microphone level panel, for a device offering `mic`: the web client does not, so its answer is a refusal, shown.
+  await admin.run(`${byId("device-mic-go")}.click()`);
+  step("microphone levels", await admin.until(`${byId("device-mic-go")}.textContent === 'Stop' && /bad/.test(${byId("device-mic-note")}.className) && ${byId("device-mic-note")}.textContent`, "the mic panel to read and show the answer"));
+  await admin.run(`${byId("device-mic-go")}.click()`);
+  step("microphone levels stopped", await admin.until(`${byId("device-mic-go")}.textContent === 'Start' && 'stopped'`, "the mic panel to stop"));
   const row = (box, key) => `document.querySelector('${box} tr[data-key=${key}]')?.textContent.replace(/\\s+/g, ' ')`;
   // Where a value comes from: "this device", "this type", "type", "all devices" or "default".
   const source = (box, key) => `document.querySelector('${box} tr[data-key=${key}] td.src')?.textContent`;

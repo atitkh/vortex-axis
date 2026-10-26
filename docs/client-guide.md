@@ -122,7 +122,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `wake.model` | Clients with a wake word of their own. | Switches to the wake word Axis names, fetching and keeping the model; an empty `id` means the built-in one. The built-in model must always remain as the fallback, and a model that will not run must not be retried at every start. |
 | Its own actions | Optional. | Anything listed under `actions` in `describe`, such as a test tone. Flag the ones a person should confirm. |
 
-Actions are how a person tests a device from the admin page and how an agent looks after one (`vortex.axis.admin`). A new board should offer at least a sound test when it has a speaker and a microphone level reading when it has one.
+Actions are how a person tests a device from the admin page and how an agent looks after one (`vortex.axis.admin`). A new board should offer at least a sound test when it has a speaker and a microphone level reading when it has one. Call that reading `mic` and return `room` (the room's level), `speechAbove` (the level speech must pass) and `level` (the loudest since the last reading), all on one scale: the admin page draws them as bars, reading it about once a second.
 
 A client with a screen should also report its size in its regular `sense` readings, as `screenW` and `screenH` in pixels, the way up it stands now. The admin page draws the device at that shape. A round screen also reports `screenRound` 1: the admin page then draws it, and its edge glow preview, as a circle.
 

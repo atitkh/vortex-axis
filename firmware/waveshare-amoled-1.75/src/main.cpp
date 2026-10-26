@@ -950,6 +950,7 @@ void setup() {
             const mic::Stats m = mic::stats();
             payload["room"] = room.floor;
             payload["speechAbove"] = room.onset;
+            payload["level"] = room.level;  // the loudest since the last reading: the admin page's level bars
             payload["wakeHeard"] = m.detections;
             payload["wakeBestPercent"] = m.peakPercent;
             payload["stalls"] = m.stalls;

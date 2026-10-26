@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.19.0"
+#define AXIS_FIRMWARE_VERSION "0.19.1"
 #endif
 
 namespace axis {
@@ -264,9 +264,9 @@ class Client {
         speakerOff_ = speaker;
     }
 
-    /** Numbers for tuning. All are mean absolute sample values. */
+    /** Numbers for tuning. All are mean absolute sample values. `level` is the loudest block since the last call. */
     struct MicStats {
-        uint32_t floor = 0, onset = 0, peak = 0, dropped = 0;
+        uint32_t floor = 0, onset = 0, peak = 0, dropped = 0, level = 0;
     };
     MicStats micStats();
 

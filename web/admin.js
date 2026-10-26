@@ -712,6 +712,7 @@ function route() {
   if (name !== "device") {
     closeDeviceFace();
     stopGlowPreview();
+    stopMicMeter();
   }
   // Opening a page draws its history at once from what was last fetched.
   if (name === "overview") renderOverview();
@@ -1611,6 +1612,7 @@ function renderDevice() {
 
   renderReadings(client);
   renderGlowPreview(client, schema, devicePath);
+  renderMicPanel(client, schema);
   if ($("device-history").dataset.drawn !== `${view.id}:${activityData.at}`) renderDeviceHistory();
 
   const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
@@ -1861,6 +1863,109 @@ function renderGlowPreview(client, schema, devicePath) {
   };
   glowPreview = p;
   p.start();
+}
+
+// --- microphone levels: the device's `mic` action, read about once a second for up to a minute ----------------------
+
+const MIC_METER_MS = 60_000;
+/** The running reading: whose, until when, and what it said last. */
+let micMeter;
+
+/** A mean absolute sample value (what boards report) as dB of the microphone's full scale. */
+const micDb = (v) => (v > 0 ? 20 * Math.log10(v / 32768) : -90);
+
+/** The panel on a device page that offers `mic`: built once per device, the button kept in step with whether it is online. */
+function renderMicPanel(client, schema) {
+  const box = $("device-mic");
+  if (!schema.actions.some((a) => a.name === "mic")) {
+    if (box.dataset.id) stopMicMeter();
+    box.dataset.id = "";
+    box.replaceChildren();
+    return;
+  }
+  if (box.dataset.id !== client.id) {
+    stopMicMeter();
+    box.dataset.id = client.id;
+    box.replaceChildren(
+      h("h3", {}, "Microphone levels"),
+      h("p", { class: "help" }, "Reads the device's microphone about once a second for a minute: the room's own level, the level speech must pass to start a recording, and the loudest sound since the last reading. Talk, or stay quiet, and watch the bars. Levels only; no sound leaves the device."),
+      h("div", { class: "inline", style: "margin-top:8px" }, h("button", { id: "device-mic-go", onclick: () => (micMeter ? stopMicMeter() : startMicMeter(client.id)) }, "Start")),
+      h("div", { id: "device-mic-bars" }),
+      h("p", { class: "msg", id: "device-mic-note" }),
+    );
+  }
+  $("device-mic-go").disabled = !client.online && !micMeter;
+}
+
+function startMicMeter(id) {
+  stopMicMeter();
+  micMeter = { id, until: Date.now() + MIC_METER_MS, last: undefined, timer: undefined };
+  $("device-mic-go").textContent = "Stop";
+  note("device-mic-note", "Reading…");
+  micTick(micMeter);
+}
+
+function stopMicMeter() {
+  if (!micMeter) return;
+  clearTimeout(micMeter.timer);
+  micMeter = undefined;
+  const go = $("device-mic-go");
+  if (go) go.textContent = "Start";
+  if ($("device-mic-note")?.textContent === "Reading…") note("device-mic-note", "");
+}
+
+async function micTick(m) {
+  if (micMeter !== m) return;
+  if (view.name !== "device" || view.id !== m.id || Date.now() > m.until) {
+    stopMicMeter();
+    if (view.id === m.id) note("device-mic-note", "Stopped after a minute. Start again to read more.");
+    return;
+  }
+  try {
+    const result = await api("POST", `/admin/clients/${encodeURIComponent(m.id)}/commands/mic`);
+    if (micMeter !== m) return;
+    if (result.ok) {
+      m.last = result.payload || {};
+      drawMicBars(m.last);
+      note(
+        "device-mic-note",
+        typeof m.last.level === "number" ? `Reading, ${Math.ceil((m.until - Date.now()) / 1000)} s left.` : "This device's firmware does not report the current level: room and threshold only (update its firmware for the third bar).",
+      );
+    } else note("device-mic-note", result.error || "The device did not answer.", "bad");
+  } catch (error) {
+    if (micMeter !== m) return;
+    note("device-mic-note", error.message, "bad");
+  }
+  if (micMeter === m) m.timer = setTimeout(() => micTick(m), 1000);
+}
+
+/** One bar per reading, on a scale from -70 dB to the microphone's full scale. */
+function drawMicBars(p) {
+  const rows = [
+    ["Room level", p.room],
+    ["Speech starts above", p.speechAbove],
+    ["Loudest since last reading", p.level],
+  ].filter(([, v]) => typeof v === "number");
+  $("device-mic-bars").replaceChildren(
+    h(
+      "table",
+      {},
+      h(
+        "tbody",
+        {},
+        rows.map(([label, v]) => {
+          const db = micDb(v);
+          return h(
+            "tr",
+            {},
+            h("td", { class: "tight" }, label),
+            h("td", {}, h("progress", { class: "task-progress", max: "70", value: String(Math.max(0, Math.min(70, 70 + db))) })),
+            h("td", { class: "mono tight" }, `${v} (${Math.round(db)} dB)`),
+          );
+        }),
+      ),
+    ),
+  );
 }
 
 function stopGlowPreview() {

@@ -270,6 +270,8 @@ struct Client::Impl {
     const char *trigger = "tap";
     float wakeScore = 0, wakeLevel = 0;
     uint32_t wakeSentAt = 0, recordingCount = 0, droppedSamples = 0;
+    /** The loudest block since `micStats` last read it, for the admin page's level bars. */
+    uint32_t loudestSinceRead = 0;
     size_t settleLeft = 0;
     /** The last turn this device recorded. A spoken reply to it is followed by a short listen. */
     String lastVoiceTurn;
@@ -1874,6 +1876,7 @@ void Client::feedAudio(const int16_t *samples, size_t count) {
     const uint32_t blockMs = count * 1000 / MIC_RATE;
 
     xSemaphoreTake(m.audioLock, portMAX_DELAY);
+    if (loud > m.loudestSinceRead) m.loudestSinceRead = loud;
     if (!recording_) {
         // Our own voice is not the room: counting it would raise the bar for the next sentence.
         if (!speaking_) m.vad.observeRoom(loud);
@@ -1982,6 +1985,8 @@ Client::MicStats Client::micStats() {
     stats.onset = impl_->vad.onsetThreshold();
     stats.peak = impl_->vad.peak();
     stats.dropped = impl_->droppedSamples;
+    stats.level = impl_->loudestSinceRead;
+    impl_->loudestSinceRead = 0;
     xSemaphoreGive(impl_->audioLock);
     return stats;
 }
