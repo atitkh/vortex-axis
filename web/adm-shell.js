@@ -4,12 +4,13 @@
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import {
   ago, api, ask, behind, classicHref, clearDraft, clientById, deviceHref, dirtyEntities, draftCount, dropToast, enc, hasToken, heldBuild,
-  kept, kindOf, offlineAfter, plural, runCommand, set, setTheme, signIn, signOut, span, store, themeChoice, toast, typeHref, typeName,
+  kept, kindOf, loadSlow, offlineAfter, plural, runCommand, set, setTheme, signIn, signOut, span, store, themeChoice, toast, typeHref, typeName,
   typesInUse, updateDevice, useStore,
 } from "/web/adm-core.js";
 import { AddDevice, AllDevices, Defaults, DevicePage, TypePage, DeviceCard, findAction } from "/web/adm-devices.js";
 import { Face } from "/web/adm-tools.js";
 import { History, Live, Overview, clearLive, focusSay } from "/web/adm-activity.js";
+import { AgentPage, OpenClawPage, SpeechPage, ToolsPage, VoicesPage, checkAgain, gatewayMark, reconnectGateway } from "/web/adm-agent.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
@@ -22,11 +23,11 @@ export const PAGES = {
   settings: { title: "Defaults for everything", short: "Defaults", group: "devices" },
   face: { title: "Face and screen", group: "devices", classic: "face", purpose: "The vortex face's looks, idle looks and tool icons, for every device." },
   pair: { title: "Add a device", group: "devices" },
-  agent: { title: "Who answers", group: "agent", classic: "agent", purpose: "The OpenClaw agent or another chat endpoint that answers turns." },
-  openclaw: { title: "OpenClaw gateway", group: "agent", classic: "openclaw", purpose: "The link to the gateway, what Axis relies on there, and pairing." },
-  tools: { title: "Tools and MCP", group: "agent", classic: "tools", purpose: "Which tools agents have, trying one, the desktop block list, MCP and its tokens." },
-  speech: { title: "Speech", group: "agent", classic: "speech", purpose: "Speech recognition and synthesis, and the realtime voice." },
-  voices: { title: "Voices", group: "agent", classic: "speech", purpose: "Telling voices apart: taught voices and what was heard lately (on the classic Speech page)." },
+  agent: { ported: true, title: "Who answers", group: "agent", classic: "agent", purpose: "The OpenClaw agent or another chat endpoint that answers turns." },
+  openclaw: { ported: true, title: "OpenClaw gateway", group: "agent", classic: "openclaw", purpose: "The link to the gateway, what Axis relies on there, and pairing." },
+  tools: { ported: true, title: "Tools and MCP", group: "agent", classic: "tools", purpose: "Which tools agents have, trying one, the desktop block list, MCP and its tokens." },
+  speech: { ported: true, title: "Speech", group: "agent", classic: "speech", purpose: "Speech recognition and synthesis, and the realtime voice." },
+  voices: { ported: true, title: "Voices", group: "agent", classic: "speech", purpose: "Telling voices apart: the voiceprint settings, taught voices and what was heard lately." },
   firmware: { title: "Firmware", group: "hardware", classic: "firmware", purpose: "The builds Axis holds per device type, and updating devices." },
   wakewords: { title: "Wake words", group: "hardware", classic: "wakewords", purpose: "Wake word models, their cutoffs, and what devices heard." },
   apps: { title: "Apps", group: "hardware", classic: "pair", purpose: "The desktop app and Quest app builds this hub holds (the desktop app's download is on Add a device)." },
@@ -67,10 +68,13 @@ function safeDecode(text) {
   }
 }
 /** What a page edits, so leaving it with unsaved changes can be caught. */
-export const entityOf = (r) => (r.page === "device" ? `device:${r.id}` : r.page === "type" ? `type:${r.id}` : r.page === "settings" ? "global" : "");
+// The Agent and voice pages each stage their own form ("page:<name>", web/adm-agent.js).
+const FORM_PAGES = new Set(["agent", "openclaw", "tools", "speech", "voices"]);
+export const entityOf = (r) => (r.page === "device" ? `device:${r.id}` : r.page === "type" ? `type:${r.id}` : r.page === "settings" ? "global" : FORM_PAGES.has(r.page) ? `page:${r.page}` : "");
 const entityLabel = (entity) => {
   const [kind, ...rest] = entity.split(":");
   const id = rest.join(":");
+  if (kind === "page") return PAGES[id]?.title ?? id;
   return kind === "device" ? clientById(id)?.name ?? "this device" : kind === "type" ? `every ${typeName(id)}` : "everything";
 };
 
@@ -158,16 +162,16 @@ export function attentionItems() {
   const add = (level, text, detail, href, action) => items.push({ level, text, detail, href, action });
   const up = store.status?.upstream ?? {};
   const usesGateway = store.config?.agent?.backend !== "openai";
-  if (up.openclaw === "down") add("bad", usesGateway ? "The agent cannot be reached: OpenClaw is not connected." : "The agent endpoint is not answering.", "", classicHref(usesGateway ? "openclaw" : "agent"));
+  if (up.openclaw === "down") add("bad", usesGateway ? "The agent cannot be reached: OpenClaw is not connected." : "The agent endpoint is not answering.", "", (usesGateway ? "#openclaw" : "#agent"));
   for (const check of store.check?.checks ?? []) {
-    if (check.state === "problem") add("bad", `${check.label} is not working.`, check.detail, classicHref("openclaw"));
+    if (check.state === "problem") add("bad", `${check.label} is not working.`, check.detail, "#openclaw");
   }
-  if (up.stt === "down") add("bad", "Speech recognition is down or not set up.", "Spoken turns fail.", classicHref("speech"));
-  if (up.tts === "down") add("bad", "Speech synthesis is down or not set up.", "Replies are shown but not spoken.", classicHref("speech"));
+  if (up.stt === "down") add("bad", "Speech recognition is down or not set up.", "Spoken turns fail.", "#speech");
+  if (up.tts === "down") add("bad", "Speech synthesis is down or not set up.", "Replies are shown but not spoken.", "#speech");
   const gw = store.gateway;
-  if (gw?.setupCodePending) add("warn", "A gateway approval is waiting.", "Approve Axis on the gateway.", classicHref("openclaw"));
+  if (gw?.setupCodePending) add("warn", "A gateway approval is waiting.", "Approve Axis on the gateway.", "#openclaw");
   else if (gw && usesGateway && gw.node.state !== "connected" && gw.operator.state === "connected")
-    add("warn", "The gateway command link is not connected.", "Agents cannot speak through Axis.", classicHref("openclaw"));
+    add("warn", "The gateway command link is not connected.", "Agents cannot speak through Axis.", "#openclaw");
   const now = Date.now();
   for (const c of store.clients) {
     const limit = offlineAfter(c);
@@ -244,9 +248,9 @@ function Health({ items }) {
   const links = gw && usesGateway ? (gw.operator.state === "connected" && gw.node.state === "connected" ? "" : gw.operator.state !== "connected" ? "turn link down" : "command link down") : "";
   const bad = items.filter((i) => i.level === "bad").length;
   return html`<div class="health" role="status" aria-label="Health">
-    <a class=${`dot ${UP(up.openclaw)}`} href=${classicHref(usesGateway ? "openclaw" : "agent")} title=${usesGateway ? "OpenClaw gateway" : "Chat endpoint"}><b>Agent</b> <span class="dim">${usesGateway ? (links || "OpenClaw") : "chat endpoint"}</span></a>
-    <a class=${`dot ${UP(up.stt)}`} href=${classicHref("speech")}><b>Recognition</b></a>
-    <a class=${`dot ${UP(up.tts)}`} href=${classicHref("speech")}><b>Synthesis</b></a>
+    <a class=${`dot ${UP(up.openclaw)}`} href=${(usesGateway ? "#openclaw" : "#agent")} title=${usesGateway ? "OpenClaw gateway" : "Chat endpoint"}><b>Agent</b> <span class="dim">${usesGateway ? (links || "OpenClaw") : "chat endpoint"}</span></a>
+    <a class=${`dot ${UP(up.stt)}`} href=${"#speech"}><b>Recognition</b></a>
+    <a class=${`dot ${UP(up.tts)}`} href=${"#speech"}><b>Synthesis</b></a>
     <a class=${`dot ${s.clientsOnline ? "good" : ""}`} href="#clients"><b>${s.clientsOnline} of ${s.clientsKnown}</b> <span class="dim">devices online</span></a>
     ${behindCount ? html`<a class="dot warn" href="#clients?behind">${plural(behindCount, "update")} waiting</a>` : null}
     ${backup ? html`<a class="dot bad" href=${classicHref("integrations")} title=${backup}>Backup</a>` : null}
@@ -280,6 +284,8 @@ function Sidebar({ route, attention }) {
   const firmwareBehind = store.clients.filter(behind).length;
   // Devices mid-turn or waiting for an answer, from the poll's /admin/now.
   const busy = store.now?.clients.length ?? 0;
+  // The gateway's mark, as the classic page's: "down" when a link is refused or unreachable, "setup" while not both up.
+  const gwMark = gatewayMark(store.gateway);
   const groupHead = (g) => html`<button type="button" class="gh" aria-expanded=${isOpen(g.key)} onClick=${() => toggle(g.key)}>
     <${Icon} name=${g.icon} /><span>${g.title}</span><${Icon} name="chev" class=${`chev ${isOpen(g.key) ? "open" : ""}`} />
   </button>`;
@@ -304,7 +310,7 @@ function Sidebar({ route, attention }) {
                   })}
                   <div class="label">For everything</div>
                   ${link("settings")}${link("face")}${link("pair")}`
-                : g.pages.map((p) => html`<span key=${p}>${p === "live" ? link(p, null, busy ? `${busy} live` : "", "accent") : link(p, null, p === "firmware" && firmwareBehind ? String(firmwareBehind) : "", "warn")}</span>`)}
+                : g.pages.map((p) => html`<span key=${p}>${p === "live" ? link(p, null, busy ? `${busy} live` : "", "accent") : p === "openclaw" ? link(p, null, gwMark[0], gwMark[1]) : link(p, null, p === "firmware" && firmwareBehind ? String(firmwareBehind) : "", "warn")}</span>`)}
             </div>`
           : null}
       </div>`)}
@@ -377,6 +383,9 @@ function commandItems(route) {
   const actions = [
     { label: "New pairing code", hint: "Add a device", go: "#pair?new" },
     { label: "Say something…", hint: "on every device, a place or one device", run: focusSay, words: "say something announce speak message" },
+    { label: "Back up now", hint: "a backup of the hub's settings and history", run: backUpNow, words: "back up backup now save copy" },
+    { label: "Check the gateway again", hint: "what Axis relies on in OpenClaw", run: () => checkAgain().then((c) => toast(c.asked ? `Asked the gateway: ${plural(c.checks.filter((x) => x.state === "problem").length, "problem")}.` : "Nothing to ask: Axis is not connected to an OpenClaw gateway.", c.checks?.some((x) => x.state === "problem") ? "bad" : "good"), (e) => toast(e.message, "bad")), go: "#openclaw", words: "check gateway again openclaw selfcheck" },
+    { label: "Reconnect gateway", hint: "OpenClaw links", run: () => reconnectGateway().then(() => toast("Reconnecting to the gateway."), (e) => toast(e.message, "bad")), words: "reconnect gateway openclaw retry" },
     { label: "Clear live words now", hint: "delete the words of recent turns", run: () => clearLive().catch((e) => toast(e.message, "bad")), words: "clear live words turns forget" },
     { label: "Open the classic admin", hint: "the page this one replaces", go: classicHref(classicFor(route)) },
     { label: "Theme: dark", run: () => setTheme("dark") },
@@ -391,6 +400,17 @@ function commandItems(route) {
   }
   for (const a of actions) items.push({ section: "Actions", words: a.words ?? a.label, ...a });
   return items;
+}
+
+async function backUpNow() {
+  if (!(await ask({ title: "Back up now?", body: "Axis makes a backup of its settings and history now, as it does on its schedule.", confirm: "Back up" }))) return;
+  try {
+    await api("POST", "/admin/backup");
+    toast("Backup made.");
+    loadSlow();
+  } catch (error) {
+    toast(error.message, "bad");
+  }
 }
 
 async function runFind(client, action) {
@@ -586,6 +606,11 @@ function Page({ route, attention }) {
     case "type": return html`<${TypePage} type=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "settings": return html`<${Defaults} focusKey=${route.key} />`;
     case "pair": return html`<${AddDevice} />`;
+    case "agent": return html`<${AgentPage} />`;
+    case "openclaw": return html`<${OpenClawPage} />`;
+    case "tools": return html`<${ToolsPage} />`;
+    case "speech": return html`<${SpeechPage} />`;
+    case "voices": return html`<${VoicesPage} />`;
     default: return html`<${ClassicPage} page=${route.page} />`;
   }
 }

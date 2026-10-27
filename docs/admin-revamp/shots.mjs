@@ -169,6 +169,15 @@ for (const theme of ["dark", "light"]) {
   await shot(`phone-pair-${theme}`, "#pair", { width: 390, height: 844, theme, before: `document.querySelector('#code-new').click(); (i => { i.value = 'https://axis.example.org'; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#device-address')); setTimeout(() => document.querySelector('#setup-string').scrollIntoView(), 300)` });
   await shot(`phone-nav-${theme}`, "#clients", { width: 390, height: 844, theme, before: `document.querySelector('#menu').click()` });
 }
+// The Agent and voice area (stage 4).
+for (const theme of ["dark", "light"]) {
+  await shot(`agent-${theme}`, "#agent", { theme, before: `(i => { i.value = 'llama3.1'; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#agent-model'))` });
+  await shot(`openclaw-${theme}`, "#openclaw", { theme, full: true });
+  await shot(`tools-${theme}`, "#tools", { theme, full: true });
+  await shot(`speech-${theme}`, "#speech", { theme, full: true });
+  await shot(`voices-${theme}`, "#voices", { theme, full: true });
+  await shot(`phone-openclaw-${theme}`, "#openclaw", { width: 390, height: 844, theme });
+}
 await shot("signin-dark", "#overview", { before: `localStorage.removeItem('axis-admin-token'); location.reload()` });
 
 console.log("page errors:", errors.length ? errors : "none");

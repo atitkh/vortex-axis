@@ -94,7 +94,7 @@ function uptimeRows(data, { devices = true, onlyTrouble = false } = {}) {
     { label: "Axis", segments: data.axis.segments, availability: data.axis.availability },
     ...data.services
       .filter((s) => !["operator", "node"].includes(s.key) || usesGateway || s.segments.some((g) => g.state !== "unconfigured" && g.state !== "unknown" && g.state !== "axis_down"))
-      .map((s) => ({ label: s.label, segments: s.segments, availability: s.availability, href: s.key === "stt" || s.key === "tts" ? "/admin#speech" : usesGateway ? "/admin#openclaw" : "/admin#agent" })),
+      .map((s) => ({ label: s.label, segments: s.segments, availability: s.availability, href: s.key === "stt" || s.key === "tts" ? "#speech" : usesGateway ? "#openclaw" : "#agent" })),
   ];
   if (devices)
     rows.push(
@@ -272,12 +272,12 @@ function GettingStarted({ data }) {
   const turns = data?.turns?.count ?? (data ? 0 : undefined);
   const speech = up.stt === "up" && up.tts === "up";
   const steps = [
-    { done: speech, title: "Speech is working", help: speech ? "Recognition and synthesis both answer." : "Check the speech services and press Test. The ones that come with Axis fetch their models on first start, which takes a few minutes.", href: "/admin#speech", action: "Speech" },
+    { done: speech, title: "Speech is working", help: speech ? "Recognition and synthesis both answer." : "Check the speech services and press Test. The ones that come with Axis fetch their models on first start, which takes a few minutes.", href: "#speech", action: "Speech" },
     {
       done: up.openclaw === "up", title: "An agent answers",
       help: up.openclaw === "up" ? (usesGateway ? "Connected to the OpenClaw gateway." : "The chat endpoint answers.") : "Pair with an OpenClaw gateway, or point Axis at any OpenAI-style chat endpoint (a local model works).",
-      href: usesGateway ? "/admin#openclaw" : "/admin#agent", action: usesGateway ? "OpenClaw" : "Agent",
-      other: usesGateway ? { href: "/admin#agent", action: "Use a chat endpoint instead" } : { href: "/admin#openclaw", action: "Use OpenClaw instead" },
+      href: usesGateway ? "#openclaw" : "#agent", action: usesGateway ? "OpenClaw" : "Agent",
+      other: usesGateway ? { href: "#agent", action: "Use a chat endpoint instead" } : { href: "#openclaw", action: "Use OpenClaw instead" },
     },
     { done: devices > 0, title: "A first device", help: devices ? `${devices} paired.` : "Make a pairing code, then open this hub's address without /admin in a browser and enter it: that browser is your first device. Boards and computers pair the same way.", href: "#pair", action: "Add a device" },
     { done: turns !== undefined && turns > 0, title: "Say something", help: turns ? "It has answered." : "Type or speak on the device you paired. Live shows each step of the turn as it happens.", href: "#live", action: "Live" },
