@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Round board firmware 0.4.1 (Waveshare 1.75) (2026-10-27)
+
+- **Frame rate limit setting** (Screen, "Frame rate limit": 20, 30, 45 or 60; default 30). The screen loop used a fixed 33 ms between frames. Measured on the board at 60: 61.6 fps with the 288 face (8.9 ms a face frame). The big idle face and the glow stay slower, since a frame there takes longer than the limit.
+
 ## Round board firmware 0.4.0 (Waveshare 1.75) (2026-10-27)
 
 - **A bigger face with the screen to itself**: an `idleFace` setting (Screen, "Idle face size"): `normal` 288 pixels (0.3.1's), `large` 360 (the default) and `max` 380, applied at once. When text, a question, a timer or anything else needs room the face shrinks to 288 while it slides to the top, size and place together over 300 ms (smoothstep), and grows back the same way; text, a question's words and its buttons appear only once a frame has gone out at the small size at the top (so the clean-up of the bigger frame never wipes them). A question now waits for the face like text does (it used to jump). 380 rather than 400: measured with the widest idle look held ("open"), the figure comes within 45 pixels of the glass at 380 and 55 at 360 (about 100 at 288); at 400 it would be about 36, inside the glow ring's 12 plus margin.
