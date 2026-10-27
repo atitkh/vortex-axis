@@ -1,6 +1,6 @@
 # Admin page revamp
 
-Planning (2026-10-27): audit and mockups. Building: stages 0 to 2 are done (the page at `/admin-next`, its shell and the Devices area); `progress.md` has the checklist and what is next.
+Planning (2026-10-27): audit and mockups. Building: stages 0 to 3 are done (the page at `/admin-next`, its shell, the Devices area, the Overview and Activity); `progress.md` has the checklist and what is next.
 
 - `audit.md`: every view, control, API call, route and behaviour of today's admin page, the UX problems with
   evidence, and where each feature goes in the new layout.

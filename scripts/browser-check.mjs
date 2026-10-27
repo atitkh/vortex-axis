@@ -695,10 +695,38 @@ try {
     await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Light').click()`);
     step("new admin: theme", await next.until(`document.documentElement.dataset.theme === 'light' && localStorage.getItem('axis.theme') === 'light' && getComputedStyle(document.body).backgroundColor`, "the light theme"));
     await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Dark').click()`);
+    // Stage 3: the Overview dashboard, Say something, History and Live, as the classic page's steps above.
+    await next.run(`location.hash = '#overview'`);
+    step("new admin: overview", await next.until(`(t => /Axis running for/.test(t) && /Turns, last 24 hours\\s*\\d/.test(t) && document.querySelector('#attention') && document.querySelector('#now') && document.querySelectorAll('.ov-devs [data-device]').length && t.replace(/\\s+/g, ' '))(document.querySelector('#kpis')?.innerText ?? '')`, "the overview's numbers"));
+    await next.until(`document.querySelectorAll('#say-target option').length >= 2`, "the places to say something");
+    await next.run(`document.querySelector('#say-go').click()`);
+    await next.until(`/Type what to say first/.test(document.querySelector('.say .msg.bad')?.textContent ?? '')`, "the empty message refused");
+    await next.run(`(i => { i.value = 'Testing, one two.'; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#say-text')); setTimeout(() => document.querySelector('#say-go').click(), 50)`);
+    step("new admin: say something", await next.until(`document.querySelector('#say-result')?.textContent.replace(/\\s+/g, ' ')`, "the announcement to be delivered", 40000));
+    await next.run(`location.hash = '#activity'`);
+    step("new admin: history", await next.until(`document.querySelectorAll('#recent-turns tbody tr').length >= 2 && document.querySelector('#chart-turns svg') && document.querySelector('#strips .strip') && document.querySelectorAll('#events tbody tr').length && [...document.querySelectorAll('#recent-turns tbody tr')].slice(0, 3).map(r => r.children[2].textContent + ':' + r.children[3].textContent.trim()).join(', ')`, "the history page"));
+    await next.run(`(s => { s.value = 'client'; s.dispatchEvent(new Event('change', { bubbles: true })); })(document.querySelector('#event-filter'))`);
+    await next.until(`[...document.querySelectorAll('#events tbody tr')].every(r => r.children[1].textContent === 'client')`, "the events filtered to connections");
+    await next.run(`[...document.querySelectorAll('#range button')].find(b => b.textContent === '7 days').click()`);
+    step("new admin: history range", await next.until(`document.querySelector('#range button[aria-pressed=true]')?.textContent === '7 days' && !document.querySelector('#history[aria-busy]') && document.querySelector('#chart-latency') && 'events filtered to connections; 7 days loaded'`, "the 7 day range"));
+    if (await next.run(`/what time is it|nine o'clock/.test(document.querySelector('main').textContent)`)) throw new Error("what was said turned up on the new History page");
+    // Live: a typed turn on the web client shows up as it happens; Clear now takes the words away.
+    await next.run(`location.hash = '#live'`);
+    await next.until(`/watching/.test(document.querySelector('#live-state')?.textContent ?? '')`, "the live stream");
+    await client.run(`${byId("say")}.value = 'what time is it'; ${byId("say-form")}.requestSubmit()`);
+    step("new admin: live", await next.until(`[...document.querySelectorAll('#live-turns .turn-card')].find(c => /Typed/.test(c.textContent) && /answered/.test(c.textContent))?.textContent.replace(/\\s+/g, ' ').slice(0, 160)`, "the typed turn on Live", 20000));
+    await next.run(`document.querySelector('#live-clear').click()`);
+    step("new admin: live cleared", await next.until(`!document.querySelector('#live-turns .turn-card') && [...document.querySelectorAll('.toast span')].some(t => /Cleared/.test(t.textContent)) && document.querySelector('#live-turns').textContent.slice(0, 40)`, "the turns to go"));
+    for (const tab of ["now", "calls", "wakes", "tasks"]) {
+      await next.run(`location.hash = '#live/${tab}'`);
+      await next.until(`document.querySelector('.tabs a.on')?.getAttribute('href') === '#live/${tab}' && document.querySelector('#live-tab').textContent.trim()`, `the ${tab} tab`);
+    }
+    step("new admin: live tabs", "now, tool calls, wake words, tasks finished");
     // Every ported page at a phone's width: nothing sticks out, the drawer opens and shuts.
     await next.phone(true);
     const wide = [];
-    for (const page of ["overview", "clients", `clients/${dev.id}`, `clients/${dev.id}/settings`, `clients/${dev.id}/tools`, `clients/${dev.id}/danger`, `type/${dev.type}`, `type/${dev.type}/settings`, `type/${dev.type}/firmware`, "settings", "pair"]) {
+    const narrow = ["overview", "live", "live/now", "activity", "clients", `clients/${dev.id}`, `clients/${dev.id}/settings`, `clients/${dev.id}/tools`, `clients/${dev.id}/danger`, `type/${dev.type}`, `type/${dev.type}/settings`, `type/${dev.type}/firmware`, "settings", "pair"];
+    for (const page of narrow) {
       await next.run(`location.replace('#${page}')`);
       await new Promise((r) => setTimeout(r, 600));
       const over = await next.run(`document.documentElement.scrollWidth - document.documentElement.clientWidth`);
@@ -711,7 +739,7 @@ try {
     await next.until(`getComputedStyle(document.querySelector('#nav')).visibility === 'hidden' && document.querySelector('#where').textContent === 'Add a device'`, "the drawer to close on a choice");
     await next.phone(false);
     if (wide.length) throw new Error(`new admin at phone width: ${wide.join(" | ")}`);
-    step("new admin: phone width", `11 pages fit in 390 px; drawer shut=${shut}, opens, closes on a choice`);
+    step("new admin: phone width", `${narrow.length} pages fit in 390 px; drawer shut=${shut}, opens, closes on a choice`);
   }
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");

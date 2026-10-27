@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.54.0 (2026-10-27)
+
+The new admin page, stage 3 of `docs/admin-revamp/ia.md` section 4.1: the Overview and Activity at `/admin-next` (`web/adm-activity.js`). The classic `/admin` is unchanged.
+
+- **Overview** as a dashboard: Needs attention first (old firmware with Update, devices offline past their Offline alert, services down, failed turns, unclean stops, silent drops: the last three now open History), Getting started on a new hub (same rules and `axis-admin-started` key), the day's numbers (Axis running for, devices online, turns, failed, time to first sound), device cards with what each is doing and an Add a device card, **Now** (timers and tasks for later with Cancel, agent tasks with their steps and Clear, the attached conversation with Detach, computers in use, questions waiting, kept messages and notifications; countdowns tick every second on Axis's clock), **Say something** (every device, a place or one device, Urgent, the result per device; also in the command bar and the header button) and the last 24 hours' uptime (Axis, services, devices that were away).
+- **Activity › Live** (`#live`, tabs in the address: `#live/now`, `/calls`, `/wakes`, `/tasks`): the stream from `GET /admin/live` with turn cards whose steps count up while running, tool calls with what they were given and gave back, wake words, tasks finished; watching/connecting, **Clear now** (also in the command bar). The sidebar's Live entry counts devices mid-turn.
+- **Activity › History** (`#activity`): range 24 hours, 3 days, 7 days; the numbers for the range, uptime strips for Axis, services and every device, the three charts of `web/charts.js` drawn to their width (redrawn on resize), recent turns, events with the filter. Dimmed while a range loads.
+- The "still in the classic admin" cards for these pages are gone. `scripts/browser-check.mjs` drives them (numbers, an empty and a real Say something, History with the filter and range, a typed turn on Live, Clear now, the tabs, phone width); `docs/admin-revamp/shots.mjs` renders Live and History and writes small JPEGs with `SMALL=1`.
+
 ## Axis 0.53.0 (2026-10-27)
 
 The new admin page, stage 2 of `docs/admin-revamp/ia.md` section 4.1: the Devices area at `/admin-next`. The classic `/admin` is unchanged; the other pages of the new one still link to it.
