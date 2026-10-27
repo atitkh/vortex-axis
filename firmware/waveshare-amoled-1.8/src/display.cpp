@@ -4,9 +4,16 @@
 #include "Arduino_GFX_Library.h"
 #include "pins.h"
 #include <esp_heap_caps.h>
+// Three sets, picked by the textSize setting: 9 and 12 points (small, this board's look before 0.20.0), and the
+// round board's two sizes up (medium and large). The fonts folder is shared with the round board.
 #include "fonts/FreeSans9pt7b.h"
+#include "fonts/FreeSans11pt7b.h"
 #include "fonts/FreeSans12pt7b.h"
+#include "fonts/FreeSans14pt7b.h"
+#include "fonts/FreeSans15pt7b.h"
 #include "fonts/FreeSansBold12pt7b.h"
+#include "fonts/FreeSansBold14pt7b.h"
+#include "fonts/FreeSansBold15pt7b.h"
 
 namespace display {
 
@@ -41,9 +48,38 @@ void keep(int16_t x, int16_t y, const uint16_t *pixels, int16_t w, int16_t h, ui
         }
     }
 }
+
+// The library turns each pixel's bytes round for the panel one at a time as it sends, which takes as long as the
+// sending; turned here into internal memory the panel's DMA reads from, and sent as they are, a write takes about half
+// as long (the round board's measure: 460 by 2, 120 against 242 us).
+uint16_t *swapped = nullptr;
+const int SWAP_MAX = 1024;  // the driver's own limit for one write
+
+void send(int16_t x, int16_t y, const uint16_t *pixels, int16_t w, int16_t h) {
+    if (!swapped) swapped = (uint16_t *)heap_caps_malloc(SWAP_MAX * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    const int n = w * h;
+    if (!swapped || n > SWAP_MAX) return gfx->draw16bitRGBBitmap(x, y, const_cast<uint16_t *>(pixels), w, h);
+    // Two pixels at a time. The empty asm keeps the compiler from seeing a byte swap in this, which it would hand to a
+    // library call per word (twice as slow as doing it by hand).
+    uint32_t *to = (uint32_t *)swapped;
+    int i = 0;
+    if (((uintptr_t)pixels & 3) == 0) {
+        const uint32_t *from = (const uint32_t *)pixels;
+        for (; i < n / 2; i++) {
+            const uint32_t v = from[i];
+            uint32_t low = v & 0x00FF00FFu;
+            asm volatile("" : "+r"(low));
+            to[i] = (low << 8) | ((v >> 8) & 0x00FF00FFu);
+        }
+        i *= 2;
+    }
+    for (; i < n; i++) swapped[i] = (uint16_t)((pixels[i] << 8) | (pixels[i] >> 8));
+    gfx->draw16bitBeRGBBitmap(x, y, swapped, w, h);
+}
+
 // Every write to the panel goes through these, so the copy stays in step.
-void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
-    gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+void bitmap(int16_t x, int16_t y, const uint16_t *pixels, int16_t w, int16_t h) {
+    send(x, y, pixels, w, h);
     if (shadow) keep(x, y, pixels, w, h, 0);
 }
 void hline(int16_t x, int16_t y, int16_t w, uint16_t color) {
@@ -55,9 +91,26 @@ void vline(int16_t x, int16_t y, int16_t h, uint16_t color) {
     if (shadow) keep(x, y, nullptr, 1, h, color);
 }
 
-const int BAND_MAX_HEIGHT = 56;
-// Space left around each pill button inside its cell.
-const int PILL_GAP = 4;
+// The tallest band, a row of buttons at the large size; the canvas is made this tall once, whatever the size.
+const int BAND_MAX_HEIGHT = 68;
+
+/** Everything about drawing text that changes with the textSize setting. */
+struct Size {
+    const GFXfont *body, *head, *button;
+    // Band heights and where the letters stand in them, from the band's top.
+    int bodyHeight, headHeight, bodyBaseline, headBaseline;
+    // How tall a button's capitals are, and the space around a pill inside its cell.
+    int buttonLetters, pillGap;
+    Buttons buttons;
+};
+// The same three as the round board's; small is this board's look before 0.20.0.
+const Size SIZES[] = {
+    {&FreeSans9pt7b, &FreeSansBold12pt7b, &FreeSans12pt7b, 22, 30, 16, 22, 17, 4, {44, 56, 40, 24}},
+    {&FreeSans11pt7b, &FreeSansBold14pt7b, &FreeSans14pt7b, 26, 36, 19, 25, 20, 5, {50, 64, 46, 28}},
+    {&FreeSans12pt7b, &FreeSansBold15pt7b, &FreeSans15pt7b, 28, 38, 20, 27, 21, 5, {54, 68, 48, 30}},
+};
+int sizeIndex = 1;
+const Size &metrics() { return SIZES[sizeIndex]; }
 const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
@@ -129,14 +182,17 @@ void edges(uint16_t color) {
     vline(LCD_WIDTH / 2, LCD_HEIGHT / 2 - 30, 60, color);
 }
 
+int rotationDegrees() { return rotation; }
 int width() { return rotation == 0 || rotation == 180 ? LCD_WIDTH : LCD_HEIGHT; }
 int height() { return rotation == 0 || rotation == 180 ? LCD_HEIGHT : LCD_WIDTH; }
 
-// Every write below goes out one panel row at a time. The driver only sends
-// the address for the first 1024 pixels of a write, so fillScreen() and any
-// larger block fail after their first use; a row always stays under that.
+// Every write below stays within the driver's limit: it only sends the address for the first 1024 pixels of a
+// write, so fillScreen() and any larger block fail after their first use.
+static uint32_t clearCount = 0;
+uint32_t clears() { return clearCount; }
 void clear() {
-    for (int16_t y = 0; y < LCD_HEIGHT; y++) hline(0, y, LCD_WIDTH, RGB565_BLACK);
+    clearCount++;
+    fillPanel(0, 0, LCD_WIDTH, LCD_HEIGHT, RGB565_BLACK);
 }
 
 void toLogical(int px, int py, int &x, int &y) {
@@ -153,6 +209,22 @@ void toLogical(int px, int py, int &x, int &y) {
     } else {
         x = px;
         y = py;
+    }
+}
+void toPanel(int x, int y, int &px, int &py) {
+    // The reverse of toLogical.
+    if (rotation == 90) {
+        px = y;
+        py = width() - 1 - x;
+    } else if (rotation == 180) {
+        px = LCD_WIDTH - 1 - x;
+        py = LCD_HEIGHT - 1 - y;
+    } else if (rotation == 270) {
+        px = height() - 1 - y;
+        py = x;
+    } else {
+        px = x;
+        py = y;
     }
 }
 void clearBand(int y, int rows) {
@@ -185,36 +257,81 @@ void squareOnPanel(int x, int y, int size, int &px, int &py) {
 void blitSquare(int x, int y, int size, const uint16_t *pixels) {
     int px, py;
     squareOnPanel(x, y, size, px, py);
-    // Four rows per write: 4 x 240 = 960 pixels, still under the driver's 1024-pixel limit.
+    // As many rows per write as stay under the driver's 1024-pixel limit (4 x 240).
     // The face is round, so the same pixels go out whatever the rotation.
-    const int rows = ROWS_PER_WRITE;
-    for (int row = 0; row < size; row += rows) {
-        bitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
+    const int rows = max(1, min(ROWS_PER_WRITE, 1024 / size));
+    for (int row = 0; row < size; row += rows) bitmap(px, py + row, pixels + row * size, size, min(rows, size - row));
+}
+
+void blitPanel(int x, int y, int w, int h, const uint16_t *pixels) {
+    if (w <= 0 || h <= 0) return;
+    // As many whole rows per write as stay under the driver's 1024 pixels.
+    const int rows = max(1, 1024 / w);
+    for (int row = 0; row < h; row += rows) bitmap(x, y + row, pixels + row * w, w, min(rows, h - row));
+}
+
+void blitFrame(int px, int py, int stride, const uint16_t *pixels, int x0, int y0, int x1, int y1) {
+    const int w = x1 - x0;
+    if (w <= 0 || y1 <= y0) return;
+    if (w == stride) return blitPanel(px + x0, py + y0, w, y1 - y0, pixels + y0 * stride);
+    // Narrower than the frame: its rows are gathered into one piece for each write.
+    static uint16_t gather[1024];
+    const int rows = max(1, 1024 / w);
+    for (int y = y0; y < y1; y += rows) {
+        const int n = min(rows, y1 - y);
+        for (int j = 0; j < n; j++) memcpy(gather + j * w, pixels + (y + j) * stride + x0, w * sizeof(uint16_t));
+        bitmap(px + x0, py + y, gather, w, n);
     }
+}
+
+void fillPanel(int x, int y, int w, int h, uint16_t color) {
+    x = max(0, x), y = max(0, y);
+    w = min(w, (int)LCD_WIDTH - x), h = min(h, (int)LCD_HEIGHT - y);
+    if (w <= 0 || h <= 0) return;
+    static uint16_t *solid = nullptr;  // PSRAM: internal memory is short
+    static uint16_t solidColor = 0;
+    static bool solidReady = false;
+    if (!solid) solid = (uint16_t *)heap_caps_malloc(1024 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!solid) {
+        for (int j = 0; j < h; j++) hline(x, y + j, w, color);
+        return;
+    }
+    if (!solidReady || solidColor != color) {
+        for (int i = 0; i < 1024; i++) solid[i] = color;
+        solidColor = color;
+        solidReady = true;
+    }
+    const int rows = max(1, 1024 / w);
+    for (int row = 0; row < h; row += rows) bitmap(x, y + row, solid, w, min(rows, h - row));
 }
 
 /** Sends `h` rows of `src` (each width() wide) to the panel at logical `y`, turned to the current rotation. */
 static void pushRows(const uint16_t *src, int y, int h) {
     const int w = width();
-    static uint16_t row[LCD_HEIGHT];
-    if (rotation == 0 || rotation == 180) {
+    static uint16_t row[1024];
+    if (rotation == 0) {
+        // Whole rows as they are, as many to a write as the driver takes.
+        for (int j = 0; j < h; j += 1024 / w) bitmap(0, y + j, src + j * w, w, min(1024 / w, h - j));
+        return;
+    }
+    if (rotation == 180) {
         for (int j = 0; j < h; j++) {
-            if (rotation == 0) {
-                bitmap(0, y + j, const_cast<uint16_t *>(src + j * w), w, 1);
-            } else {
-                for (int i = 0; i < w; i++) row[i] = src[(h - 1 - j) * w + (w - 1 - i)];
-                bitmap(0, LCD_HEIGHT - (y + h) + j, row, w, 1);
-            }
+            for (int i = 0; i < w; i++) row[i] = src[(h - 1 - j) * w + (w - 1 - i)];
+            bitmap(0, LCD_HEIGHT - (y + h) + j, row, w, 1);
         }
         return;
     }
-    // Sideways: the band becomes a column `h` wide and `w` tall on the panel.
+    // Sideways: the band becomes a column `h` wide and `w` tall on the panel, sent a few of its panel rows at a time.
     const int px = rotation == 90 ? y : height() - (y + h);
-    for (int j = 0; j < w; j++) {
-        for (int i = 0; i < h; i++) {
-            row[i] = rotation == 90 ? src[i * w + (w - 1 - j)] : src[(h - 1 - i) * w + j];
+    const int per = max(1, 1024 / h);
+    for (int j0 = 0; j0 < w; j0 += per) {
+        const int n = min(per, w - j0);
+        for (int k = 0; k < n; k++) {
+            const int j = j0 + k;
+            uint16_t *out = row + k * h;
+            for (int i = 0; i < h; i++) out[i] = rotation == 90 ? src[i * w + (w - 1 - j)] : src[(h - 1 - i) * w + j];
         }
-        bitmap(px, j, row, h, 1);
+        bitmap(px, j0, row, h, n);
     }
 }
 /** Sends the top `h` rows of the band to the panel at logical `y`, turned to the current rotation. */
@@ -226,7 +343,7 @@ void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
     static uint16_t row[LCD_HEIGHT];
     if (w <= 0 || h <= 0 || w > LCD_HEIGHT || h > LCD_HEIGHT) return;
     if (rotation == 0) {
-        for (int j = 0; j < h; j++) bitmap(x, y + j, const_cast<uint16_t *>(pixels + j * w), w, 1);
+        for (int j = 0; j < h; j++) bitmap(x, y + j, pixels + j * w, w, 1);
     } else if (rotation == 180) {
         for (int j = 0; j < h; j++) {
             for (int i = 0; i < w; i++) row[i] = pixels[(h - 1 - j) * w + (w - 1 - i)];
@@ -246,9 +363,19 @@ void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
     }
 }
 
-static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold12pt7b : &FreeSans9pt7b; }
+bool setTextSize(int index) {
+    index = constrain(index, 0, 2);
+    if (index == sizeIndex) return false;
+    sizeIndex = index;
+    return true;
+}
+int textSize() { return sizeIndex; }
+int lineHeight(uint8_t kind) { return kind >= 3 ? metrics().headHeight : metrics().bodyHeight; }
+const Buttons &buttons() { return metrics().buttons; }
+
+static const GFXfont *fontFor(uint8_t kind) { return kind >= 3 ? metrics().head : metrics().body; }
 /** Where the letters stand in a band of that kind, measured from its top. */
-static int baselineFor(uint8_t size) { return size >= 3 ? 22 : 16; }
+static int baselineFor(uint8_t kind) { return kind >= 3 ? metrics().headBaseline : metrics().bodyBaseline; }
 
 static int widthIn(const GFXfont *font, const String &text) {
     int width = 0;
@@ -261,7 +388,7 @@ static int widthIn(const GFXfont *font, const String &text) {
 }
 
 int textWidth(uint8_t size, const String &text) { return widthIn(fontFor(size), text); }
-int buttonTextWidth(const String &text) { return widthIn(&FreeSans12pt7b, plain(text)); }
+int buttonTextWidth(const String &text) { return widthIn(metrics().button, plain(text)); }
 
 String plain(const String &text) {
     // Latin-1 letters from U+00C0 to U+00FF, as the unaccented letter each is built on.
@@ -320,30 +447,36 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPe
 
     pushBand(y, h);
 }
+void pillCells(int count, int cols, int &left, int &cell) {
+    cell = width() / max(1, cols);
+    // A row that is not full sits in the middle.
+    left = (width() - cell * count) / 2;
+}
+
 void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t outline, uint16_t textColor) {
     const int w = width();
     h = min(h, BAND_MAX_HEIGHT);
-    const int cell = w / max(1, cols);
-    // A row that is not full sits in the middle.
-    const int left = (w - cell * count) / 2;
-    const GFXfont *font = &FreeSans12pt7b;
+    int left = 0, cell = 0;
+    pillCells(count, cols, left, cell);
+    const GFXfont *font = metrics().button;
+    const int gap = metrics().pillGap;
     band->fillRect(0, 0, w, h, RGB565_BLACK);
     band->setFont(font);
     band->setTextSize(1);
     band->setTextColor(textColor);
     band->setTextWrap(false);
     for (int i = 0; i < count; i++) {
-        const int x = left + i * cell + PILL_GAP, pw = cell - 2 * PILL_GAP, ph = h - 2 * PILL_GAP;
-        band->drawRoundRect(x, PILL_GAP, pw, ph, ph / 2, outline);
-        band->drawRoundRect(x + 1, PILL_GAP + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
+        const int x = left + i * cell + gap, pw = cell - 2 * gap, ph = h - 2 * gap;
+        band->drawRoundRect(x, gap, pw, ph, ph / 2, outline);
+        band->drawRoundRect(x + 1, gap + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
         String shown = plain(labels[i]);
         const int room = pw - ph / 2;
         if (widthIn(font, shown) > room) {
             while (shown.length() > 1 && widthIn(font, shown + "..") > room) shown.remove(shown.length() - 1);
             shown += "..";
         }
-        // The letters are 17 pixels tall and stand on the cursor line.
-        band->setCursor(x + (pw - widthIn(font, shown)) / 2, PILL_GAP + (ph + 17) / 2 - 1);
+        // The capitals stand on the cursor line, buttonLetters tall.
+        band->setCursor(x + (pw - widthIn(font, shown)) / 2, gap + (ph + metrics().buttonLetters) / 2 - 1);
         band->print(shown);
     }
     pushBand(y, h);
@@ -357,6 +490,7 @@ void mirror(bool on) {
         shadow = nullptr;
     }
 }
+bool mirroring() { return shadow != nullptr; }
 
 void dump(Print &out) {
     if (!shadow) {

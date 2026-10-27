@@ -30,6 +30,9 @@ static const axis::SettingDef SETTINGS[] = {
     {"autoRotate", "Turn with the device", "toggle", "Screen", "The picture follows whichever way up the device is standing. Lying flat, it stays as it was.", "1", 0, 0, nullptr, nullptr},
     {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "90", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
+    {"textSize", "Text size", "choice", "Screen", "Size of the words and buttons; the face stays the same size.", "medium", 0, 0, nullptr, "small,medium,large"},
+    {"maxFps", "Frame rate limit", "choice", "Screen", "The most frames a second the screen draws. Higher is smoother but keeps the processor and the panel bus busier; the face and the glow cannot go faster than the board manages anyway.", "30", 0, 0, nullptr, "20,30,45,60"},
+    {"idleFace", "Idle face size", "choice", "Screen", "How big the face is with the screen to itself. With words, a question or a timer to show it shrinks to its normal size at the top.", "large", 0, 0, nullptr, "normal,large,max"},
     {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Boards of different revisions need different values. Use the \"Show screen edges\" action: all four sides of the frame should be visible, with the cross in the middle.", "16", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", "The microphone clips on the board's own voice above about 50.", "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
@@ -65,7 +68,8 @@ static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
 static const uint16_t COLOR_WARN = 0xFD20;  // amber
 static const uint16_t COLOR_LISTEN = 0x4FEA;  // soft green, as the listening face
-static const uint32_t FRAME_MS = 33;
+// The longest the screen loop waits between frames: the `maxFps` setting (30 by default; 60 is the ceiling, and a frame that takes longer than this still sets the pace).
+static uint32_t FRAME_MS = 33;
 // How long a finished exchange stays on screen before the face has it to itself again.
 static const uint32_t KEEP_TEXT_MS = 15000;
 // A brief gap while connecting is normal at boot; only call it a problem after this.
@@ -181,8 +185,25 @@ static const uint16_t COLOR_DIM = 0x528A;   // steps already behind
 static const uint16_t COLOR_OTHER = 0x7BEF; // the other tasks in the list
 static const uint16_t COLOR_BAR = 0x6EBD;   // the idle face's cyan
 static const uint16_t COLOR_DONE = 0x57EA;  // green
-// Where the top of the face is now. -1 until it has been placed once.
-static int faceY = -1;
+// The face's place and size. With the screen to itself it sits in the middle at the idleFace setting's size; with text,
+// a question or a timer it is TEXT_FACE (vortex::SIZE) at the top. Between the two it slides and grows or shrinks at
+// once, over MOVE_MS. faceY is -1 until it has been placed, which puts it where it should be at once.
+static const int TEXT_FACE = vortex::SIZE;
+// normal, large and max: at its widest (the "open" look) the figure stays 54 pixels from the nearest edge of the glass at
+// 264 and 42 at 288, against 66 at 240 (`fps` on the console says how close it came).
+static const int IDLE_FACES[] = {TEXT_FACE, 264, vortex::MAX_SIZE};
+static int idleFace = IDLE_FACES[1];
+static int faceY = -1, faceSide = TEXT_FACE;
+static int fromY = 0, fromSide = TEXT_FACE, toY = -1, toSide = TEXT_FACE;
+static uint32_t moveStarted = 0;
+// Where the face was last sent (or would have been, when it is not drawn). Text goes on screen only once the face has
+// been sent at its place: that frame blacks out what the one before it left, which would otherwise wipe new text.
+static int sentFaceY = -1, sentFaceSide = 0;
+static const uint32_t MOVE_MS = 300;
+// The console's `still`: the face is drawn and sent as usual but does not move, so `shot held` shows what the panel holds without tearing.
+static volatile bool faceStill = false;
+// Time the face has been held still for, which the face's moves (moveFace) leave out, so a move can be caught half done.
+static uint32_t stillMs = 0;
 // The notification light: when the last task finish was seen, the flash's end, and whether a glow is up.
 static uint8_t seenTaskState = 0;
 static uint32_t doneFlashUntil = 0;
@@ -216,6 +237,16 @@ static bool askShown = false;
 static bool screenOff = false, speakerOff = false, micOff = false;
 // The panel has been blanked for screenOff; drawing starts again from nothing once it is back.
 static bool screenBlanked = false;
+// The console's `set textSize <size>`, `set idleFace <size>` and `set maxFps <n>`: stand in for those settings on the bench. Empty: the setting.
+static char textSizeTest[16] = "";
+static char idleFaceTest[16] = "";
+static char maxFpsTest[8] = "";
+// The console's `set rotation <degrees>`: the screen turned that way whatever the device says, for trying each way up on
+// the bench. -1: as the settings and the motion sensor say.
+static volatile int rotationTest = -1;
+// The console's `set idleLook <name>`: only that idle look, for measuring one look at a time. Empty: the idleLooksOff setting.
+static char idleLookTest[16] = "";
+static volatile uint32_t textSizeRequests = 0;
 
 /** True when `name` is one of the names, separated by commas, in `list`. */
 static bool listed(const String &list, const char *name) {
@@ -239,14 +270,44 @@ static void listSteps();
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
-/** Where the face sits when it has the screen to itself. */
-static int faceMiddle() { return (display::height() - vortex::SIZE) / 2; }
-static int headTop() { return faceTop() + vortex::SIZE + 4; }
+/** Where a face `side` wide sits when it has the screen to itself. Even, as is its left edge, like the round board's. */
+static int faceMiddle(int side) { return ((display::height() - side) / 2) & ~1; }
+static int faceLeft(int side = faceSide) { return ((display::width() - side) / 2) & ~1; }
+static int headTop() { return faceTop() + TEXT_FACE + 4; }
+
+/**
+ * Takes the face towards top `y` at size `side`: at once when it has not been placed, otherwise both together over
+ * MOVE_MS, eased in and out. A new target on the way starts from where it is. True once it is there.
+ */
+static bool moveFace(int y, int side) {
+    const uint32_t now = millis() - stillMs;
+    if (faceY < 0) {
+        // Placed at once: everything round it was just cleared.
+        faceY = toY = sentFaceY = y;
+        faceSide = toSide = sentFaceSide = side;
+        return true;
+    }
+    if (y != toY || side != toSide) {
+        fromY = faceY;
+        fromSide = faceSide;
+        toY = y;
+        toSide = side;
+        moveStarted = now;
+    }
+    if (faceY == toY && faceSide == toSide) return sentFaceY == toY && sentFaceSide == toSide;
+    const float t = min(1.0f, (now - moveStarted) / (float)MOVE_MS);
+    const float k = t * t * (3.0f - 2.0f * t);
+    // Even, as on the round board.
+    faceY = t >= 1.0f ? toY : (fromY + (int)lroundf((toY - fromY) * k)) & ~1;
+    faceSide = t >= 1.0f ? toSide : (fromSide + (int)lroundf((toSide - fromSide) * k)) & ~1;
+    return false;
+}
 static int bodyTop() { return headTop() + display::lineHeight(3); }
 static int bodyLines() { return min(MAX_BODY_LINES, (display::height() - bodyTop()) / display::lineHeight(2)); }
 
 /** The rotation in force: the way the device is standing when it turns with it and knows, the setting otherwise. */
 static int wantedRotation() {
+    if (rotationTest >= 0) return rotationTest;
     const int standing = client.settingInt("autoRotate", 1) != 0 ? imu::orientation() : -1;
     return standing >= 0 ? standing : (int)client.settingInt("rotation", 90);
 }
@@ -317,9 +378,28 @@ static void applySettings() {
     display::setRotation(wantedRotation());
     vortex::setRotation(wantedRotation());
     display::setBrightness(screenBlanked ? 0 : (uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
+    // A new text size moves every line and button, so the screen is cleared and laid out again.
+    const String size = textSizeTest[0] ? String(textSizeTest) : client.setting("textSize", "medium");
+    if (display::setTextSize(size == "small" ? 0 : size == "large" ? 2 : 1)) {
+        display::clear();
+        askDrawn = "";
+    }
+    const long fps = constrain(maxFpsTest[0] ? atol(maxFpsTest) : client.settingInt("maxFps", 30), 15, 60);
+    FRAME_MS = (uint32_t)(1000 / fps);
+    // The idle face's size; the face goes there by itself (layout) when it has the screen to itself.
+    const String face = idleFaceTest[0] ? String(idleFaceTest) : client.setting("idleFace", "large");
+    idleFace = IDLE_FACES[face == "normal" ? 0 : face == "max" ? 2 : 1];
     glow::setCorner((int)client.settingInt("glowCorner", 56));
     speaker::setVolume(speakerOff ? 0 : (int)client.settingInt("volume", 60));
-    vortex::setIdleOff(client.setting("idleLooksOff").c_str());
+    if (idleLookTest[0]) {
+        // Every other look off (vortex.cpp's IDLE names).
+        static const char *const LOOKS[] = {"calm", "breathe", "unwind", "open", "curl", "drift", "shimmer", "galaxy", "tendril", "bloom", "pinwheel", "deep", "orbit", "sway"};
+        String off;
+        for (const char *look : LOOKS) if (strcmp(look, idleLookTest)) off += String(look) + ",";
+        vortex::setIdleOff(off.c_str());
+    } else {
+        vortex::setIdleOff(client.setting("idleLooksOff").c_str());
+    }
     vortex::setIconStyle(client.setting("toolIcons").c_str());
     vortex::setIconTuning((int)client.settingInt("toolIconMs", 700), (int)client.settingInt("toolIconDots", 78));
     mic::setWakeEnabled(!micOff && client.settingInt("wakeListen", 1) != 0);
@@ -398,19 +478,10 @@ static void show(const String &head, uint16_t headColor, const String &body) {
  */
 static void layout() {
     const bool text = !wantHead.isEmpty() || !wantBody.isEmpty() || wantListCount > 0;
-    const int target = text ? faceTop() : faceMiddle();
-    if (faceY < 0) faceY = target;
-    if (faceY != target) {
-        const int distance = target - faceY;
-        const int step = constrain(distance / 5, -24, 24);
-        const int next = faceY + (step != 0 ? step : (distance > 0 ? 1 : -1));
-        // Black out the rows the face is leaving, or it would smear.
-        if (next < faceY) display::clearBand(next + vortex::SIZE, faceY - next);
-        else display::clearBand(faceY, next - faceY);
-        faceY = next;
-    }
-    // The text area is under the face until the face has reached the top.
-    if (text && faceY != faceTop()) return;
+    // What the face leaves on its way is blacked out as it is sent (sendFace).
+    const bool there = text ? moveFace(faceTop(), TEXT_FACE) : moveFace(faceMiddle(idleFace), idleFace);
+    // The text area is under the face until the face has reached the top at its small size.
+    if (text && !there) return;
 
     const String head = text ? wantHead : String("");
     const int bar = text ? wantBar : -1;
@@ -441,6 +512,129 @@ static void layout() {
         shownBody[i] = key;
     }
     redrawAll = false;
+}
+
+// Whether the panel holds what the last face frame drew, and where (panel coordinates: the box x0 y0 to x1 y1, and in
+// each panel row the columns sentFrom up to sentTo): only that and what this frame draws need to go out, since
+// everything else in the square is black on the panel already. A clear of the screen (counted by display::clears) or
+// anything drawn where the face was makes that unknown again.
+static bool faceSent = false;
+static int sentX0 = 0, sentY0 = 0, sentX1 = 0, sentY1 = 0;
+static int16_t sentFrom[448], sentTo[448];  // panel rows
+static uint32_t faceClears = 0;
+// What the face sent last, which the edge glow leaves to it (and the face lays the glow into).
+static glow::Rect faceKeep;
+
+/**
+ * Sends what a face frame (`n` wide, logical top left at x, y) drew and what the last one drew, row by row, and blacks
+ * out what the last one drew outside the square (when the face has moved or shrunk). Where the edge glow's ring runs
+ * through the part sent, the glow is laid into the frame and sent with it.
+ */
+static void sendFace(uint16_t *frame, int x, int y, int n) {
+    if (display::clears() != faceClears) {
+        faceClears = display::clears();
+        faceSent = false;
+    }
+    // Where the frame lands on the panel, which also changes with the rotation. Even, as are n and every span below
+    // (the round board's panel needs that; this one does not mind, and the sums are the same).
+    int px, py;
+    display::squareOnPanel(x, y, n, px, py);
+    const bool last = faceSent && sentX1 > sentX0 && sentY1 > sentY0;
+    if (last) {
+        // Last time's drawing outside the square now, left behind as the face moved or shrank, is blacked out, or it
+        // would smear. Inside the square it goes out again below (black where nothing is drawn now).
+        const int top = min(sentY1, py), bottom = max(sentY0, py + n);
+        if (top > sentY0) display::fillPanel(sentX0, sentY0, sentX1 - sentX0, top - sentY0, 0);
+        if (sentY1 > bottom) display::fillPanel(sentX0, bottom, sentX1 - sentX0, sentY1 - bottom, 0);
+        const int midTop = max(sentY0, py), midBottom = min(sentY1, py + n);
+        if (midBottom > midTop) {
+            if (px > sentX0) display::fillPanel(sentX0, midTop, min(sentX1, px) - sentX0, midBottom - midTop, 0);
+            if (sentX1 > px + n) display::fillPanel(max(sentX0, px + n), midTop, sentX1 - max(sentX0, px + n), midBottom - midTop, 0);
+        }
+    }
+    // Each row of the frame: what is drawn now and what was there last time, in whole pairs of columns (frame coordinates).
+    static int16_t from[vortex::MAX_SIZE], to[vortex::MAX_SIZE];
+    int bx0 = n, by0 = n, bx1 = 0, by1 = 0;
+    for (int j = 0; j < n; j++) {
+        int a = n, b = 0, x0, x1;
+        if (vortex::drawnRow(j, x0, x1)) a = x0, b = x1;
+        const int row = py + j;
+        if (last && row >= sentY0 && row < sentY1 && sentTo[row] > sentFrom[row]) {
+            a = min(a, max(0, sentFrom[row] - px));
+            b = max(b, min(n, sentTo[row] - px));
+        }
+        if (b > a) {
+            a &= ~1;
+            b = min(n, (b + 1) & ~1);
+            bx0 = min(bx0, a), bx1 = max(bx1, b), by0 = min(by0, j), by1 = max(by1, j + 1);
+        }
+        from[j] = a;
+        to[j] = b;
+    }
+    by0 &= ~1;
+    by1 = min(n, (by1 + 1) & ~1);
+    // What this frame drew, for next time (panel coordinates).
+    for (int row = sentY0; row < sentY1; row++) sentFrom[row] = sentTo[row] = 0;
+    sentX0 = sentY0 = sentX1 = sentY1 = 0;
+    {
+        int x0 = 0, x1 = 0, first = -1, end = -1;
+        for (int j = 0; j < n; j++) {
+            if (!vortex::drawnRow(j, x0, x1)) continue;
+            const int row = py + j;
+            sentFrom[row] = (px + x0) & ~1;
+            sentTo[row] = min(px + n, (px + x1 + 1) & ~1);
+            if (first < 0) first = j, sentX0 = sentFrom[row], sentX1 = sentTo[row];
+            sentX0 = min(sentX0, (int)sentFrom[row]);
+            sentX1 = max(sentX1, (int)sentTo[row]);
+            end = j + 1;
+        }
+        if (first >= 0) sentY0 = py + (first & ~1), sentY1 = py + min(n, (end + 1) & ~1);
+    }
+    faceSent = true;
+    if (bx1 <= bx0 || by1 <= by0) {
+        faceKeep = {};
+        return;
+    }
+    // The notification light runs on across the face where they meet (the face at the top, sideways, or big). The
+    // ring leaves the face's box alone, so where it runs through the box it goes out with the face: those rows are
+    // sent out to the ring's ends inside the box.
+    // The frame after the glow has gone sends those rows once more, untinted, as the ring leaves them to the face.
+    static bool tintedLast = false;
+    const bool tinted = glow::tint(frame, px, py, n, bx0, by0, bx1, by1);
+    const bool ringRows = tinted || tintedLast;
+    tintedLast = tinted;
+    if (ringRows) {
+        for (int j = by0; j < by1; j++) {
+            for (int r = 0; r < 2; r++) {
+                int a, b;
+                if (!glow::ringRow(py + j, r, a, b)) continue;
+                a = max(bx0, (a - px) & ~1), b = min(bx1, (b - px + 1) & ~1);
+                if (b <= a) continue;
+                from[j] = min((int)from[j], a);
+                to[j] = max((int)to[j], b);
+            }
+        }
+    }
+    // Pairs of rows, gathered into one write while the widest span among them times their rows stays within the
+    // driver's 1024 pixels and they are about as wide.
+    for (int j = by0; j < by1;) {
+        int a = min(from[j], from[j + 1]), b = max(to[j], to[j + 1]);
+        int rows = 2;
+        if (b <= a) {
+            j += 2;
+            continue;
+        }
+        while (j + rows + 1 < by1) {
+            const int na = min(a, (int)min(from[j + rows], from[j + rows + 1])), nb = max(b, (int)max(to[j + rows], to[j + rows + 1]));
+            if (to[j + rows] <= from[j + rows] && to[j + rows + 1] <= from[j + rows + 1]) break;
+            if ((nb - na) * (rows + 2) > 1024 || (nb - na) > (b - a) + 16) break;
+            a = na, b = nb, rows += 2;
+        }
+        display::blitFrame(px, py, n, frame, a, j, b, j + rows);
+        j += rows;
+    }
+    if (tinted) glow::untint(frame, px, py, n, bx0, by0, bx1, by1);
+    faceKeep = {px + bx0, py + by0, bx1 - bx0, by1 - by0};
 }
 
 /** Turns the core's state into a face mode and the text under it. */
@@ -626,29 +820,33 @@ struct AskLayout {
     int top, rows, cols, rowHeight;
 };
 
+/** How many lines a question may take: two under the face, three when it has the screen. */
+static int questionMax(const AskLayout &l) { return l.face ? 2 : 3; }
+
 static AskLayout askLayout() {
     const int n = max(1, (int)state.choiceCount);
     int longest = 1;
     for (int i = 0; i < state.choiceCount; i++) longest = max(longest, display::buttonTextWidth(state.choices[i]));
-    // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit.
-    const int need = min(display::width(), longest + 44);
+    // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit. Rows of buttons
+    // are sized by the text size (display::buttons()).
+    const display::Buttons &b = display::buttons();
+    const int need = min(display::width(), longest + b.padding);
     const int maxCols = max(1, min(n, display::width() / need));
-    String lines[2];
-    const int questionLines = max(1, wrap(display::plain(state.question), lines, 2));
     const int lineH = display::lineHeight(2);
 
     AskLayout l;
-    l.questionLines = questionLines;
     // First choice: everything under the face, where replies go.
     l.face = true;
-    l.questionTop = faceTop() + vortex::SIZE + 2;
+    l.questionTop = faceTop() + TEXT_FACE + 2;
     l.cols = maxCols;
     for (;;) {
-        const int top = l.questionTop + questionLines * lineH + 4;
+        String lines[3];
+        l.questionLines = max(1, wrap(display::plain(state.question), lines, questionMax(l)));
+        const int top = l.questionTop + l.questionLines * lineH + 4;
         const int room = display::height() - top;
         l.rows = (n + l.cols - 1) / l.cols;
-        l.rowHeight = min(56, room / l.rows);
-        if (l.rowHeight >= 40) {
+        l.rowHeight = min(b.rowMax, room / l.rows);
+        if (l.rowHeight >= b.rowMin) {
             l.top = top + (room - l.rows * l.rowHeight) / 2;
             return l;
         }
@@ -658,8 +856,8 @@ static AskLayout askLayout() {
         l.questionTop = 8;
         l.cols = min(maxCols, n <= 3 ? 1 : 2);
     }
-    l.top = l.questionTop + questionLines * lineH + 4;
-    l.rowHeight = max(24, l.rowHeight);
+    l.top = l.questionTop + l.questionLines * lineH + 4;
+    l.rowHeight = max(b.rowFloor, l.rowHeight);
     return l;
 }
 
@@ -668,8 +866,8 @@ static void drawAsk(const AskLayout &l) {
     const bool listening = client.listening();
     if (redrawAll || askDrawn != state.askId || listening != askDrawnListening) {
         // The question turns green while the microphone is open for a spoken answer.
-        String lines[2];
-        const int count = wrap(display::plain(state.question), lines, 2);
+        String lines[3];
+        const int count = wrap(display::plain(state.question), lines, questionMax(l));
         for (int i = 0; i < l.questionLines; i++) {
             display::textLine(l.questionTop + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
         }
@@ -713,8 +911,8 @@ static void onAskTap(const AskLayout &l) {
     const int row = y < l.top ? -1 : (y - l.top) / l.rowHeight;
     if (row >= 0 && row < l.rows) {
         const int inRow = min(l.cols, state.choiceCount - row * l.cols);
-        const int cell = display::width() / l.cols;
-        const int left = (display::width() - cell * inRow) / 2;
+        int left = 0, cell = 1;
+        display::pillCells(inRow, l.cols, left, cell);
         const int col = x < left ? -1 : (x - left) / cell;
         if (col >= 0 && col < inRow) index = row * l.cols + col;
     }
@@ -760,6 +958,69 @@ static void onTap() {
     if (state.link == axis::Link::Online) client.startListening();
 }
 
+// ---- diagnostics: `preview NAME` puts a made-up state on the screen for a minute ----------------
+// For checking the layout without Axis: what Axis would send is laid over the snapshot.
+static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup", "idle"};
+static const int PREVIEW_COUNT = sizeof PREVIEWS / sizeof PREVIEWS[0];
+static volatile int previewWanted = -1;
+static volatile uint32_t previewRequests = 0;
+static int previewShown = -1;
+static uint32_t previewUntil = 0, previewStarted = 0;
+
+static void applyPreview(axis::Snapshot &s, uint32_t now) {
+    const char *name = PREVIEWS[previewShown];
+    s.link = axis::Link::Online;
+    s.openclawUp = s.sttUp = s.ttsUp = true;
+    s.turn = axis::Turn::Idle;
+    if (!strcmp(name, "idle")) {
+        // Nothing to say, whatever Axis has on: the face with the screen to itself.
+        s.reply = s.transcript = s.note = s.question = "";
+        s.choiceCount = 0;
+        s.taskCount = 0;
+        s.timerCount = 0;
+        s.updatePercent = -1;
+    } else if (!strncmp(name, "ask", 3)) {
+        static const char *const SHORT[] = {"Tea", "Coffee"};
+        static const char *const FOUR[] = {"Kitchen", "Living room", "Bedroom", "Office"};
+        static const char *const SIX[] = {"Turn them all off", "Only the kitchen", "Leave the hall on", "Dim to half", "Ask me later", "Never mind"};
+        const char *const *list = !strcmp(name, "ask") ? SHORT : !strcmp(name, "ask4") ? FOUR : SIX;
+        s.choiceCount = !strcmp(name, "ask") ? 2 : !strcmp(name, "ask4") ? 4 : 6;
+        for (int i = 0; i < s.choiceCount; i++) s.choices[i] = list[i];
+        s.askId = name;
+        s.question = s.choiceCount == 2 ? "Tea or coffee?" : s.choiceCount == 4 ? "Which room should I turn the lights on in?" : "The lights are still on downstairs. What should I do with them?";
+    } else if (!strcmp(name, "reply") || !strcmp(name, "speak")) {
+        s.reply = "Tomorrow looks dry and mild: about 14 degrees in the afternoon, a light wind from the west, and some cloud "
+                  "coming in after dark. You will not need an umbrella, but a jacket would be good for the evening walk.";
+        if (!strcmp(name, "speak")) s.turn = axis::Turn::Speaking;
+    } else if (!strcmp(name, "thinking")) {
+        s.turn = axis::Turn::Thinking;
+        s.transcript = "what is the weather like tomorrow";
+        s.doing = "search";
+    } else if (!strcmp(name, "listening")) {
+        s.turn = axis::Turn::Listening;
+    } else if (!strcmp(name, "timer")) {
+        s.timerLabel = "pasta";
+        s.timerCount = 2;
+        s.timerEndsAt = previewStarted + 75000;
+    } else if (!strcmp(name, "task") || !strcmp(name, "steps")) {
+        s.taskCount = 3;
+        s.taskTitle = "Backup";
+        s.taskTotal = 5;
+        s.taskDone = 2;
+        s.taskNote = "copying the photos";
+        s.taskSteps = "xFind the files\nxPack them\n>Copy the photos\n-Check the copy\n-Tidy up";
+        s.taskOthers = " Monthly report\n!Invoice: needs you";
+    } else if (!strcmp(name, "error")) {
+        s.turn = axis::Turn::Error;
+        s.note = "Hearing is down: the speech service did not answer";
+    } else if (!strcmp(name, "setup")) {
+        s.link = axis::Link::Setup;
+        s.setupNetwork = "VorteX-Axis-4F2A";
+        s.address = "192.168.4.1";
+        s.note = "";
+    }
+}
+
 /** Leaves a request for the screen loop to show one kind of glow for `ms`. False for a kind it does not know. */
 static bool requestGlow(const char *kind, uint32_t ms, int corner) {
     static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
@@ -784,6 +1045,8 @@ void setup() {
 
     const bool displayOk = display::begin();
     const bool faceOk = vortex::begin();
+    // sendFace blacks out what the glow laid into the frame (glow::untint), so a frame only blacks out what was drawn.
+    vortex::setLazyClear(true);
     logOut.printf("[boot] display %s, face buffer %s, heap %u, psram %u\n", displayOk ? "started" : "FAILED",
                      faceOk ? "ok" : "FAILED", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
     if (!faceOk) {
@@ -887,17 +1150,76 @@ void setup() {
             }
             return true;
         }
+        if (word == "set") {
+            // `set textSize large` acts as if Axis had sent that setting; `set textSize` alone goes back to it. The same for idleFace.
+            String key = rest, value;
+            const int space = rest.indexOf(' ');
+            if (space >= 0) {
+                key = rest.substring(0, space);
+                value = rest.substring(space + 1);
+                value.trim();
+            }
+            if (key != "textSize" && key != "idleFace" && key != "idleLook" && key != "maxFps" && key != "rotation") {
+                logOut.println("[set] only textSize (small, medium, large), idleFace (normal, large, max), maxFps (20, 30, 45, 60), rotation (0, 90, 180, 270) and idleLook (one look's name)");
+                return true;
+            }
+            if (key == "textSize") snprintf(textSizeTest, sizeof(textSizeTest), "%s", value.c_str());
+            else if (key == "idleFace") snprintf(idleFaceTest, sizeof(idleFaceTest), "%s", value.c_str());
+            else if (key == "maxFps") snprintf(maxFpsTest, sizeof(maxFpsTest), "%s", value.c_str());
+            else if (key == "rotation") rotationTest = value.isEmpty() ? -1 : (int)value.toInt();
+            else snprintf(idleLookTest, sizeof(idleLookTest), "%s", value.c_str());
+            textSizeRequests++;
+            return true;
+        }
+        if (word == "preview") {
+            int found = -1;
+            for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
+            if (found < 0 && rest != "off") {
+                String names;
+                for (int i = 0; i < PREVIEW_COUNT; i++) names += String(" ") + PREVIEWS[i];
+                logOut.printf("[preview] one of:%s off\n", names.c_str());
+                return true;
+            }
+            previewWanted = found;
+            previewRequests++;
+            return true;
+        }
+        if (word == "still") {
+            faceStill = rest != "off";
+            logOut.printf("[still] the face %s\n", faceStill ? "holds still" : "moves");
+            return true;
+        }
         if (word == "fps") {
             fpsRequests++;
             return true;
         }
+        if (word == "edges") {
+            edgesUntil = millis() + 10000;
+            edgesDrawn = false;
+            return true;
+        }
+        if (word == "shot" && rest.startsWith("keep")) {
+            // Unlike the round board this one keeps no copy of the panel unless asked: `shot keep` starts one (everything is
+            // drawn again into it) and `shot held` then prints it as it stands; `shot keep off` stops.
+            const bool on = rest != "keep off";
+            display::mirror(on);
+            if (on) shotRequests++;
+            logOut.printf("[shot] %s\n", on ? "keeping a copy of the panel" : "no copy kept");
+            return true;
+        }
+        if (word == "shot" && rest == "held") {
+            // What the panel holds right now, as it is: for checking that nothing was left behind.
+            display::dump(logOut);
+            return true;
+        }
         if (word == "shot") {
             // A picture of the screen: everything is drawn again into a kept copy, which is then printed.
+            const bool kept = display::mirroring();
             display::mirror(true);
             shotRequests++;
             delay(1500);
             display::dump(logOut);
-            display::mirror(false);
+            if (!kept) display::mirror(false);
             return true;
         }
         if (word == "wake") {
@@ -917,7 +1239,8 @@ void loop() {
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
-    const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 0.033f;
+    const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 1.0f / 30.0f;
+    if (faceStill && lastFrame) stillMs += started - lastFrame;
     lastFrame = started;
 
     // `shot` on the console: everything drawn again, so the kept copy holds the whole screen.
@@ -929,7 +1252,6 @@ void loop() {
         redrawAll = true;
         askDrawn = "";
         edgesDrawn = false;
-        faceY = -1;
         if (pictureUntil) display::blitScreen(pictureFrame);
     }
 
@@ -951,6 +1273,31 @@ void loop() {
         if (state.settingsRevision != seenSettings) {
             seenSettings = state.settingsRevision;
             applySettings();
+        }
+    }
+    {
+        static uint32_t seenTextSize = 0;
+        if (textSizeRequests != seenTextSize) {
+            seenTextSize = textSizeRequests;
+            applySettings();
+            logOut.printf("[set] textSize %d (0 small, 1 medium, 2 large), idleFace %d pixels, %u ms a frame at least\n", display::textSize(), idleFace, (unsigned)FRAME_MS);
+        }
+    }
+    // A made-up state from the console (`preview`), laid over what Axis said, for a minute.
+    {
+        static uint32_t seenPreview = 0;
+        const bool wasShown = previewShown >= 0;
+        if (previewRequests != seenPreview) {
+            seenPreview = previewRequests;
+            previewShown = previewWanted;
+            previewStarted = started;
+            previewUntil = started + 60000;
+            stepsOpenUntil = previewShown >= 0 && !strcmp(PREVIEWS[previewShown], "steps") ? previewUntil : 0;
+        }
+        if (previewShown >= 0 && (int32_t)(started - previewUntil) >= 0) previewShown = -1;
+        if (previewShown >= 0 || wasShown) {
+            state = client.snapshot();
+            if (previewShown >= 0) applyPreview(state, started);
         }
     }
     // A picture from an agent's reply. A newer one replaces it.
@@ -1053,15 +1400,16 @@ void loop() {
         askDrawn = "";
         display::clear();
         redrawAll = true;
-        faceY = -1;
+        // The face stays where it was and goes from there: up and smaller for a question, back for the idle screen.
     }
     bool drawFace = !facePaused;
     if (askShown) {
         const AskLayout l = askLayout();
-        drawAsk(l);
-        if (touch::poll() == touch::Gesture::Tap) onAskTap(l);
+        // The question and its buttons wait for the face to reach the top at its small size, as text does.
+        const bool there = moveFace(faceTop(), TEXT_FACE);
+        if (there || !l.face) drawAsk(l);
+        if (touch::poll() == touch::Gesture::Tap && (there || !l.face)) onAskTap(l);
         drawFace = drawFace && l.face;
-        faceY = faceTop();
         vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
     } else {
         // Text also depends on time (messages that expire), so it is rechecked a few times a second.
@@ -1077,19 +1425,25 @@ void loop() {
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
     if (drawFace) {
-        const uint32_t fpsFaceMark = renderMicros;
+        if (faceY < 0) moveFace(faceTop(), TEXT_FACE);
+        vortex::setSize(faceSide);
         const uint32_t t0 = micros();
-        const uint16_t *frame = vortex::render(min(seconds, 0.1f));
-        renderMicros += micros() - t0;
-        // The notification light runs on across the face where they meet (the face drawn at the top, sideways).
-        // The face draws a fresh frame each time, so laying the glow into it leaves nothing behind.
-        glow::tint(const_cast<uint16_t *>(frame), (display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE);
-        display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
+        uint16_t *frame = const_cast<uint16_t *>(vortex::render(faceStill ? 0.0f : min(seconds, 0.1f)));
+        const uint32_t t1 = micros();
+        renderMicros += t1 - t0;
+        sendFace(frame, faceLeft(), faceY, faceSide);
+        sentFaceY = faceY;
+        sentFaceSide = faceSide;
         drawMicros += micros() - t0;
         frames++;
         fpsFrames++;
         fpsDrawMicros += micros() - t0;
-        fpsFaceMicros += renderMicros - fpsFaceMark;
+        fpsFaceMicros += t1 - t0;
+    } else {
+        faceSent = false;
+        faceKeep = {};
+        sentFaceY = faceY;
+        sentFaceSide = faceSide;
     }
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
@@ -1179,10 +1533,8 @@ void loop() {
             }
         }
         if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
-        glow::Rect face;
-        if (drawFace) face = {(display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE};
         const uint32_t g0 = micros();
-        glow::update(nullptr, notice, level, face, sweep);
+        glow::update(nullptr, notice, level, faceKeep, sweep);
         fpsGlowMicros += micros() - g0;
         // Text the glow lay over is drawn again once it is gone.
         if (notice == glow::State::None && noticeShown) redrawAll = true;
@@ -1198,6 +1550,13 @@ void loop() {
                           fpsFrames * 1000.0f / max(1u, (unsigned)(started - fpsFrom)), (started - fpsFrom) / 1000.0f,
                           fpsDrawMicros / 1000.0f / max(1u, (unsigned)fpsFrames), fpsFaceMicros / 1000.0f / max(1u, (unsigned)fpsFrames),
                           fpsGlowMicros / max(1.0f, (float)(started - fpsFrom)), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+            // How close the figure came to the nearest edge of the screen, for the face's size and place now.
+            const float cx = faceLeft() + faceSide / 2.0f, cy = faceY + faceSide / 2.0f;
+            const float edge = min(min(cx, display::width() - cx), min(cy, display::height() - cy));
+            logOut.printf("[fps] face %d at %d; the figure came within %.1f pixels of the edge\n", faceSide, faceY, edge - vortex::farthest());
+            uint32_t gm, gs, gp, gn;
+            glow::stats(gm, gs, gp, gn);
+            logOut.printf("[fps] edge glow: %.1f ms working out, %.1f ms sending, %u pixels in %u pieces\n", gm / 1000.0f, gs / 1000.0f, (unsigned)gp, (unsigned)gn);
             fpsFrom = started;
             fpsFrames = fpsDrawMicros = fpsFaceMicros = fpsGlowMicros = 0;
         }

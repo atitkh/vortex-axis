@@ -11,7 +11,7 @@ namespace glow {
 
 enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find, Hands };
 
-/** A part of the screen the glow leaves alone (the face, which draws itself). Empty when w is 0. */
+/** A part of the panel, in its own coordinates, the glow leaves alone (the face, which draws itself). Empty when w is 0. */
 struct Rect {
     int x = 0, y = 0, w = 0, h = 0;
 };
@@ -30,14 +30,23 @@ struct Rect {
 void update(const uint16_t *under, State state, float level, Rect keepOut = {}, float sweep = 1.0f);
 
 /**
- * Lays the glow now on show over `pixels`, the face's square frame (as blitSquare sends it, in the panel's
- * own orientation) at logical (x, y), which `keepOut` left alone, so the glow runs on unbroken across it.
- * Nothing when there is none.
+ * Lays the glow now on show over `pixels`, the face's square frame `size` wide whose first pixel sits at panel (x, y)
+ * (unturned, as the panel sees it), but only over its part (fromX, fromY) to (toX, toY): the part that is sent, which
+ * `keepOut` left alone, so the glow runs on unbroken across it. Nothing when there is none: false then.
  */
-void tint(uint16_t *pixels, int x, int y, int size);
+bool tint(uint16_t *pixels, int x, int y, int size, int fromX, int fromY, int toX, int toY);
+
+/** Where the ring crosses panel row `y`: run 0 or 1, panel columns `from` up to `to`. False when there is no such run. */
+bool ringRow(int y, int run, int &from, int &to);
+
+/** Blacks out again what tint() laid into that part of the frame, once it has been sent. */
+void untint(uint16_t *pixels, int x, int y, int size, int fromX, int fromY, int toX, int toY);
 
 /** How round the glow turns the corners, in pixels (board setting glowCorner). */
 void setCorner(int radius);
+
+/** Diagnostics: time spent working out and sending the ring, pixels and pieces sent, since the last call. */
+void stats(uint32_t &math, uint32_t &send, uint32_t &pixels, uint32_t &pieces);
 
 /** Forgets what was drawn, for when the screen has been redrawn from scratch. */
 void reset();
