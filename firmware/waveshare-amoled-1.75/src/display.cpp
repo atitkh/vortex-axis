@@ -4,9 +4,14 @@
 #include "Arduino_GFX_Library.h"
 #include "pins.h"
 #include <esp_heap_caps.h>
-// One size up from the 1.8's (9 and 12 points): the round screen is bigger, so its text is zoomed in to match the face.
+// Three sets, picked by the textSize setting: the 1.8's own (9 and 12 points), and two sizes up to match the zoomed-in face.
+#include "fonts/FreeSans9pt7b.h"
+#include "fonts/FreeSans11pt7b.h"
 #include "fonts/FreeSans12pt7b.h"
+#include "fonts/FreeSans14pt7b.h"
 #include "fonts/FreeSans15pt7b.h"
+#include "fonts/FreeSansBold12pt7b.h"
+#include "fonts/FreeSansBold14pt7b.h"
 #include "fonts/FreeSansBold15pt7b.h"
 
 namespace display {
@@ -72,24 +77,50 @@ shadowed:
         }
     }
 }
+// These go straight to the panel, so the held copy is kept in step too: a later widened write sends its pixels again.
 void pixel(int16_t x, int16_t y, uint16_t color) {
     gfx->drawPixel(x, y, color);
-    if (shadow && x >= 0 && x < LCD_WIDTH && y >= 0 && y < LCD_HEIGHT) shadow[y * LCD_WIDTH + x] = color;
+    if (x < 0 || x >= LCD_WIDTH || y < 0 || y >= LCD_HEIGHT) return;
+    if (held) held[y * LCD_WIDTH + x] = color;
+    if (shadow) shadow[y * LCD_WIDTH + x] = color;
 }
 void hline(int16_t x, int16_t y, int16_t w, uint16_t color) {
     gfx->drawFastHLine(x, y, w, color);
-    for (int i = 0; shadow && i < w; i++) if (x + i >= 0 && x + i < LCD_WIDTH && y >= 0 && y < LCD_HEIGHT) shadow[y * LCD_WIDTH + x + i] = color;
+    for (int i = 0; i < w; i++) {
+        if (x + i < 0 || x + i >= LCD_WIDTH || y < 0 || y >= LCD_HEIGHT) continue;
+        if (held) held[y * LCD_WIDTH + x + i] = color;
+        if (shadow) shadow[y * LCD_WIDTH + x + i] = color;
+    }
 }
 void vline(int16_t x, int16_t y, int16_t h, uint16_t color) {
     gfx->drawFastVLine(x, y, h, color);
-    for (int j = 0; shadow && j < h; j++) if (x >= 0 && x < LCD_WIDTH && y + j >= 0 && y + j < LCD_HEIGHT) shadow[(y + j) * LCD_WIDTH + x] = color;
+    for (int j = 0; j < h; j++) {
+        if (x < 0 || x >= LCD_WIDTH || y + j < 0 || y + j >= LCD_HEIGHT) continue;
+        if (held) held[(y + j) * LCD_WIDTH + x] = color;
+        if (shadow) shadow[(y + j) * LCD_WIDTH + x] = color;
+    }
 }
 
+// The tallest band, a row of buttons at the large size; the canvas is made this tall once, whatever the size.
 const int BAND_MAX_HEIGHT = 68;
-// Space left around each pill button inside its cell.
-const int PILL_GAP = 5;
-// Room kept between a row of pills and the round edge, each side.
-const int PILL_MARGIN = 17;
+
+/** Everything about drawing text that changes with the textSize setting. */
+struct Size {
+    const GFXfont *body, *head, *button;
+    // Band heights and where the letters stand in them, from the band's top.
+    int bodyHeight, headHeight, bodyBaseline, headBaseline;
+    // How tall a button's capitals are, the space around a pill inside its cell, and the room kept to the round edge each side.
+    int buttonLetters, pillGap, pillMargin;
+    Buttons buttons;
+};
+// small is 0.2.2's look (the 1.8's fonts); large is 0.3.0's.
+const Size SIZES[] = {
+    {&FreeSans9pt7b, &FreeSansBold12pt7b, &FreeSans12pt7b, 22, 30, 16, 22, 17, 4, 14, {44, 56, 40, 24}},
+    {&FreeSans11pt7b, &FreeSansBold14pt7b, &FreeSans14pt7b, 26, 36, 19, 25, 20, 5, 16, {50, 64, 46, 28}},
+    {&FreeSans12pt7b, &FreeSansBold15pt7b, &FreeSans15pt7b, 28, 38, 20, 27, 21, 5, 17, {54, 68, 48, 30}},
+};
+int sizeIndex = 1;
+const Size &metrics() { return SIZES[sizeIndex]; }
 const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
@@ -279,9 +310,20 @@ void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
     }
 }
 
-static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold15pt7b : &FreeSans12pt7b; }
+bool setTextSize(int index) {
+    index = constrain(index, 0, 2);
+    if (index == sizeIndex) return false;
+    sizeIndex = index;
+    return true;
+}
+int textSize() { return sizeIndex; }
+int lineHeight(uint8_t kind) { return kind >= 3 ? metrics().headHeight : metrics().bodyHeight; }
+const Buttons &buttons() { return metrics().buttons; }
+int pillMargin() { return metrics().pillMargin; }
+
+static const GFXfont *fontFor(uint8_t kind) { return kind >= 3 ? metrics().head : metrics().body; }
 /** Where the letters stand in a band of that kind, measured from its top. */
-static int baselineFor(uint8_t size) { return size >= 3 ? 27 : 20; }
+static int baselineFor(uint8_t kind) { return kind >= 3 ? metrics().headBaseline : metrics().bodyBaseline; }
 
 static int widthIn(const GFXfont *font, const String &text) {
     int width = 0;
@@ -294,7 +336,7 @@ static int widthIn(const GFXfont *font, const String &text) {
 }
 
 int textWidth(uint8_t size, const String &text) { return widthIn(fontFor(size), text); }
-int buttonTextWidth(const String &text) { return widthIn(&FreeSans15pt7b, plain(text)); }
+int buttonTextWidth(const String &text) { return widthIn(metrics().button, plain(text)); }
 
 String plain(const String &text) {
     // Latin-1 letters from U+00C0 to U+00FF, as the unaccented letter each is built on.
@@ -359,7 +401,7 @@ void pillCells(int y, int h, int count, int cols, int &left, int &cell) {
     // The row is cut across the chord the round glass leaves it, not the whole width.
     h = min(h, BAND_MAX_HEIGHT);
     // A margin, or a pill's rounded ends meet the edge of the glass.
-    cell = max(0, roomAt(y, h) - 2 * PILL_MARGIN) / max(1, cols);
+    cell = max(0, roomAt(y, h) - 2 * metrics().pillMargin) / max(1, cols);
     // A row that is not full sits in the middle.
     left = (width() - cell * count) / 2;
 }
@@ -369,24 +411,25 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
     h = min(h, BAND_MAX_HEIGHT);
     int left = 0, cell = 0;
     pillCells(y, h, count, cols, left, cell);
-    const GFXfont *font = &FreeSans15pt7b;
+    const GFXfont *font = metrics().button;
+    const int gap = metrics().pillGap;
     band->fillRect(0, 0, w, h, RGB565_BLACK);
     band->setFont(font);
     band->setTextSize(1);
     band->setTextColor(textColor);
     band->setTextWrap(false);
     for (int i = 0; i < count; i++) {
-        const int x = left + i * cell + PILL_GAP, pw = cell - 2 * PILL_GAP, ph = h - 2 * PILL_GAP;
-        band->drawRoundRect(x, PILL_GAP, pw, ph, ph / 2, outline);
-        band->drawRoundRect(x + 1, PILL_GAP + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
+        const int x = left + i * cell + gap, pw = cell - 2 * gap, ph = h - 2 * gap;
+        band->drawRoundRect(x, gap, pw, ph, ph / 2, outline);
+        band->drawRoundRect(x + 1, gap + 1, pw - 2, ph - 2, ph / 2 - 1, outline);
         String shown = plain(labels[i]);
         const int room = pw - ph / 2;
         if (widthIn(font, shown) > room) {
             while (shown.length() > 1 && widthIn(font, shown + "..") > room) shown.remove(shown.length() - 1);
             shown += "..";
         }
-        // The letters are 21 pixels tall and stand on the cursor line.
-        band->setCursor(x + (pw - widthIn(font, shown)) / 2, PILL_GAP + (ph + 21) / 2 - 1);
+        // The capitals stand on the cursor line, buttonLetters tall.
+        band->setCursor(x + (pw - widthIn(font, shown)) / 2, gap + (ph + metrics().buttonLetters) / 2 - 1);
         band->print(shown);
     }
     pushBand(y, h);
@@ -400,8 +443,9 @@ void mirror(bool on) {
     }
 }
 
-void dump(Print &out) {
-    if (!shadow) {
+void dump(Print &out, bool asHeld) {
+    const uint16_t *copy = asHeld ? held : shadow;
+    if (!copy) {
         out.println("[shot] nothing kept");
         return;
     }
@@ -411,9 +455,9 @@ void dump(Print &out) {
         String line = "[shot] " + String(y) + " ";
         uint32_t sum = 0;
         for (int x = 0; x < LCD_WIDTH;) {
-            const uint16_t c = shadow[y * LCD_WIDTH + x];
+            const uint16_t c = copy[y * LCD_WIDTH + x];
             int n = 1;
-            while (x + n < LCD_WIDTH && shadow[y * LCD_WIDTH + x + n] == c) n++;
+            while (x + n < LCD_WIDTH && copy[y * LCD_WIDTH + x + n] == c) n++;
             char pair[10];
             snprintf(pair, sizeof pair, "%03x%04x", n, c);
             line += pair;

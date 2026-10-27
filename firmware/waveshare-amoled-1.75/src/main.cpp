@@ -35,6 +35,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"autoRotate", "Turn with the device", "toggle", "Screen", "The picture follows whichever way up the device is standing. Lying flat, it stays as it was.", "1", 0, 0, nullptr, nullptr},
     {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "0", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
+    {"textSize", "Text size", "choice", "Screen", "Size of the words and buttons; the face stays the same size.", "medium", 0, 0, nullptr, "small,medium,large"},
     {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Use the \"Show screen edges\" action: the ring should sit evenly inside the round edge, with the cross in the middle.", "6", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", nullptr, "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
@@ -223,6 +224,9 @@ static bool screenBlanked = false;
 // The console's `capsoff`: stands in for the capabilitiesOff setting, for trying it on the bench. Empty: the setting.
 static char capsOffTest[64] = "";
 static volatile uint32_t capsOffRequests = 0;
+// The console's `set textSize <size>`: stands in for that setting on the bench. Empty: the setting.
+static char textSizeTest[16] = "";
+static volatile uint32_t textSizeRequests = 0;
 
 /** True when `name` is one of the names, separated by commas, in `list`. */
 static bool listed(const String &list, const char *name) {
@@ -336,6 +340,12 @@ static void applySettings() {
     display::setRotation(wantedRotation());
     vortex::setRotation(wantedRotation());
     display::setBrightness(screenBlanked ? 0 : (uint8_t)constrain(client.settingInt("brightness", 200), 10, 255));
+    // A new text size moves every line and button, so the screen is cleared and laid out again.
+    const String size = textSizeTest[0] ? String(textSizeTest) : client.setting("textSize", "medium");
+    if (display::setTextSize(size == "small" ? 0 : size == "large" ? 2 : 1)) {
+        display::clear();
+        askDrawn = "";
+    }
     glow::setCorner((int)client.settingInt("glowCorner", 56));
     speaker::setVolume(speakerOff ? 0 : (int)client.settingInt("volume", 60));
     vortex::setIdleOff(client.setting("idleLooksOff").c_str());
@@ -715,7 +725,8 @@ static AskLayout askLayout() {
     for (int i = 0; i < state.choiceCount; i++) longest = max(longest, display::buttonTextWidth(state.choices[i]));
     // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit. The
     // cells share the chord of the narrowest (lowest) row, which on the round glass is less than the width.
-    const int need = longest + 54;
+    const display::Buttons &b = display::buttons();
+    const int need = longest + b.padding;
     const int lineH = display::lineHeight(2);
     const int bottom = askBottom();
 
@@ -733,13 +744,13 @@ static AskLayout askLayout() {
         // will take (the lowest or, on a full screen, perhaps the first), where they will actually be.
         for (l.cols = l.face ? n : min(n, n <= 3 ? 1 : 2);; l.cols--) {
             l.rows = (n + l.cols - 1) / l.cols;
-            l.rowHeight = room > 0 ? min(68, room / l.rows) : 0;
+            l.rowHeight = room > 0 ? min(b.rowMax, room / l.rows) : 0;
             const int first = l.face ? top + (room - l.rows * l.rowHeight) / 2 : top;
-            const int last = first + l.rows * max(30, l.rowHeight) - 1;
-            const int span = min(display::roomAt(first, 1), display::roomAt(last, 1)) - 34;  // pillCells keeps 17 each side
+            const int last = first + l.rows * max(b.rowFloor, l.rowHeight) - 1;
+            const int span = min(display::roomAt(first, 1), display::roomAt(last, 1)) - 2 * display::pillMargin();
             if (l.cols == 1 || span / l.cols >= need) break;
         }
-        if (l.rowHeight >= 48) {
+        if (l.rowHeight >= b.rowMin) {
             l.top = top + (room - l.rows * l.rowHeight) / 2;
             return l;
         }
@@ -750,7 +761,7 @@ static AskLayout askLayout() {
         while (l.questionTop < display::height() / 2 && questionRoom(l.questionTop, 0) < MIN_ROW_WIDTH) l.questionTop++;
     }
     l.top = l.questionTop + l.questionLines * lineH + 4;
-    l.rowHeight = max(30, l.rowHeight);
+    l.rowHeight = max(b.rowFloor, l.rowHeight);
     return l;
 }
 
@@ -1035,6 +1046,23 @@ void setup() {
             capsOffRequests++;
             return true;
         }
+        if (word == "set") {
+            // `set textSize large` acts as if Axis had sent that setting; `set textSize` alone goes back to it.
+            String key = rest, value;
+            const int space = rest.indexOf(' ');
+            if (space >= 0) {
+                key = rest.substring(0, space);
+                value = rest.substring(space + 1);
+                value.trim();
+            }
+            if (key != "textSize") {
+                logOut.println("[set] only textSize (small, medium, large)");
+                return true;
+            }
+            snprintf(textSizeTest, sizeof(textSizeTest), "%s", value.c_str());
+            textSizeRequests++;
+            return true;
+        }
         if (word == "preview") {
             int found = -1;
             for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
@@ -1085,6 +1113,11 @@ void setup() {
         if (word == "edges") {
             edgesUntil = millis() + 10000;
             edgesDrawn = false;
+            return true;
+        }
+        if (word == "shot" && rest == "held") {
+            // What the panel holds right now, as it is: for checking that nothing was left behind.
+            display::dump(logOut, true);
             return true;
         }
         if (word == "shot") {
@@ -1186,6 +1219,12 @@ void loop() {
             seenCapsOff = capsOffRequests;
             applySettings();
             logOut.printf("[capsoff] screen %d, speaker %d, mic %d\n", screenOff, speakerOff, micOff);
+        }
+        static uint32_t seenTextSize = 0;
+        if (textSizeRequests != seenTextSize) {
+            seenTextSize = textSizeRequests;
+            applySettings();
+            logOut.printf("[set] textSize %d (0 small, 1 medium, 2 large)\n", display::textSize());
         }
     }
     // A made-up state from the console (`preview`), laid over what Axis said, for a minute.

@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Round board firmware 0.3.1 (Waveshare 1.75) (2026-10-26)
+
+- **Text size from the admin page**: a `textSize` setting (Screen, "Text size": `small`, `medium`, `large`), applied at once without a restart; the face stays 288. `small` is 0.2.2's text (body FreeSans 9, headings Bold 12, buttons 12), `medium` is new and the default (11, Bold 14, 14; rows 26, 36 and up to 64 pixels), `large` is 0.3.0's (12, Bold 15, 15). The 11- and 14-point fonts are new, from GNU FreeFont by `firmware/tools/gfx_font.py`. Under the face: four body rows at small, three at medium and large. All the measures that change with the size are one table in `display.cpp`; a change clears the screen and lays everything out again.
+- Console: `set textSize <size>` stands in for the setting on the bench (`set textSize` alone goes back to it); `shot held` prints what the panel holds as it is, with nothing drawn again, and `tools/screen_shot.py --held` asks for it. Lines and pixels drawn straight to the panel (the bands the face leaves as it slides, the edge ring) now update the kept copy of the panel too, so a later write that is widened to even pixels no longer sends stale pixels back.
+- Client core (`firmware/common`, shared with the 1.8): a board's declared default that is not a number (here `medium`) is sent in `describe` as text; it was sent as 0. Every default the 1.8 declares is a number, so what it sends is unchanged (not rebuilt or flashed for this).
+
 ## Round board firmware 0.3.0 (Waveshare 1.75) (2026-10-26)
 
 - **Zoomed in about 1.2 times**, to use more of the round screen; the layout is otherwise the same. The face is drawn 288 pixels square (was 240; `-D VORTEX_SIZE=288`), with every size in it scaled (dots, wander, core, both kinds of icon), so it is the same face, bigger. Body text is FreeSans 12 point (was 9), headings FreeSans Bold 15 (was Bold 12), buttons FreeSans 15 (was 12), in rows of 28, 38 and up to 68 pixels (were 22, 30 and 56). The 15-point fonts are new, made from GNU FreeFont by `firmware/tools/gfx_font.py` the way the Adafruit GFX Library makes its own (it gives that library's 12-point fonts back, but for a few pixels in some letters).

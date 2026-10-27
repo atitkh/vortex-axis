@@ -1153,8 +1153,11 @@ struct Client::Impl {
             if (d.group) o["group"] = d.group;
             if (d.help) o["help"] = d.help;
             if (d.fallback) {
-                if (!strcmp(d.kind, "text")) o["default"] = d.fallback;
-                else o["default"] = atof(d.fallback);
+                char *end = nullptr;
+                const double number = strtod(d.fallback, &end);
+                // A choice of words (the round board's textSize) keeps its default as a word, not 0.
+                if (!strcmp(d.kind, "text") || end == d.fallback || *end != '\0') o["default"] = d.fallback;
+                else o["default"] = number;
             }
             if (!strcmp(d.kind, "number") && (d.min || d.max)) {
                 o["min"] = d.min;

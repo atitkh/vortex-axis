@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 # Asks a round 1.75 board for a picture of its screen (`shot` on its console) and writes it as a PNG.
 # Needs pyserial and Pillow. Rows lost on the way are asked for again; any still missing show dark magenta.
-#   python3 screen_shot.py OUT.png [--port /dev/ttyACM0] [--send "preview ask" --wait 2]...
-# Commands given with --send go first, e.g. to put a made-up state on the screen.
+#   python3 screen_shot.py OUT.png [--port /dev/ttyACM0] [--held] [--send "preview ask" --wait 2]...
+# Commands given with --send go first, e.g. to put a made-up state on the screen. --held asks for `shot held`: what
+# the panel holds as it is, nothing drawn again, so leftovers show (the face may tear, as it moves while rows go out).
 import sys, time, re, serial
 from PIL import Image, ImageDraw
 
 out = sys.argv[1]
 pre = []
 port = "/dev/ttyACM0"
+command = b"shot\n"
 args = sys.argv[2:]
 while args:
     a = args.pop(0)
     if a == "--port":
         port = args.pop(0)
+    elif a == "--held":
+        command = b"shot held\n"
     elif a == "--send":
         pre.append(("send", args.pop(0)))
     elif a == "--wait":
@@ -32,7 +36,7 @@ rows = {}
 W = H = 466
 for attempt in range(4):
     s.reset_input_buffer()
-    s.write(b"shot\n")
+    s.write(command)
     buf = b""
     start = time.time()
     while time.time() - start < 40:
