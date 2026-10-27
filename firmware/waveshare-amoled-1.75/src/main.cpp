@@ -36,6 +36,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "0", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
     {"textSize", "Text size", "choice", "Screen", "Size of the words and buttons; the face stays the same size.", "medium", 0, 0, nullptr, "small,medium,large"},
+    {"maxFps", "Frame rate limit", "choice", "Screen", "The most frames a second the screen draws. Higher is smoother but keeps the processor and the panel bus busier; the face and the glow cannot go faster than the board manages anyway.", "30", 0, 0, nullptr, "20,30,45,60"},
     {"idleFace", "Idle face size", "choice", "Screen", "How big the face is with the screen to itself. With words, a question or a timer to show it shrinks to its normal size at the top.", "large", 0, 0, nullptr, "normal,large,max"},
     {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Use the \"Show screen edges\" action: the ring should sit evenly inside the round edge, with the cross in the middle.", "6", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", nullptr, "60", 0, 100, "%", nullptr},
@@ -71,7 +72,8 @@ static const uint16_t COLOR_HEAD = 0xFFFF;
 static const uint16_t COLOR_BODY = 0xA554;  // light grey
 static const uint16_t COLOR_WARN = 0xFD20;  // amber
 static const uint16_t COLOR_LISTEN = 0x4FEA;  // soft green, as the listening face
-static const uint32_t FRAME_MS = 33;
+// The longest the screen loop waits between frames: the `maxFps` setting (30 by default; 60 is the ceiling, and a frame that takes longer than this still sets the pace).
+static uint32_t FRAME_MS = 33;
 // How long a finished exchange stays on screen before the face has it to itself again.
 static const uint32_t KEEP_TEXT_MS = 15000;
 // A brief gap while connecting is normal at boot; only call it a problem after this.
@@ -398,6 +400,8 @@ static void applySettings() {
         askDrawn = "";
     }
     // The idle face's size; the face goes there by itself (layout) when it has the screen to itself.
+    const long fps = constrain(client.settingInt("maxFps", 30), 15, 60);
+    FRAME_MS = (uint32_t)(1000 / fps);
     const String face = idleFaceTest[0] ? String(idleFaceTest) : client.setting("idleFace", "large");
     idleFace = IDLE_FACES[face == "normal" ? 0 : face == "max" ? 2 : 1];
     glow::setCorner((int)client.settingInt("glowCorner", 56));
@@ -1347,7 +1351,7 @@ void loop() {
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
-    const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 0.033f;
+    const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 1.0f / 30.0f;
     if (faceStill && lastFrame) stillMs += started - lastFrame;
     lastFrame = started;
 
