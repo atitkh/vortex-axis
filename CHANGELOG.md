@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.55.0 (2026-10-27)
+
+The new admin page, stage 4 of `docs/admin-revamp/ia.md` section 4.1: Agent and voice at `/admin-next` (`web/adm-agent.js`). The classic `/admin` is unchanged.
+
+- **Who answers** (`#agent`): the OpenClaw gateway (agent from the gateway's list, note to the agent with the built-in one shown) or another chat endpoint (address, model, token kept when left empty, system prompt), Test this endpoint without saving.
+- **OpenClaw gateway** (`#openclaw`): the turn and command links, the error, What Axis relies on with Check again, the gateway address, Reconnect, Pair with a setup code, the device id, the pairing steps with the commands to allow (open while not paired), and the agent's progress cards, questions and approvals switches with the scope line (moved here from Tools). The sidebar marks it "setup" or "down" as the classic page does.
+- **Tools and MCP** (`#tools`): a switch per tool, Try a tool with its form drawn from the tool's parameters (Send to, Sends, the restart question for a reboot), the desktop block list, the MCP address and settings to copy, the public-name switch, tokens made once and revoked after asking.
+- **Speech** (`#speech`): custom STT and TTS with keys kept when left empty, Test both, and the realtime voice (Devices use, Voice from, Try it; "needs OpenClaw" otherwise).
+- **Voices** (`#voices`, was the bottom of Speech): voice recognition settings with the guest fields that fit, taught voices (forget one recording or a whole voice after asking, Record 5 s), Add a voice, Check my voice, Heard lately with "That was <name>".
+- Settings on these pages are staged: a save bar per page, Save and Undo, the leave question; actions (Test, Pair, Reconnect, Check again, Try it, tokens, recording) run at once.
+- The health strip, the attention list, Getting started and the History service strips open these pages; the command bar gains Back up now, Check the gateway again and Reconnect gateway.
+- `npm run browser-check` drives the five pages (endpoint test, staged save and Undo, bad setup code, a mirror switch, a token made and a tool switched off reaching MCP, Try a tool, speech test, realtime voice, sample rate refused, voice settings and a voice added and forgotten, the command bar's Reconnect, phone width).
+
 ## Axis 0.54.0 (2026-10-27)
 
 The new admin page, stage 3 of `docs/admin-revamp/ia.md` section 4.1: the Overview and Activity at `/admin-next` (`web/adm-activity.js`). The classic `/admin` is unchanged.
