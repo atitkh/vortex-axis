@@ -22,11 +22,44 @@ namespace vortex {
 const int SIZE = VORTEX_SIZE;
 /** How much bigger than the specification's 240 the face is drawn. */
 const float SCALE = SIZE / 240.0f;
+/**
+ * The biggest it may be drawn (setSize), which is what the buffer is made for. A board that changes the face's
+ * size as it goes sets VORTEX_MAX_SIZE; otherwise it is always SIZE.
+ */
+#ifndef VORTEX_MAX_SIZE
+#define VORTEX_MAX_SIZE VORTEX_SIZE
+#endif
+const int MAX_SIZE = VORTEX_MAX_SIZE;
+
+/** A part of the frame, from (x0, y0) up to but not including (x1, y1). */
+struct Box {
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    bool empty() const { return x1 <= x0 || y1 <= y0; }
+};
 
 enum class Mode : uint8_t { Setup, Offline, Idle, Listening, Thinking, Speaking, Error };
 
 /** Allocates the buffer. False when there is no memory for it. */
 bool begin();
+
+/**
+ * Draws from the next frame on in a square `pixels` wide (even, up to MAX_SIZE; SIZE until called), everything in it
+ * to that scale. The frame's rows are then that long.
+ */
+void setSize(int pixels);
+int size();
+
+/**
+ * With this on, a frame blacks out only what the one before drew instead of the whole square. Off by default: a
+ * caller that lays anything else into the frame must then black it out again itself.
+ */
+void setLazyClear(bool on);
+/** The part of the last frame that the face drew on; all of the rest is black. */
+Box drawn();
+/** With lazy clearing on: the part of row `y` of the last frame the face drew on, x0 up to x1. False when none. */
+bool drawnRow(int y, int &x0, int &x1);
+/** Diagnostics: the farthest the figure has reached from the middle of its square, in pixels, since this was last asked. */
+float farthest();
 
 void setMode(Mode mode);
 

@@ -36,6 +36,7 @@ static const axis::SettingDef SETTINGS[] = {
     {"rotation", "Screen rotation", "choice", "Screen", "Used when turning with the device is off, and until the device knows which way up it is.", "0", 0, 0, "degrees", "0,90,180,270"},
     {"brightness", "Brightness", "number", "Screen", nullptr, "200", 10, 255, nullptr, nullptr},
     {"textSize", "Text size", "choice", "Screen", "Size of the words and buttons; the face stays the same size.", "medium", 0, 0, nullptr, "small,medium,large"},
+    {"idleFace", "Idle face size", "choice", "Screen", "How big the face is with the screen to itself. With words, a question or a timer to show it shrinks to its normal size at the top.", "large", 0, 0, nullptr, "normal,large,max"},
     {"screenOffset", "Picture offset", "number", "Screen", "Slides the picture sideways across the panel. Use the \"Show screen edges\" action: the ring should sit evenly inside the round edge, with the cross in the middle.", "6", 0, 40, "pixels", nullptr},
     {"volume", "Volume", "number", "Sound", nullptr, "60", 0, 100, "%", nullptr},
     {"listenCue", "Listening cue", "toggle", "Sound", "A short rising tone when it starts listening after a wake word or a tap.", "1", 0, 0, nullptr, nullptr},
@@ -186,8 +187,24 @@ static const uint16_t COLOR_DIM = 0x528A;   // steps already behind
 static const uint16_t COLOR_OTHER = 0x7BEF; // the other tasks in the list
 static const uint16_t COLOR_BAR = 0x6EBD;   // the idle face's cyan
 static const uint16_t COLOR_DONE = 0x57EA;  // green
-// Where the top of the face is now. -1 until it has been placed once.
-static int faceY = -1;
+// The face's place and size. With the screen to itself it sits in the middle at the idleFace setting's size; with text,
+// a question or a timer it is TEXT_FACE (vortex::SIZE) at the top. Between the two it slides and grows or shrinks at
+// once, over MOVE_MS. faceY is -1 until it has been placed, which puts it where it should be at once.
+static const int TEXT_FACE = vortex::SIZE;
+// normal, large and max: at its widest (the "open" look) the figure stays about 55 pixels from the glass at 360, 45 at 380.
+static const int IDLE_FACES[] = {TEXT_FACE, 360, vortex::MAX_SIZE};
+static int idleFace = IDLE_FACES[1];
+static int faceY = -1, faceSide = TEXT_FACE;
+static int fromY = 0, fromSide = TEXT_FACE, toY = -1, toSide = TEXT_FACE;
+static uint32_t moveStarted = 0;
+// Where the face was last sent (or would have been, when it is not drawn). Text goes on screen only once the face has
+// been sent at its place: that frame blacks out what the one before it left, which would otherwise wipe new text.
+static int sentFaceY = -1, sentFaceSide = 0;
+static const uint32_t MOVE_MS = 300;
+// The console's `still`: the face is drawn and sent as usual but does not move, so `shot held` shows what the panel holds without tearing.
+static volatile bool faceStill = false;
+// Time the face has been held still for, which the face's moves (moveFace) leave out, so a move can be caught half done.
+static uint32_t stillMs = 0;
 // The notification light: when the last task finish was seen, the flash's end, and whether a glow is up.
 static uint8_t seenTaskState = 0;
 static uint32_t doneFlashUntil = 0;
@@ -224,8 +241,11 @@ static bool screenBlanked = false;
 // The console's `capsoff`: stands in for the capabilitiesOff setting, for trying it on the bench. Empty: the setting.
 static char capsOffTest[64] = "";
 static volatile uint32_t capsOffRequests = 0;
-// The console's `set textSize <size>`: stands in for that setting on the bench. Empty: the setting.
+// The console's `set textSize <size>` and `set idleFace <size>`: stand in for those settings on the bench. Empty: the setting.
 static char textSizeTest[16] = "";
+static char idleFaceTest[16] = "";
+// The console's `set idleLook <name>`: only that idle look, for measuring one look at a time. Empty: the idleLooksOff setting.
+static char idleLookTest[16] = "";
 static volatile uint32_t textSizeRequests = 0;
 
 /** True when `name` is one of the names, separated by commas, in `list`. */
@@ -254,10 +274,38 @@ static void listSteps();
 static const int MIN_ROW_WIDTH = 270;
 /** Where the face sits while there is text under it: at the top, its round figure still inside the circle. */
 static int faceTop() { return 0; }
-/** Where the face sits when it has the screen to itself. Even, as is its left edge, so the panel takes it as it is (see display.cpp). */
-static int faceMiddle() { return ((display::height() - vortex::SIZE) / 2) & ~1; }
-static int faceLeft() { return ((display::width() - vortex::SIZE) / 2) & ~1; }
-static int headTop() { return faceTop() + vortex::SIZE + 4; }
+/** Where a face `side` wide sits when it has the screen to itself. Even, as is its left edge, so the panel takes it as it is (see display.cpp). */
+static int faceMiddle(int side) { return ((display::height() - side) / 2) & ~1; }
+static int faceLeft(int side = faceSide) { return ((display::width() - side) / 2) & ~1; }
+static int headTop() { return faceTop() + TEXT_FACE + 4; }
+
+/**
+ * Takes the face towards top `y` at size `side`: at once when it has not been placed, otherwise both together over
+ * MOVE_MS, eased in and out. A new target on the way starts from where it is. True once it is there.
+ */
+static bool moveFace(int y, int side) {
+    const uint32_t now = millis() - stillMs;
+    if (faceY < 0) {
+        // Placed at once: everything round it was just cleared.
+        faceY = toY = sentFaceY = y;
+        faceSide = toSide = sentFaceSide = side;
+        return true;
+    }
+    if (y != toY || side != toSide) {
+        fromY = faceY;
+        fromSide = faceSide;
+        toY = y;
+        toSide = side;
+        moveStarted = now;
+    }
+    if (faceY == toY && faceSide == toSide) return sentFaceY == toY && sentFaceSide == toSide;
+    const float t = min(1.0f, (now - moveStarted) / (float)MOVE_MS);
+    const float k = t * t * (3.0f - 2.0f * t);
+    // Even, so the panel takes the square as it is.
+    faceY = t >= 1.0f ? toY : (fromY + (int)lroundf((toY - fromY) * k)) & ~1;
+    faceSide = t >= 1.0f ? toSide : (fromSide + (int)lroundf((toSide - fromSide) * k)) & ~1;
+    return false;
+}
 static int bodyTop() { return headTop() + display::lineHeight(3); }
 /** How wide body row `i` may be, with a margin. */
 static int bodyRoom(int i) { return display::roomAt(bodyTop() + i * display::lineHeight(2), display::lineHeight(2)) - 16; }
@@ -277,6 +325,9 @@ static int wantedRotation() {
 static uint32_t edgesUntil = 0;
 // Console `shot` requests, counted up on the client's task and taken on the screen loop.
 static volatile uint32_t shotRequests = 0;
+// The console's `fps`: the frame rate since the last time it was asked, printed by the screen loop.
+static volatile uint32_t fpsRequests = 0, benchRequests = 0;
+static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicros = 0;
 // A JPEG sent over the cable (`pcm picture`), shown by the screen loop.
 static const uint8_t *volatile testPicture = nullptr;
 static volatile size_t testPictureSize = 0;
@@ -346,9 +397,20 @@ static void applySettings() {
         display::clear();
         askDrawn = "";
     }
+    // The idle face's size; the face goes there by itself (layout) when it has the screen to itself.
+    const String face = idleFaceTest[0] ? String(idleFaceTest) : client.setting("idleFace", "large");
+    idleFace = IDLE_FACES[face == "normal" ? 0 : face == "max" ? 2 : 1];
     glow::setCorner((int)client.settingInt("glowCorner", 56));
     speaker::setVolume(speakerOff ? 0 : (int)client.settingInt("volume", 60));
-    vortex::setIdleOff(client.setting("idleLooksOff").c_str());
+    if (idleLookTest[0]) {
+        // Every other look off (vortex.cpp's IDLE names).
+        static const char *const LOOKS[] = {"calm", "breathe", "unwind", "open", "curl", "drift", "shimmer", "galaxy", "tendril", "bloom", "pinwheel", "deep", "orbit", "sway"};
+        String off;
+        for (const char *look : LOOKS) if (strcmp(look, idleLookTest)) off += String(look) + ",";
+        vortex::setIdleOff(off.c_str());
+    } else {
+        vortex::setIdleOff(client.setting("idleLooksOff").c_str());
+    }
     vortex::setIconStyle(client.setting("toolIcons").c_str());
     vortex::setIconTuning((int)client.settingInt("toolIconMs", 700), (int)client.settingInt("toolIconDots", 78));
     mic::setWakeEnabled(!micOff && client.settingInt("wakeListen", 1) != 0);
@@ -443,19 +505,10 @@ static void show(const String &head, uint16_t headColor, const String &body) {
  */
 static void layout() {
     const bool text = !wantHead.isEmpty() || !wantBody.isEmpty() || wantListCount > 0;
-    const int target = text ? faceTop() : faceMiddle();
-    if (faceY < 0) faceY = target;
-    if (faceY != target) {
-        const int distance = target - faceY;
-        const int step = constrain(distance / 5, -24, 24);
-        const int next = faceY + (step != 0 ? step : (distance > 0 ? 1 : -1));
-        // Black out the rows the face is leaving, or it would smear.
-        if (next < faceY) display::clearBand(next + vortex::SIZE, faceY - next);
-        else display::clearBand(faceY, next - faceY);
-        faceY = next;
-    }
-    // The text area is under the face until the face has reached the top.
-    if (text && faceY != faceTop()) return;
+    // What the face leaves on its way is blacked out as it is sent (sendFace).
+    const bool there = text ? moveFace(faceTop(), TEXT_FACE) : moveFace(faceMiddle(idleFace), idleFace);
+    // The text area is under the face until the face has reached the top at its small size.
+    if (text && !there) return;
 
     const String head = text ? wantHead : String("");
     const int bar = text ? wantBar : -1;
@@ -488,37 +541,126 @@ static void layout() {
     redrawAll = false;
 }
 
-// Whether the panel holds the last face frame sent, where it was sent: then rows black in both need not go again.
-// Anything else drawn over the face's place is followed by a clear, so those rows are black on the panel too.
+// Whether the panel holds what the last face frame drew, and where (panel coordinates: the box x0 y0 to x1 y1, and in
+// each panel row the columns sentFrom up to sentTo): only that and what this frame draws need to go out, since
+// everything else in the square is black on the panel already. A clear of the screen (counted by display::clears) or
+// anything drawn where the face was makes that unknown again.
 static bool faceSent = false;
+static int sentX0 = 0, sentY0 = 0, sentX1 = 0, sentY1 = 0;
+static int16_t sentFrom[466], sentTo[466];
+static uint32_t faceClears = 0;
+// What the face sent last, which the edge glow leaves to it (and the face lays the glow into).
+static glow::Rect faceKeep;
 
-/** Sends a face frame, leaving out the rows above and below the figure that were black last time as well. */
-static void sendFace(const uint16_t *frame, int x, int y) {
-    static int sentX = 0, sentY = 0, sentFirst = 0, sentEnd = 0;
-    const int n = vortex::SIZE;
-    // Two pixels at a time (SIZE is even); black is 0.
-    const uint32_t *pairs = (const uint32_t *)frame;
-    auto black = [&](int row) {
-        for (int i = 0; i < n / 2; i++) if (pairs[row * (n / 2) + i]) return false;
-        return true;
-    };
-    int first = 0, end = n;
-    while (first < end && black(first)) first++;
-    while (end > first && black(end - 1)) end--;
-    // Where the frame lands on the panel, which also changes with the rotation.
+/**
+ * Sends what a face frame (`n` wide, logical top left at x, y) drew and what the last one drew, row by row, and blacks
+ * out what the last one drew outside the square (when the face has moved or shrunk). Where the edge glow's ring runs
+ * through the part sent, the glow is laid into the frame and sent with it.
+ */
+static void sendFace(uint16_t *frame, int x, int y, int n) {
+    if (display::clears() != faceClears) {
+        faceClears = display::clears();
+        faceSent = false;
+    }
+    // Where the frame lands on the panel, which also changes with the rotation. Even, as are n and every span below.
     int px, py;
     display::squareOnPanel(x, y, n, px, py);
-    int from = 0, to = n;
-    if (faceSent && px == sentX && py == sentY) {
-        from = first < end ? min(first, sentFirst) : sentFirst;
-        to = first < end ? max(end, sentEnd) : sentEnd;
+    const bool last = faceSent && sentX1 > sentX0 && sentY1 > sentY0;
+    if (last) {
+        // Last time's drawing outside the square now, left behind as the face moved or shrank, is blacked out, or it
+        // would smear. Inside the square it goes out again below (black where nothing is drawn now).
+        const int top = min(sentY1, py), bottom = max(sentY0, py + n);
+        if (top > sentY0) display::fillPanel(sentX0, sentY0, sentX1 - sentX0, top - sentY0, 0);
+        if (sentY1 > bottom) display::fillPanel(sentX0, bottom, sentX1 - sentX0, sentY1 - bottom, 0);
+        const int midTop = max(sentY0, py), midBottom = min(sentY1, py + n);
+        if (midBottom > midTop) {
+            if (px > sentX0) display::fillPanel(sentX0, midTop, min(sentX1, px) - sentX0, midBottom - midTop, 0);
+            if (sentX1 > px + n) display::fillPanel(max(sentX0, px + n), midTop, sentX1 - max(sentX0, px + n), midBottom - midTop, 0);
+        }
     }
-    if (to > from) display::blitSquare(x, y, n, frame, from, to);
+    // Each row of the frame: what is drawn now and what was there last time, in whole pairs of columns (frame coordinates).
+    static int16_t from[vortex::MAX_SIZE], to[vortex::MAX_SIZE];
+    int bx0 = n, by0 = n, bx1 = 0, by1 = 0;
+    for (int j = 0; j < n; j++) {
+        int a = n, b = 0, x0, x1;
+        if (vortex::drawnRow(j, x0, x1)) a = x0, b = x1;
+        const int row = py + j;
+        if (last && row >= sentY0 && row < sentY1 && sentTo[row] > sentFrom[row]) {
+            a = min(a, max(0, sentFrom[row] - px));
+            b = max(b, min(n, sentTo[row] - px));
+        }
+        if (b > a) {
+            a &= ~1;
+            b = min(n, (b + 1) & ~1);
+            bx0 = min(bx0, a), bx1 = max(bx1, b), by0 = min(by0, j), by1 = max(by1, j + 1);
+        }
+        from[j] = a;
+        to[j] = b;
+    }
+    by0 &= ~1;
+    by1 = min(n, (by1 + 1) & ~1);
+    // What this frame drew, for next time (panel coordinates).
+    for (int row = sentY0; row < sentY1; row++) sentFrom[row] = sentTo[row] = 0;
+    sentX0 = sentY0 = sentX1 = sentY1 = 0;
+    {
+        int x0 = 0, x1 = 0, first = -1, end = -1;
+        for (int j = 0; j < n; j++) {
+            if (!vortex::drawnRow(j, x0, x1)) continue;
+            const int row = py + j;
+            sentFrom[row] = (px + x0) & ~1;
+            sentTo[row] = min(px + n, (px + x1 + 1) & ~1);
+            if (first < 0) first = j, sentX0 = sentFrom[row], sentX1 = sentTo[row];
+            sentX0 = min(sentX0, (int)sentFrom[row]);
+            sentX1 = max(sentX1, (int)sentTo[row]);
+            end = j + 1;
+        }
+        if (first >= 0) sentY0 = py + (first & ~1), sentY1 = py + min(n, (end + 1) & ~1);
+    }
     faceSent = true;
-    sentX = px;
-    sentY = py;
-    sentFirst = first < end ? first : 0;
-    sentEnd = first < end ? end : 0;
+    if (bx1 <= bx0 || by1 <= by0) {
+        faceKeep = {};
+        return;
+    }
+    // The notification light runs on across the face where they meet (the face at the top, or big in the middle). The
+    // ring leaves the face's box alone, so where it runs through the box it goes out with the face: those rows are
+    // sent out to the ring's ends inside the box.
+    // The frame after the glow has gone sends those rows once more, untinted, as the ring leaves them to the face.
+    static bool tintedLast = false;
+    const bool tinted = glow::tint(frame, px, py, n, bx0, by0, bx1, by1);
+    const bool ringRows = tinted || tintedLast;
+    tintedLast = tinted;
+    if (ringRows) {
+        for (int j = by0; j < by1; j++) {
+            for (int r = 0; r < 2; r++) {
+                int a, b;
+                if (!glow::ringRow(py + j, r, a, b)) continue;
+                a = max(bx0, (a - px) & ~1), b = min(bx1, (b - px + 1) & ~1);
+                if (b <= a) continue;
+                from[j] = min((int)from[j], a);
+                to[j] = max((int)to[j], b);
+            }
+        }
+    }
+    // Pairs of rows, gathered into one write while the widest span among them times their rows stays within the
+    // driver's 1024 pixels and they are about as wide.
+    for (int j = by0; j < by1;) {
+        int a = min(from[j], from[j + 1]), b = max(to[j], to[j + 1]);
+        int rows = 2;
+        if (b <= a) {
+            j += 2;
+            continue;
+        }
+        while (j + rows + 1 < by1) {
+            const int na = min(a, (int)min(from[j + rows], from[j + rows + 1])), nb = max(b, (int)max(to[j + rows], to[j + rows + 1]));
+            if (to[j + rows] <= from[j + rows] && to[j + rows + 1] <= from[j + rows + 1]) break;
+            if ((nb - na) * (rows + 2) > 1024 || (nb - na) > (b - a) + 16) break;
+            a = na, b = nb, rows += 2;
+        }
+        display::blitFrame(px, py, n, frame, a, j, b, j + rows);
+        j += rows;
+    }
+    if (tinted) glow::untint(frame, px, py, n, bx0, by0, bx1, by1);
+    faceKeep = {px + bx0, py + by0, bx1 - bx0, by1 - by0};
 }
 
 /** Turns the core's state into a face mode and the text under it. */
@@ -733,7 +875,7 @@ static AskLayout askLayout() {
     AskLayout l;
     // First choice: everything under the face, where replies go.
     l.face = true;
-    l.questionTop = faceTop() + vortex::SIZE + 2;
+    l.questionTop = faceTop() + TEXT_FACE + 2;
     for (;;) {
         String lines[3];
         const int top0 = l.questionTop;
@@ -865,7 +1007,7 @@ static void onTap() {
 
 // ---- diagnostics: `preview NAME` puts a made-up state on the screen for a minute ----------------
 // For checking the round layout without Axis: what Axis would send is laid over the snapshot.
-static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup"};
+static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup", "idle"};
 static const int PREVIEW_COUNT = sizeof PREVIEWS / sizeof PREVIEWS[0];
 static volatile int previewWanted = -1;
 static volatile uint32_t previewRequests = 0;
@@ -877,7 +1019,14 @@ static void applyPreview(axis::Snapshot &s, uint32_t now) {
     s.link = axis::Link::Online;
     s.openclawUp = s.sttUp = s.ttsUp = true;
     s.turn = axis::Turn::Idle;
-    if (!strncmp(name, "ask", 3)) {
+    if (!strcmp(name, "idle")) {
+        // Nothing to say, whatever Axis has on: the face with the screen to itself.
+        s.reply = s.transcript = s.note = s.question = "";
+        s.choiceCount = 0;
+        s.taskCount = 0;
+        s.timerCount = 0;
+        s.updatePercent = -1;
+    } else if (!strncmp(name, "ask", 3)) {
         static const char *const SHORT[] = {"Tea", "Coffee"};
         static const char *const FOUR[] = {"Kitchen", "Living room", "Bedroom", "Office"};
         static const char *const SIX[] = {"Turn them all off", "Only the kitchen", "Leave the hall on", "Dim to half", "Ask me later", "Never mind"};
@@ -944,6 +1093,8 @@ void setup() {
 
     const bool displayOk = display::begin();
     const bool faceOk = vortex::begin();
+    // sendFace blacks out what the glow laid into the frame (glow::untint), so a frame only blacks out what was drawn.
+    vortex::setLazyClear(true);
     logOut.printf("[boot] display %s, face buffer %s, heap %u, psram %u\n", displayOk ? "started" : "FAILED",
                      faceOk ? "ok" : "FAILED", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
     if (!faceOk) {
@@ -1047,7 +1198,7 @@ void setup() {
             return true;
         }
         if (word == "set") {
-            // `set textSize large` acts as if Axis had sent that setting; `set textSize` alone goes back to it.
+            // `set textSize large` acts as if Axis had sent that setting; `set textSize` alone goes back to it. The same for idleFace.
             String key = rest, value;
             const int space = rest.indexOf(' ');
             if (space >= 0) {
@@ -1055,11 +1206,13 @@ void setup() {
                 value = rest.substring(space + 1);
                 value.trim();
             }
-            if (key != "textSize") {
-                logOut.println("[set] only textSize (small, medium, large)");
+            if (key != "textSize" && key != "idleFace" && key != "idleLook") {
+                logOut.println("[set] only textSize (small, medium, large), idleFace (normal, large, max) and idleLook (one look's name)");
                 return true;
             }
-            snprintf(textSizeTest, sizeof(textSizeTest), "%s", value.c_str());
+            if (key == "textSize") snprintf(textSizeTest, sizeof(textSizeTest), "%s", value.c_str());
+            else if (key == "idleFace") snprintf(idleFaceTest, sizeof(idleFaceTest), "%s", value.c_str());
+            else snprintf(idleLookTest, sizeof(idleLookTest), "%s", value.c_str());
             textSizeRequests++;
             return true;
         }
@@ -1107,7 +1260,24 @@ void setup() {
             return true;
         }
         if (word == "glow") {
-            if (!requestGlow(rest.c_str(), 15000)) logOut.println("[glow] one of: waiting question done timer find listening thinking speaking hands");
+            // `glow timer 60`: for that many seconds (15 when not given).
+            const int space = rest.indexOf(' ');
+            const int seconds = space > 0 ? rest.substring(space + 1).toInt() : 15;
+            const String kind = space > 0 ? rest.substring(0, space) : rest;
+            if (!requestGlow(kind.c_str(), (uint32_t)constrain(seconds, 1, 600) * 1000)) logOut.println("[glow] one of: waiting question done timer find listening thinking speaking hands, then seconds");
+            return true;
+        }
+        if (word == "still") {
+            faceStill = rest != "off";
+            logOut.printf("[still] the face %s\n", faceStill ? "holds still" : "moves");
+            return true;
+        }
+        if (word == "bench") {
+            benchRequests++;
+            return true;
+        }
+        if (word == "fps") {
+            fpsRequests++;
             return true;
         }
         if (word == "edges") {
@@ -1178,6 +1348,7 @@ void loop() {
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
     const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 0.033f;
+    if (faceStill && lastFrame) stillMs += started - lastFrame;
     lastFrame = started;
 
     // `shot` on the console: everything drawn again, so the kept copy holds the whole screen.
@@ -1224,7 +1395,7 @@ void loop() {
         if (textSizeRequests != seenTextSize) {
             seenTextSize = textSizeRequests;
             applySettings();
-            logOut.printf("[set] textSize %d (0 small, 1 medium, 2 large)\n", display::textSize());
+            logOut.printf("[set] textSize %d (0 small, 1 medium, 2 large), idleFace %d pixels\n", display::textSize(), idleFace);
         }
     }
     // A made-up state from the console (`preview`), laid over what Axis said, for a minute.
@@ -1306,6 +1477,15 @@ void loop() {
                                       : glow::State::None;
             const float level = doing == glow::State::Listening ? mic::level() : doing == glow::State::Speaking ? speaker::level() : -1.0f;
             glow::update(pictureFrame, doing, level);
+            // `fps` over a picture: only the glow is drawn.
+            static uint32_t seenFpsPicture = 0;
+            if (fpsRequests != seenFpsPicture) {
+                seenFpsPicture = fpsRequests;
+                uint32_t gm, gs, gp, gn;
+                glow::stats(gm, gs, gp, gn);
+                logOut.printf("[fps] over a picture: glow %d, level %.2f; %.1f ms working out, %.1f ms sending, %u pixels in %u pieces\n",
+                              (int)doing, level, gm / 1000.0f, gs / 1000.0f, (unsigned)gp, (unsigned)gn);
+            }
             return;
         }
         pictureUntil = 0;
@@ -1351,15 +1531,16 @@ void loop() {
         askDrawn = "";
         display::clear();
         redrawAll = true;
-        faceY = -1;
+        // The face stays where it was and goes from there: up and smaller for a question, back for the idle screen.
     }
     bool drawFace = !facePaused;
     if (askShown) {
         const AskLayout l = askLayout();
-        drawAsk(l);
-        if (touch::poll() == touch::Gesture::Tap) onAskTap(l);
+        // The question and its buttons wait for the face to reach the top at its small size, as text does.
+        const bool there = moveFace(faceTop(), TEXT_FACE);
+        if (there || !l.face) drawAsk(l);
+        if (touch::poll() == touch::Gesture::Tap && (there || !l.face)) onAskTap(l);
         drawFace = drawFace && l.face;
-        faceY = faceTop();
         vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
     } else {
         // Text also depends on time (messages that expire), so it is rechecked a few times a second.
@@ -1375,17 +1556,25 @@ void loop() {
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
     if (drawFace) {
+        if (faceY < 0) moveFace(faceTop(), TEXT_FACE);
+        vortex::setSize(faceSide);
         const uint32_t t0 = micros();
-        const uint16_t *frame = vortex::render(min(seconds, 0.1f));
-        renderMicros += micros() - t0;
-        // The notification light runs on across the face where they meet (the face drawn at the top, sideways).
-        // The face draws a fresh frame each time, so laying the glow into it leaves nothing behind.
-        glow::tint(const_cast<uint16_t *>(frame), faceLeft(), faceY, vortex::SIZE);
-        sendFace(frame, faceLeft(), faceY);
+        uint16_t *frame = const_cast<uint16_t *>(vortex::render(faceStill ? 0.0f : min(seconds, 0.1f)));
+        const uint32_t t1 = micros();
+        renderMicros += t1 - t0;
+        sendFace(frame, faceLeft(), faceY, faceSide);
+        sentFaceY = faceY;
+        sentFaceSide = faceSide;
         drawMicros += micros() - t0;
         frames++;
+        fpsFrames++;
+        fpsDrawMicros += micros() - t0;
+        fpsFaceMicros += t1 - t0;
     } else {
         faceSent = false;
+        faceKeep = {};
+        sentFaceY = faceY;
+        sentFaceSide = faceSide;
     }
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
@@ -1475,14 +1664,38 @@ void loop() {
             }
         }
         if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
-        glow::Rect face;
-        if (drawFace) face = {faceLeft(), faceY, vortex::SIZE, vortex::SIZE};
-        glow::update(nullptr, notice, level, face, sweep);
+        const uint32_t g0 = micros();
+        glow::update(nullptr, notice, level, faceKeep, sweep);
+        fpsGlowMicros += micros() - g0;
         // Text the glow lay over is drawn again once it is gone.
         if (notice == glow::State::None && noticeShown) redrawAll = true;
         noticeShown = notice != glow::State::None;
     }
 
+    {
+        static uint32_t seenBench = 0;
+        if (benchRequests != seenBench) {
+            seenBench = benchRequests;
+            display::bench(logOut);
+        }
+        // `fps` on the console: face frames and the time spent on them since it was last asked.
+        static uint32_t seenFps = 0, fpsFrom = 0;
+        if (fpsRequests != seenFps) {
+            seenFps = fpsRequests;
+            logOut.printf("[fps] %.1f fps over %.1f s, %.1f ms a face frame (%.1f rendering it), edge glow %.1f ms a second, heap %u (low %u)\n",
+                          fpsFrames * 1000.0f / max(1u, (unsigned)(started - fpsFrom)), (started - fpsFrom) / 1000.0f,
+                          fpsDrawMicros / 1000.0f / max(1u, (unsigned)fpsFrames), fpsFaceMicros / 1000.0f / max(1u, (unsigned)fpsFrames),
+                          fpsGlowMicros / max(1.0f, (float)(started - fpsFrom)), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+            // How close the figure came to the round edge of the glass, for the face's size and place now.
+            const float off = hypotf(faceLeft() + faceSide / 2.0f - (display::width() - 1) / 2.0f, faceY + faceSide / 2.0f - (display::height() - 1) / 2.0f);
+            logOut.printf("[fps] face %d at %d; the figure came within %.1f pixels of the glass\n", faceSide, faceY, display::RADIUS - (vortex::farthest() + off));
+            uint32_t gm, gs, gp, gn;
+            glow::stats(gm, gs, gp, gn);
+            logOut.printf("[fps] edge glow: %.1f ms working out, %.1f ms sending, %u pixels in %u pieces\n", gm / 1000.0f, gs / 1000.0f, (unsigned)gp, (unsigned)gn);
+            fpsFrom = started;
+            fpsFrames = fpsDrawMicros = fpsFaceMicros = fpsGlowMicros = 0;
+        }
+    }
     if (started - lastReport >= 60000) {
         logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u, largest piece %u)\n",
                          (unsigned long)(started / 1000), frames * 1000.0f / (started - lastReport),

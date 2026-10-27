@@ -30,11 +30,15 @@ void edges(uint16_t color);
 
 int width();
 int height();
+/** The rotation in force: 0, 90, 180 or 270. */
+int rotationDegrees();
 
 /** Turns a point in the panel's own coordinates, as the touch controller reports it, into logical ones. */
 void toLogical(int px, int py, int &x, int &y);
 /** Blacks out the whole panel. */
 void clear();
+/** How many times clear() has run, so a caller keeping track of what is on the panel knows when it was wiped. */
+uint32_t clears();
 
 /**
  * Sends a block of pixels whose content does not care about rotation (the
@@ -44,6 +48,21 @@ void clear();
 void blitSquare(int x, int y, int size, const uint16_t *pixels, int first = 0, int end = -1);
 /** Where blitSquare puts a square at logical (x, y): the panel position of its first pixel. */
 void squareOnPanel(int x, int y, int size, int &px, int &py);
+/** Turns a logical point into the panel's own coordinates: the reverse of toLogical. */
+void toPanel(int x, int y, int &px, int &py);
+
+/**
+ * In the panel's own coordinates, unturned: `pixels` is w by h, row by row, sent as it is at (x, y). Even x, y, w and h
+ * go out as they are; anything else is widened to the even window around it from the kept copy (h at most 2 then).
+ */
+void blitPanel(int x, int y, int w, int h, const uint16_t *pixels);
+/**
+ * Sends the part (x0, y0) to (x1, y1) of a square frame `stride` pixels wide whose first pixel sits at panel (px, py),
+ * unturned (the face's frame, as squareOnPanel places it). Keep all of it even.
+ */
+void blitFrame(int px, int py, int stride, const uint16_t *pixels, int x0, int y0, int x1, int y1);
+/** Fills a block of the panel, in its own coordinates, with one colour. */
+void fillPanel(int x, int y, int w, int h, uint16_t color);
 
 /**
  * Draws a whole screen's worth of pixels: `pixels` is width() by height(), row by row, in logical
@@ -105,6 +124,8 @@ int buttonTextWidth(const String &text);
  */
 String plain(const String &text);
 
+/** Diagnostics: prints what panel writes of a few shapes cost. */
+void bench(Print &out);
 /** Diagnostics: keeps a copy of everything sent to the panel from now on (or stops and frees it). */
 void mirror(bool on);
 /**

@@ -42,12 +42,40 @@ uint16_t *shadow = nullptr;
 uint16_t *held = nullptr;
 uint16_t windowBuf[LCD_WIDTH * 4];
 
+// The library turns each pixel's bytes round for the panel one at a time as it sends, which takes as long as the
+// sending; turned here into internal memory the panel's DMA reads from, and sent as they are, a write takes about half
+// as long (measured with `bench`: 460 by 2, 120 against 242 us).
+uint16_t *swapped = nullptr;
+const int SWAP_MAX = 1024;  // the driver's own limit for one write
+
+void send(int16_t x, int16_t y, const uint16_t *pixels, int16_t w, int16_t h) {
+    if (!swapped) swapped = (uint16_t *)heap_caps_malloc(SWAP_MAX * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    const int n = w * h;
+    if (!swapped || n > SWAP_MAX) return gfx->draw16bitRGBBitmap(x, y, const_cast<uint16_t *>(pixels), w, h);
+    // Two pixels at a time. The empty asm keeps the compiler from seeing a byte swap in this, which it would hand to a
+    // library call per word (twice as slow as doing it by hand).
+    uint32_t *to = (uint32_t *)swapped;
+    int i = 0;
+    if (((uintptr_t)pixels & 3) == 0) {
+        const uint32_t *from = (const uint32_t *)pixels;
+        for (; i < n / 2; i++) {
+            const uint32_t v = from[i];
+            uint32_t low = v & 0x00FF00FFu;
+            asm volatile("" : "+r"(low));
+            to[i] = (low << 8) | ((v >> 8) & 0x00FF00FFu);
+        }
+        i *= 2;
+    }
+    for (; i < n; i++) swapped[i] = (uint16_t)((pixels[i] << 8) | (pixels[i] >> 8));
+    gfx->draw16bitBeRGBBitmap(x, y, swapped, w, h);
+}
+
 void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
     if (!held) held = (uint16_t *)heap_caps_calloc(LCD_WIDTH * LCD_HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (held && w > 0 && h > 0 && !((x | y | w | h) & 1) && x >= 0 && y >= 0 && x + w <= LCD_WIDTH && y + h <= LCD_HEIGHT) {
         // Already even (the face, a frame at a time): kept and sent as it is.
         for (int j = 0; j < h; j++) memcpy(held + (y + j) * LCD_WIDTH + x, pixels + j * w, w * sizeof(uint16_t));
-        gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+        send(x, y, pixels, w, h);
         goto shadowed;
     }
     if (held && w > 0 && h > 0) {
@@ -63,11 +91,11 @@ void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
         const int ww = xe - x0, hh = ye - y0;
         if (ww > 0 && hh > 0 && ww * hh <= (int)(sizeof(windowBuf) / sizeof(windowBuf[0]))) {
             for (int j = 0; j < hh; j++) memcpy(windowBuf + j * ww, held + (y0 + j) * LCD_WIDTH + x0, ww * sizeof(uint16_t));
-            gfx->draw16bitRGBBitmap(x0, y0, windowBuf, ww, hh);
+            send(x0, y0, windowBuf, ww, hh);
             goto shadowed;
         }
     }
-    gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+    send(x, y, pixels, w, h);
 shadowed:
     if (!shadow) return;
     for (int j = 0; j < h; j++) {
@@ -187,13 +215,17 @@ int roomAt(int y, int h) {
     return 2 * (int)sqrtf(RADIUS * RADIUS - far * far);
 }
 
+int rotationDegrees() { return rotation; }
 int width() { return rotation == 0 || rotation == 180 ? LCD_WIDTH : LCD_HEIGHT; }
 int height() { return rotation == 0 || rotation == 180 ? LCD_HEIGHT : LCD_WIDTH; }
 
 // Every write below goes out one panel row at a time. The driver only sends
 // the address for the first 1024 pixels of a write, so fillScreen() and any
 // larger block fail after their first use; a row always stays under that.
+static uint32_t clearCount = 0;
+uint32_t clears() { return clearCount; }
 void clear() {
+    clearCount++;
     // Two rows at a time through the even-aligned path: single-row fills left the factory demo's picture showing.
     static uint16_t black[LCD_WIDTH * 2];
     memset(black, 0, sizeof(black));
@@ -255,6 +287,61 @@ void blitSquare(int x, int y, int size, const uint16_t *pixels, int first, int e
     for (int row = max(0, first) & ~1; row < end; row += rows) {
         bitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
     }
+}
+
+void toPanel(int x, int y, int &px, int &py) {
+    // The reverse of toLogical.
+    if (rotation == 90) {
+        px = y;
+        py = width() - 1 - x;
+    } else if (rotation == 180) {
+        px = LCD_WIDTH - 1 - x;
+        py = LCD_HEIGHT - 1 - y;
+    } else if (rotation == 270) {
+        px = height() - 1 - y;
+        py = x;
+    } else {
+        px = x;
+        py = y;
+    }
+}
+
+void blitPanel(int x, int y, int w, int h, const uint16_t *pixels) {
+    if (w <= 0 || h <= 0) return;
+    // As many whole rows per write as stay under the driver's 1024 pixels; pairs of them, for the panel.
+    const int rows = w > 512 ? 1 : max(2, (1024 / w) & ~1);
+    for (int row = 0; row < h; row += rows) bitmap(x, y + row, const_cast<uint16_t *>(pixels + row * w), w, min(rows, h - row));
+}
+
+void blitFrame(int px, int py, int stride, const uint16_t *pixels, int x0, int y0, int x1, int y1) {
+    const int w = x1 - x0;
+    if (w <= 0 || y1 <= y0) return;
+    if (w == stride) return blitPanel(px + x0, py + y0, w, y1 - y0, pixels + y0 * stride);
+    // Narrower than the frame: its rows are gathered into one piece for each write.
+    const int rows = max(2, (1024 / w) & ~1);
+    for (int y = y0; y < y1; y += rows) {
+        const int n = min(rows, y1 - y);
+        for (int j = 0; j < n; j++) memcpy(windowBuf + j * w, pixels + (y + j) * stride + x0, w * sizeof(uint16_t));
+        bitmap(px + x0, py + y, windowBuf, w, n);
+    }
+}
+
+void fillPanel(int x, int y, int w, int h, uint16_t color) {
+    x = max(0, x), y = max(0, y);
+    w = min(w, (int)LCD_WIDTH - x), h = min(h, (int)LCD_HEIGHT - y);
+    if (w <= 0 || h <= 0) return;
+    static uint16_t *solid = nullptr;  // PSRAM: internal memory is short
+    static uint16_t solidColor = 0;
+    static bool solidReady = false;
+    if (!solid) solid = (uint16_t *)heap_caps_malloc(1024 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!solid) return;
+    if (!solidReady || solidColor != color) {
+        for (int i = 0; i < 1024; i++) solid[i] = color;
+        solidColor = color;
+        solidReady = true;
+    }
+    const int rows = w > 512 ? 1 : max(2, (1024 / w) & ~1);
+    for (int row = 0; row < h; row += rows) bitmap(x, y + row, solid, w, min(rows, h - row));
 }
 
 /** Sends `h` rows of `src` (each width() wide) to the panel at logical `y`, turned to the current rotation. */
@@ -434,6 +521,50 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
     }
     pushBand(y, h);
 }
+void bench(Print &out) {
+    // Diagnostics: what writes of a few shapes cost, into the panel's top left corner (outside the round glass).
+    static const int SHAPES[][2] = {{16, 12}, {64, 12}, {300, 2}, {460, 2}, {32, 32}};
+    uint16_t *black = (uint16_t *)heap_caps_calloc(1024, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    uint16_t *dma = (uint16_t *)heap_caps_calloc(1024, sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (!black || !dma) return;
+    for (const auto &shape : SHAPES) {
+        const uint32_t t0 = micros();
+        for (int i = 0; i < 100; i++) bitmap(0, 0, black, shape[0], shape[1]);
+        const uint32_t t1 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitRGBBitmap(0, 0, black, shape[0], shape[1]);
+        const uint32_t t2 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitRGBBitmap(0, 0, dma, shape[0], shape[1]);
+        const uint32_t t3 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitBeRGBBitmap(0, 0, dma, shape[0], shape[1]);
+        const uint32_t t4 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitBeRGBBitmap(0, 0, black, shape[0], shape[1]);
+        out.printf("[bench] %dx%d: kept copy %.1f, straight %.1f, from internal %.1f, big-endian internal %.1f, big-endian PSRAM %.1f us\n",
+                   shape[0], shape[1], (t1 - t0) / 100.0f, (t2 - t1) / 100.0f, (t3 - t2) / 100.0f, (t4 - t3) / 100.0f, (micros() - t4) / 100.0f);
+    }
+    {
+        const uint32_t t0 = micros();
+        for (int i = 0; i < 100; i++) send(0, 0, black, 460, 2);
+        const uint32_t t1 = micros();
+        for (int i = 0; i < 100; i++) send(0, 0, dma, 460, 2);
+        const uint32_t t2 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitBeRGBBitmap(0, 0, swapped, 460, 2);
+        const uint32_t t3 = micros();
+        for (int i = 0; i < 100; i++) gfx->draw16bitBeRGBBitmap(0, 0, dma, 460, 2);
+        out.printf("[bench] send 460x2: from PSRAM %.1f, from internal %.1f us; buffer %p, dma %p; big-endian from it %.1f, from dma %.1f\n", (t1 - t0) / 100.0f, (t2 - t1) / 100.0f, swapped, dma, (t3 - t2) / 100.0f, (micros() - t3) / 100.0f);
+    }
+    // The bytes send() hands the panel against the ones the library's own pixel path makes, for random colours.
+    uint32_t *lib = (uint32_t *)heap_caps_malloc(1024 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (lib) {
+        for (int i = 0; i < 1024; i++) black[i] = (uint16_t)esp_random();
+        for (int i = 0; i < 512; i++) MSB_32_16_16_SET(lib[i], black[2 * i], black[2 * i + 1]);
+        send(0, 0, black, 32, 32);
+        out.printf("[bench] byte order the same as the library's: %s\n", swapped && !memcmp(lib, swapped, 2048) ? "yes" : "NO");
+        heap_caps_free(lib);
+    }
+    heap_caps_free(black);
+    heap_caps_free(dma);
+}
+
 void mirror(bool on) {
     if (on && !shadow) {
         shadow = (uint16_t *)heap_caps_calloc(LCD_WIDTH * LCD_HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
