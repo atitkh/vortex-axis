@@ -122,7 +122,8 @@ await sleep(600);
 await run(`localStorage.setItem('axis-admin-token', ${JSON.stringify(TOKEN)})`);
 
 async function shot(name, hash, { width = 1440, height = 900, theme = "dark", before, full = false } = {}) {
-  if (only && !name.includes(only)) return;
+  // Filters: comma-separated parts of names; "^x" for names starting with x.
+  if (only && !only.split(",").some((f) => (f.startsWith("^") ? name.startsWith(f.slice(1)) : name.includes(f)))) return;
   if (process.env.DEBUG) console.log("shot", name);
   await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 }, s);
   await run(`localStorage.setItem('axis.theme', '${theme}')`);
@@ -136,9 +137,13 @@ async function shot(name, hash, { width = 1440, height = 900, theme = "dark", be
   await sleep(900);
   const shotHeight = full ? Math.min(4000, await run("document.documentElement.scrollHeight")) : height;
   if (full) await call("Emulation.setDeviceMetricsOverride", { width, height: shotHeight, deviceScaleFactor: 1, mobile: width < 600 }, s);
-  const { result } = await call("Page.captureScreenshot", { format: "png" }, s);
-  writeFileSync(join(out, `${name}.png`), Buffer.from(result.data, "base64"));
-  console.log(`wrote ${name}.png`);
+  // SMALL=1: a JPEG at most 900 px wide, for reports.
+  const small = Boolean(process.env.SMALL);
+  const scale = small ? Math.min(1, 900 / width) : 1;
+  const ext = small ? "jpg" : "png";
+  const { result } = await call("Page.captureScreenshot", small ? { format: "jpeg", quality: 70, clip: { x: 0, y: 0, width, height: shotHeight, scale } } : { format: "png" }, s);
+  writeFileSync(join(out, `${name}.${ext}`), Buffer.from(result.data, "base64"));
+  console.log(`wrote ${name}.${ext}`);
 }
 
 const typing = (key, value) => `(i => { i.value = ${JSON.stringify(value)}; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('.banner ~ .edit-grid [data-edit=${key}], [data-edit=${key}]'))`;
@@ -146,6 +151,8 @@ const choose = (key, value) => `(i => { i.value = ${JSON.stringify(value)}; i.di
 const unsaved = `${typing("brightness", "180")}; ${choose("textSize", "large")}; window.scrollTo(0, 0)`;
 for (const theme of ["dark", "light"]) {
   await shot(`overview-${theme}`, "#overview", { theme });
+  await shot(`live-${theme}`, "#live", { theme });
+  await shot(`history-${theme}`, "#activity", { theme, full: true });
   await shot(`devices-${theme}`, "#clients", { theme });
   await shot(`device-overview-${theme}`, `#clients/${kitchen}`, { theme });
   await shot(`device-settings-${theme}`, `#clients/${kitchen}/settings`, { theme, before: unsaved });

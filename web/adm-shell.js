@@ -9,14 +9,15 @@ import {
 } from "/web/adm-core.js";
 import { AddDevice, AllDevices, Defaults, DevicePage, TypePage, DeviceCard, findAction } from "/web/adm-devices.js";
 import { Face } from "/web/adm-tools.js";
+import { History, Live, Overview, clearLive, focusSay } from "/web/adm-activity.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
 /** Every page, its group, and where it still lives in the classic admin until it is ported. */
 export const PAGES = {
   overview: { title: "Overview", purpose: "What needs attention, and how Axis has been doing." },
-  live: { title: "Live", group: "activity", classic: "live", purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
-  activity: { title: "History", group: "activity", classic: "overview", purpose: "Uptime, turn timings and events over the last day or week." },
+  live: { title: "Live", group: "activity", classic: "live", ported: true, purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
+  activity: { title: "History", group: "activity", classic: "overview", ported: true, purpose: "Uptime, turn timings and events over the last day or week." },
   clients: { title: "All devices", group: "devices" },
   settings: { title: "Defaults for everything", short: "Defaults", group: "devices" },
   face: { title: "Face and screen", group: "devices", classic: "face", purpose: "The vortex face's looks, idle looks and tool icons, for every device." },
@@ -186,17 +187,17 @@ export function attentionItems() {
   const data = store.activity;
   if (data) {
     const failed = data.recentTurns.filter((t) => t.outcome === "failed" && now - t.at < 3_600_000).length;
-    if (failed) add("bad", `${plural(failed, "turn")} failed in the last hour.`, "", classicHref("overview"));
+    if (failed) add("bad", `${plural(failed, "turn")} failed in the last hour.`, "", "#activity");
     const today = data.events.filter((e) => now - e.at < 86_400_000);
     const crashes = today.filter((e) => /without shutting down/.test(e.text)).length;
-    if (crashes) add("warn", `Axis stopped without shutting down ${crashes === 1 ? "once" : `${crashes} times`} in the last 24 hours.`, "", classicHref("overview"));
+    if (crashes) add("warn", `Axis stopped without shutting down ${crashes === 1 ? "once" : `${crashes} times`} in the last 24 hours.`, "", "#activity");
     const drops = today.filter((e) => e.kind === "client" && /stopped answering/.test(e.text)).length;
-    if (drops >= 3) add("warn", `Devices dropped off without saying so ${drops} times in the last 24 hours.`, "Check Wi-Fi and power.", classicHref("overview"));
+    if (drops >= 3) add("warn", `Devices dropped off without saying so ${drops} times in the last 24 hours.`, "Check Wi-Fi and power.", "#activity");
   }
   return items.sort((a, b) => (a.level === b.level ? 0 : a.level === "bad" ? -1 : 1));
 }
 
-function AttentionList({ items }) {
+export function AttentionList({ items }) {
   if (!items.length) return html`<div class="att-ok"><span class="dot good">All good</span><span class="dim">Nothing needs attention.</span></div>`;
   return html`<ul class="att" aria-label="Needs attention">
     ${items.map((it) => html`<li key=${it.text} class=${`att-item ${it.level}`}>
@@ -277,6 +278,8 @@ function Sidebar({ route, attention }) {
   const types = typesInUse();
   const devices = [...store.clients].sort((a, b) => a.name.localeCompare(b.name));
   const firmwareBehind = store.clients.filter(behind).length;
+  // Devices mid-turn or waiting for an answer, from the poll's /admin/now.
+  const busy = store.now?.clients.length ?? 0;
   const groupHead = (g) => html`<button type="button" class="gh" aria-expanded=${isOpen(g.key)} onClick=${() => toggle(g.key)}>
     <${Icon} name=${g.icon} /><span>${g.title}</span><${Icon} name="chev" class=${`chev ${isOpen(g.key) ? "open" : ""}`} />
   </button>`;
@@ -301,7 +304,7 @@ function Sidebar({ route, attention }) {
                   })}
                   <div class="label">For everything</div>
                   ${link("settings")}${link("face")}${link("pair")}`
-                : g.pages.map((p) => html`<span key=${p}>${link(p, null, p === "firmware" && firmwareBehind ? String(firmwareBehind) : "", "warn")}</span>`)}
+                : g.pages.map((p) => html`<span key=${p}>${p === "live" ? link(p, null, busy ? `${busy} live` : "", "accent") : link(p, null, p === "firmware" && firmwareBehind ? String(firmwareBehind) : "", "warn")}</span>`)}
             </div>`
           : null}
       </div>`)}
@@ -354,7 +357,7 @@ function commandItems(route) {
   const items = [];
   for (const [key, p] of Object.entries(PAGES)) {
     const group = GROUPS.find((g) => g.key === p.group)?.title ?? "";
-    items.push({ section: "Pages", label: p.title, hint: group + (p.classic ? " · classic admin" : ""), go: `#${key}`, words: `${p.title} ${group} ${p.purpose ?? ""}` });
+    items.push({ section: "Pages", label: p.title, hint: group + (p.classic && !p.ported ? " · classic admin" : ""), go: `#${key}`, words: `${p.title} ${group} ${p.purpose ?? ""}` });
   }
   for (const t of typesInUse()) items.push({ section: "Pages", label: typeName(t.type), hint: `Type · ${plural(t.total, "device")}`, go: typeHref(t.type), words: `${typeName(t.type)} ${t.type} type` });
   for (const c of store.clients) {
@@ -373,6 +376,8 @@ function commandItems(route) {
   }
   const actions = [
     { label: "New pairing code", hint: "Add a device", go: "#pair?new" },
+    { label: "Say something…", hint: "on every device, a place or one device", run: focusSay, words: "say something announce speak message" },
+    { label: "Clear live words now", hint: "delete the words of recent turns", run: () => clearLive().catch((e) => toast(e.message, "bad")), words: "clear live words turns forget" },
     { label: "Open the classic admin", hint: "the page this one replaces", go: classicHref(classicFor(route)) },
     { label: "Theme: dark", run: () => setTheme("dark") },
     { label: "Theme: light", run: () => setTheme("light") },
@@ -546,7 +551,7 @@ function SignIn() {
   </form>`;
 }
 
-// --- pages not yet ported, and the overview so far ------------------------------------------------
+// --- pages not yet ported ------------------------------------------------
 
 function PageHead({ title, purpose, crumb, children }) {
   return html`<header class="ph">
@@ -568,33 +573,14 @@ function ClassicPage({ page }) {
     </div>`;
 }
 
-function Overview({ attention }) {
-  const clients = [...store.clients].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
-  const today = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-  return html`<${PageHead} title="Overview" purpose=${today}>
-      <a class="btn" href="#pair">Add a device</a>
-    </${PageHead}>
-    <h2 class="sec">Needs attention</h2>
-    <${AttentionList} items=${attention} />
-    <h2 class="sec">Devices <a href="#clients">All devices <${Icon} name="arrow" /></a></h2>
-    ${clients.length
-      ? html`<div class="devgrid">${clients.slice(0, 9).map((c) => html`<${DeviceCard} key=${c.id} client=${c} />`)}</div>`
-      : html`<div class="card empty-card"><p>No devices yet.</p><a class="btn primary" href="#pair">Add a device</a></div>`}
-    <div class="card classic-card">
-      <div class="card-b">
-        <h2>Still in the classic admin</h2>
-        <p class="dim">Getting started, the numbers for the day, what is running now, Say something, uptime and charts: these move here in the next stage.</p>
-        <a class="btn" href=${classicHref("overview")}>Open the classic Overview <${Icon} name="arrow" /></a>
-      </div>
-    </div>`;
-}
-
 // --- the app ----------------------------------------------------------------------------------
 
 function Page({ route, attention }) {
   if (!store.loaded) return html`<div class="loading" aria-busy="true"><span class="spinner"></span> Loading…</div>`;
   switch (route.page) {
     case "overview": return html`<${Overview} attention=${attention} />`;
+    case "live": return html`<${Live} tab=${route.tab} />`;
+    case "activity": return html`<${History} />`;
     case "clients": return html`<${AllDevices} />`;
     case "device": return html`<${DevicePage} id=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "type": return html`<${TypePage} type=${route.id} tab=${route.tab} focusKey=${route.key} />`;

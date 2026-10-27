@@ -21,6 +21,7 @@ export const store = {
   global: {},
   builtIns: [],
   now: undefined,
+  nowSkew: 0,
   firmware: [],
   shelves: [],
   quest: undefined,
@@ -134,6 +135,8 @@ export async function signIn(given, remember) {
 }
 
 export const hasToken = () => Boolean(token);
+/** The header for a request made without `api()` (the live stream). */
+export const authHeader = () => ({ authorization: `Bearer ${token}` });
 
 /** The 3 s poll: what every page and the header read. */
 export async function refresh() {
@@ -158,6 +161,7 @@ export async function refresh() {
       global: settings.values,
       builtIns: settings.builtIns ?? store.builtIns,
       now,
+      nowSkew: now ? now.at - Date.now() : 0,
       firmware: firmware?.firmware ?? [],
       shelves: firmware?.shelves ?? [],
       quest,
