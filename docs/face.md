@@ -184,7 +184,7 @@ Checked in this order; the first that applies wins.
 
 These may differ between devices; everything else above should not.
 
-- **Drawing size and placement.** The board draws 240 by 240 and slides the face up to make room for text; the web page scales it to the window and shrinks it a little when words appear.
+- **Drawing size and placement.** The board draws 240 by 240 (the round 1.75 draws 288 by 288, every size scaled by 1.2: `VORTEX_SIZE` in its build flags) and slides the face up to make room for text; the web page scales it to the window and shrinks it a little when words appear.
 - **How overlaps mix.** The board paints dots over each other; the web adds their light (`lighter`), closer to how the panel glows. Either is fine.
 - **Frame rate.** Anything from about 30 fps up. Sparkle fades per frame (`× 0.86`), so it fades a little faster at higher rates; acceptable.
 - **Reduced motion.** A client that knows the person asked for less motion may turn the face at 30 % speed and drop sparkle, as the web client does.

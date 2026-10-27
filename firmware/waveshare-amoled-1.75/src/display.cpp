@@ -4,9 +4,10 @@
 #include "Arduino_GFX_Library.h"
 #include "pins.h"
 #include <esp_heap_caps.h>
-#include "fonts/FreeSans9pt7b.h"
+// One size up from the 1.8's (9 and 12 points): the round screen is bigger, so its text is zoomed in to match the face.
 #include "fonts/FreeSans12pt7b.h"
-#include "fonts/FreeSansBold12pt7b.h"
+#include "fonts/FreeSans15pt7b.h"
+#include "fonts/FreeSansBold15pt7b.h"
 
 namespace display {
 
@@ -38,6 +39,12 @@ uint16_t windowBuf[LCD_WIDTH * 4];
 
 void bitmap(int16_t x, int16_t y, uint16_t *pixels, int16_t w, int16_t h) {
     if (!held) held = (uint16_t *)heap_caps_calloc(LCD_WIDTH * LCD_HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (held && w > 0 && h > 0 && !((x | y | w | h) & 1) && x >= 0 && y >= 0 && x + w <= LCD_WIDTH && y + h <= LCD_HEIGHT) {
+        // Already even (the face, a frame at a time): kept and sent as it is.
+        for (int j = 0; j < h; j++) memcpy(held + (y + j) * LCD_WIDTH + x, pixels + j * w, w * sizeof(uint16_t));
+        gfx->draw16bitRGBBitmap(x, y, pixels, w, h);
+        goto shadowed;
+    }
     if (held && w > 0 && h > 0) {
         // Keep what is inside the screen.
         for (int j = 0; j < h; j++) {
@@ -78,11 +85,11 @@ void vline(int16_t x, int16_t y, int16_t h, uint16_t color) {
     for (int j = 0; shadow && j < h; j++) if (x >= 0 && x < LCD_WIDTH && y + j >= 0 && y + j < LCD_HEIGHT) shadow[(y + j) * LCD_WIDTH + x] = color;
 }
 
-const int BAND_MAX_HEIGHT = 56;
+const int BAND_MAX_HEIGHT = 68;
 // Space left around each pill button inside its cell.
-const int PILL_GAP = 4;
+const int PILL_GAP = 5;
 // Room kept between a row of pills and the round edge, each side.
-const int PILL_MARGIN = 14;
+const int PILL_MARGIN = 17;
 const int ROWS_PER_WRITE = 4;
 int rotation = 90;
 Arduino_Canvas *band = nullptr;
@@ -206,13 +213,15 @@ void squareOnPanel(int x, int y, int size, int &px, int &py) {
     }
 }
 
-void blitSquare(int x, int y, int size, const uint16_t *pixels) {
+void blitSquare(int x, int y, int size, const uint16_t *pixels, int first, int end) {
     int px, py;
     squareOnPanel(x, y, size, px, py);
-    // Four rows per write: 4 x 240 = 960 pixels, still under the driver's 1024-pixel limit.
+    // As many rows per write as stay under the driver's 1024-pixel limit (4 x 240, 2 x 288), an even number for the panel.
     // The face is round, so the same pixels go out whatever the rotation.
-    const int rows = ROWS_PER_WRITE;
-    for (int row = 0; row < size; row += rows) {
+    const int rows = max(2, min(ROWS_PER_WRITE, 1024 / size) & ~1);
+    if (end < 0 || end > size) end = size;
+    // Whole pairs of rows, so the face's writes stay even.
+    for (int row = max(0, first) & ~1; row < end; row += rows) {
         bitmap(px, py + row, const_cast<uint16_t *>(pixels + row * size), size, min(rows, size - row));
     }
 }
@@ -270,9 +279,9 @@ void blitRect(int x, int y, int w, int h, const uint16_t *pixels) {
     }
 }
 
-static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold12pt7b : &FreeSans9pt7b; }
+static const GFXfont *fontFor(uint8_t size) { return size >= 3 ? &FreeSansBold15pt7b : &FreeSans12pt7b; }
 /** Where the letters stand in a band of that kind, measured from its top. */
-static int baselineFor(uint8_t size) { return size >= 3 ? 22 : 16; }
+static int baselineFor(uint8_t size) { return size >= 3 ? 27 : 20; }
 
 static int widthIn(const GFXfont *font, const String &text) {
     int width = 0;
@@ -285,7 +294,7 @@ static int widthIn(const GFXfont *font, const String &text) {
 }
 
 int textWidth(uint8_t size, const String &text) { return widthIn(fontFor(size), text); }
-int buttonTextWidth(const String &text) { return widthIn(&FreeSans12pt7b, plain(text)); }
+int buttonTextWidth(const String &text) { return widthIn(&FreeSans15pt7b, plain(text)); }
 
 String plain(const String &text) {
     // Latin-1 letters from U+00C0 to U+00FF, as the unaccented letter each is built on.
@@ -360,7 +369,7 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
     h = min(h, BAND_MAX_HEIGHT);
     int left = 0, cell = 0;
     pillCells(y, h, count, cols, left, cell);
-    const GFXfont *font = &FreeSans12pt7b;
+    const GFXfont *font = &FreeSans15pt7b;
     band->fillRect(0, 0, w, h, RGB565_BLACK);
     band->setFont(font);
     band->setTextSize(1);
@@ -376,8 +385,8 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
             while (shown.length() > 1 && widthIn(font, shown + "..") > room) shown.remove(shown.length() - 1);
             shown += "..";
         }
-        // The letters are 17 pixels tall and stand on the cursor line.
-        band->setCursor(x + (pw - widthIn(font, shown)) / 2, PILL_GAP + (ph + 17) / 2 - 1);
+        // The letters are 21 pixels tall and stand on the cursor line.
+        band->setCursor(x + (pw - widthIn(font, shown)) / 2, PILL_GAP + (ph + 21) / 2 - 1);
         band->print(shown);
     }
     pushBand(y, h);

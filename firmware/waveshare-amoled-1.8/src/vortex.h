@@ -12,8 +12,16 @@
 
 namespace vortex {
 
-/** Side of the square the face is drawn in, in pixels. */
-const int SIZE = 240;
+/**
+ * Side of the square the face is drawn in, in pixels. A board with a bigger screen sets VORTEX_SIZE in its
+ * build flags; the whole face (dots, wander, core, icons) is then drawn to scale, as specified for 240.
+ */
+#ifndef VORTEX_SIZE
+#define VORTEX_SIZE 240
+#endif
+const int SIZE = VORTEX_SIZE;
+/** How much bigger than the specification's 240 the face is drawn. */
+const float SCALE = SIZE / 240.0f;
 
 enum class Mode : uint8_t { Setup, Offline, Idle, Listening, Thinking, Speaking, Error };
 

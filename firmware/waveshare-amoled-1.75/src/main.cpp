@@ -248,10 +248,11 @@ static void listSteps();
 // layout keeps to rows that are wide enough and nothing sits in the square's corners.
 /** The narrowest a row of body text may be; rows further down are not used. */
 static const int MIN_ROW_WIDTH = 270;
-/** Where the face sits while there is text under it: near the top, still inside the circle. */
-static int faceTop() { return 12; }
-/** Where the face sits when it has the screen to itself. */
-static int faceMiddle() { return (display::height() - vortex::SIZE) / 2; }
+/** Where the face sits while there is text under it: at the top, its round figure still inside the circle. */
+static int faceTop() { return 0; }
+/** Where the face sits when it has the screen to itself. Even, as is its left edge, so the panel takes it as it is (see display.cpp). */
+static int faceMiddle() { return ((display::height() - vortex::SIZE) / 2) & ~1; }
+static int faceLeft() { return ((display::width() - vortex::SIZE) / 2) & ~1; }
 static int headTop() { return faceTop() + vortex::SIZE + 4; }
 static int bodyTop() { return headTop() + display::lineHeight(3); }
 /** How wide body row `i` may be, with a margin. */
@@ -477,6 +478,39 @@ static void layout() {
     redrawAll = false;
 }
 
+// Whether the panel holds the last face frame sent, where it was sent: then rows black in both need not go again.
+// Anything else drawn over the face's place is followed by a clear, so those rows are black on the panel too.
+static bool faceSent = false;
+
+/** Sends a face frame, leaving out the rows above and below the figure that were black last time as well. */
+static void sendFace(const uint16_t *frame, int x, int y) {
+    static int sentX = 0, sentY = 0, sentFirst = 0, sentEnd = 0;
+    const int n = vortex::SIZE;
+    // Two pixels at a time (SIZE is even); black is 0.
+    const uint32_t *pairs = (const uint32_t *)frame;
+    auto black = [&](int row) {
+        for (int i = 0; i < n / 2; i++) if (pairs[row * (n / 2) + i]) return false;
+        return true;
+    };
+    int first = 0, end = n;
+    while (first < end && black(first)) first++;
+    while (end > first && black(end - 1)) end--;
+    // Where the frame lands on the panel, which also changes with the rotation.
+    int px, py;
+    display::squareOnPanel(x, y, n, px, py);
+    int from = 0, to = n;
+    if (faceSent && px == sentX && py == sentY) {
+        from = first < end ? min(first, sentFirst) : sentFirst;
+        to = first < end ? max(end, sentEnd) : sentEnd;
+    }
+    if (to > from) display::blitSquare(x, y, n, frame, from, to);
+    faceSent = true;
+    sentX = px;
+    sentY = py;
+    sentFirst = first < end ? first : 0;
+    sentEnd = first < end ? end : 0;
+}
+
 /** Turns the core's state into a face mode and the text under it. */
 static void present() {
     using axis::Link;
@@ -672,13 +706,16 @@ static int askBottom() {
     return bottom;
 }
 
+/** How many lines a question may take: two under the face, three when it has the screen. */
+static int questionMax(const AskLayout &l) { return l.face ? 2 : 3; }
+
 static AskLayout askLayout() {
     const int n = max(1, (int)state.choiceCount);
     int longest = 1;
     for (int i = 0; i < state.choiceCount; i++) longest = max(longest, display::buttonTextWidth(state.choices[i]));
     // A button is as wide as its cell; this is the least a cell can be for the longest choice to fit. The
     // cells share the chord of the narrowest (lowest) row, which on the round glass is less than the width.
-    const int need = longest + 44;
+    const int need = longest + 54;
     const int lineH = display::lineHeight(2);
     const int bottom = askBottom();
 
@@ -687,17 +724,22 @@ static AskLayout askLayout() {
     l.face = true;
     l.questionTop = faceTop() + vortex::SIZE + 2;
     for (;;) {
-        String lines[2];
+        String lines[3];
         const int top0 = l.questionTop;
-        l.questionLines = max(1, wrapIn(display::plain(state.question), lines, 2, [top0](int i) { return questionRoom(top0, i); }));
+        l.questionLines = max(1, wrapIn(display::plain(state.question), lines, questionMax(l), [top0](int i) { return questionRoom(top0, i); }));
         const int top = l.questionTop + l.questionLines * lineH + 4;
         const int room = bottom - top;
-        const int span = display::roomAt(bottom - 1, 1) - 28;  // pillCells keeps 14 each side
-        const int maxCols = max(1, min(n, span / min(span, need)));
-        l.cols = l.face ? maxCols : min(maxCols, n <= 3 ? 1 : 2);
-        l.rows = (n + l.cols - 1) / l.cols;
-        l.rowHeight = room > 0 ? min(56, room / l.rows) : 0;
-        if (l.rowHeight >= 40) {
+        // The most columns whose cells still hold the longest choice in the narrowest row the buttons
+        // will take (the lowest or, on a full screen, perhaps the first), where they will actually be.
+        for (l.cols = l.face ? n : min(n, n <= 3 ? 1 : 2);; l.cols--) {
+            l.rows = (n + l.cols - 1) / l.cols;
+            l.rowHeight = room > 0 ? min(68, room / l.rows) : 0;
+            const int first = l.face ? top + (room - l.rows * l.rowHeight) / 2 : top;
+            const int last = first + l.rows * max(30, l.rowHeight) - 1;
+            const int span = min(display::roomAt(first, 1), display::roomAt(last, 1)) - 34;  // pillCells keeps 17 each side
+            if (l.cols == 1 || span / l.cols >= need) break;
+        }
+        if (l.rowHeight >= 48) {
             l.top = top + (room - l.rows * l.rowHeight) / 2;
             return l;
         }
@@ -708,7 +750,7 @@ static AskLayout askLayout() {
         while (l.questionTop < display::height() / 2 && questionRoom(l.questionTop, 0) < MIN_ROW_WIDTH) l.questionTop++;
     }
     l.top = l.questionTop + l.questionLines * lineH + 4;
-    l.rowHeight = max(24, l.rowHeight);
+    l.rowHeight = max(30, l.rowHeight);
     return l;
 }
 
@@ -717,9 +759,9 @@ static void drawAsk(const AskLayout &l) {
     const bool listening = client.listening();
     if (redrawAll || askDrawn != state.askId || listening != askDrawnListening) {
         // The question turns green while the microphone is open for a spoken answer.
-        String lines[2];
+        String lines[3];
         const int top0 = l.questionTop;
-        const int count = wrapIn(display::plain(state.question), lines, 2, [top0](int i) { return questionRoom(top0, i); });
+        const int count = wrapIn(display::plain(state.question), lines, questionMax(l), [top0](int i) { return questionRoom(top0, i); });
         for (int i = 0; i < l.questionLines; i++) {
             display::textLine(l.questionTop + i * display::lineHeight(2), 2, listening ? COLOR_LISTEN : COLOR_BODY, i < count ? lines[i] : String(""));
         }
@@ -812,7 +854,7 @@ static void onTap() {
 
 // ---- diagnostics: `preview NAME` puts a made-up state on the screen for a minute ----------------
 // For checking the round layout without Axis: what Axis would send is laid over the snapshot.
-static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "timer", "task", "steps", "error"};
+static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup"};
 static const int PREVIEW_COUNT = sizeof PREVIEWS / sizeof PREVIEWS[0];
 static volatile int previewWanted = -1;
 static volatile uint32_t previewRequests = 0;
@@ -841,6 +883,8 @@ static void applyPreview(axis::Snapshot &s, uint32_t now) {
         s.turn = axis::Turn::Thinking;
         s.transcript = "what is the weather like tomorrow";
         s.doing = "search";
+    } else if (!strcmp(name, "listening")) {
+        s.turn = axis::Turn::Listening;
     } else if (!strcmp(name, "timer")) {
         s.timerLabel = "pasta";
         s.timerCount = 2;
@@ -856,6 +900,11 @@ static void applyPreview(axis::Snapshot &s, uint32_t now) {
     } else if (!strcmp(name, "error")) {
         s.turn = axis::Turn::Error;
         s.note = "Hearing is down: the speech service did not answer";
+    } else if (!strcmp(name, "setup")) {
+        s.link = axis::Link::Setup;
+        s.setupNetwork = "VorteX-Axis-4F2A";
+        s.address = "192.168.4.1";
+        s.note = "";
     }
 }
 
@@ -1292,10 +1341,12 @@ void loop() {
         renderMicros += micros() - t0;
         // The notification light runs on across the face where they meet (the face drawn at the top, sideways).
         // The face draws a fresh frame each time, so laying the glow into it leaves nothing behind.
-        glow::tint(const_cast<uint16_t *>(frame), (display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE);
-        display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
+        glow::tint(const_cast<uint16_t *>(frame), faceLeft(), faceY, vortex::SIZE);
+        sendFace(frame, faceLeft(), faceY);
         drawMicros += micros() - t0;
         frames++;
+    } else {
+        faceSent = false;
     }
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
@@ -1386,7 +1437,7 @@ void loop() {
         }
         if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
         glow::Rect face;
-        if (drawFace) face = {(display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE};
+        if (drawFace) face = {faceLeft(), faceY, vortex::SIZE, vortex::SIZE};
         glow::update(nullptr, notice, level, face, sweep);
         // Text the glow lay over is drawn again once it is gone.
         if (notice == glow::State::None && noticeShown) redrawAll = true;

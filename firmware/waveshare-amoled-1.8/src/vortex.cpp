@@ -11,7 +11,7 @@ namespace {
 
 const int ARMS = 3;
 const int DOTS_PER_ARM = 26;
-const float MAX_RADIUS = SIZE / 2 - 14;
+const float MAX_RADIUS = SIZE / 2 - 14 * SCALE;
 
 /** One look of the vortex. The drawn look eases towards a target, so changes never jump. */
 struct Look {
@@ -134,7 +134,7 @@ float rightX = 1, rightY = 0, downX = 0, downY = 1;
 /** Draws the icon over the core's place with a round pen, `eye` bright. */
 void drawIcon(float cx, float cy, float eye, float r, float g, float b) {
     if (iconDrawn < 0) return;
-    const float unit = icons::SIZE * (1.0f + 0.04f * sinf(pulsePhase)) / 240.0f;  // POINTS are tenths of a 24 grid
+    const float unit = icons::SIZE * SCALE * (1.0f + 0.04f * sinf(pulsePhase)) / 240.0f;  // POINTS are tenths of a 24 grid
     const uint16_t color = color565(r * eye, g * eye, b * eye);
     const uint8_t *at = icons::POINTS + icons::ICONS[iconDrawn].start;
     for (int stroke = 0; stroke < icons::ICONS[iconDrawn].strokes; stroke++) {
@@ -147,7 +147,7 @@ void drawIcon(float cx, float cy, float eye, float r, float g, float b) {
             // A round pen is a dot set down every pixel or so along the line.
             const int steps = max(1, (int)(hypotf(x1 - x0, y1 - y0) / 1.2f));
             for (int k = 0; k <= steps; k++) {
-                fillCircle(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps, icons::PEN / 2, color);
+                fillCircle(x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps, icons::PEN * SCALE / 2, color);
             }
         }
         at += count * 2;
@@ -258,10 +258,10 @@ const uint16_t *render(float dt) {
     if (wantIcon > 0) iconDrawnStyle = iconStyle;
     const bool asDots = iconDrawnStyle == IconStyle::Dots && iconDrawn >= 0;
     // Drawn with a pen, the arms stand back from the centre to leave it room. Made of dots, the arms are the icon.
-    const float hole = asDots ? 0.0f : icons::HOLE * eye;
+    const float hole = asDots ? 0.0f : icons::HOLE * SCALE * eye;
     flowPhase += 5.0f * dt;
     // A dot shape breathes with the figure and sways a little, so it never sits still.
-    const float shapeUnit = icons::SHAPE_SIZE / 240.0f * (1.0f + 0.05f * sinf(pulsePhase));  // SHAPES are tenths of a 24 grid
+    const float shapeUnit = icons::SHAPE_SIZE * SCALE / 240.0f * (1.0f + 0.05f * sinf(pulsePhase));  // SHAPES are tenths of a 24 grid
     const float sway = 0.07f * sinf(wavePhase), swayCos = cosf(sway), swaySin = sinf(sway);
     const uint8_t *shape = asDots ? icons::SHAPES[iconDrawn] : nullptr;
     const uint8_t *tint = asDots ? icons::TINTS[iconDrawn] : nullptr;
@@ -279,8 +279,8 @@ const uint16_t *render(float dt) {
     const bool voiced = (mode == Mode::Speaking || mode == Mode::Listening) && level >= 0;
     // Speech is already a big swing; the listening look pulses gently on its own, so it needs a bigger one to follow a voice.
     const float voiceSwell = mode == Mode::Listening ? 0.40f : now.pulse;
-    const float cx = SIZE / 2 + now.wander * sinf(wanderPhase);
-    const float cy = SIZE / 2 + now.wander * sinf(wanderPhase * 1.7f + 1.0f);
+    const float cx = SIZE / 2 + now.wander * SCALE * sinf(wanderPhase);
+    const float cy = SIZE / 2 + now.wander * SCALE * sinf(wanderPhase * 1.7f + 1.0f);
 
     // A tipped figure is squashed along one axis, and that axis turns slowly.
     const float axisCos = cosf(tiltPhase), axisSin = sinf(tiltPhase), squash = 1.0f - now.tilt;
@@ -299,7 +299,7 @@ const uint16_t *render(float dt) {
             // shape than there are, the outer ones stand off in a ring round it and go on turning.
             const int n = i * ARMS + arm;
             const bool inShape = asDots && n < iconDots;
-            const float room = asDots ? (inShape ? 0.0f : icons::HALO * eye) : hole;
+            const float room = asDots ? (inShape ? 0.0f : icons::HALO * SCALE * eye) : hole;
             const float reach = MAX_RADIUS * now.radius * (1.0f + swell);
             const float radius = room + max(0.0f, reach - room) * powf(t, 0.85f);
             // The sway runs out along the arm like a wave, and is widest at the tip.
@@ -308,7 +308,7 @@ const uint16_t *render(float dt) {
             const float x = radius * cosf(angle), y = radius * sinf(angle);
             const float along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
             float px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
-            float size = now.dot * (1.4f + 4.2f * t);
+            float size = now.dot * (1.4f + 4.2f * t) * SCALE;
             float red = now.r * glow + spark * 0.5f, green = now.g * glow + spark * 0.5f, blue = now.b * glow + spark * 0.5f;
             if (inShape && eye > 0) {
                 // Each dot of the shape has a place on the icon, spread evenly over its strokes. It goes there
@@ -319,7 +319,7 @@ const uint16_t *render(float dt) {
                 // The frame goes to the panel unturned; the icon has a top.
                 px += (SIZE / 2 + ix * rightX + iy * downX - px) * eye;
                 py += (SIZE / 2 + ix * rightY + iy * downY - py) * eye;
-                size += (icons::SHAPE_DOT - size) * eye;
+                size += (icons::SHAPE_DOT * SCALE - size) * eye;
                 const float lit = 0.62f + 0.38f * sinf(flowPhase - at * 0.33f) + spark * 0.5f;
                 red += (shapeR * lit - red) * eye;
                 green += (shapeG * lit - green) * eye;
@@ -328,7 +328,7 @@ const uint16_t *render(float dt) {
             fillCircle(px, py, size, color565(red, green, blue));
         }
     }
-    const float core = 7.0f + (mode == Mode::Listening ? 6.0f : 3.0f) * (voiced ? level : sinf(pulsePhase));
+    const float core = (7.0f + (mode == Mode::Listening ? 6.0f : 3.0f) * (voiced ? level : sinf(pulsePhase))) * SCALE;
     const float coreR = 0.55f + now.r * 0.45f, coreG = 0.55f + now.g * 0.45f, coreB = 0.55f + now.b * 0.45f;
     if (eye < 1.0f) fillCircle(cx, cy, core * (1.0f - eye), color565(coreR, coreG, coreB));
     // The icon takes the core's place and its colour.

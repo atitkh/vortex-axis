@@ -156,7 +156,20 @@ void tint(uint16_t *pixels, int x, int y, int size) {
     int ox, oy;
     display::squareOnPanel(x, y, size, ox, oy);
     for (int j = 0; j < size; j++) {
+        // The middle is the same point on the panel as on the screen, so the run of this row well inside the ring
+        // is found without turning each pixel, and skipped.
+        const float dy = oy + j - CENTRE, inner2 = inside * inside - dy * dy;
+        int skipFrom = size, skipTo = size;
+        if (inner2 > 1.0f) {
+            const float half = sqrtf(inner2) - 1.0f;
+            skipFrom = max(0, (int)ceilf(CENTRE - half) - ox);
+            skipTo = min(size, (int)floorf(CENTRE + half) - ox + 1);
+        }
         for (int i = 0; i < size; i++) {
+            if (i == skipFrom && skipTo > skipFrom) {
+                i = skipTo - 1;
+                continue;
+            }
             int px, py;
             display::toLogical(ox + i, oy + j, px, py);
             const float dx = px - CENTRE, dy = py - CENTRE;

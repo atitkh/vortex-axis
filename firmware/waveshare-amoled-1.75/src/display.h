@@ -39,8 +39,9 @@ void clear();
 /**
  * Sends a block of pixels whose content does not care about rotation (the
  * face is round). `pixels` is w*h, row by row; (x, y) is its logical top left.
+ * Only its rows from `first` up to `end` are sent (rounded out to whole pairs); the panel keeps the rest.
  */
-void blitSquare(int x, int y, int size, const uint16_t *pixels);
+void blitSquare(int x, int y, int size, const uint16_t *pixels, int first = 0, int end = -1);
 /** Where blitSquare puts a square at logical (x, y): the panel position of its first pixel. */
 void squareOnPanel(int x, int y, int size, int &px, int &py);
 
@@ -63,7 +64,7 @@ void clearBand(int y, int rows);
 void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPermille = -1, uint16_t barColor = 0);
 
 /**
- * Draws one row of rounded buttons in a full-width band `h` tall (56 at most)
+ * Draws one row of rounded buttons in a full-width band `h` tall (68 at most)
  * at logical `y`. The chord the glass leaves the band is cut into `cols` equal
  * cells and `count` of them get a button; a row that is not full is centred.
  */
@@ -76,7 +77,7 @@ void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t o
  * letters have their own widths, so text is measured, not counted.
  */
 /** Height in pixels of a text band of that kind. */
-inline int lineHeight(uint8_t size) { return size >= 3 ? 30 : 22; }
+inline int lineHeight(uint8_t size) { return size >= 3 ? 38 : 28; }
 /** Width in pixels of text of that kind. */
 int textWidth(uint8_t size, const String &text);
 /** Width in pixels of text on a button. */
