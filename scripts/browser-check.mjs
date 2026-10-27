@@ -558,14 +558,23 @@ try {
     const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
     const dev = known.clients[0];
     const routes = [];
-    for (const [hash, expect] of [["#clients", "All devices"], [`#clients/${dev.id}`, dev.name], [`#device/${dev.id}`, dev.name], [`#clients/${dev.id}/settings`, dev.name], [`#type/${dev.type}`, null], ["#type", "Defaults for everything"], ["#settings", "Defaults for everything"], ["#pair", "Add a device"], ["#activity", "History"], ["#live", "Live"], ["#openclaw", "OpenClaw gateway"], ["#agent", "Who answers"], ["#tools", "Tools and MCP"], ["#speech", "Speech"], ["#voices", "Voices"], ["#nonsense", "Overview"]]) {
+    for (const [hash, expect] of [["#clients", "All devices"], [`#clients/${dev.id}`, dev.name], [`#device/${dev.id}`, dev.name], [`#clients/${dev.id}/settings`, dev.name], [`#type/${dev.type}`, null], ["#type", "Defaults for everything"], ["#settings", "Defaults for everything"], ["#pair", "Add a device"], ["#activity", "History"], ["#live", "Live"], ["#openclaw", "OpenClaw gateway"], ["#agent", "Who answers"], ["#tools", "Tools and MCP"], ["#speech", "Speech"], ["#voices", "Voices"], ["#face", "Face and screen"], ["#firmware", "Firmware"], ["#wakewords", "Wake words"], ["#apps", "Apps"], ["#integrations", "Integrations"], ["#system", "System"], ["#system/backup", "System"], ["#nonsense", "Overview"]]) {
       await next.run(`location.hash = ${JSON.stringify(hash)}`);
       const title = await next.until(`(t => t && (${JSON.stringify(expect)} === null || t === ${JSON.stringify(expect)}) && t)(document.querySelector('main h1')?.textContent)`, `the page for ${hash}`);
       routes.push(`${hash.replace(dev.id, "<id>")}→${title}`);
     }
     step("new admin: old addresses", routes.join(", "));
-    await next.run(`location.hash = '#firmware'`);
-    step("new admin: unported page card", await next.until(`(h => h === '/admin#firmware' && h)(document.querySelector('.classic-card a')?.getAttribute('href'))`, "the classic page's card"));
+    // Every page is ported: no "still in the classic admin" card, and no link anywhere leads back to /admin.
+    const classicLinks = `[...document.querySelectorAll('a')].map(a => a.getAttribute('href') ?? '').filter(h => /^\\/admin(#|$)/.test(h))`;
+    const stray = [];
+    for (const page of ["overview", "firmware", "wakewords", "face", "integrations", "system", "apps"]) {
+      await next.run(`location.hash = '#${page}'`);
+      await next.until(`document.querySelector('main h1')?.textContent !== 'Overview' || ${JSON.stringify(page)} === 'overview'`, `the ${page} page`);
+      await new Promise((r) => setTimeout(r, 200));
+      stray.push(...(await next.run(`[...${classicLinks}, ...[...document.querySelectorAll('.classic-card')].map(() => 'card')]`)).map((h) => `${page}: ${h}`));
+    }
+    if (stray.length) throw new Error(`classic links left on the new page: ${stray.join(", ")}`);
+    step("new admin: no classic links", "none on seven pages, nor in the health strip, attention list or sidebar");
     // The command bar: Ctrl+K, type, Enter opens the device; Escape closes it.
     await next.run(`location.hash = '#overview'`);
     await next.run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))`);
@@ -825,10 +834,119 @@ try {
     await next.run(`document.querySelector('.cmdk input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
     step("new admin: command bar actions", await next.until(`[...document.querySelectorAll('.toast span')].map(t => t.textContent).find(t => /gateway/i.test(t))`, "the reconnect toast"));
     step("new admin: health links", await next.run(`[...document.querySelectorAll('.health a')].slice(0, 3).map(a => a.getAttribute('href')).join(' ')`));
+    // --- stage 5: Face and screen, Firmware, Wake words, Apps, Integrations, System ---------------------
+    // Downloads are caught as the blobs the page hands the browser.
+    const catchBlobs = `window.blobs = []; if (!window.blobsCaught) { window.blobsCaught = true; const make = URL.createObjectURL; URL.createObjectURL = (b) => { window.blobs.push(b); return make(b); }; }`;
+    const confirmDialog = (label) => `[...document.querySelectorAll('.dialog button')].find(b => b.textContent === ${JSON.stringify(label)}).click()`;
+    await next.run(`location.hash = '#face'`);
+    await next.until(`document.querySelectorAll('.face-tile').length >= 35`, "the face tiles");
+    await next.run(`document.querySelector('.face-tile[data-look="galaxy"]').click()`);
+    step("new admin: face viewer", await next.until(`document.querySelector('#face-name').textContent.startsWith('galaxy') && document.querySelectorAll('#face-numbers tr').length === 13 && (document.querySelectorAll('.face-tile').length + ' looks and icons, galaxy chosen')`, "a look to be chosen"));
+    // The classic steps left curl off, tool icons as a line and 36 dots: the new page shows that, and stages changes to it.
+    await next.until(`document.querySelector('.face-cell[data-look="curl"]').classList.contains('off') && document.querySelector('#face-icon-style button[aria-pressed=true]')?.dataset.v === 'line'`, "the face settings as saved");
+    await next.run(`document.querySelector('.face-cell[data-look="curl"] input').click()`);
+    await next.until(`/1 unsaved change/.test(${saveBar}?.textContent ?? '') && !document.querySelector('.face-cell[data-look="curl"]').classList.contains('off')`, "the idle look staged");
+    await next.run(`document.querySelector('#face-icon-style button[data-v="dots"]').click()`);
+    await next.until(`document.querySelector('#face-icon-dots')`, "the dots slider");
+    await next.run(fill("#face-icon-dots", "48"));
+    await next.until(`/3 unsaved changes/.test(${saveBar}?.textContent ?? '') && /48 of 78/.test(document.querySelector('#face-icon-dots-note').textContent)`, "three face changes staged");
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "the face to save");
+    const faceSaved = (await adminGet("/admin/settings/global")).values;
+    if (faceSaved.idleLooksOff != null || faceSaved.toolIcons !== "dots" || faceSaved.toolIconDots !== 48) throw new Error(`the face was saved as ${JSON.stringify(faceSaved)}`);
+    await next.run(undoToast);
+    await next.until(`[...document.querySelectorAll('.toast span')].some(t => /Put back/.test(t.textContent))`, "the undo of the face");
+    const faceBack = (await adminGet("/admin/settings/global")).values;
+    if (faceBack.idleLooksOff !== "curl" || faceBack.toolIcons !== "line" || faceBack.toolIconDots !== 36) throw new Error(`the face was put back as ${JSON.stringify(faceBack)}`);
+    await next.run(`document.querySelector('.face-tile[data-look="icon:home"]').click()`);
+    step("new admin: face and tool icons", await next.until(`document.querySelector('#face-name').textContent === 'home (tool icon)' && document.querySelectorAll('#face-icons .face-tile').length === 13 && 'curl back in, dots, 48 dots saved in one go, then undone; 13 icons, home chosen'`, "the tool icon"));
+    // Firmware: upload a build, download it, send it, remove it after a dialog.
+    await next.run(`location.hash = '#firmware'`);
+    await next.until(`document.querySelector('#firmware-upload')`, "the firmware page");
+    await next.run(`(() => {
+      const bytes = new Uint8Array(70000); bytes[0] = 0xe9;
+      const files = new DataTransfer(); files.items.add(new File([bytes], 'firmware.bin'));
+      document.querySelector('#firmware-file').files = files.files;
+    })(); ${fill("#firmware-type", "web")}; ${fill("#firmware-version", "9.9.8")}`);
+    await next.run(`document.querySelector('#firmware-upload').click()`);
+    const shelfWeb = `document.querySelector('.shelf[data-type="web"]')`;
+    step("new admin: firmware uploaded", await next.until(`(t => /9\\.9\\.8/.test(t) && /sent to devices/.test(t) && /Update 1 device to 9\\.9\\.8|Nothing to update/.test(t) && t.replace(/\\s+/g, ' ').slice(0, 120))(${shelfWeb}?.textContent ?? '')`, "the build on the shelf"));
+    await next.run(catchBlobs);
+    await next.run(`[...${shelfWeb}.querySelectorAll('button')].find(b => b.textContent === 'Download').click()`);
+    const firmwareBlob = await next.until(`window.blobs[0]?.size`, "the firmware download");
+    if (firmwareBlob !== 70000) throw new Error(`the firmware download held ${firmwareBlob} bytes`);
+    await next.run(`[...${shelfWeb}.querySelectorAll('button')].find(b => b.textContent === 'Remove').click()`);
+    await next.until(`document.querySelector('.dialog')`, "the remove dialog");
+    await next.run(confirmDialog("Remove"));
+    await next.until(`/No builds held/.test(${shelfWeb}?.textContent ?? '')`, "the build to go");
+    if ((await adminGet("/admin/firmware")).shelves.some((sh) => sh.builds.length)) throw new Error("the firmware build was not removed");
+    step("new admin: firmware download and remove", `downloaded ${firmwareBlob} bytes, removed after the dialog`);
+    // Wake words: a manifest fills the form, a model is added, its cutoff staged and saved, then it is removed.
+    await next.run(`location.hash = '#wakewords'`);
+    step("new admin: wake words", await next.until(`(t => /built-in/.test(t) && document.querySelector('#wake-scores') && t.replace(/\\s+/g, ' ').slice(0, 80))(document.querySelector('#wakewords-list')?.textContent ?? '')`, "the wake words page"));
+    await next.run(`(() => {
+      const files = new DataTransfer(); files.items.add(new File([JSON.stringify({ wake_word: 'Hey Check', micro: { probability_cutoff: 0.87, sliding_window_size: 4, feature_step_size: 10 } })], 'hey_check.json'));
+      const i = document.querySelector('#wake-manifest'); i.files = files.files; i.dispatchEvent(new Event('change', { bubbles: true }));
+      const model = new Uint8Array(8192); model.set([84, 70, 76, 51], 4);
+      const m = new DataTransfer(); m.items.add(new File([model], 'hey_check.tflite'));
+      document.querySelector('#wake-file').files = m.files;
+    })()`);
+    await next.until(`document.querySelector('#wake-name').value === 'Hey Check' && document.querySelector('#wake-cutoff').value === '87' && document.querySelector('#wake-window').value === '4'`, "the manifest to fill the form");
+    await next.run(`document.querySelector('#wake-upload').click()`);
+    await next.until(`/is stored as/.test(document.querySelector('#wake-note').textContent)`, "the wake word to be stored");
+    const word = (await adminGet("/admin/wakewords")).wakeWords.find((w) => w.name === "Hey Check");
+    if (!word || word.cutoff !== 87 || word.window !== 4) throw new Error(`the wake word was stored as ${JSON.stringify(word)}`);
+    await next.until(`document.querySelector('[data-f="${word.id}.cutoff"]')`, "the new wake word's row");
+    await next.run(fill(`[data-f="${word.id}.cutoff"]`, "91"));
+    await next.until(`/1 unsaved change/.test(${saveBar}?.textContent ?? '')`, "the cutoff staged");
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "the cutoff to save");
+    const tuned91 = (await adminGet("/admin/wakewords")).wakeWords.find((w) => w.id === word.id).cutoff;
+    if (tuned91 !== 91) throw new Error(`the cutoff was saved as ${tuned91}`);
+    await next.run(`${catchBlobs}; [...document.querySelectorAll('#wakewords-list tr')].find(r => r.textContent.includes(${JSON.stringify(word.id)})).querySelector('button').click()`);
+    const wordBlob = await next.until(`window.blobs[0]?.size`, "the wake word download");
+    await next.run(`[...[...document.querySelectorAll('#wakewords-list tr')].find(r => r.textContent.includes(${JSON.stringify(word.id)})).querySelectorAll('button')].find(b => b.textContent === 'Remove').click()`);
+    await next.until(`document.querySelector('.dialog')`, "the remove dialog for the wake word");
+    await next.run(confirmDialog("Remove"));
+    await next.until(`![...document.querySelectorAll('#wakewords-list tr')].some(r => r.textContent.includes(${JSON.stringify(word.id)}))`, "the wake word to go");
+    step("new admin: wake word models", `manifest filled the form, ${word.id} added, cutoff 87 → 91 saved, downloaded ${wordBlob} bytes, removed after the dialog`);
+    // Apps: the Windows app's download and the Quest and Mac apps' words.
+    await next.run(`location.hash = '#apps'`);
+    step("new admin: apps", await next.until(`(t => t && document.querySelector('#app-quest') && document.querySelector('#app-mac') && t)(document.querySelector('#apps-desktop-info')?.textContent)`, "the apps page"));
+    // Integrations: Home Assistant staged, saved and undone.
+    await next.run(`location.hash = '#integrations'`);
+    step("new admin: integrations", await next.until(`(t => /Home Assistant/.test(t) && /Notifications to browsers/.test(t) && !/OpenClaw gateway\\s*(connected|check)/.test(t) && t)([...document.querySelectorAll('main .card-h h3')].map(h => h.textContent).join(' | '))`, "the integrations cards"));
+    await next.run(fill("#ha-host", "127.0.0.1"));
+    await next.until(`/1 unsaved change/.test(${saveBar}?.textContent ?? '')`, "the broker staged");
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "Home Assistant to save");
+    const hostSaved = (await adminGet("/admin/integrations")).settings.mqtt.host;
+    await next.run(undoToast);
+    await next.until(`[...document.querySelectorAll('.toast span')].some(t => /Put back/.test(t.textContent))`, "the undo of Home Assistant");
+    await new Promise((r) => setTimeout(r, 300));
+    const hostBack = (await adminGet("/admin/integrations")).settings.mqtt.host;
+    if (hostSaved !== "127.0.0.1" || hostBack !== "") throw new Error(`the broker was saved as ${hostSaved}, then put back as ${JSON.stringify(hostBack)}`);
+    step("new admin: integration staged save", "broker 127.0.0.1 saved, then undone");
+    // System: history kept saved, a backup made, a copy of the database downloaded; #system/backup scrolls to it.
+    await next.run(`location.hash = '#system'`);
+    await next.until(`document.querySelector('#sys-activityDays')`, "the system page");
+    await next.run(fill("#sys-activityDays", "6"));
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "the system settings to save");
+    const daysSaved = (await adminGet("/admin/integrations")).settings.activityDays;
+    if (daysSaved !== 6) throw new Error(`activityDays was saved as ${daysSaved}`);
+    await next.run(`location.hash = '#system/backup'`);
+    await next.until(`(window.scrollY > 0 || Math.abs(document.querySelector('#sys-backup').getBoundingClientRect().top) < 120)`, "the backup card to scroll into view");
+    await next.run(`document.querySelector('#backup-now').click()`);
+    await next.until(`[...document.querySelectorAll('.toast span')].some(t => /Backup made/.test(t.textContent)) && document.querySelector('#sys-backup-last')`, "the backup from the new page", 20000);
+    await next.run(`${catchBlobs}; document.querySelector('#backup-download').click()`);
+    const dbHead = await next.until(`window.blobs[0] && window.blobs[0].slice(0, 15).text()`, "the database download", 20000);
+    if (dbHead !== "SQLite format 3") throw new Error(`the database download starts ${JSON.stringify(dbHead)}`);
+    step("new admin: system", `history kept 6 days saved; backup made (${await next.run(`document.querySelector('#sys-backup .badge')?.textContent`)}); database downloaded (${await next.run("window.blobs[0].size")} bytes)`);
     // Every ported page at a phone's width: nothing sticks out, the drawer opens and shuts.
     await next.phone(true);
     const wide = [];
-    const narrow = ["overview", "live", "live/now", "activity", "clients", `clients/${dev.id}`, `clients/${dev.id}/settings`, `clients/${dev.id}/tools`, `clients/${dev.id}/danger`, `type/${dev.type}`, `type/${dev.type}/settings`, `type/${dev.type}/firmware`, "settings", "pair", "agent", "openclaw", "tools", "speech", "voices"];
+    const narrow = ["overview", "live", "live/now", "activity", "clients", `clients/${dev.id}`, `clients/${dev.id}/settings`, `clients/${dev.id}/tools`, `clients/${dev.id}/danger`, `type/${dev.type}`, `type/${dev.type}/settings`, `type/${dev.type}/firmware`, "settings", "pair", "agent", "openclaw", "tools", "speech", "voices", "face", "firmware", "wakewords", "apps", "integrations", "system"];
     for (const page of narrow) {
       await next.run(`location.replace('#${page}')`);
       await new Promise((r) => setTimeout(r, 600));

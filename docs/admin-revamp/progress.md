@@ -9,22 +9,22 @@ The new page is at `/admin-next` (local network only, as `/admin`). Built in sta
 | 2. Devices: All devices, device page and tabs, settings editor, types, Defaults, Add a device | done | 0.53.0 | the commit after 6f749a3 |
 | 3. Overview and Activity: dashboard, Live (stream), History (charts) | done | 0.54.0 | the commit after 692ba35 |
 | 4. Agent and voice: Who answers, OpenClaw gateway, Tools and MCP, Speech, Voices | done | 0.55.0 | the commit after 44a6cdc |
-| 5. The rest (Face, Firmware, Wake words, Apps, Integrations, System) | next | | |
+| 5. The rest: Face and screen, Firmware, Wake words, Apps, Integrations, System | done | 0.56.0 | 312e3c3 and the commit after it |
 | 6. Switch `/admin` to the new page | | | |
 
-**Next (stage 5):** Face and screen (`#face`), Firmware (`#firmware`, and the type page's "Manage builds in the classic
-admin" links), Wake words (`#wakewords`, with the scores Live links to and the wake words poll), Apps, Integrations
-(`#integrations`; its read-only gateway card goes, ia.md 1) and System (`#system`, backup, network, clock); point the
-remaining `/admin#…` links (backup and Home Assistant in the health strip and attention list) at them; their
-browser-check steps.
+**Next (stage 6):** the switch. `/admin` serves the new page, the classic one moves to `/admin-classic` for one
+release (its sign-in keys stay shared), `browser-check` runs only the new page (drop the classic steps once their new
+twins are the only ones), the "Try the new admin" link in the classic sidebar goes; the release after, `web/admin.html`,
+`admin.js` and `admin.css` go. Axis minor version bump and CHANGELOG. Worth a look first: the owner trying 0.56.0 on the
+hub (Face, Firmware upload, Wake words, System backup and download), since stage 5 is checked by browser-check and
+screenshots only.
 
 ## How it is built
 
 - `web/admin-next.html` loads `admin-next-theme.js` (sets the theme before drawing), `admin-next.css`, `admin-next.js`.
 - `adm-core.js`: the store the 3 s poll fills, `api()`, sign-in (the classic page's token keys), toasts, dialogs
   (`ask()` replaces `confirm()`/`prompt()`), staged edits (`drafts`), helpers, the theme.
-- `adm-shell.js`: router (`parseRoute`), sidebar, health strip, attention list, command bar, sign-in, the cards for
-  pages not ported yet. `adm-devices.js`: the Devices area. `adm-activity.js`: the Overview, Live (the stream) and History (charts.js). `adm-agent.js`: the Agent and voice pages; each stages its form under the draft entity `page:<name>` (`useForm`, `saveForm` with Undo, the floating save bar), actions run at once. `adm-settings.js`: the settings editor. `adm-tools.js`: face,
+- `adm-shell.js`: router (`parseRoute`), sidebar, health strip, attention list, command bar, sign-in. `adm-devices.js`: the Devices area. `adm-activity.js`: the Overview, Live (the stream) and History (charts.js). `adm-hardware.js`: Face and screen, Firmware, Wake words, Apps. `adm-system.js`: Integrations and System (both edit `/admin/integrations`). `adm-agent.js`: the Agent and voice pages (its form helpers `useForm`, `saveForm`, `F`, `Text`, `Seg`, `Switch`, `useLoad` are shared by the stage 5 pages); each stages its form under the draft entity `page:<name>` (`useForm`, `saveForm` with Undo, the floating save bar), actions run at once. `adm-settings.js`: the settings editor. `adm-tools.js`: face,
   device sketch, glow preview, microphone meter.
 - Screenshots with pretend devices: `npm run build && node docs/admin-revamp/shots.mjs [folder] [filter]` (filters
   comma-separated, `^name` for a prefix; `SMALL=1` writes JPEGs at most 900 px wide).
@@ -63,7 +63,7 @@ Ids are the `audit.md` section and a running number. "Where" is the new page's p
 | 2-3 | `#device/<id>` alias | done (new) | `parseRoute` |
 | 2-4 | `#type/<type>`; `#type` → the shared settings | done | type page; `#type` → Defaults |
 | 2-5 | `#pair`, `#settings` | done | Add a device, Defaults |
-| 2-6 | `#openclaw`, `#agent`, `#tools`, `#speech` (+ new `#voices`); `#firmware`, `#wakewords`, `#face`, `#integrations` | done / card | the first four are pages since stage 4; the last four keep the "still in the classic admin" card until stage 5 |
+| 2-6 | `#openclaw`, `#agent`, `#tools`, `#speech` (+ new `#voices`); `#firmware`, `#wakewords`, `#face`, `#integrations` (+ new `#apps`, `#system`, `#system/<section>`) | done | every one a page of its own; the "still in the classic admin" card is gone; browser-check "old addresses" and "no classic links" |
 | 2-7 | Tabs in the address (`#clients/<id>/settings`), `?key=` opens and flashes a row | done (new) | device and type tabs, `SettingsEditor` `focusKey` |
 | 2-8 | Scroll to the top on a page change | done | router (not on a tab change) |
 
@@ -238,12 +238,57 @@ Ids are the `audit.md` section and a running number. "Where" is the new page's p
 | 3.12-3 | (ia 1.2) Command bar: Back up now (asks), Check the gateway again, Reconnect gateway | done (new) | `commandItems`; browser-check runs Reconnect gateway |
 | 3.12-4 | Leave without saving asks on these pages too | done | `entityOf` → `page:<name>`; browser-check "agent staged save" |
 
+### Stage 5: the rest (audit 3.12 Firmware, 3.13 Wake words, 3.14 Face, 3.15 Integrations; ia.md 1 Apps and System)
+
+Ids are lettered here, since 3.12 above is already "around the Agent and voice pages".
+
+| Id | Item | State | Where |
+|---|---|---|---|
+| fw-1 | Add a build: client type (free text + list of types in use and on the shelf), version, `.bin`, Upload (`POST /admin/firmware/<type>?version=`, raw), becomes current; errors said | done | Firmware › Add a build; browser-check "firmware uploaded" |
+| fw-2 | Per type: name + raw type, its devices with version (offline / behind) | done | a card per type; device chips link to the device; the name links to the type's Firmware tab |
+| fw-3 | Builds: version, size, uploaded, checksum (10 chars, whole on hover), "sent to devices" | done | builds table |
+| fw-4 | Send this one (`PUT …/current`), Download (blob), Remove (asks; `DELETE …/<version>`) | done | row actions; Remove is a dialog; browser-check downloads and removes |
+| fw-5 | Update N devices to the current build (asks), "Nothing to update" | done | per type (`updateType`); the type page's Update stays as it was |
+| fw-6 | Empty texts: no devices and no builds / no builds for this type | done | Firmware |
+| fw-7 | In the API only: delete a whole shelf (`DELETE /admin/firmware/<type>`) | done (new) | Remove every build (the type typed to confirm) |
+| fw-8 | In the API only: factory image (`?part=factory`, used by scripts) | n/a | stays for scripts; the flasher page uses it |
+| fw-9 | The type page's "Manage builds in the classic admin" | replaced | links to Firmware (or Apps for a Quest) |
+| ww-1 | Table: the firmware's own (built-in, who listens) + each stored word: phrase, id, cutoff %, window, size, listening with it | done | Wake words › Stored wake words (polled every 5 s while open) |
+| ww-2 | Cutoff and window saved on change (`PATCH /admin/wakewords/<id>`) | done (staged) | number fields staged, save bar, Undo; browser-check 87 → 91 |
+| ww-3 | Download, Remove (asks; `DELETE`) | done | row actions; browser-check downloads and removes |
+| ww-4 | Hint: choose one with the Wake word setting | done | links to Defaults at `wakeWord` |
+| ww-5 | What devices heard: 24 h / 7 days (`GET /admin/wakes?hours=`), per device and word: heard, answered, lowest, typical, highest, strip 50-100 % with the cutoff, last; legend | done | What devices heard; Live's wake words tab links here |
+| ww-6 | Add a wake word: model, manifest fills phrase/cutoff/window and warns on a feature step other than 10 ms, Add (`POST /admin/wakewords?name&cutoff&window`) | done | Add a wake word; browser-check adds one from a manifest |
+| fc-1 | Big face with name, reading, the 13 numbers with units; Voice level for listening and speaking | done | Face and screen; browser-check "face viewer" |
+| fc-2 | Idle looks: 14 tiles with "in the idle looks" → `idleLooksOff`, one stays on | done (staged) | ticks staged, Save, Undo; "One look has to stay on." toast |
+| fc-3 | State looks: setup … retrying (8) | done | State looks |
+| fc-4 | Tool icons: style (`toolIcons`), Time to form (`toolIconMs`), Dots (`toolIconDots`), Play it again, 13 icon tiles | done (staged) | sliders show at once and save with Save; browser-check saves three changes in one and undoes them |
+| fc-5 | Canvases run only while the page is open | done | each face stops when its component goes |
+| in-1 | Home Assistant: host, port, user, password (never shown), discovery prefix; connected since / last error; devices published; Save | done (staged) | Integrations; no Undo once a password is typed; browser-check saves a broker and undoes it |
+| in-2 | Live activities: switch (only when offered; needs HA), blueprint link and address, showing now, last passed on, Send a test | done | switch staged; Send a test at once |
+| in-3 | Notifications to browsers: which browsers, page closed, waiting | done | plus Send a test per browser (was on the device page only) |
+| in-4 | The read-only OpenClaw gateway card | removed | as ia.md 1 plans; a line links to OpenClaw gateway |
+| sy-1 | Public address: names, trusted proxies; Save | done (staged) | System › Public address (`#system/network`) |
+| sy-2 | Clock and keeping: time zone (every zone listed), history kept days, messages kept minutes | done (staged) | System › Clock and keeping (`#system/clock`); browser-check saves history kept |
+| sy-3 | Backup: state, every N hours, daily copies kept, folder, last run, how long and how big or the error, Back up now, setup hint when off | done | System › Backup (`#system/backup`); browser-check makes one |
+| sy-4 | Backup download | done (new) | Download a copy of the database: `GET /admin/backup/download`, a fresh checked copy, with or without a backup folder (`backup.test.ts`); also in the command bar |
+| sy-5 | About: Axis version, commit, protocol, running since, data folder, devices, Sign out | done (new) | System › About (`#system/about`) |
+| ap-1 | Windows app: version, size, built, Download (`/admin/desktop/app`) | done | Apps (also still on Add a device) |
+| ap-2 | Quest app: version, size, checksum, built; headsets with Update when behind | done | Apps |
+| ap-3 | Mac app: built on a Mac, not served, does not update itself; its Macs | done | Apps |
+| ap-4 | Windows computers on another version than the hub's app: Update (`POST /admin/clients/<id>/update`) | done (new) | Apps; the server could already do it, the classic page never offered it |
+| s5-1 | No "still in the classic admin" card, no `/admin` link left (health strip, attention list, sidebar foot, command bar, Live, type page) | done | browser-check "no classic links" |
+| s5-2 | Backup trouble opens System › Backup, Home Assistant opens Integrations (health strip and attention list); sidebar marks on Integrations and System | done | `Health`, `attentionItems`, `Sidebar` |
+| s5-3 | Command bar: Download a copy of the database, Upload a firmware build, Add a wake word | done (new) | `commandItems` |
+| s5-4 | Leave without saving asks on Face, Wake words, Integrations and System | done | `FORM_PAGES` |
+| s5-5 | Phone width: the six pages fit in 390 px | done | browser-check "phone width" (25 pages) |
+
 ### 5. Storage, polling, keyboard, phone
 
 | Id | Item | State | Where |
 |---|---|---|---|
 | 5-1 | Keys `axis-admin-token`, `axis-admin-started`, `axis.glassCorner`, `axis.deviceAddress` | done | same keys; new: `axis.theme`, `axis.nav`, `axis.groups`, `axis.devices` |
-| 5-2 | 3 s poll, paused while hidden | done | `refresh()` (wake words are not polled until stage 5) |
+| 5-2 | 3 s poll, paused while hidden | done | `refresh()`; the wake words list every 5 s and the scores every 10 s while Wake words is open (`useLoad`) |
 | 5-3 | Integrations every 60 s for attention | done | `loadSlow()` (also config, self-check, activity) |
 | 5-4 | Escape closes the drawer; Enter commits fields | done | Escape also closes dialogs and the command bar |
 | 5-5 | Segmented buttons with `aria-pressed` | done (new) | themes, grid/list, glow kinds |
@@ -260,8 +305,8 @@ Ids are the `audit.md` section and a running number. "Where" is the new page's p
 | Offline alert auto/always/never; auto by kind (boards 15 min, computers and Quest 12 h, browsers never), per device and per type | done | built-in `offlineAlert`, never sent to devices (test in `listening.test.ts`) |
 | Dark (default), Light, System; every colour a token; face and charts right in both | done | `admin-next.css` |
 
-**Counts:** 140 audited items in the ported areas (stage 4 added 32: 3.8-1 to 3.8-8, 3.9-1 to 3.9-6, 3.10-1 to 3.10-6,
-3.11-1 to 3.11-8, 3.12-1 to 3.12-4; and 1-10 went from partly to done): 136 done (18 of them new), 1 moved as planned
-(3.10-3, to 3.8-8), 1 not applicable (3.11-8), 1 replaced as planned (1-15), 1 split between done and the card (2-6:
-four pages stay in the classic admin until stage 5). Recording a voice (3.11-5) is ported but not driven by browser-check
-(no microphone there).
+**Counts** (counted from the tables above): 177 rows. Stage 5 added 38 (fw-1 to fw-9, ww-1 to ww-6, fc-1 to fc-5,
+in-1 to in-4, sy-1 to sy-5, ap-1 to ap-4, s5-1 to s5-5) and moved 2-6 and 5-2 to done. 171 done, 2 replaced as planned
+(1-15, fw-9), 1 moved as planned (3.10-3, to 3.8-8), 2 not applicable (3.11-8; fw-8, the factory image stays for
+scripts), 1 removed as planned (in-4, the read-only gateway card). Recording a voice (3.11-5) is ported but not driven by
+browser-check (no microphone there). Nothing is left on the classic page only: no "card" item remains.

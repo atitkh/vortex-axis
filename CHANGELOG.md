@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.56.0 (2026-10-27)
+
+The new admin page, stage 5 of `docs/admin-revamp/ia.md` section 4.1: the rest of the pages at `/admin-next` (`web/adm-hardware.js`, `web/adm-system.js`). Every page of the classic `/admin` now has its new one; the classic page is unchanged and stays until stage 6.
+
+- **Face and screen** (`#face`): the large face with its name, reading and 13 numbers, the voice level for listening and speaking; idle looks with their ticks (one stays on), state looks, tool icons (Dot shapes / Line at the core / Off, time to form, dots in the shape, Play it again, 13 icon tiles). The idle looks and tool icon settings are staged and saved with Save, with Undo; sliders show the change at once.
+- **Firmware** (`#firmware`): Add a build (type from the types in use and on the shelf, version, `.bin`, Upload); per type its devices (behind, offline), the builds with size, upload time, checksum and which is sent, Send this one, Download, Remove (asks), Update N devices (asks), and Remove every build (the type typed to confirm; was API-only).
+- **Wake words** (`#wakewords`): the stored models with who listens with each, cutoff and window staged and saved with Save, Download, Remove (asks); What devices heard (24 hours / 7 days) with the score strips and the cutoff; Add a wake word, the manifest filling in phrase, cutoff and window.
+- **Apps** (`#apps`, new): the Windows desktop app (version, size, Download, each Windows computer with an Update when it runs another version), the Quest app (version, size, checksum, headsets with Update), the Mac app (built on a Mac, its Macs listed).
+- **Integrations** (`#integrations`): Home Assistant (broker, port, user, password never shown, discovery prefix; connected or the last error, devices published), Live activities on phones (switch, blueprint, Send a test), notifications to browsers (with Send a test per browser). Staged with Save and Undo (no Undo once a password was typed). The read-only gateway card is gone (ia.md 1).
+- **System** (`#system`, `#system/network`, `#system/clock`, `#system/backup`, `#system/about`): public address and trusted proxies, time zone, history kept, messages kept, backup (every N hours, daily copies kept, folder, last run, Back up now) and the new **Download a copy of the database**: `GET /admin/backup/download` makes a fresh copy (as a backup does) and hands it over, whether or not a backup folder is set up (tested in `backup.test.ts`); about this hub, Sign out.
+- Every "still in the classic admin" card and every link to `/admin` is gone from the new page: the health strip and attention list send backup trouble to System and Home Assistant to Integrations, the type page's firmware tab to Firmware or Apps, Live's wake words to Wake words; Integrations and System carry a mark in the sidebar when something of theirs is in trouble; the command bar gains Download a copy of the database, Upload a firmware build and Add a wake word.
+- `browser-check` drives the new pages (face staged save and Undo, firmware upload, download and remove, a wake word added from a manifest, tuned, downloaded and removed, Apps, Home Assistant saved and undone, System saved, a backup and a database download, no link back to `/admin`, 25 pages at phone width); the classic page's steps still pass. `docs/admin-revamp/shots.mjs` renders the new pages.
+
 ## Axis 0.55.0 (2026-10-27)
 
 The new admin page, stage 4 of `docs/admin-revamp/ia.md` section 4.1: Agent and voice at `/admin-next` (`web/adm-agent.js`). The classic `/admin` is unchanged.
