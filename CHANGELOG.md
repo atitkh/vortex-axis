@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.52.0 (2026-10-27)
+
+The new admin page, stage 0 of `docs/admin-revamp/ia.md` section 4.1: it is served beside the classic one while it is built.
+
+- `/admin-next` serves `web/admin-next.html` with the same rule as `/admin`: on the local network only, nothing under a public name. For now it only says it is being built; the classic page's sidebar foot links to it ("Try the new admin").
+- Vendored for it, one file each in `web/`, no build step: `preact.js` (Preact 10 with hooks and htm, htm 3.1.1's `preact/standalone.module.js`; MIT and Apache-2.0) and `qr.js` (qrcode-generator 2.0.4, MIT), each with its source, version and checksum in a comment.
+- A new built-in device setting, **Offline alert** (`offlineAlert`: `auto`, `always`, `never`; default `auto`), read only by the new admin page to decide when an offline device needs attention. It is kept out of the settings devices are sent (`SERVER_ONLY_KEYS`), so no firmware or app sees it.
+- `GET /admin/settings/global` also returns `builtIns`, the settings Axis itself reads for every client, so a page can offer them for everything before any device has described itself.
+
 ## Board firmware 0.20.0 (Waveshare 1.8) (2026-10-27)
 
 The round board's 0.3.1, 0.4.0 and 0.4.1 on the 1.8, with the same setting keys, groups, labels, help text, choices and defaults, so the admin page shows the same for both.

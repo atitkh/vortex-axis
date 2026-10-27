@@ -32,6 +32,20 @@ describe("the shared listening settings", () => {
     expect((await client.next("settings", 0, (m) => m.values.silenceMs === 700)).values).toMatchObject({ followUpMs: 0, maxSpeechMs: 20000 });
   });
 
+  it("never send a device the settings only Axis's pages read (offlineAlert)", async () => {
+    const { identity, client } = await ready(["mic", "speaker", "screen"]);
+    await client.next("settings");
+    await admin("PATCH", "/admin/settings/global", { values: { offlineAlert: "never" } });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { offlineAlert: "always", silenceMs: 800 } });
+    const sent = await client.next("settings", 0, (m) => m.values.silenceMs === 800);
+    expect(sent.values).not.toHaveProperty("offlineAlert");
+    // Stored and shown to the admin all the same.
+    const listed = (await admin("GET", "/admin/clients")).body as { clients: { id: string; settings: Record<string, unknown> }[] };
+    expect(listed.clients.find((c) => c.id === identity.clientId)?.settings.offlineAlert).toBe("always");
+    // A choice it does not offer is refused.
+    expect((await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { offlineAlert: "sometimes" } })).status).toBe(400);
+  });
+
   it("moves the settings' version on when the defaults sent are new, once", async () => {
     const store = ctx.app.store;
     const before = store.settingsVersion();

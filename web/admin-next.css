@@ -1,0 +1,5 @@
+/* The new admin page (admin-next). Stage 0: only the page itself. */
+:root { color-scheme: dark; --bg: #000; --text: #e9e9e6; --accent: #6fd4ef; font: 14.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--accent); }
+.soon { max-width: 520px; margin: 18vh auto; padding: 0 20px; }

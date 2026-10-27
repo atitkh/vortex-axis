@@ -20,7 +20,7 @@ import {
 import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
-import { declaredDefaults, sentDefaults } from "./schema.js";
+import { declaredDefaults, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 import type { SpeechShare } from "./speech.js";
@@ -492,7 +492,10 @@ export class Hub implements TurnPort {
    * the stored layers, so every client listens by the same numbers without holding its own.
    */
   sentSettings(client: Pick<ClientRecord, "id" | "type">): ScalarMap {
-    return { ...sentDefaults(), ...this.store.resolveSettings(client) };
+    const values: ScalarMap = { ...sentDefaults(), ...this.store.resolveSettings(client) };
+    // Settings only Axis's own pages read never reach a device, so no firmware or app is told anything new.
+    for (const key of SERVER_ONLY_KEYS) delete values[key];
+    return values;
   }
 
   /** True when this client is in its quiet hours right now. */

@@ -27,6 +27,30 @@ describe("web pages", () => {
     expect((await page("/web/style.css")).type).toMatch(/css/);
   });
 
+  it("serves the new admin page beside the classic one, on the local network only", async () => {
+    const next = await page("/admin-next");
+    expect(next.status).toBe(200);
+    expect(next.type).toMatch(/text\/html/);
+    expect(next.body).toMatch(/\/web\/admin-next\.js\?v=[0-9a-f]{12}/);
+    // Its vendored libraries are plain files of the same flat folder.
+    expect((await page("/web/preact.js")).body).toContain("export{");
+    expect((await page("/web/qr.js")).type).toMatch(/javascript/);
+    // Under a public name neither admin page exists.
+    await admin("PATCH", "/admin/integrations", { publicHosts: "axis.example.org" });
+    for (const path of ["/admin", "/admin-next"]) {
+      const outside = await fetch(`${ctx.base}${path}`, { headers: { "x-forwarded-host": "axis.example.org" } });
+      expect(outside.status).toBe(404);
+    }
+    expect((await page("/admin-next")).status).toBe(200);
+    await admin("PATCH", "/admin/integrations", { publicHosts: "" });
+  });
+
+  it("lists Axis's own settings with the shared layer", async () => {
+    const body = (await admin("GET", "/admin/settings/global")).body as { values: unknown; builtIns: { key: string }[] };
+    expect(body.values).toEqual({});
+    expect(body.builtIns.map((s) => s.key)).toEqual(expect.arrayContaining(["voice", "quietFrom", "offlineAlert", "wakeWord"]));
+  });
+
   it("stamps the addresses of its own files, so a new build is never served from an old copy", async () => {
     const page = await fetch(`${ctx.base}/`);
     expect(page.headers.get("cache-control")).toBe("no-cache");

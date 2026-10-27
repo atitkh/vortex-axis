@@ -799,3 +799,6 @@ pre.tryout { background: var(--sunk); border: 1px solid var(--line); border-radi
 .started li p { margin: 3px 0 0; }
 .started li.done strong { font-weight: 500; color: var(--muted, inherit); }
 .started-other { margin-left: 12px; font-size: 13px; }
+
+/* The way to the new admin page, under the version at the foot of the sidebar. */
+.side a.try-next { color: var(--accent); font-size: 12.5px; margin-top: 6px; }

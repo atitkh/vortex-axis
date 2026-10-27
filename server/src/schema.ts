@@ -182,7 +182,19 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     group: "Axis",
     help: "What this device can do that an admin has switched off, separated by commas, such as mic,screen. Set with the switches on the device's page, for this one device only; Axis stops using what is listed and the device stops doing it.",
   },
+  {
+    key: "offlineAlert",
+    label: "Offline alert",
+    kind: "choice",
+    group: "Axis",
+    options: ["auto", "always", "never"],
+    default: "auto",
+    help: "When the admin page lists this device under Needs attention for being offline. \"auto\" goes by what it is: a board after 15 minutes, a computer or a headset after 12 hours (they sleep), a browser never. \"always\" after 10 minutes, \"never\" not at all. Only the admin page reads it; devices are never sent it.",
+  },
 ];
+
+/** Built-in settings only Axis and its admin page read. They are kept out of what devices are sent. */
+export const SERVER_ONLY_KEYS = ["offlineAlert"] as const;
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };
 

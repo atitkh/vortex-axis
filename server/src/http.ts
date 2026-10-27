@@ -516,6 +516,8 @@ export function createHttpHandler(deps: HttpDeps) {
       const file =
         url.pathname === "/" ? web.get("index.html")
         : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin.html"))
+        // The new admin page, beside the classic one while it is built (docs/admin-revamp): the same rule, local network only.
+        : url.pathname === "/admin-next" ? (isPublic(req) ? undefined : web.get("admin-next.html"))
         : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
         // The service worker has to live at the top to be allowed to act for the whole web client.
         : url.pathname === "/sw.js" ? web.get("sw.js")
@@ -1504,7 +1506,8 @@ export function createHttpHandler(deps: HttpDeps) {
       if (parts[1] === "settings") {
         const scope = parts[2];
         if (scope === "global" && parts.length === 3) {
-          if (method === "GET") return sendJson(res, 200, { values: store.getLayer("global", "") });
+          // The settings Axis itself reads for every client, so a page can show them for everything before any device describes itself.
+          if (method === "GET") return sendJson(res, 200, { values: store.getLayer("global", ""), builtIns: withBuiltIns(undefined, wakeIds()).settings });
           if (method === "PATCH") return sendJson(res, 200, await patchSettings(req, "global", ""));
         }
         if ((scope === "type" || scope === "device") && parts.length === 4) {
