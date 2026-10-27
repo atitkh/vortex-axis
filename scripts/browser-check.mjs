@@ -1,4 +1,4 @@
-// Drives the admin page and the web client in headless Chrome against a real
+// Drives the admin page (the classic /admin and the new /admin-next) and the web client in headless Chrome against a real
 // Axis server, with a stub standing in for the agent.
 //
 //   npm run build && TTS=http://host/v1/audio/speech STT=http://host/v1/audio/transcriptions node scripts/browser-check.mjs
@@ -14,6 +14,7 @@ import { join } from "node:path";
 import WebSocket from "ws";
 import { startApp } from "../server/dist/app.js";
 import { loadConfig } from "../server/dist/config.js";
+import { readQr } from "./qr-read.mjs";
 
 const chat = createServer((req, res) => {
   req.resume();
@@ -547,6 +548,171 @@ try {
   step("tool icon style", await admin.until(`document.querySelector('#face-icon-style button.on')?.dataset.style === 'line' && ${byId("face-icons-note")}.textContent`, "the style to be saved"));
   const styled = await fetch(`${base}/admin/settings/global`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
   if (styled.values.toolIcons !== "line") throw new Error(`toolIcons was saved as ${JSON.stringify(styled.values.toolIcons)}`);
+  // --- the new admin page (/admin-next): the same sign-in, the Devices area -----------------------------
+  {
+    const next = await openPage(`${base}/admin-next`);
+    await next.front();
+    // The token the classic page kept serves this page too.
+    step("new admin: one sign-in for both", await next.until(`document.querySelector('#main') && document.querySelectorAll('.health .dot').length >= 4 && 'signed in from the classic page\\'s token'`, "the new page to sign in"));
+    // Every old address still lands somewhere; #device/<id> is an alias of #clients/<id>.
+    const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
+    const dev = known.clients[0];
+    const routes = [];
+    for (const [hash, expect] of [["#clients", "All devices"], [`#clients/${dev.id}`, dev.name], [`#device/${dev.id}`, dev.name], [`#clients/${dev.id}/settings`, dev.name], [`#type/${dev.type}`, null], ["#type", "Defaults for everything"], ["#settings", "Defaults for everything"], ["#pair", "Add a device"], ["#activity", "History"], ["#live", "Live"], ["#openclaw", "OpenClaw gateway"], ["#speech", "Speech"], ["#nonsense", "Overview"]]) {
+      await next.run(`location.hash = ${JSON.stringify(hash)}`);
+      const title = await next.until(`(t => t && (${JSON.stringify(expect)} === null || t === ${JSON.stringify(expect)}) && t)(document.querySelector('main h1')?.textContent)`, `the page for ${hash}`);
+      routes.push(`${hash.replace(dev.id, "<id>")}→${title}`);
+    }
+    step("new admin: old addresses", routes.join(", "));
+    await next.run(`location.hash = '#speech'`);
+    step("new admin: unported page card", await next.until(`(h => h === '/admin#speech' && h)(document.querySelector('.classic-card a')?.getAttribute('href'))`, "the classic page's card"));
+    // The command bar: Ctrl+K, type, Enter opens the device; Escape closes it.
+    await next.run(`location.hash = '#overview'`);
+    await next.run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))`);
+    await next.until(`document.querySelector('.cmdk input') === document.activeElement`, "the command bar");
+    await next.run(`(i => { i.value = ${JSON.stringify(dev.name.slice(0, 5))}; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('.cmdk input'))`);
+    await next.until(`document.querySelector('.cmdk-it.on')`, "a result");
+    await next.run(`document.querySelector('.cmdk input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+    step("new admin: command bar", await next.until(`!document.querySelector('.cmdk') && location.hash.startsWith('#clients/') && 'Ctrl+K, typed, Enter opened ' + document.querySelector('main h1').textContent`, "the device from the command bar"));
+    await next.run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))`);
+    await next.until(`document.querySelector('.cmdk input')`, "the command bar again");
+    await next.run(`document.querySelector('.cmdk input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await next.until(`!document.querySelector('.cmdk')`, "Escape to close the command bar");
+    // All devices: a card per device, the filter, the list view.
+    await next.run(`location.hash = '#clients'`);
+    step("new admin: all devices", await next.until(`document.querySelectorAll('#device-list [data-device]').length === ${known.clients.length} && [...document.querySelectorAll('#device-list .nm span:first-child')].map(e => e.textContent).join(', ')`, "the device cards"));
+    step("new admin: names as text", await next.run(`document.querySelectorAll('main b, main .nm b').length === 0 || ![...document.querySelectorAll('main b')].some(b => b.textContent === 'test')`));
+    // The staged settings editor: type a value, the save bar counts it, the poll does not wipe it, Save sends it, Undo takes it back.
+    await next.run(`location.hash = '#clients/${dev.id}/settings'`);
+    await next.until(`document.querySelector('.banner [data-edit], [data-edit=volume]')`, "the settings editor");
+    const typeIn = (key, value) => `(i => { i.focus(); i.value = ${JSON.stringify(value)}; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('[data-edit=${key}]'))`;
+    await next.run(typeIn("volume", "35"));
+    await next.until(`/1 unsaved change/.test(document.querySelector('.banner .savebar')?.textContent ?? '')`, "the save bar");
+    await new Promise((r) => setTimeout(r, 3500)); // a poll goes by
+    const kept = await next.run(`document.querySelector('[data-edit=volume]').value === '35' && document.activeElement === document.querySelector('[data-edit=volume]') && document.querySelector('[data-key=volume] .src-chip').textContent`);
+    if (kept !== "unsaved") throw new Error(`the poll wiped or moved what was typed (${kept})`);
+    const before = app.store.getLayer("device", dev.id).volume;
+    if (before !== undefined && before !== 35) throw new Error("the value was saved before Save");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`!document.querySelector('.banner .savebar') && document.querySelector('[data-key=volume] .src-chip')?.textContent === 'this device'`, "the save");
+    if (app.store.getLayer("device", dev.id).volume !== 35) throw new Error(`volume saved as ${app.store.getLayer("device", dev.id).volume}`);
+    step("new admin: staged save", `typed 35, kept through a poll, ${await next.run(`[...document.querySelectorAll('.toast span')].map(t => t.textContent).join(' | ')`)}`);
+    await next.run(`[...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Undo').click()`);
+    await next.until(`document.querySelector('[data-key=volume] .src-chip')?.textContent !== 'this device'`, "the undo");
+    step("new admin: undo", `volume on the device layer is ${JSON.stringify(app.store.getLayer("device", dev.id).volume ?? null)} again`);
+    // A value the server refuses: the bar says why and keeps the change.
+    await next.run(typeIn("volume", "150"));
+    await next.until(`document.querySelector('[data-key=volume] .src-chip')?.textContent === 'refused'`, "the range check");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    step("new admin: range refused", await next.until(`(t => /at most 100/.test(t) && t)(document.querySelector('.save-error')?.textContent ?? '')`, "the refusal"));
+    // A value equal to what the layers below give stores nothing (it keeps following the shared value).
+    await next.run(typeIn("volume", "60"));
+    await next.until(`!document.querySelector('.banner .savebar')`, "typing the inherited value to stage nothing");
+    await next.run(typeIn("volume", "61"));
+    await next.run(typeIn("volume", "60"));
+    step("new admin: inherited value", await next.run(`!document.querySelector('.banner .savebar') && 'typing the value it already follows stages nothing'`));
+    // Several changes at once (a toggle, a choice, the name, a capability), saved in one go; then Discard.
+    await next.run(`(i => i.click())(document.querySelector('[data-edit=listenCue]'))`);
+    await next.run(`(s => { s.value = '180'; s.dispatchEvent(new Event('change', { bubbles: true })); })(document.querySelector('[data-edit=rotation]'))`);
+    await next.run(typeIn("name", "Browser next"));
+    await next.run(`document.querySelector('[data-edit="capability-screen"]').click()`);
+    await next.until(`/4 unsaved changes/.test(document.querySelector('.banner .savebar').textContent)`, "four staged changes");
+    // Leaving with unsaved changes asks first; Stay keeps them.
+    await next.run(`location.hash = '#clients'`);
+    await next.until(`document.querySelector('.dialog')`, "the leave dialog");
+    await next.run(`[...document.querySelectorAll('.dialog button')].find(b => b.textContent === 'Stay').click()`);
+    await next.until(`!document.querySelector('.dialog') && location.hash.endsWith('/settings') && document.querySelector('.banner .savebar')`, "staying");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`!document.querySelector('.banner .savebar') && document.querySelector('#device-title').textContent === 'Browser next'`, "the four changes to save");
+    const saved = app.store.getLayer("device", dev.id);
+    const rec = app.store.getClient(dev.id);
+    if (saved.listenCue !== 0 || saved.rotation !== 180 || !rec.off.includes("screen")) throw new Error(`saved ${JSON.stringify(saved)} off=${rec.off}`);
+    step("new admin: several changes in one save", `listenCue ${saved.listenCue}, rotation ${saved.rotation}, name ${rec.name}, off ${rec.off.join(",")}`);
+    await next.run(`[...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Undo').click()`);
+    await next.until(`document.querySelector('#device-title').textContent === ${JSON.stringify(dev.name)}`, "the undo of all four");
+    if (app.store.getClient(dev.id).off.length || app.store.getLayer("device", dev.id).listenCue !== undefined) throw new Error("undo left something behind");
+    await next.run(typeIn("volume", "20"));
+    await next.run(`[...document.querySelectorAll('.banner .savebar button')].find(b => b.textContent === 'Discard').click()`);
+    step("new admin: undo all, discard", await next.until(`!document.querySelector('.banner .savebar') && document.querySelector('[data-edit=volume]').value !== '20' && 'undone, discarded'`, "the discard"));
+    // Share with type: the device's value becomes its type's.
+    await next.run(typeIn("volume", "45"));
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`document.querySelector('[data-key=volume] .src-chip')?.textContent === 'this device'`, "the volume on the device");
+    await next.run(`[...document.querySelectorAll('[data-key=volume] button')].find(b => b.textContent === 'Share with type').click()`);
+    await next.until(`document.querySelector('[data-key=volume] .src-chip')?.textContent === 'type'`, "the value to move to the type");
+    step("new admin: share with type", `type layer volume ${app.store.getLayer("type", dev.type).volume}, device layer ${JSON.stringify(app.store.getLayer("device", dev.id).volume ?? null)}`);
+    // The type page: the type's value, who differs, and a reset back to the default.
+    await next.run(`location.hash = '#type/${dev.type}/settings'`);
+    await next.until(`document.querySelector('.banner[data-layer=type]') && document.querySelector('[data-key=volume] .src-chip')?.textContent === 'this type'`, "the type's settings");
+    await next.run(`document.querySelector('[data-reset=volume]').click()`);
+    await next.until(`document.querySelector('.banner [data-save]')`, "the reset to be staged");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`document.querySelector('[data-key=volume] .src-chip')?.textContent === 'default'`, "the type value to go");
+    step("new admin: type reset", `type layer volume now ${JSON.stringify(app.store.getLayer("type", dev.type).volume ?? null)}, the row says default`);
+    // Defaults for everything: every Axis built-in, a raw key added and cleared.
+    await next.run(`location.hash = '#settings'`);
+    step("new admin: defaults list the built-ins", await next.until(`(k => k.includes('quietFrom') && k.includes('offlineAlert') && k.includes('defaultClient') && k.length + ' keys')([...document.querySelectorAll('[data-key]')].map(r => r.dataset.key))`, "the built-ins"));
+    await next.run(`(k => { k.value = 'ledColor'; k.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#set-key')); (v => { v.value = 'blue'; v.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#set-value'))`);
+    await next.run(`document.querySelector('#set-add').click()`);
+    await next.until(`document.querySelector('[data-key=ledColor]') && document.querySelector('.banner [data-save]')`, "the staged raw key");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`document.querySelector('[data-key=ledColor] .src-chip')?.textContent === 'everything'`, "the raw key to save");
+    if (app.store.getLayer("global", "").ledColor !== "blue") throw new Error("the raw key was not saved");
+    await next.run(`document.querySelector('[data-reset=ledColor]').click()`);
+    await next.until(`document.querySelector('.banner [data-save]')`, "the reset to be staged");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    step("new admin: other keys", await next.until(`!document.querySelector('[data-key=ledColor]') && 'ledColor added and cleared'`, "the raw key to clear"));
+    // The device page's tabs: actions, the mic panel (the web client refuses it, shown), the danger zone's typed confirmation.
+    await next.run(`location.hash = '#clients/${dev.id}'`);
+    await next.until(`document.querySelector('#device-facts')`, "the device overview");
+    await next.run(`[...document.querySelectorAll('.dmain .btnrow button')].find(b => b.textContent === 'Diagnostics')?.click()`);
+    step("new admin: device action", await next.until(`document.querySelector('#action-note')?.textContent`, "the action's answer"));
+    await next.run(`location.hash = '#clients/${dev.id}/tools'`);
+    await next.until(`document.querySelector('#mic-go')`, "the mic panel");
+    await next.run(`document.querySelector('#mic-go').click()`);
+    step("new admin: microphone levels", await next.until(`document.querySelector('#mic-go').textContent === 'Stop' && /bad/.test(document.querySelector('#mic-note').className) && document.querySelector('#mic-note').textContent`, "the mic answer"));
+    await next.run(`document.querySelector('#mic-go').click()`);
+    await next.run(`location.hash = '#clients/${dev.id}/danger'`);
+    await next.until(`document.querySelector('#device-remove')`, "the danger zone");
+    await next.run(`document.querySelector('#device-remove').click()`);
+    await next.until(`document.querySelector('.dialog .btn.danger-solid')?.disabled === true`, "the typed confirmation");
+    await next.run(`document.querySelector('.dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    step("new admin: remove asks for the name", await next.until(`!document.querySelector('.dialog') && 'Remove disabled until the name is typed; Escape closed it'`, "Escape to close the dialog"));
+    if (!app.store.getClient(dev.id)) throw new Error("the device went without the name typed");
+    // Add a device: a code, the setup string and its QR code, drawn again when the code changes.
+    await next.run(`location.hash = '#pair'`);
+    await next.until(`document.querySelector('#code-new')`, "Add a device");
+    await next.run(`(i => { i.value = '192.168.1.20:8440'; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#device-address')); document.querySelector('#code-new').click()`);
+    const first = await next.until(`(s => /^axis:\\/\\/192\\.168\\.1\\.20:8440\\/\\d{3}-\\d{3}$/.test(s) && document.querySelector('svg.qr')?.dataset.text === s && s)(document.querySelector('#setup-string').value)`, "the setup string and QR");
+    await next.run(`(i => { i.value = 'https://axis.example.org'; i.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('#device-address'))`);
+    const tls = await next.until(`(s => s.startsWith('axis+tls://axis.example.org/') && document.querySelector('svg.qr').dataset.text === s && s)(document.querySelector('#setup-string').value)`, "the tls setup string");
+    // The QR code really says the setup string: its modules are read back by the decoder in scripts/qr-read.mjs.
+    const modules = await next.run(`(() => { const svg = document.querySelector('svg.qr'); const n = Number(svg.dataset.modules); const grid = Array.from({ length: n }, () => Array(n).fill(0)); for (const m of svg.querySelector('path').getAttribute('d').matchAll(/M(\\d+) (\\d+)/g)) grid[Number(m[2]) - 4][Number(m[1]) - 4] = 1; return grid.map(r => r.join('')); })()`);
+    const read = readQr(modules);
+    if (read !== tls) throw new Error(`the QR code reads ${JSON.stringify(read)}, not ${tls}`);
+    step("new admin: setup string and QR", `${first.replace(/\d{3}-\d{3}/, "<code>")}, then ${tls.replace(/\d{3}-\d{3}/, "<code>")}; the QR code reads back as the setup string`);
+    // The theme switch: light, remembered, and back.
+    await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Light').click()`);
+    step("new admin: theme", await next.until(`document.documentElement.dataset.theme === 'light' && localStorage.getItem('axis.theme') === 'light' && getComputedStyle(document.body).backgroundColor`, "the light theme"));
+    await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Dark').click()`);
+    // Every ported page at a phone's width: nothing sticks out, the drawer opens and shuts.
+    await next.phone(true);
+    const wide = [];
+    for (const page of ["overview", "clients", `clients/${dev.id}`, `clients/${dev.id}/settings`, `clients/${dev.id}/tools`, `clients/${dev.id}/danger`, `type/${dev.type}`, `type/${dev.type}/settings`, `type/${dev.type}/firmware`, "settings", "pair"]) {
+      await next.run(`location.replace('#${page}')`);
+      await new Promise((r) => setTimeout(r, 600));
+      const over = await next.run(`document.documentElement.scrollWidth - document.documentElement.clientWidth`);
+      if (over > 0) wide.push(`${page}: ${over}px over`);
+    }
+    const shut = await next.run(`getComputedStyle(document.querySelector('#nav')).visibility === 'hidden'`);
+    await next.run(`document.querySelector('#menu').click()`);
+    await next.until(`getComputedStyle(document.querySelector('#nav')).visibility === 'visible'`, "the drawer to open");
+    await next.run(`document.querySelector('#nav a[href="#pair"]').click()`);
+    await next.until(`getComputedStyle(document.querySelector('#nav')).visibility === 'hidden' && document.querySelector('#where').textContent === 'Add a device'`, "the drawer to close on a choice");
+    await next.phone(false);
+    if (wide.length) throw new Error(`new admin at phone width: ${wide.join(" | ")}`);
+    step("new admin: phone width", `11 pages fit in 390 px; drawer shut=${shut}, opens, closes on a choice`);
+  }
   await admin.run(`location.hash = '#type/web'`);
   await admin.until(`${byId("type")}.classList.contains('on')`, "the type page once more");
   await admin.run(`history.go(-4)`);

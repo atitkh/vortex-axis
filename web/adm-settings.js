@@ -303,6 +303,9 @@ export function SettingsEditor({ defs, layers, tab, entity, head = [], extra, ra
   useEffect(() => {
     if (!focusKey) return;
     const def = defs.find((d) => d.key === focusKey);
+    // Or a group by name (?key=capabilities opens the device's switches).
+    const group = head.find((g) => g.name.toLowerCase() === focusKey.toLowerCase());
+    if (group) return void setTimeout(() => jump(group.name), 60);
     if (!def) return;
     const name = def.group || "Other";
     if (!isOpen(name)) toggle(name, true);

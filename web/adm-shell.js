@@ -280,7 +280,8 @@ function Sidebar({ route, attention }) {
   const groupHead = (g) => html`<button type="button" class="gh" aria-expanded=${isOpen(g.key)} onClick=${() => toggle(g.key)}>
     <${Icon} name=${g.icon} /><span>${g.title}</span><${Icon} name="chev" class=${`chev ${isOpen(g.key) ? "open" : ""}`} />
   </button>`;
-  return html`<nav class="side" id="nav" aria-label="Pages">
+  // A link to the page already showing changes no address, so the phone drawer is closed on the tap itself.
+  return html`<nav class="side" id="nav" aria-label="Pages" onClick=${(e) => e.target.closest("a") && store.navOpen && set({ navOpen: false })}>
     <a class="brand" href="#overview"><span class="brand-face"><${Face} mode="idle" /></span><span>VorteX Axis</span></a>
     <button type="button" class="find" onClick=${() => set({ cmdk: true })} aria-keyshortcuts="Control+K"><${Icon} name="search" /><span>Search or jump</span><kbd>Ctrl K</kbd></button>
     <div class="nav">

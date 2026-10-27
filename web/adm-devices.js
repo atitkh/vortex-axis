@@ -369,7 +369,7 @@ function DeviceSettings({ client, schema, focusKey }) {
     layers=${[{ label: "This device", href: deviceHref(client, "settings"), on: true }, { label: `Every ${typeName(client.type)}`, href: typeHref(client.type, "settings") }, { label: "Everything", href: "#settings" }]} />`;
   return html`${banner}
     ${defs.length
-      ? html`<${SettingsEditor} defs=${defs} layers=${client.layers} tab="device" entity=${entity} focusKey=${focusKey === "capabilities" ? "" : focusKey}
+      ? html`<${SettingsEditor} defs=${defs} layers=${client.layers} tab="device" entity=${entity} focusKey=${focusKey}
           head=${[identity, capabilityGroup(client, entity)]} extra=${shareWithType(client)} rail=${rail}
           hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(kind)}.` }} />`
       : html`<div class="edit-grid with-rail"><div class="edit-main"><p class="empty">This device has not described its settings yet. It does so each time it connects.</p></div><aside class="rail">${rail}</aside></div>`}

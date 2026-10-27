@@ -102,6 +102,7 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 - `toolIcons` is Axis's too: how a client with the vortex face shows the `doing` of a `turn` while thinking, `dots`, `line` or `off` (`docs/face.md`, section 8).
 - `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).
 - `capabilitiesOff` is Axis's too, set by an admin for one device: the capabilities, of those the device reported, that it should stop using, separated by commas (`mic,screen`). Axis already stops using them; a client that reads it should also stop doing them at once and come back when they leave the list: `screen` shows nothing, `speaker` plays nothing (answer `playback` with `blocked`), `mic` never opens the microphone, `desktop` refuses every `desktop.*` command. Absent or empty means nothing is off. Keep sending the full list in `hello`.
+- `offlineAlert` (Axis 0.53.0) is Axis's own and server-only: it says when the admin page lists a device as needing attention for being offline. Axis never sends it to a device (`SERVER_ONLY_KEYS` in `server/src/schema.ts`), so a client neither reads nor describes it.
 - A setting takes effect when it arrives, without a restart, unless that is impossible; say so in its help text when it is.
 
 ## 8. Commands

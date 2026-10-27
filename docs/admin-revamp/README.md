@@ -1,6 +1,6 @@
 # Admin page revamp
 
-Stage 1 (2026-10-27): audit and mockups only. Nothing in `web/` or `server/` changed.
+Planning (2026-10-27): audit and mockups. Building: stages 0 to 2 are done (the page at `/admin-next`, its shell and the Devices area); `progress.md` has the checklist and what is next.
 
 - `audit.md`: every view, control, API call, route and behaviour of today's admin page, the UX problems with
   evidence, and where each feature goes in the new layout.
@@ -17,3 +17,5 @@ They are written from `src/` by `node docs/admin-revamp/build.mjs`, which inline
 and the real face (`web/icons.js`, `web/vortex.js`) so each file needs nothing else. Those inlined copies are snapshots
 for the pictures, not a fifth copy of the face to keep in step. `node docs/admin-revamp/render.mjs` redraws the PNGs
 with headless Chrome (`CHROME` or `google-chrome`, as `scripts/browser-check.mjs`).
+- `progress.md`: what is built, the checklist of every audited control, what comes next.
+- `shots.mjs`: screenshots of the new page against a throwaway Axis with pretend devices.

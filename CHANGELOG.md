@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.53.0 (2026-10-27)
+
+The new admin page, stage 2 of `docs/admin-revamp/ia.md` section 4.1: the Devices area at `/admin-next`. The classic `/admin` is unchanged; the other pages of the new one still link to it.
+
+- **All devices**: a card per device (its picture, state, type, version with an "update" mark, location) or a list, filters by name, type, location and state (online, offline, needs an update), Find and Update on each.
+- **A device**: a header with its picture, state, type, version and Find, Update, Announce; tabs (each its own address, `#clients/<id>/settings`): **Overview** (what it is and can do, address, its pages, where it reaches Axis with Change, notifications and a test for a browser, kept messages, id, its offline alert; actions; the last 24 hours; readings as named facts), **Settings**, **Tools** (the edge glow drawn as the board draws it, with Show on the device; microphone levels) and **Danger zone** (Reset, Reset and forget Wi-Fi, Remove, each confirmed by typing the device's name). `#device/<id>` works too.
+- **The settings editor** (a device, a type, everything): a banner that says which layer is edited with a way to the others; groups that fold and remember it, an index of them on the left, a filter, the device's picture and tools on the right. Changes are staged: the banner becomes a save bar ("2 unsaved changes · Discard · Save"), one save sends them all (the server refuses the lot for one bad value, and the bar says why), then Undo. Each row says where its value comes from (this device, type, everything, default), marks a value changed from the default, and has the way back ("Use type's 45"); Share with type on a device, "differs on Desk (35 %)" on a type. A value equal to what it would follow anyway is still stored as nothing. Name, location, capability switches and the glow's corner curve save with the rest. Leaving with unsaved changes asks first.
+- **Types**: Devices (run an action on every online one), Settings, Firmware (who is behind, update them), Rename.
+- **Defaults for everything** (`#settings`): every Axis built-in (the classic page showed two), the settings several types share, and other keys.
+- **Add a device**: the pairing code, the address and the setup string with a **QR code** of it (`axis://` or `axis+tls://`), drawn in the page by the vendored `web/qr.js` and drawn again when either changes; steps for a board, a browser, a Windows computer (download), a Mac and a Meta Quest headset.
+- **Needs attention** (Overview, header): a device whose version differs from the build on the shelf for its type, with Update; an offline device only after its **Offline alert** time (`offlineAlert`, set per device, type or everything: `auto` is 15 minutes for a board, 12 hours for a computer or a headset, never for a browser; `always` 10 minutes; `never`). The classic page still warns after 10 minutes for every device.
+- `scripts/browser-check.mjs` drives the new page too (routes, command bar, the staged editor through a poll, Undo, refusals, share with type, type and Defaults, actions, mic panel, the typed confirmation, the setup string and its QR code read back by `scripts/qr-read.mjs`, themes, every page at phone width). `docs/admin-revamp/shots.mjs` renders it with pretend devices.
+
 ## Axis 0.52.0 (2026-10-27)
 
 The new admin page, stage 0 of `docs/admin-revamp/ia.md` section 4.1: it is served beside the classic one while it is built.
