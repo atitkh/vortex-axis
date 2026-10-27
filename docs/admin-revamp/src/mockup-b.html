@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin revamp, mockup B: section tabs across the top</title>
+<style>
+/*@SHARED_CSS*/
+
+/* --- B: two bars across the top, wide content ----------------------------------------- */
+.bar1 { display: flex; align-items: center; gap: 22px; height: 56px; padding: 0 28px; border-bottom: 1px solid var(--line); background: #030303; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap; }
+.brand canvas { width: 30px; }
+.secs { display: flex; gap: 2px; height: 100%; }
+.secs a { display: flex; align-items: center; gap: 7px; padding: 0 13px; color: var(--muted); font-size: var(--t-md); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.secs a.on { color: var(--text); border-bottom-color: var(--accent); }
+.secs a .n { font-size: 11px; background: var(--warn); color: #1d1300; border-radius: 999px; min-width: 17px; text-align: center; line-height: 17px; font-weight: 600; }
+.search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 300px; border: 1px solid var(--line); background: var(--sunk); border-radius: var(--r-pill); padding: 6px 8px 6px 14px; color: var(--dim); font-size: var(--t-md); }
+.search span { flex: 1; }
+.search svg { width: 14px; height: 14px; }
+.acct { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: var(--t-sm); }
+.leds { display: flex; gap: 5px; align-items: center; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-pill); }
+.leds i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.leds i.warn { background: var(--warn); }
+
+.bar2 { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 28px; border-bottom: 1px solid var(--line); background: #000; }
+.bar2 a { color: var(--dim); font-size: var(--t-md); padding: 5px 12px; border-radius: var(--r-pill); white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.bar2 a.on { background: var(--select); color: var(--accent); }
+.bar2 a .n { color: var(--faint); font-size: 11.5px; }
+.bar2 a .n.warn { color: var(--warn); }
+.bar2 .sep { width: 1px; height: 18px; background: var(--line-strong); margin: 0 8px; }
+.bar2 .r { margin-left: auto; display: flex; gap: 16px; font-size: var(--t-sm); color: var(--dim); }
+.bar2 .r b { color: var(--text); font-weight: 500; }
+
+main { padding: 24px 28px 64px; max-width: 1384px; margin: 0 auto; }
+h2.sec { font-size: var(--t-md); font-weight: 600; margin: 24px 0 10px; display: flex; align-items: center; gap: 10px; }
+h2.sec a { margin-left: auto; font-size: var(--t-sm); font-weight: 400; }
+
+/* overview: a summary band, then the fleet across, then two columns */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 18px 22px; border-radius: 16px; border: 1px solid var(--line); background: radial-gradient(600px 160px at 0% 0%, rgba(111, 212, 239, 0.08), transparent 70%), var(--surface); }
+.hero h1 { margin: 0; font-size: 22px; font-weight: 500; }
+.hero h1 b { color: var(--warn); font-weight: 500; }
+.hero .s { color: var(--dim); font-size: var(--t-sm); margin-top: 2px; }
+.hero .checks { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.hero .checks div { display: flex; align-items: center; gap: 10px; font-size: var(--t-md); }
+.hero .checks .btn { margin-left: 4px; }
+.hero .kp { display: grid; grid-template-columns: repeat(4, 132px); gap: 0; border-left: 1px solid var(--line); }
+.hero .kp .kpi { border-right: 1px solid var(--line); padding: 4px 18px; }
+.hero .kp .kpi:last-child { border-right: none; }
+.fleet { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.dc { padding: 14px; display: grid; gap: 10px; }
+.dc .top { display: flex; align-items: center; gap: 12px; }
+.dc .pic { width: 58px; height: 58px; display: grid; place-items: center; background: #000; border: 1px solid var(--line); border-radius: 14px; flex: none; }
+.dc .pic.round { border-radius: 50%; }
+.dc .pic canvas { width: 46px; }
+.dc .pic svg { width: 26px; height: 26px; color: var(--dim); }
+.dc .nm { font-weight: 500; font-size: 15px; }
+.dc .ty { color: var(--dim); font-size: var(--t-sm); }
+.dc .ln { display: flex; justify-content: space-between; align-items: center; font-size: var(--t-sm); color: var(--dim); border-top: 1px solid var(--line); padding-top: 9px; }
+.dc.off { opacity: 0.6; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; }
+.chart { padding: 14px 16px 10px; }
+.chart svg { display: block; width: 100%; height: 150px; }
+.legend { display: flex; gap: 14px; font-size: var(--t-sm); color: var(--dim); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.nowlist .it { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.nowlist .it:first-child { border-top: none; }
+.nowlist .it .t { flex: 1; }
+.nowlist .it .w { font-size: var(--t-sm); color: var(--dim); }
+.nowlist .time { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.sayrow { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.sayrow .field { flex: 1; }
+
+/* device: a header band, tabs, then index · settings · tools */
+.dband { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 18px 22px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); }
+.dband .frame { width: 124px; height: 124px; }
+.dband .frame canvas { width: 64%; }
+.dband h1 { margin: 0; font-size: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
+.facts { display: flex; gap: 0; margin-top: 12px; }
+.facts div { padding: 0 20px; border-left: 1px solid var(--line); font-size: var(--t-sm); color: var(--dim); }
+.facts div:first-child { padding-left: 0; border-left: none; }
+.facts b { display: block; color: var(--text); font-weight: 500; font-size: var(--t-md); }
+.dband .acts { display: flex; gap: 8px; align-self: start; }
+.dlay { display: grid; grid-template-columns: 196px minmax(0, 1fr) 300px; gap: 22px; margin-top: 16px; align-items: start; }
+.toc { position: sticky; top: 16px; display: grid; gap: 1px; padding-top: 2px; }
+.toc .caps { padding: 0 10px 6px; }
+.toc a { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: var(--r-md); color: var(--dim); font-size: var(--t-md); }
+.toc a.on { background: var(--select); color: var(--text); }
+.toc a .k { font-size: 11px; color: var(--accent); }
+.toc a .k.warn { color: var(--warn); }
+.toc .layer { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-lg); font-size: var(--t-sm); color: var(--dim); line-height: 1.55; }
+.toc .layer b { color: var(--text); font-weight: 500; }
+.row { grid-template-columns: minmax(0, 1fr) 190px 116px 84px; }
+.tcol { display: grid; gap: 12px; }
+.glowbig { display: grid; place-items: center; padding: 6px 0 12px; }
+.glowbig canvas { border-radius: 50%; }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-pc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+    <symbol id="i-web" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><circle cx="6" cy="6.5" r=".6"/></symbol>
+  </defs>
+</svg>
+
+<!-- top bar: the brand, the six sections, search, and how things stand -->
+<header class="bar1">
+  <div class="brand"><canvas class="face" data-face="idle"></canvas>VorteX Axis</div>
+  <nav class="secs">
+    <a class="s-ov">Overview <span class="n">2</span></a>
+    <a class="s-dev">Devices</a>
+    <a>Agent and voice</a>
+    <a>Hardware</a>
+    <a>Integrations</a>
+    <a>System</a>
+  </nav>
+  <div class="search"><svg><use href="#i-search"/></svg><span>Search devices, settings, pages</span><kbd>Ctrl K</kbd></div>
+  <div class="acct"><span class="leds" title="Agent, recognition, synthesis, devices, updates"><i></i><i></i><i></i><i></i><i class="warn"></i></span>Sign out</div>
+</header>
+
+<!-- ===================================== OVERVIEW ===================================== -->
+<div class="view overview">
+  <nav class="bar2">
+    <a class="on">Dashboard</a><a>Live <span class="n">1</span></a><a>History</a>
+    <div class="r"><span class="dot good"><b>Agent</b>&nbsp;OpenClaw</span><span class="dot good"><b>Speech</b>&nbsp;both up</span><span class="dot good"><b>Backup</b>&nbsp;12 min ago</span><span>Axis 0.51.0 · protocol 1</span></div>
+  </nav>
+  <main>
+    <section class="hero">
+      <div>
+        <h1>Everything is answering. <b>2 things to check.</b></h1>
+        <div class="s">Tuesday 27 October · Axis up 6 days 4 h · 4 of 5 devices online</div>
+        <div class="checks">
+          <div><span class="dot warn"></span>Desk runs firmware 0.19.1; 0.20.0 is on the shelf.<button class="btn sm">Update Desk</button></div>
+          <div><span class="dot warn"></span>MacBook has been offline for 2 h 14 min.<button class="btn sm ghost">Open</button></div>
+        </div>
+      </div>
+      <div class="kp">
+        <div class="kpi"><div class="l">Turns, 24 h</div><div class="v">38</div><div class="d">36 answered</div></div>
+        <div class="kpi"><div class="l">Failed</div><div class="v">0</div><div class="d">1 interrupted</div></div>
+        <div class="kpi"><div class="l">First sound</div><div class="v">1.42<small> s</small></div><div class="d">p95 2.9 s</div></div>
+        <div class="kpi"><div class="l">Axis up</div><div class="v">99.9<small> %</small></div><div class="d">last 24 h</div></div>
+      </div>
+    </section>
+
+    <h2 class="sec">Devices <a>All devices →</a></h2>
+    <div class="fleet">
+      <div class="card dc"><div class="top"><div class="pic round"><canvas class="face" data-face="idle"></canvas></div><div><div class="nm">Kitchen</div><div class="ty">Round board 1.75</div></div></div><div class="ln"><span class="dot good">Idle · timer 3:42</span><span>0.4.1</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><canvas class="face" data-face="speaking"></canvas></div><div><div class="nm">Desk</div><div class="ty">Board 1.8</div></div></div><div class="ln"><span class="dot accent">Speaking</span><span class="badge warn">0.19.1 → 0.20.0</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><svg><use href="#i-pc"/></svg></div><div><div class="nm">Study PC</div><div class="ty">Windows app</div></div></div><div class="ln"><span class="dot good">Idle</span><span>0.11.1</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><svg><use href="#i-web"/></svg></div><div><div class="nm">Phone</div><div class="ty">Web client</div></div></div><div class="ln"><span class="dot good">Page open</span><span>0.51.0</span></div></div>
+      <div class="card dc off"><div class="top"><div class="pic"><svg><use href="#i-mac"/></svg></div><div><div class="nm">MacBook</div><div class="ty">Mac app</div></div></div><div class="ln"><span class="dot">Offline 2 h 14 min</span><span>0.6.0</span></div></div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h2 class="sec">Time to first sound, 24 hours <a>History →</a></h2>
+        <div class="card chart">
+          <div class="legend"><span><i style="background:var(--s1)"></i>typical</span><span><i style="background:var(--s2)"></i>slowest 5 %</span></div>
+          <svg viewBox="0 0 600 150" preserveAspectRatio="none">
+            <g stroke="#1e1e1d" stroke-width="1"><line x1="0" y1="30" x2="600" y2="30"/><line x1="0" y1="75" x2="600" y2="75"/><line x1="0" y1="120" x2="600" y2="120"/></g>
+            <g fill="#8d8c86" font-size="10" font-family="sans-serif"><text x="2" y="26">3 s</text><text x="2" y="71">2 s</text><text x="2" y="116">1 s</text></g>
+            <polyline fill="none" stroke="#9e66ff" stroke-width="2" stroke-linejoin="round" points="40,62 90,58 140,70 190,40 240,66 290,60 340,52 390,68 440,57 490,49 540,63 590,55"/>
+            <polyline fill="none" stroke="#6fd4ef" stroke-width="2" stroke-linejoin="round" points="40,103 90,101 140,106 190,95 240,104 290,100 340,98 390,105 440,101 490,97 540,103 590,100"/>
+            <g fill="#8d8c86" font-size="10" font-family="sans-serif"><text x="36" y="146">13:00</text><text x="186" y="146">19:00</text><text x="336" y="146">01:00</text><text x="486" y="146">07:00</text></g>
+          </svg>
+        </div>
+      </div>
+      <div>
+        <h2 class="sec">Now</h2>
+        <div class="card nowlist">
+          <div class="it"><div class="t">Tea <span class="w">· timer on Kitchen</span></div><span class="time">3:42</span><button class="btn sm ghost">Cancel</button></div>
+          <div class="it"><div class="t">Sort the photo folder<div class="w">Agent task · step 3 of 5: renaming</div></div><button class="btn sm ghost">Clear</button></div>
+          <div class="sayrow"><input class="field" placeholder="Say something on every device…"><button class="btn primary sm">Say it</button></div>
+        </div>
+      </div>
+    </div>
+    <h2 class="sec">Last 24 hours <a>History →</a></h2>
+    <div class="card" style="padding:14px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 28px;font-size:12.5px">
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Axis</span><span class="dim">99.9 %</span></div><div class="strip"><i style="flex:96;background:#2fc777"></i><i style="flex:.8;background:#8d8c86"></i><i style="flex:203;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Agent</span><span class="dim">99.4 %</span></div><div class="strip"><i style="flex:150;background:#2fc777"></i><i style="flex:2;background:#f2b84b"></i><i style="flex:148;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Speech</span><span class="dim">100 %</span></div><div class="strip"><i style="flex:300;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>MacBook</span><span class="dim">72 %</span></div><div class="strip"><i style="flex:210;background:#2fc777"></i><i style="flex:60;background:#34342f"></i><i style="flex:5;background:#2fc777"></i><i style="flex:25;background:#34342f"></i></div></div>
+    </div>
+  </main>
+</div>
+
+<!-- ===================================== DEVICE ======================================= -->
+<div class="view device">
+  <nav class="bar2">
+    <a>All devices <span class="n">4 / 5</span></a><span class="sep"></span>
+    <a class="on">Round board 1.75 <span class="n">2</span></a><a>Board 1.8 <span class="n warn">1 update</span></a><a>Windows <span class="n">1</span></a><a>Mac <span class="n">1</span></a><a>Web <span class="n">1</span></a><span class="sep"></span>
+    <a>Defaults</a><a>Face and screen</a><a>Add a device</a>
+  </nav>
+  <main>
+    <section class="dband">
+      <div class="frame round"><div class="screen"><canvas class="face" data-face="idle"></canvas></div></div>
+      <div>
+        <h1>Kitchen <span class="dot good" style="font-size:13px;font-weight:400">Online · idle</span></h1>
+        <div class="facts">
+          <div>Type<b>Round board 1.75</b></div>
+          <div>Firmware<b>0.4.1 · current</b></div>
+          <div>Location<b>Kitchen</b></div>
+          <div>Address<b class="mono" style="font-size:12.5px">192.168.1.41</b></div>
+          <div>Last 24 h<b>100 % · 14 turns</b></div>
+        </div>
+      </div>
+      <div class="acts"><button class="btn">Find</button><button class="btn">Announce…</button><button class="btn">Device page ↗</button></div>
+    </section>
+
+    <div class="tabs" style="margin-top:14px"><a>Overview</a><a class="on">Settings <span class="badge accent">3 set here</span></a><a>Tools</a><a class="danger">Danger zone</a></div>
+
+    <div class="dlay">
+      <nav class="toc">
+        <div class="caps">On this page</div>
+        <a>Capabilities <span class="k">1 off</span></a>
+        <a class="on">Screen <span class="k warn">2 unsaved</span></a>
+        <a>Sound <span class="k">1</span></a>
+        <a>Listening</a>
+        <a>Quiet hours</a>
+        <a>Axis</a>
+        <a>Home Assistant</a>
+        <div class="layer"><b>Where a value comes from</b><br>this device, then Round board 1.75, then Everything, then the default.</div>
+      </nav>
+
+      <div>
+        <div class="banner">
+          <div class="who">Editing <b>this device</b> · Kitchen<div>Its values win over Round board 1.75 and Everything.</div></div>
+          <div class="layers"><span class="on">This device</span><span>Round board 1.75</span><span>Everything</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="group open">
+          <div class="group-h"><span class="chev">▶</span><h4>Capabilities</h4><span class="cnt">What Axis uses on this device</span></div>
+          <div class="group-b"><div style="display:flex;gap:8px;padding:12px 16px;flex-wrap:wrap">
+            <span class="chip"><span class="switch on"></span>screen</span><span class="chip"><span class="switch on"></span>speaker</span><span class="chip"><span class="switch on"></span>mic</span><span class="chip" style="color:var(--dim);border-style:dashed"><span class="switch"></span>image-frames</span>
+          </div></div>
+        </div>
+        <div class="group open">
+          <div class="group-h"><span class="chev">▶</span><h4>Screen</h4><span class="cnt">10 settings · 2 set here · 2 unsaved</span></div>
+          <div class="group-b">
+            <div class="row mine"><div><div class="lbl">Brightness <span class="chg"></span><span class="mono">brightness</span></div><div class="hlp">10 to 255.</div></div><div class="ctl"><input class="field num" value="140"></div><div class="src"><span class="src-chip here">this device</span></div><div class="rst"><button class="btn sm ghost">Use 200</button></div></div>
+            <div class="row dirty"><div><div class="lbl">Text size <span class="chg"></span><span class="mono">textSize</span></div><div class="hlp">Size of the words and buttons.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+            <div class="row follows"><div><div class="lbl">Idle face size <span class="mono">idleFace</span></div><div class="hlp">With the screen to itself.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+            <div class="row follows"><div><div class="lbl">Frame rate limit <span class="chg"></span><span class="mono">maxFps</span></div><div class="hlp">Frames a second, at most.</div></div><div class="ctl"><select class="field"><option>45</option></select></div><div class="src"><span class="src-chip type">Round board 1.75</span></div><div class="rst"><button class="btn sm ghost">Set here</button></div></div>
+            <div class="row dirty"><div><div class="lbl">Notification light <span class="chg"></span><span class="mono">notifyGlow</span></div><div class="hlp">Amber, blue or green at the edge while idle.</div></div><div class="ctl"><span class="switch"></span><span class="sm dim">off</span></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+            <div class="row follows"><div><div class="lbl">Timer countdown glow <span class="mono">timerGlow</span></div><div class="hlp">Red, shrinking, in the last ten seconds.</div></div><div class="ctl"><span class="switch on inherit"></span><span class="sm dim">on</span></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+          </div>
+        </div>
+        <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Sound</h4><span class="cnt">1 set here: Volume 45 %</span></div></div>
+      </div>
+
+      <aside class="tcol">
+        <div class="card" style="border-color:var(--warn-soft)">
+          <div class="card-b" style="display:flex;align-items:center;gap:10px"><span class="n" style="color:var(--warn);font-size:13.5px;flex:1">2 unsaved changes</span><button class="btn sm ghost">Discard</button><button class="btn sm primary">Save</button></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Edge glow</h3><span class="sm dim">round, 466 px</span></div>
+          <div class="card-b">
+            <div class="glowbig"><canvas width="300" height="300" style="width:150px;height:150px" data-glow="0.62,0.4,1"></canvas></div>
+            <div class="glowkinds"><span><i style="background:#ff9914"></i>Needs you</span><span><i style="background:#3380ff"></i>Question</span><span><i style="background:#57ff66"></i>Done</span><span><i style="background:#ff2919"></i>Timer</span><span><i style="background:#fff"></i>Find</span><span class="on"><i style="background:#9e66ff"></i>Thinking</span><span>+3</span></div>
+            <div style="margin-top:12px"><button class="btn sm">Show on the device</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Microphone levels</h3><button class="btn sm">Start</button></div>
+          <div class="card-b sm dim">Reads the microphone once a second for a minute: room, speech threshold, loudest. Levels only.</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script>
+/*@SCRIPT*/
+document.querySelector(document.body.dataset.view === "device" ? ".s-dev" : ".s-ov").classList.add("on");
+</script>
+</body>
+</html>

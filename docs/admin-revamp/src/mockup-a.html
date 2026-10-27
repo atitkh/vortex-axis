@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin revamp, mockup A: sidebar groups and a command bar</title>
+<style>
+/*@SHARED_CSS*/
+
+/* --- A: the shell ------------------------------------------------------------------ */
+.shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100vh; }
+.side { border-right: 1px solid var(--line); padding: 14px 12px 16px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; background: #030303; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 2px 6px 12px; font-weight: 500; letter-spacing: 0.02em; }
+.brand canvas { width: 28px; }
+.find { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--sunk); border-radius: var(--r-md); padding: 6px 10px; color: var(--dim); font-size: var(--t-md); margin-bottom: 10px; }
+.find span { flex: 1; }
+.find svg { width: 14px; height: 14px; }
+.nav a, .nav .gh { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: var(--r-md); color: var(--muted); font-size: var(--t-md); }
+.nav a .n { margin-left: auto; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.nav a .n.warn { color: var(--warn); }
+.nav a.on { background: var(--select); color: var(--accent); }
+.nav svg { width: 16px; height: 16px; flex: none; color: var(--dim); }
+.nav a.on svg { color: var(--accent); }
+.nav .gh { color: var(--text); font-weight: 500; margin-top: 6px; cursor: pointer; }
+.nav .gh .chev { margin-left: auto; color: var(--faint); font-size: 10px; }
+.nav .sub { padding-left: 26px; display: flex; flex-direction: column; gap: 1px; }
+.nav .sub a { padding: 4px 10px; font-size: 13px; color: var(--dim); }
+.nav .sub a.on { color: var(--accent); background: var(--select); }
+.nav .sub a .d { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+.nav .sub a .d.good { background: var(--good); }
+.nav .sub .label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 8px 10px 2px; }
+.nav .closed .gh { color: var(--muted); font-weight: 400; }
+.nav { flex: 1; min-height: 0; overflow: hidden; }
+.side .foot { margin-top: auto; padding: 10px 10px 0; font-size: 11.5px; color: var(--faint); line-height: 1.6; border-top: 1px solid var(--line); }
+
+.top { display: flex; align-items: center; gap: 18px; height: 52px; padding: 0 32px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: rgba(0, 0, 0, 0.92); z-index: 5; }
+.health { display: flex; align-items: center; gap: 18px; font-size: var(--t-sm); color: var(--dim); flex: 1; }
+.health a { color: var(--dim); }
+.health b { color: var(--text); font-weight: 500; }
+.top .att-count { display: inline-flex; align-items: center; gap: 8px; color: var(--warn); font-size: var(--t-sm); border: 1px solid rgba(242, 184, 75, 0.35); background: var(--warn-soft); border-radius: var(--r-pill); padding: 2px 10px 2px 4px; }
+.top .att-count b { background: var(--warn); color: #1d1300; border-radius: var(--r-pill); min-width: 20px; text-align: center; font-size: 11.5px; line-height: 18px; }
+.mtop, .mhealth { display: none; }
+
+main { padding: 24px 32px 64px; max-width: 1200px; }
+.ph { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 18px; }
+.ph h1 { margin: 0; font-size: var(--t-xl); font-weight: 500; }
+.ph .s { color: var(--dim); font-size: var(--t-sm); margin-top: 2px; }
+.ph .grow { flex: 1; }
+.crumb { color: var(--dim); font-size: var(--t-sm); margin-bottom: 6px; }
+.crumb a { color: var(--dim); }
+.crumb span { color: var(--faint); margin: 0 6px; }
+h2.sec { font-size: var(--t-md); font-weight: 600; margin: 26px 0 10px; display: flex; align-items: center; gap: 10px; }
+h2.sec a { margin-left: auto; font-size: var(--t-sm); font-weight: 400; }
+
+/* overview */
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.ov { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
+.devs { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.dev { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 12px; padding: 12px 14px; align-items: center; }
+.dev .mini { width: 44px; height: 44px; border-radius: 12px; background: #000; border: 1px solid var(--line); display: grid; place-items: center; grid-row: span 2; }
+.dev .mini.round { border-radius: 50%; }
+.dev .mini canvas { width: 34px; }
+.dev .mini svg { width: 22px; height: 22px; color: var(--dim); }
+.dev .nm { font-weight: 500; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dev .nm span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev .mt { font-size: var(--t-sm); color: var(--dim); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dev.off { opacity: 0.62; }
+.now .it { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 16px; border-top: 1px solid var(--line); align-items: center; }
+.now .it:first-child { border-top: none; }
+.now .it .w { font-size: var(--t-sm); color: var(--dim); }
+.now .it .time { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.prog { height: 3px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; grid-column: 1 / -1; }
+.prog i { display: block; height: 100%; width: 60%; background: var(--accent); }
+.say textarea { width: 100%; min-height: 64px; resize: none; background: var(--sunk); border: 1px solid var(--line); border-radius: var(--r-md); color: var(--text); font: inherit; font-size: var(--t-md); padding: 8px 10px; }
+.say .r { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+.say .r .field { flex: 1; }
+.up { display: grid; grid-template-columns: 110px minmax(0, 1fr) 54px; gap: 6px 14px; align-items: center; font-size: var(--t-sm); }
+.up .p { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* device page */
+.dhead { display: flex; align-items: flex-start; gap: 16px; }
+.dhead h1 { margin: 0; font-size: 24px; font-weight: 500; }
+.dhead .meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; font-size: var(--t-sm); color: var(--dim); }
+.dhead .acts { margin-left: auto; display: flex; gap: 8px; }
+.dgrid { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 22px; margin-top: 18px; align-items: start; }
+.tools { display: grid; gap: 12px; position: sticky; top: 70px; }
+.stools { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; }
+.stools .field { flex: 1; max-width: 300px; }
+.caprow { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.caprow .chip.off { color: var(--dim); border-style: dashed; }
+.caphelp { padding: 0 16px 12px; color: var(--dim); font-size: var(--t-sm); }
+.sketch { display: grid; place-items: center; padding: 16px 16px 12px; gap: 10px; }
+.sketch .frame { width: 168px; height: 168px; }
+.sketch .frame canvas { width: 62%; }
+.sketch .screen .tm { font-family: var(--mono); color: #9be7ff; font-size: 11px; margin-top: 2px; }
+.sketch .doing { font-weight: 500; font-size: var(--t-md); }
+
+/* --- phones ---------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .shell { display: block; }
+  .side, .top { display: none; }
+  .mtop { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #000; z-index: 5; }
+  .mtop .menu { width: 38px; height: 38px; display: grid; place-items: center; border: none; background: none; color: var(--text); }
+  .mtop .menu svg, .mtop .srch svg { width: 20px; height: 20px; }
+  .mtop canvas { width: 24px; }
+  .mtop .where { flex: 1; font-weight: 500; }
+  .mtop .srch { width: 38px; height: 38px; display: grid; place-items: center; color: var(--dim); }
+  .mhealth { display: flex; gap: 14px; padding: 8px 14px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); overflow: hidden; white-space: nowrap; }
+  main { padding: 14px 14px 110px; }
+  .crumb { display: none; }
+  .dhead h1 { font-size: 21px; }
+  .dhead .acts { display: none; }
+  .dhead .meta { margin-top: 6px; }
+  .tabs { overflow: hidden; margin: 0 -14px; padding: 0 6px; }
+  .tabs a { padding: 10px 9px; }
+  .dgrid { display: block; margin-top: 14px; }
+  .tools { display: none; }
+  .banner { flex-wrap: wrap; gap: 10px; padding: 10px 12px; }
+  .banner .layers { order: 3; width: 100%; justify-content: space-between; }
+  .banner .layers span { padding: 4px 8px; font-size: 12px; }
+  .banner .savebar { display: none; }
+  .stools .btn, .stools .spacer { display: none; }
+  .tabs a .badge { padding: 0 6px; }
+  .tabs a .badge b { display: none; }
+  .stools .field { max-width: none; font-size: 15px; padding: 7px 10px; }
+  .row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 11px 14px; }
+  .row .src { grid-column: 1; grid-row: 2; }
+  .row .ctl { grid-column: 2; grid-row: 1 / span 2; }
+  .row .rst { display: none; }
+  .row .hlp { display: none; }
+  .row .field.num { width: 72px; }
+  .row select.field { max-width: 128px; }
+  .caprow { gap: 6px; padding: 10px 12px; }
+  .caprow .chip { padding: 4px 10px 4px 4px; }
+  .caphelp { display: none; }
+  .msave { position: fixed; left: 10px; right: 10px; bottom: 12px; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; background: #0f0f0e; border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); z-index: 9; }
+  .msave .n { flex: 1; color: var(--warn); font-size: var(--t-md); }
+  .msave .btn { padding: 8px 16px; font-size: 14px; }
+}
+.msave { display: none; }
+@media (max-width: 720px) { .msave { display: flex; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></symbol>
+    <symbol id="i-dev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="11" r="3"/></symbol>
+    <symbol id="i-agent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18c2-1 3-3 3-6a5 5 0 0 1 10 0c0 3 1 5 3 6"/><path d="M9 21h6"/><circle cx="12" cy="12" r="1.2"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-pc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+    <symbol id="i-web" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><circle cx="6" cy="6.5" r=".6"/></symbol>
+  </defs>
+</svg>
+
+<div class="shell">
+  <!-- the sidebar: two daily links, then the groups, each remembering whether it is open -->
+  <nav class="side">
+    <div class="brand"><canvas class="face" data-face="idle"></canvas>VorteX Axis</div>
+    <div class="find"><svg><use href="#i-search"/></svg><span>Search or jump</span><kbd>Ctrl K</kbd></div>
+    <div class="nav">
+      <a class="ov-link"><svg><use href="#i-home"/></svg>Overview<span class="n warn">2</span></a>
+      <a><svg><use href="#i-pulse"/></svg>Activity<span class="n">1 live</span></a>
+      <div class="gh"><svg><use href="#i-dev"/></svg>Devices<span class="chev">▼</span></div>
+      <div class="sub">
+        <a class="all-link">All devices<span class="n">4 / 5</span></a>
+        <a class="kitchen-link"><span class="d good"></span>Kitchen</a>
+        <a><span class="d good"></span>Desk</a>
+        <a><span class="d good"></span>Study PC</a>
+        <a><span class="d"></span>MacBook</a>
+        <a><span class="d good"></span>Phone</a>
+        <span class="label">Types</span>
+        <a>Round board 1.75<span class="n">2</span></a>
+        <a>Board 1.8<span class="n warn">1 update</span></a>
+        <a>Windows · Mac · Web<span class="n">3</span></a>
+        <span class="label">For everything</span>
+        <a>Defaults</a>
+        <a>Face and screen</a>
+        <a>Add a device</a>
+      </div>
+      <div class="closed"><div class="gh"><svg><use href="#i-agent"/></svg>Agent and voice<span class="chev">▶</span></div></div>
+      <div class="closed"><div class="gh"><svg><use href="#i-chip"/></svg>Hardware<span class="chev">▶</span></div></div>
+      <div class="closed"><div class="gh"><svg><use href="#i-plug"/></svg>Integrations<span class="chev">▶</span></div></div>
+      <div class="closed"><div class="gh"><svg><use href="#i-gear"/></svg>System<span class="chev">▶</span></div></div>
+    </div>
+    <div class="foot">Axis 0.51.0 · <span class="mono">82f3e94</span><br>protocol 1</div>
+  </nav>
+
+  <div>
+    <!-- header: what is up, always in view -->
+    <header class="top">
+      <div class="health">
+        <a class="dot good"><b>Agent</b>&nbsp;OpenClaw</a>
+        <a class="dot good"><b>Recognition</b></a>
+        <a class="dot good"><b>Synthesis</b></a>
+        <a class="dot good"><b>4 of 5</b>&nbsp;devices online</a>
+        <a class="dot warn">1 update waiting</a>
+        <a class="dot good"><b>Backup</b>&nbsp;12 min ago</a>
+      </div>
+      <span class="att-count"><b>2</b>to check</span>
+      <button class="btn ghost sm">Sign out</button>
+    </header>
+    <header class="mtop">
+      <button class="menu"><svg><use href="#i-menu"/></svg></button>
+      <canvas class="face" data-face="idle"></canvas>
+      <span class="where">Kitchen</span>
+      <span class="srch"><svg><use href="#i-search"/></svg></span>
+    </header>
+    <div class="mhealth"><span class="dot good">Agent</span><span class="dot good">Speech</span><span class="dot good">4 / 5 online</span><span class="dot warn">1 update</span></div>
+
+    <!-- ===================================== OVERVIEW ===================================== -->
+    <main class="view overview">
+      <div class="ph">
+        <div><h1>Overview</h1><div class="s">Tuesday 27 October · up 6 days 4 h</div></div>
+        <div class="grow"></div>
+        <button class="btn">Add a device</button>
+        <button class="btn primary">Say something</button>
+      </div>
+
+      <div class="att">
+        <div class="att-item warn"><span class="ico">!</span><div class="t"><b>Desk runs firmware 0.19.1; 0.20.0 is on the shelf.</b><div>Board 1.8 · it restarts and is away for about half a minute</div></div><button class="btn sm">Update Desk</button></div>
+        <div class="att-item warn"><span class="ico">!</span><div class="t"><b>MacBook has been offline for 2 h 14 min.</b><div>Mac desktop app 0.6.0 · last seen 10:04</div></div><button class="btn sm ghost">Open device</button></div>
+      </div>
+
+      <div class="kpis">
+        <div class="card kpi"><div class="l">Axis running for</div><div class="v">6 d 4 h</div><div class="d">up 99.9 % of 24 h</div></div>
+        <div class="card kpi"><div class="l">Devices online</div><div class="v">4 <small>of 5</small></div><div class="d">MacBook offline</div></div>
+        <div class="card kpi"><div class="l">Turns, 24 h</div><div class="v">38</div><div class="d">36 answered · 31 heard</div></div>
+        <div class="card kpi"><div class="l">Failed</div><div class="v">0</div><div class="d">1 interrupted</div></div>
+        <div class="card kpi"><div class="l">Time to first sound</div><div class="v">1.42 <small>s</small></div><div class="d">slowest 5 %: 2.9 s</div></div>
+      </div>
+
+      <div class="ov">
+        <div>
+          <h2 class="sec">Devices <a>All devices →</a></h2>
+          <div class="devs">
+            <div class="card dev"><div class="mini round"><canvas class="face" data-face="idle"></canvas></div><div class="nm"><span>Kitchen</span><span class="badge accent">timer</span></div><div class="mt"><span class="dot good">Idle</span>Round board 1.75 · 0.4.1</div></div>
+            <div class="card dev"><div class="mini"><canvas class="face" data-face="speaking"></canvas></div><div class="nm"><span>Desk</span><span class="badge warn">update</span></div><div class="mt"><span class="dot accent">Speaking</span>Board 1.8 · 0.19.1</div></div>
+            <div class="card dev"><div class="mini"><svg><use href="#i-pc"/></svg></div><div class="nm"><span>Study PC</span><span class="badge">computer</span></div><div class="mt"><span class="dot good">Idle</span>Windows app · 0.11.1</div></div>
+            <div class="card dev"><div class="mini"><svg><use href="#i-web"/></svg></div><div class="nm"><span>Phone</span></div><div class="mt"><span class="dot good">Page open</span>Web client · 0.51.0</div></div>
+            <div class="card dev off"><div class="mini"><svg><use href="#i-mac"/></svg></div><div class="nm"><span>MacBook</span></div><div class="mt"><span class="dot">Offline 2 h</span>Mac app · 0.6.0</div></div>
+            <div class="card dev" style="border-style:dashed;background:none"><div class="mini" style="border-style:dashed"><span style="font-size:20px;color:var(--dim)">+</span></div><div class="nm"><span class="muted">Add a device</span></div><div class="mt">Board, browser or computer</div></div>
+          </div>
+
+          <h2 class="sec">Last 24 hours <a>History →</a></h2>
+          <div class="card card-b">
+            <div class="up">
+              <span>Axis</span><div class="strip"><i style="flex:96;background:#2fc777"></i><i style="flex:.6;background:#8d8c86"></i><i style="flex:203;background:#2fc777"></i></div><span class="p">99.9 %</span>
+              <span>Agent</span><div class="strip"><i style="flex:150;background:#2fc777"></i><i style="flex:2;background:#f2b84b"></i><i style="flex:148;background:#2fc777"></i></div><span class="p">99.4 %</span>
+              <span>Speech</span><div class="strip"><i style="flex:300;background:#2fc777"></i></div><span class="p">100 %</span>
+              <span>MacBook</span><div class="strip"><i style="flex:210;background:#2fc777"></i><i style="flex:60;background:#34342f"></i><i style="flex:5;background:#2fc777"></i><i style="flex:25;background:#34342f"></i></div><span class="p">72 %</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 class="sec">Now</h2>
+          <div class="card now">
+            <div class="it"><div>Tea <span class="w">· timer on Kitchen</span></div><span class="time">3:42</span></div>
+            <div class="it"><div>Sort the photo folder <div class="w">Agent task · step 3 of 5: renaming</div></div><button class="btn sm ghost">Clear</button><div class="prog"><i></i></div></div>
+            <div class="it"><div>Desk is speaking <div class="w">answering a wake word · 4 s</div></div><span class="dot accent"></span></div>
+          </div>
+          <h2 class="sec">Say something</h2>
+          <div class="card card-b say">
+            <textarea placeholder="Dinner is ready."></textarea>
+            <div class="r"><select class="field"><option>Every device</option></select><span class="switch"></span><span class="sm dim">Urgent</span><button class="btn primary sm">Say it</button></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ===================================== DEVICE ======================================= -->
+    <main class="view device">
+      <div class="crumb"><a>Devices</a><span>/</span><a>Round board 1.75</a><span>/</span>Kitchen</div>
+      <div class="dhead">
+        <div>
+          <h1>Kitchen</h1>
+          <div class="meta"><span class="dot good">Online</span><span class="badge">Round board 1.75</span><span class="badge good">firmware 0.4.1 · current</span><span>Location: Kitchen</span></div>
+        </div>
+        <div class="acts"><button class="btn">Find</button><button class="btn">Announce…</button></div>
+      </div>
+      <div class="tabs" style="margin-top:16px"><a>Overview</a><a class="on">Settings <span class="badge accent">3<b>&nbsp;set here</b></span></a><a>Tools</a><a class="danger">Danger zone</a></div>
+
+      <div class="dgrid">
+        <div>
+          <div class="banner">
+            <div class="who">Editing <b>this device</b> · Kitchen<div>Its values win over Round board 1.75 and Everything.</div></div>
+            <div class="layers"><span class="on">This device</span><span>Round board 1.75 · 2</span><span>Everything</span></div>
+            <div class="savebar"><span class="n">2 unsaved</span><button class="btn sm ghost">Discard</button><button class="btn sm primary">Save</button></div>
+          </div>
+          <div class="stools"><input class="field" placeholder="Filter settings: volume, glow, quiet…"><span class="spacer" style="flex:1"></span><button class="btn sm ghost">Collapse all</button></div>
+
+          <div class="group open">
+            <div class="group-h"><span class="chev">▶</span><h4>Capabilities</h4><span class="cnt">What Axis uses on this device · 1 switched off</span></div>
+            <div class="group-b">
+              <div class="caprow">
+                <span class="chip"><span class="switch on"></span>screen</span>
+                <span class="chip"><span class="switch on"></span>speaker</span>
+                <span class="chip"><span class="switch on"></span>mic</span>
+                <span class="chip off"><span class="switch"></span>image-frames</span>
+              </div>
+              <div class="caphelp">Off: no pictures are sent to it. Only what the device reports can be switched; nothing is added.</div>
+            </div>
+          </div>
+
+          <div class="group open">
+            <div class="group-h"><span class="chev">▶</span><h4>Screen</h4><span class="cnt">10 settings · 2 set here · 1 unsaved</span></div>
+            <div class="group-b">
+              <div class="row mine"><div><div class="lbl">Brightness <span class="chg"></span><span class="mono">brightness</span></div><div class="hlp">10 to 255.</div></div><div class="ctl"><input class="field num" value="140"></div><div class="src"><span class="src-chip here">this device</span></div><div class="rst"><button class="btn sm ghost">Use 200</button></div></div>
+              <div class="row dirty"><div><div class="lbl">Text size <span class="chg"></span><span class="mono">textSize</span></div><div class="hlp">Size of the words and buttons; the face stays the same size.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+              <div class="row follows"><div><div class="lbl">Idle face size <span class="mono">idleFace</span></div><div class="hlp">How big the face is with the screen to itself.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+              <div class="row follows"><div><div class="lbl">Frame rate limit <span class="chg"></span><span class="mono">maxFps</span></div><div class="hlp">The most frames a second the screen draws.</div></div><div class="ctl"><select class="field"><option>45</option></select></div><div class="src"><span class="src-chip type">Round board 1.75</span></div><div class="rst"><button class="btn sm ghost">Set here</button></div></div>
+              <div class="row mine"><div><div class="lbl">Notification light <span class="chg"></span><span class="mono">notifyGlow</span></div><div class="hlp">Amber while a task waits, blue for a question elsewhere, green when done.</div></div><div class="ctl"><span class="switch"></span><span class="sm dim">off</span></div><div class="src"><span class="src-chip here">this device</span></div><div class="rst"><button class="btn sm ghost">Use on</button></div></div>
+              <div class="row dirty"><div><div class="lbl">Timer countdown glow <span class="mono">timerGlow</span></div><div class="hlp">A red glow shrinks round the edge in a timer's last ten seconds.</div></div><div class="ctl"><span class="switch on"></span><span class="sm dim">on</span></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+              <div class="row follows"><div><div class="lbl">Turn with the device <span class="mono">autoRotate</span></div><div class="hlp">The picture follows whichever way up it stands.</div></div><div class="ctl"><span class="switch on inherit"></span><span class="sm dim">on</span></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+            </div>
+          </div>
+
+          <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Sound</h4><span class="cnt">3 settings · 1 set here: Volume 45 %</span></div></div>
+          <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Listening</h4><span class="cnt">9 settings · all shared · Wake word: Hey Vortex</span></div></div>
+          <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Quiet hours</h4><span class="cnt">from Everything: 22:00 to 07:00, volume 20 %</span></div></div>
+          <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Axis</h4><span class="cnt">7 settings · all shared</span></div></div>
+          <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Home Assistant</h4><span class="cnt">2 settings · all shared</span></div></div>
+        </div>
+
+        <!-- right rail: the sketch, then the tools that go with the screen and the mic -->
+        <aside class="tools">
+          <div class="card">
+            <div class="sketch">
+              <div class="frame round"><div class="screen"><canvas class="face" data-face="idle"></canvas><div class="tm">Tea 3:42</div></div></div>
+              <div class="doing">Idle <span class="dim sm">· listening for Hey Vortex</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h3>Edge glow</h3><span class="sm dim">466 × 466, round</span></div>
+            <div class="card-b" style="display:grid;grid-template-columns:118px 1fr;gap:14px;align-items:center">
+              <div class="glowbox"><canvas width="236" height="236" style="width:118px;height:118px" data-glow="1,0.6,0.08"></canvas></div>
+              <div style="display:grid;gap:10px">
+                <div class="glowkinds"><span class="on"><i style="background:#ff9914"></i>Needs you</span><span><i style="background:#3380ff"></i>Question</span><span><i style="background:#57ff66"></i>Done</span><span><i style="background:#ff2919"></i>Timer</span><span>+5</span></div>
+                <button class="btn sm" style="justify-self:start">Show on the device</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h3>Microphone levels</h3><span class="dot good sm">48 s left</span></div>
+            <div class="card-b">
+              <div class="meter"><span>Room</span><span class="bar"><i style="width:28%;background:var(--dim)"></i></span><span class="v">10 · −50 dB</span></div>
+              <div class="meter"><span>Speech starts</span><span class="bar"><i style="width:58%;background:var(--warn)"></i></span><span class="v">150 · −27 dB</span></div>
+              <div class="meter"><span>Loudest</span><span class="bar"><i style="width:44%;background:var(--good)"></i></span><span class="v">62 · −35 dB</span></div>
+              <div style="margin-top:10px"><button class="btn sm">Stop</button></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div class="msave"><span class="n">2 unsaved changes</span><button class="btn ghost">Discard</button><button class="btn primary">Save</button></div>
+    </main>
+  </div>
+</div>
+
+<!-- the command bar, Ctrl K: pages, devices, settings and actions in one list -->
+<div class="cmdk-shade"></div>
+<div class="cmdk">
+  <div class="cmdk-in"><svg width="18" height="18" style="color:var(--dim)"><use href="#i-search"/></svg><span class="q">vol</span><kbd>Esc</kbd></div>
+  <div class="cmdk-sec">
+    <div class="caps">Settings</div>
+    <div class="cmdk-it on"><span class="ic">≡</span><div class="tt"><mark>Vol</mark>ume<span>Sound · Kitchen has 45 % (this device)</span></div><kbd>↵</kbd></div>
+    <div class="cmdk-it"><span class="ic">≡</span><div class="tt"><mark>Vol</mark>ume in quiet hours<span>Quiet hours · Everything: 20 %</span></div></div>
+    <div class="cmdk-it"><span class="ic">≡</span><div class="tt">Realtime voice loudness<span>Axis · default</span></div></div>
+  </div>
+  <div class="cmdk-sec">
+    <div class="caps">Set it for</div>
+    <div class="cmdk-it"><span class="ic">◎</span><div class="tt">Desk<span>Board 1.8 · 35 % (this device)</span></div></div>
+    <div class="cmdk-it"><span class="ic">◎</span><div class="tt">Every Round board 1.75<span>2 devices · 60 % (default)</span></div></div>
+    <div class="cmdk-it"><span class="ic">◎</span><div class="tt">Everything<span>Defaults</span></div></div>
+  </div>
+  <div class="cmdk-sec">
+    <div class="caps">Pages</div>
+    <div class="cmdk-it"><span class="ic">→</span><div class="tt">Voices<span>Agent and voice · voice recognition</span></div></div>
+  </div>
+  <div class="cmdk-f"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>Alt ↵</kbd> Find device</span><span style="margin-left:auto">Devices, settings, pages, actions</span></div>
+</div>
+
+<script>
+/*@SCRIPT*/
+// Which sidebar entry is on, for the view shown.
+document.querySelector(document.body.dataset.view === "device" ? ".kitchen-link" : ".ov-link").classList.add("on");
+document.querySelector(".mtop .where").textContent = document.body.dataset.view === "device" ? "Kitchen" : "Overview";
+</script>
+</body>
+</html>

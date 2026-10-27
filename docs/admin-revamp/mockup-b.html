@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin revamp, mockup B: section tabs across the top</title>
+<style>
+/* Shared by both mockups: the tokens of ia.md section 3.1 and the components both directions use. */
+:root {
+  color-scheme: dark;
+  --bg: #000; --surface: #0b0b0a; --sunk: #111110; --select: #141413; --raise: #171716;
+  --line: #262624; --line-strong: #3a3a37;
+  --text: #e9e9e6; --muted: #b4b3ad; --dim: #8d8c86; --faint: #4a4a46;
+  --accent: #6fd4ef; --on-ink: #00151b; --accent-soft: rgba(111, 212, 239, 0.1); --accent-line: rgba(111, 212, 239, 0.38);
+  --good: #3cf08c; --warn: #f2b84b; --bad: #ff6a5c; --think: #a98bff;
+  --good-soft: rgba(60, 240, 140, 0.1); --warn-soft: rgba(242, 184, 75, 0.1); --bad-soft: rgba(255, 106, 92, 0.1);
+  --s1: #6fd4ef; --s2: #9e66ff; --s3: #3cf08c; --grid: #1e1e1d;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --t-xs: 11.5px; --t-sm: 12.5px; --t-md: 13.5px; --t-base: 14.5px; --t-lg: 16px; --t-xl: 20px; --t-kpi: 26px;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+  font: var(--t-base)/1.5 var(--font);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+.mono, code { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--dim); }
+.muted { color: var(--muted); }
+.sm { font-size: var(--t-sm); }
+.view { display: none; }
+body[data-view="overview"] .view.overview, body[data-view="device"] .view.device { display: block; }
+
+/* buttons and fields, as today: pills and rounded fields */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-strong); background: none; color: var(--text); border-radius: var(--r-pill); padding: 5px 14px; font: inherit; font-size: var(--t-md); white-space: nowrap; cursor: pointer; }
+.btn.sm { padding: 2px 10px; font-size: var(--t-sm); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-ink); font-weight: 600; }
+.btn.ghost { border-color: transparent; color: var(--dim); }
+.btn.danger { color: var(--bad); border-color: #4a2622; }
+.field { background: var(--sunk); border: 1px solid var(--line); border-radius: var(--r-md); color: var(--text); padding: 5px 10px; font: inherit; font-size: var(--t-md); min-width: 0; }
+.field.num { width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+select.field { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%); background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+.unit { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); font-size: var(--t-sm); }
+kbd { font-family: var(--mono); font-size: 11px; color: var(--dim); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+
+.switch { position: relative; display: inline-block; width: 34px; height: 20px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--sunk); flex: none; vertical-align: middle; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dim); }
+.switch.on { background: var(--accent); border-color: var(--accent); }
+.switch.on::after { left: 16px; background: var(--on-ink); }
+.switch.inherit.on { opacity: 0.55; }
+
+.range { position: relative; height: 4px; border-radius: 2px; background: var(--line-strong); flex: 1; min-width: 80px; }
+.range i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+.range b { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 3px var(--bg); }
+
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--r-pill); overflow: hidden; }
+.seg span { padding: 3px 12px; font-size: var(--t-sm); color: var(--dim); border-left: 1px solid var(--line-strong); }
+.seg span:first-child { border-left: none; }
+.seg span.on { background: var(--accent); color: var(--on-ink); font-weight: 600; }
+
+/* status: a round dot and a word */
+.dot { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.good::before { background: var(--good); } .dot.warn::before { background: var(--warn); } .dot.bad::before { background: var(--bad); }
+.dot.accent::before { background: var(--accent); } .dot.think::before { background: var(--think); }
+.dot.warn { color: var(--warn); } .dot.bad { color: var(--bad); }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--r-pill); padding: 0 8px; font-size: 11.5px; line-height: 19px; font-weight: 500; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }
+.badge.accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.badge.warn { color: var(--warn); border-color: rgba(242, 184, 75, 0.35); background: var(--warn-soft); }
+.badge.bad { color: var(--bad); border-color: rgba(255, 106, 92, 0.35); background: var(--bad-soft); }
+.badge.good { color: var(--good); border-color: rgba(60, 240, 140, 0.3); background: var(--good-soft); }
+.badge.solid { background: var(--accent); color: var(--on-ink); border-color: var(--accent); }
+
+.chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 3px 10px 3px 4px; font-size: var(--t-sm); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
+.card-h { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.card-h h3 { margin: 0; font-size: var(--t-md); font-weight: 600; flex: 1; }
+.card-b { padding: 12px 16px; }
+.caps { text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; color: var(--faint); font-weight: 500; }
+
+.kpi { padding: 12px 16px; }
+.kpi .l { color: var(--dim); font-size: var(--t-sm); }
+.kpi .v { font-size: var(--t-kpi); font-weight: 500; line-height: 1.2; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi .v small { font-size: 14px; color: var(--dim); font-weight: 400; }
+.kpi .d { color: var(--dim); font-size: var(--t-sm); }
+
+/* the face, as the brand mark and in sketches */
+canvas.face { display: block; aspect-ratio: 1; }
+
+/* attention list */
+.att { display: grid; gap: 8px; }
+.att-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--surface); }
+.att-item .ico { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.att-item.bad { border-color: rgba(255, 106, 92, 0.3); background: linear-gradient(90deg, var(--bad-soft), transparent 60%), var(--surface); }
+.att-item.bad .ico { background: var(--bad-soft); color: var(--bad); }
+.att-item.warn .ico { background: var(--warn-soft); color: var(--warn); }
+.att-item .t { flex: 1; min-width: 0; }
+.att-item .t b { font-weight: 500; }
+.att-item .t div { color: var(--dim); font-size: var(--t-sm); }
+
+/* device sketch frames */
+.frame { margin: 0 auto; background: #111; border: 1px solid var(--line-strong); display: grid; place-items: center; position: relative; }
+.frame.round { border-radius: 50%; padding: 9px; }
+.frame.round .screen { border-radius: 50%; }
+.frame.board { border-radius: 24px; padding: 9px; }
+.frame.board .screen { border-radius: 15px; }
+.screen { background: #000; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+
+/* settings rows */
+.group { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.group + .group { margin-top: 10px; }
+.group-h { display: flex; align-items: center; gap: 10px; padding: 11px 16px; cursor: pointer; }
+.group-h .chev { width: 16px; color: var(--dim); font-size: 11px; transition: transform 0.12s; }
+.group.open .group-h .chev { transform: rotate(90deg); }
+.group-h h4 { margin: 0; font-size: var(--t-md); font-weight: 600; }
+.group-h .cnt { color: var(--dim); font-size: var(--t-sm); flex: 1; }
+.group-b { display: none; border-top: 1px solid var(--line); }
+.group.open .group-b { display: block; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 210px 112px 92px; gap: 14px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); position: relative; }
+.row:first-child { border-top: none; }
+.row .lbl { font-size: var(--t-md); display: flex; align-items: center; gap: 8px; }
+.row .lbl .mono { color: var(--faint); font-size: 11px; }
+.row .hlp { color: var(--dim); font-size: var(--t-sm); margin-top: 1px; }
+.row .ctl { display: flex; align-items: center; gap: 8px; }
+.row .src { font-size: var(--t-sm); }
+.row .rst { text-align: right; }
+.row.mine::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.row.dirty { background: linear-gradient(90deg, rgba(242, 184, 75, 0.07), transparent 70%); }
+.row.dirty::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--warn); }
+.row.follows .ctl .field { color: var(--dim); }
+.chg { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; flex: none; }
+.src-chip { display: inline-flex; border-radius: var(--r-sm); padding: 0 7px; line-height: 20px; font-size: 11.5px; color: var(--dim); border: 1px solid var(--line); white-space: nowrap; }
+.src-chip.here { color: var(--on-ink); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.src-chip.type { color: var(--muted); border-color: var(--line-strong); }
+
+/* the editing banner and save bar */
+.banner { display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--accent-line); background: linear-gradient(90deg, var(--accent-soft), rgba(111, 212, 239, 0.03)); border-radius: var(--r-lg); }
+.banner .who { flex: 1; min-width: 0; font-size: var(--t-md); }
+.banner .who b { color: var(--accent); font-weight: 600; }
+.banner .who div { color: var(--dim); font-size: var(--t-sm); }
+.layers { display: inline-flex; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 2px; }
+.layers span { padding: 3px 11px; border-radius: var(--r-pill); font-size: var(--t-sm); color: var(--dim); white-space: nowrap; }
+.layers span.on { background: var(--accent); color: var(--on-ink); font-weight: 600; }
+.savebar { display: flex; align-items: center; gap: 10px; padding-left: 14px; margin-left: 4px; border-left: 1px solid var(--line-strong); }
+.savebar .n { color: var(--warn); font-size: var(--t-sm); white-space: nowrap; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs a { color: var(--dim); padding: 9px 14px; font-size: var(--t-md); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.tabs a.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+.tabs a.danger { color: #c4655b; }
+
+/* tables */
+table.t { width: 100%; border-collapse: collapse; font-size: var(--t-md); }
+table.t th { text-align: left; font-weight: 500; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 8px 14px; border-bottom: 1px solid var(--line); }
+table.t td { padding: 9px 14px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.t tr:first-child td { border-top: none; }
+table.t td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* uptime strips */
+.strip { height: 10px; border-radius: 3px; display: flex; overflow: hidden; background: #131312; gap: 1px; }
+.strip i { display: block; height: 100%; }
+
+/* command bar */
+.cmdk-shade { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.66); z-index: 50; display: none; }
+body.k-open .cmdk-shade { display: block; }
+.cmdk { position: fixed; z-index: 51; left: 50%; top: 96px; transform: translateX(-50%); width: 640px; background: #0d0d0c; border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(111, 212, 239, 0.06); display: none; overflow: hidden; }
+body.k-open .cmdk { display: block; }
+.cmdk-in { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); font-size: 16px; }
+.cmdk-in .q { flex: 1; }
+.cmdk-in .q::after { content: ""; display: inline-block; width: 1.5px; height: 18px; background: var(--accent); vertical-align: -3px; margin-left: 1px; }
+.cmdk-sec { padding: 8px 0 4px; }
+.cmdk-sec .caps { padding: 2px 18px 6px; }
+.cmdk-it { display: flex; align-items: center; gap: 12px; padding: 7px 18px; font-size: var(--t-md); }
+.cmdk-it .ic { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: 11px; color: var(--dim); flex: none; }
+.cmdk-it .tt { flex: 1; min-width: 0; }
+.cmdk-it .tt span { color: var(--dim); font-size: var(--t-sm); margin-left: 8px; }
+.cmdk-it.on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.cmdk-it mark { background: none; color: var(--accent); font-weight: 600; }
+.cmdk-f { display: flex; gap: 16px; padding: 9px 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: var(--t-sm); }
+
+/* glow and mic tools */
+.glowbox { display: grid; place-items: center; }
+.glowbox canvas { display: block; border-radius: 50%; background: #000; }
+.glowkinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.glowkinds span { font-size: 12px; padding: 2px 9px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.glowkinds span i { width: 7px; height: 7px; border-radius: 50%; }
+.glowkinds span.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.meter { display: grid; grid-template-columns: 96px 1fr 92px; gap: 10px; align-items: center; font-size: var(--t-sm); padding: 3px 0; }
+.meter .bar { height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.meter .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+.meter .v { white-space: nowrap; text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+
+/* --- B: two bars across the top, wide content ----------------------------------------- */
+.bar1 { display: flex; align-items: center; gap: 22px; height: 56px; padding: 0 28px; border-bottom: 1px solid var(--line); background: #030303; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap; }
+.brand canvas { width: 30px; }
+.secs { display: flex; gap: 2px; height: 100%; }
+.secs a { display: flex; align-items: center; gap: 7px; padding: 0 13px; color: var(--muted); font-size: var(--t-md); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.secs a.on { color: var(--text); border-bottom-color: var(--accent); }
+.secs a .n { font-size: 11px; background: var(--warn); color: #1d1300; border-radius: 999px; min-width: 17px; text-align: center; line-height: 17px; font-weight: 600; }
+.search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 300px; border: 1px solid var(--line); background: var(--sunk); border-radius: var(--r-pill); padding: 6px 8px 6px 14px; color: var(--dim); font-size: var(--t-md); }
+.search span { flex: 1; }
+.search svg { width: 14px; height: 14px; }
+.acct { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: var(--t-sm); }
+.leds { display: flex; gap: 5px; align-items: center; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-pill); }
+.leds i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.leds i.warn { background: var(--warn); }
+
+.bar2 { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 28px; border-bottom: 1px solid var(--line); background: #000; }
+.bar2 a { color: var(--dim); font-size: var(--t-md); padding: 5px 12px; border-radius: var(--r-pill); white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.bar2 a.on { background: var(--select); color: var(--accent); }
+.bar2 a .n { color: var(--faint); font-size: 11.5px; }
+.bar2 a .n.warn { color: var(--warn); }
+.bar2 .sep { width: 1px; height: 18px; background: var(--line-strong); margin: 0 8px; }
+.bar2 .r { margin-left: auto; display: flex; gap: 16px; font-size: var(--t-sm); color: var(--dim); }
+.bar2 .r b { color: var(--text); font-weight: 500; }
+
+main { padding: 24px 28px 64px; max-width: 1384px; margin: 0 auto; }
+h2.sec { font-size: var(--t-md); font-weight: 600; margin: 24px 0 10px; display: flex; align-items: center; gap: 10px; }
+h2.sec a { margin-left: auto; font-size: var(--t-sm); font-weight: 400; }
+
+/* overview: a summary band, then the fleet across, then two columns */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 18px 22px; border-radius: 16px; border: 1px solid var(--line); background: radial-gradient(600px 160px at 0% 0%, rgba(111, 212, 239, 0.08), transparent 70%), var(--surface); }
+.hero h1 { margin: 0; font-size: 22px; font-weight: 500; }
+.hero h1 b { color: var(--warn); font-weight: 500; }
+.hero .s { color: var(--dim); font-size: var(--t-sm); margin-top: 2px; }
+.hero .checks { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.hero .checks div { display: flex; align-items: center; gap: 10px; font-size: var(--t-md); }
+.hero .checks .btn { margin-left: 4px; }
+.hero .kp { display: grid; grid-template-columns: repeat(4, 132px); gap: 0; border-left: 1px solid var(--line); }
+.hero .kp .kpi { border-right: 1px solid var(--line); padding: 4px 18px; }
+.hero .kp .kpi:last-child { border-right: none; }
+.fleet { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.dc { padding: 14px; display: grid; gap: 10px; }
+.dc .top { display: flex; align-items: center; gap: 12px; }
+.dc .pic { width: 58px; height: 58px; display: grid; place-items: center; background: #000; border: 1px solid var(--line); border-radius: 14px; flex: none; }
+.dc .pic.round { border-radius: 50%; }
+.dc .pic canvas { width: 46px; }
+.dc .pic svg { width: 26px; height: 26px; color: var(--dim); }
+.dc .nm { font-weight: 500; font-size: 15px; }
+.dc .ty { color: var(--dim); font-size: var(--t-sm); }
+.dc .ln { display: flex; justify-content: space-between; align-items: center; font-size: var(--t-sm); color: var(--dim); border-top: 1px solid var(--line); padding-top: 9px; }
+.dc.off { opacity: 0.6; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; }
+.chart { padding: 14px 16px 10px; }
+.chart svg { display: block; width: 100%; height: 150px; }
+.legend { display: flex; gap: 14px; font-size: var(--t-sm); color: var(--dim); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.nowlist .it { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.nowlist .it:first-child { border-top: none; }
+.nowlist .it .t { flex: 1; }
+.nowlist .it .w { font-size: var(--t-sm); color: var(--dim); }
+.nowlist .time { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.sayrow { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.sayrow .field { flex: 1; }
+
+/* device: a header band, tabs, then index · settings · tools */
+.dband { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 18px 22px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); }
+.dband .frame { width: 124px; height: 124px; }
+.dband .frame canvas { width: 64%; }
+.dband h1 { margin: 0; font-size: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
+.facts { display: flex; gap: 0; margin-top: 12px; }
+.facts div { padding: 0 20px; border-left: 1px solid var(--line); font-size: var(--t-sm); color: var(--dim); }
+.facts div:first-child { padding-left: 0; border-left: none; }
+.facts b { display: block; color: var(--text); font-weight: 500; font-size: var(--t-md); }
+.dband .acts { display: flex; gap: 8px; align-self: start; }
+.dlay { display: grid; grid-template-columns: 196px minmax(0, 1fr) 300px; gap: 22px; margin-top: 16px; align-items: start; }
+.toc { position: sticky; top: 16px; display: grid; gap: 1px; padding-top: 2px; }
+.toc .caps { padding: 0 10px 6px; }
+.toc a { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: var(--r-md); color: var(--dim); font-size: var(--t-md); }
+.toc a.on { background: var(--select); color: var(--text); }
+.toc a .k { font-size: 11px; color: var(--accent); }
+.toc a .k.warn { color: var(--warn); }
+.toc .layer { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-lg); font-size: var(--t-sm); color: var(--dim); line-height: 1.55; }
+.toc .layer b { color: var(--text); font-weight: 500; }
+.row { grid-template-columns: minmax(0, 1fr) 190px 116px 84px; }
+.tcol { display: grid; gap: 12px; }
+.glowbig { display: grid; place-items: center; padding: 6px 0 12px; }
+.glowbig canvas { border-radius: 50%; }
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-pc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+    <symbol id="i-web" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><circle cx="6" cy="6.5" r=".6"/></symbol>
+  </defs>
+</svg>
+
+<!-- top bar: the brand, the six sections, search, and how things stand -->
+<header class="bar1">
+  <div class="brand"><canvas class="face" data-face="idle"></canvas>VorteX Axis</div>
+  <nav class="secs">
+    <a class="s-ov">Overview <span class="n">2</span></a>
+    <a class="s-dev">Devices</a>
+    <a>Agent and voice</a>
+    <a>Hardware</a>
+    <a>Integrations</a>
+    <a>System</a>
+  </nav>
+  <div class="search"><svg><use href="#i-search"/></svg><span>Search devices, settings, pages</span><kbd>Ctrl K</kbd></div>
+  <div class="acct"><span class="leds" title="Agent, recognition, synthesis, devices, updates"><i></i><i></i><i></i><i></i><i class="warn"></i></span>Sign out</div>
+</header>
+
+<!-- ===================================== OVERVIEW ===================================== -->
+<div class="view overview">
+  <nav class="bar2">
+    <a class="on">Dashboard</a><a>Live <span class="n">1</span></a><a>History</a>
+    <div class="r"><span class="dot good"><b>Agent</b>&nbsp;OpenClaw</span><span class="dot good"><b>Speech</b>&nbsp;both up</span><span class="dot good"><b>Backup</b>&nbsp;12 min ago</span><span>Axis 0.51.0 · protocol 1</span></div>
+  </nav>
+  <main>
+    <section class="hero">
+      <div>
+        <h1>Everything is answering. <b>2 things to check.</b></h1>
+        <div class="s">Tuesday 27 October · Axis up 6 days 4 h · 4 of 5 devices online</div>
+        <div class="checks">
+          <div><span class="dot warn"></span>Desk runs firmware 0.19.1; 0.20.0 is on the shelf.<button class="btn sm">Update Desk</button></div>
+          <div><span class="dot warn"></span>MacBook has been offline for 2 h 14 min.<button class="btn sm ghost">Open</button></div>
+        </div>
+      </div>
+      <div class="kp">
+        <div class="kpi"><div class="l">Turns, 24 h</div><div class="v">38</div><div class="d">36 answered</div></div>
+        <div class="kpi"><div class="l">Failed</div><div class="v">0</div><div class="d">1 interrupted</div></div>
+        <div class="kpi"><div class="l">First sound</div><div class="v">1.42<small> s</small></div><div class="d">p95 2.9 s</div></div>
+        <div class="kpi"><div class="l">Axis up</div><div class="v">99.9<small> %</small></div><div class="d">last 24 h</div></div>
+      </div>
+    </section>
+
+    <h2 class="sec">Devices <a>All devices →</a></h2>
+    <div class="fleet">
+      <div class="card dc"><div class="top"><div class="pic round"><canvas class="face" data-face="idle"></canvas></div><div><div class="nm">Kitchen</div><div class="ty">Round board 1.75</div></div></div><div class="ln"><span class="dot good">Idle · timer 3:42</span><span>0.4.1</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><canvas class="face" data-face="speaking"></canvas></div><div><div class="nm">Desk</div><div class="ty">Board 1.8</div></div></div><div class="ln"><span class="dot accent">Speaking</span><span class="badge warn">0.19.1 → 0.20.0</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><svg><use href="#i-pc"/></svg></div><div><div class="nm">Study PC</div><div class="ty">Windows app</div></div></div><div class="ln"><span class="dot good">Idle</span><span>0.11.1</span></div></div>
+      <div class="card dc"><div class="top"><div class="pic"><svg><use href="#i-web"/></svg></div><div><div class="nm">Phone</div><div class="ty">Web client</div></div></div><div class="ln"><span class="dot good">Page open</span><span>0.51.0</span></div></div>
+      <div class="card dc off"><div class="top"><div class="pic"><svg><use href="#i-mac"/></svg></div><div><div class="nm">MacBook</div><div class="ty">Mac app</div></div></div><div class="ln"><span class="dot">Offline 2 h 14 min</span><span>0.6.0</span></div></div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h2 class="sec">Time to first sound, 24 hours <a>History →</a></h2>
+        <div class="card chart">
+          <div class="legend"><span><i style="background:var(--s1)"></i>typical</span><span><i style="background:var(--s2)"></i>slowest 5 %</span></div>
+          <svg viewBox="0 0 600 150" preserveAspectRatio="none">
+            <g stroke="#1e1e1d" stroke-width="1"><line x1="0" y1="30" x2="600" y2="30"/><line x1="0" y1="75" x2="600" y2="75"/><line x1="0" y1="120" x2="600" y2="120"/></g>
+            <g fill="#8d8c86" font-size="10" font-family="sans-serif"><text x="2" y="26">3 s</text><text x="2" y="71">2 s</text><text x="2" y="116">1 s</text></g>
+            <polyline fill="none" stroke="#9e66ff" stroke-width="2" stroke-linejoin="round" points="40,62 90,58 140,70 190,40 240,66 290,60 340,52 390,68 440,57 490,49 540,63 590,55"/>
+            <polyline fill="none" stroke="#6fd4ef" stroke-width="2" stroke-linejoin="round" points="40,103 90,101 140,106 190,95 240,104 290,100 340,98 390,105 440,101 490,97 540,103 590,100"/>
+            <g fill="#8d8c86" font-size="10" font-family="sans-serif"><text x="36" y="146">13:00</text><text x="186" y="146">19:00</text><text x="336" y="146">01:00</text><text x="486" y="146">07:00</text></g>
+          </svg>
+        </div>
+      </div>
+      <div>
+        <h2 class="sec">Now</h2>
+        <div class="card nowlist">
+          <div class="it"><div class="t">Tea <span class="w">· timer on Kitchen</span></div><span class="time">3:42</span><button class="btn sm ghost">Cancel</button></div>
+          <div class="it"><div class="t">Sort the photo folder<div class="w">Agent task · step 3 of 5: renaming</div></div><button class="btn sm ghost">Clear</button></div>
+          <div class="sayrow"><input class="field" placeholder="Say something on every device…"><button class="btn primary sm">Say it</button></div>
+        </div>
+      </div>
+    </div>
+    <h2 class="sec">Last 24 hours <a>History →</a></h2>
+    <div class="card" style="padding:14px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 28px;font-size:12.5px">
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Axis</span><span class="dim">99.9 %</span></div><div class="strip"><i style="flex:96;background:#2fc777"></i><i style="flex:.8;background:#8d8c86"></i><i style="flex:203;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Agent</span><span class="dim">99.4 %</span></div><div class="strip"><i style="flex:150;background:#2fc777"></i><i style="flex:2;background:#f2b84b"></i><i style="flex:148;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Speech</span><span class="dim">100 %</span></div><div class="strip"><i style="flex:300;background:#2fc777"></i></div></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>MacBook</span><span class="dim">72 %</span></div><div class="strip"><i style="flex:210;background:#2fc777"></i><i style="flex:60;background:#34342f"></i><i style="flex:5;background:#2fc777"></i><i style="flex:25;background:#34342f"></i></div></div>
+    </div>
+  </main>
+</div>
+
+<!-- ===================================== DEVICE ======================================= -->
+<div class="view device">
+  <nav class="bar2">
+    <a>All devices <span class="n">4 / 5</span></a><span class="sep"></span>
+    <a class="on">Round board 1.75 <span class="n">2</span></a><a>Board 1.8 <span class="n warn">1 update</span></a><a>Windows <span class="n">1</span></a><a>Mac <span class="n">1</span></a><a>Web <span class="n">1</span></a><span class="sep"></span>
+    <a>Defaults</a><a>Face and screen</a><a>Add a device</a>
+  </nav>
+  <main>
+    <section class="dband">
+      <div class="frame round"><div class="screen"><canvas class="face" data-face="idle"></canvas></div></div>
+      <div>
+        <h1>Kitchen <span class="dot good" style="font-size:13px;font-weight:400">Online · idle</span></h1>
+        <div class="facts">
+          <div>Type<b>Round board 1.75</b></div>
+          <div>Firmware<b>0.4.1 · current</b></div>
+          <div>Location<b>Kitchen</b></div>
+          <div>Address<b class="mono" style="font-size:12.5px">192.168.1.41</b></div>
+          <div>Last 24 h<b>100 % · 14 turns</b></div>
+        </div>
+      </div>
+      <div class="acts"><button class="btn">Find</button><button class="btn">Announce…</button><button class="btn">Device page ↗</button></div>
+    </section>
+
+    <div class="tabs" style="margin-top:14px"><a>Overview</a><a class="on">Settings <span class="badge accent">3 set here</span></a><a>Tools</a><a class="danger">Danger zone</a></div>
+
+    <div class="dlay">
+      <nav class="toc">
+        <div class="caps">On this page</div>
+        <a>Capabilities <span class="k">1 off</span></a>
+        <a class="on">Screen <span class="k warn">2 unsaved</span></a>
+        <a>Sound <span class="k">1</span></a>
+        <a>Listening</a>
+        <a>Quiet hours</a>
+        <a>Axis</a>
+        <a>Home Assistant</a>
+        <div class="layer"><b>Where a value comes from</b><br>this device, then Round board 1.75, then Everything, then the default.</div>
+      </nav>
+
+      <div>
+        <div class="banner">
+          <div class="who">Editing <b>this device</b> · Kitchen<div>Its values win over Round board 1.75 and Everything.</div></div>
+          <div class="layers"><span class="on">This device</span><span>Round board 1.75</span><span>Everything</span></div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="group open">
+          <div class="group-h"><span class="chev">▶</span><h4>Capabilities</h4><span class="cnt">What Axis uses on this device</span></div>
+          <div class="group-b"><div style="display:flex;gap:8px;padding:12px 16px;flex-wrap:wrap">
+            <span class="chip"><span class="switch on"></span>screen</span><span class="chip"><span class="switch on"></span>speaker</span><span class="chip"><span class="switch on"></span>mic</span><span class="chip" style="color:var(--dim);border-style:dashed"><span class="switch"></span>image-frames</span>
+          </div></div>
+        </div>
+        <div class="group open">
+          <div class="group-h"><span class="chev">▶</span><h4>Screen</h4><span class="cnt">10 settings · 2 set here · 2 unsaved</span></div>
+          <div class="group-b">
+            <div class="row mine"><div><div class="lbl">Brightness <span class="chg"></span><span class="mono">brightness</span></div><div class="hlp">10 to 255.</div></div><div class="ctl"><input class="field num" value="140"></div><div class="src"><span class="src-chip here">this device</span></div><div class="rst"><button class="btn sm ghost">Use 200</button></div></div>
+            <div class="row dirty"><div><div class="lbl">Text size <span class="chg"></span><span class="mono">textSize</span></div><div class="hlp">Size of the words and buttons.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+            <div class="row follows"><div><div class="lbl">Idle face size <span class="mono">idleFace</span></div><div class="hlp">With the screen to itself.</div></div><div class="ctl"><select class="field"><option>large</option></select></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+            <div class="row follows"><div><div class="lbl">Frame rate limit <span class="chg"></span><span class="mono">maxFps</span></div><div class="hlp">Frames a second, at most.</div></div><div class="ctl"><select class="field"><option>45</option></select></div><div class="src"><span class="src-chip type">Round board 1.75</span></div><div class="rst"><button class="btn sm ghost">Set here</button></div></div>
+            <div class="row dirty"><div><div class="lbl">Notification light <span class="chg"></span><span class="mono">notifyGlow</span></div><div class="hlp">Amber, blue or green at the edge while idle.</div></div><div class="ctl"><span class="switch"></span><span class="sm dim">off</span></div><div class="src"><span class="badge warn">unsaved</span></div><div class="rst"><button class="btn sm ghost">Undo</button></div></div>
+            <div class="row follows"><div><div class="lbl">Timer countdown glow <span class="mono">timerGlow</span></div><div class="hlp">Red, shrinking, in the last ten seconds.</div></div><div class="ctl"><span class="switch on inherit"></span><span class="sm dim">on</span></div><div class="src"><span class="src-chip">default</span></div><div class="rst"></div></div>
+          </div>
+        </div>
+        <div class="group"><div class="group-h"><span class="chev">▶</span><h4>Sound</h4><span class="cnt">1 set here: Volume 45 %</span></div></div>
+      </div>
+
+      <aside class="tcol">
+        <div class="card" style="border-color:var(--warn-soft)">
+          <div class="card-b" style="display:flex;align-items:center;gap:10px"><span class="n" style="color:var(--warn);font-size:13.5px;flex:1">2 unsaved changes</span><button class="btn sm ghost">Discard</button><button class="btn sm primary">Save</button></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Edge glow</h3><span class="sm dim">round, 466 px</span></div>
+          <div class="card-b">
+            <div class="glowbig"><canvas width="300" height="300" style="width:150px;height:150px" data-glow="0.62,0.4,1"></canvas></div>
+            <div class="glowkinds"><span><i style="background:#ff9914"></i>Needs you</span><span><i style="background:#3380ff"></i>Question</span><span><i style="background:#57ff66"></i>Done</span><span><i style="background:#ff2919"></i>Timer</span><span><i style="background:#fff"></i>Find</span><span class="on"><i style="background:#9e66ff"></i>Thinking</span><span>+3</span></div>
+            <div style="margin-top:12px"><button class="btn sm">Show on the device</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Microphone levels</h3><button class="btn sm">Start</button></div>
+          <div class="card-b sm dim">Reads the microphone once a second for a minute: room, speech threshold, loudest. Levels only.</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script>
+// The icons the face shows while an agent works: what kind of thing it has picked up. Each is a few
+// strokes on a 24 by 24 grid, drawn with a round pen, the way docs/face.md section 8 says. This file
+// is the one definition: scripts/gen-icons.mjs writes the board's copy (firmware/.../icons.h) from it.
+
+/** A closed ring of straight pieces, near enough a circle or an ellipse at this size. */
+const ring = (cx, cy, rx, ry = rx, from = 0, to = 2 * Math.PI, pieces = 16) => {
+  const points = [];
+  const count = Math.max(2, Math.round((pieces * Math.abs(to - from)) / (2 * Math.PI)));
+  for (let i = 0; i <= count; i++) {
+    const angle = from + ((to - from) * i) / count;
+    points.push(Math.round((cx + rx * Math.cos(angle)) * 10) / 10, Math.round((cy + ry * Math.sin(angle)) * 10) / 10);
+  }
+  return points;
+};
+const dot = (x, y) => [x, y, x + 0.1, y];
+
+/** Name to strokes; a stroke is x, y, x, y, ... along one line. */
+const ICONS = {
+  // A lens and its handle.
+  search: [ring(10.5, 10.5, 6), [15, 15, 20, 20]],
+  // A globe: the outline, one meridian and the equator.
+  web: [ring(12, 12, 8), ring(12, 12, 3.4, 8), [4, 12, 20, 12]],
+  // A house: the roof and the walls.
+  home: [[3.5, 11.5, 12, 4, 20.5, 11.5], [6, 10, 6, 20, 18, 20, 18, 10]],
+  // A calendar leaf with its two rings.
+  calendar: [[4, 6, 20, 6, 20, 20, 4, 20, 4, 6], [4, 10.5, 20, 10.5], [8, 3.5, 8, 7], [16, 3.5, 16, 7]],
+  // Three lines, each with its mark.
+  list: [dot(5, 7), [9, 7, 20, 7], dot(5, 12), [9, 12, 20, 12], dot(5, 17), [9, 17, 20, 17]],
+  // A sheet with a folded corner.
+  files: [[7, 3, 14, 3, 19, 8, 19, 21, 7, 21, 7, 3], [14, 3, 14, 8, 19, 8]],
+  // Angle brackets.
+  code: [[9, 7, 4, 12, 9, 17], [15, 7, 20, 12, 15, 17]],
+  // A stopwatch: the button, the case and the hand.
+  timer: [[10, 3, 14, 3], ring(12, 13.5, 7.5), [12, 13.5, 12, 9], [12, 13.5, 15, 15.5]],
+  // A speech bubble.
+  message: [[4, 5, 20, 5, 20, 16, 11, 16, 7, 20, 7, 16, 4, 16, 4, 5]],
+  // A store of things kept: a drum with a band round it.
+  memory: [ring(12, 6.5, 7, 3), [5, 6.5, 5, 17.5], [19, 6.5, 19, 17.5], ring(12, 17.5, 7, 3, 0, Math.PI), ring(12, 12, 7, 3, 0, Math.PI)],
+  // A picture: the frame, a hill line and the sun.
+  image: [[3.5, 5, 20.5, 5, 20.5, 19, 3.5, 19, 3.5, 5], [3.5, 16, 9, 11, 13, 15, 16, 12.5, 20.5, 16.5], ring(15.5, 9, 1.3, 1.3, 0, 2 * Math.PI, 8)],
+  // A computer: the screen, its stand and foot. An agent looking at or using one (the desktop tool).
+  computer: [[3.5, 4.5, 20.5, 4.5, 20.5, 15.5, 3.5, 15.5, 3.5, 4.5], [12, 15.5, 12, 19.5], [7.5, 19.5, 16.5, 19.5]],
+  // Any other tool: a hub with rays, like a small cog.
+  tool: [ring(12, 12, 3.5), ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const a = (i * Math.PI) / 4, c = Math.cos(a), s = Math.sin(a);
+    return [Math.round((12 + 6 * c) * 10) / 10, Math.round((12 + 6 * s) * 10) / 10, Math.round((12 + 8.5 * c) * 10) / 10, Math.round((12 + 8.5 * s) * 10) / 10];
+  })],
+};
+
+/** Side of the square an icon is drawn in, in the face's 240 grid, and the width of the pen. */
+const ICON_SIZE = 52;
+const ICON_PEN = 3.4;
+/** How far the arms stand back from the centre to make room for an icon, in the 240 grid. */
+const ICON_HOLE = 36;
+
+// --- the same icons, made of the face's own dots ----------------------------------------
+
+/** How many dots the face has: three arms of twenty-six. An icon made of dots uses every one. */
+const ICON_DOTS = 78;
+/** Side of the square a dot shape fills, in the face's 240 grid, and the radius of each dot in it. */
+const SHAPE_SIZE = 150;
+const SHAPE_DOT = 2.9;
+/** With fewer dots than all in the shape, the rest turn in a ring this far out, clear of it. */
+const SHAPE_HALO = 80;
+/** How long an icon takes to form unless a setting says otherwise, in milliseconds, and the fewest dots a shape may have. */
+const ICON_MS = 700;
+const SHAPE_DOTS_MIN = 12;
+
+/**
+ * A colour each kind leans towards when it is drawn in dots, so something changes even at a
+ * glance from across the room. Red, green, blue, 0 to 1.
+ */
+const ICON_TINTS = {
+  search: [0.35, 0.85, 1.0],
+  web: [0.4, 0.6, 1.0],
+  home: [1.0, 0.72, 0.3],
+  calendar: [1.0, 0.5, 0.6],
+  list: [0.5, 1.0, 0.6],
+  files: [0.9, 0.9, 1.0],
+  code: [0.65, 1.0, 0.35],
+  timer: [1.0, 0.6, 0.25],
+  message: [0.3, 1.0, 0.85],
+  memory: [0.75, 0.5, 1.0],
+  image: [1.0, 0.45, 0.9],
+  computer: [1.0, 0.32, 0.62],
+  tool: [0.8, 0.82, 0.9],
+};
+
+/**
+ * Where each of the face's dots goes to draw an icon: `count` points set evenly along its strokes,
+ * as x, y, x, y, ... on the 24 grid, to one decimal. Every stroke gets at least one dot and
+ * otherwise its share by length, so a short stroke is not lost and a long one is not thin.
+ */
+function iconDots(name, count = ICON_DOTS) {
+  const strokes = ICONS[name];
+  if (!strokes) return undefined;
+  const lengthOf = (stroke) => {
+    let length = 0;
+    for (let i = 2; i < stroke.length; i += 2) length += Math.hypot(stroke[i] - stroke[i - 2], stroke[i + 1] - stroke[i - 1]);
+    return length;
+  };
+  const lengths = strokes.map(lengthOf);
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  const share = lengths.map((length) => Math.max(1, Math.round((count * length) / total)));
+  // Rounding leaves a dot or two over or short: the longest stroke takes the difference.
+  const longest = lengths.indexOf(Math.max(...lengths));
+  share[longest] += count - share.reduce((sum, n) => sum + n, 0);
+
+  const points = [];
+  strokes.forEach((stroke, index) => {
+    const n = share[index], step = lengths[index] / n;
+    let piece = 0, before = 0;
+    for (let k = 0; k < n; k++) {
+      const at = (k + 0.5) * step;
+      // Walk to the straight piece this distance falls on.
+      for (;;) {
+        const length = Math.hypot(stroke[piece * 2 + 2] - stroke[piece * 2], stroke[piece * 2 + 3] - stroke[piece * 2 + 1]);
+        if (at <= before + length || piece * 2 + 4 >= stroke.length) {
+          const along = length ? Math.min(1, (at - before) / length) : 0;
+          points.push(
+            Math.round((stroke[piece * 2] + (stroke[piece * 2 + 2] - stroke[piece * 2]) * along) * 10) / 10,
+            Math.round((stroke[piece * 2 + 1] + (stroke[piece * 2 + 3] - stroke[piece * 2 + 1]) * along) * 10) / 10,
+          );
+          break;
+        }
+        before += length;
+        piece++;
+      }
+    }
+  });
+  return points;
+}
+
+// The vortex face, the same one the Waveshare board draws (firmware/waveshare-amoled-1.8/src/vortex.cpp):
+// dots on three spiral arms that spin slowly when idle, pull inward and go green to listen, spin
+// fast and violet to think, and open and pulse with the voice to speak. Looks and colours are
+// copied from the firmware so a browser and a board look like the same thing. The specification
+// is docs/face.md; change it, this file and vortex.cpp together.
+
+
+
+/** How an icon is shown while thinking: not at all, drawn with a pen at the core, or made of the face's own dots. */
+const ICON_STYLES = ["off", "line", "dots"];
+
+const SIZE = 240; // the firmware's drawing size; everything below is in its units
+const ARMS = 3;
+const DOTS_PER_ARM = 26;
+const MAX_RADIUS = SIZE / 2 - 14;
+const KEYS = ["spin", "radius", "twist", "pulse", "pulseHz", "wander", "sparkle", "dot", "r", "g", "b", "wave", "tilt"];
+
+// `wave` is how far the arms sway (radians at the tip) and `tilt` how far the figure is tipped away; most looks use neither.
+const look = (spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave = 0, tilt = 0) => ({ spin, radius, twist, pulse, pulseHz, wander, sparkle, dot, r, g, b, wave, tilt });
+
+/** The fields of a look, in the order docs/face.md lists them. */
+const LOOK_FIELDS = KEYS;
+
+// Idle picks among these at random, so it does not look like a loop.
+const IDLE = [
+  ["calm", look(0.5, 0.85, 0.9, 0.03, 0.25, 0, 0, 1.0, 0.1, 0.78, 0.95)],
+  ["breathe", look(0.35, 0.8, 0.8, 0.2, 0.18, 0, 0, 1.1, 0.15, 0.6, 1.0)],
+  ["unwind", look(-0.4, 0.95, 1.25, 0.04, 0.3, 0, 0, 0.9, 0.2, 0.85, 0.8)],
+  ["open", look(0.8, 1.0, 0.45, 0.05, 0.3, 0, 0, 1.2, 0.05, 0.7, 1.0)],
+  ["curl", look(1.1, 0.58, 1.7, 0.05, 0.4, 0, 0, 0.9, 0.3, 0.55, 1.0)],
+  ["drift", look(0.45, 0.75, 1.0, 0.04, 0.25, 14, 0, 1.0, 0.1, 0.85, 0.85)],
+  ["shimmer", look(0.3, 0.88, 1.1, 0.03, 0.25, 0, 0.035, 1.0, 0.35, 0.75, 1.0)],
+  ["galaxy", look(0.6, 0.95, 1.15, 0.03, 0.25, 0, 0.012, 0.95, 0.4, 0.65, 1, 0, 0.55)],
+  ["tendril", look(0.25, 0.9, 0.7, 0.04, 0.3, 0, 0, 1, 0.1, 0.9, 0.75, 0.45, 0)],
+  ["bloom", look(0.2, 0.7, 0.35, 0.14, 0.22, 0, 0, 1.6, 0.25, 0.7, 1, 0, 0)],
+  ["pinwheel", look(1.4, 0.92, 0.18, 0.03, 0.3, 0, 0, 0.8, 0.1, 0.8, 1, 0, 0)],
+  ["deep", look(0.28, 0.66, 1.4, 0.1, 0.15, 8, 0, 1.15, 0.1, 0.4, 1, 0.2, 0.25)],
+  ["orbit", look(0.9, 1, 0.5, 0.03, 0.3, 0, 0, 1.1, 0.15, 0.75, 0.95, 0, 0.45)],
+  ["sway", look(0.1, 0.85, 0.95, 0.05, 0.2, 0, 0, 1, 0.2, 0.85, 0.9, 0.7, 0)],
+];
+
+const LOOKS = {
+  setup: look(0.3, 0.7, 0.9, 0.1, 0.3, 0, 0, 1.0, 1.0, 0.65, 0.1),
+  offline: look(0.18, 0.55, 1.1, 0.03, 0.2, 0, 0, 0.9, 0.3, 0.34, 0.42),
+  listening: look(1.6, 0.45, 1.8, 0.08, 1.2, 0, 0, 1.2, 0.15, 1.0, 0.55),
+  thinking: look(4.6, 0.78, 1.3, 0.05, 0.9, 0, 0.02, 0.9, 0.62, 0.4, 1.0),
+  speaking: look(1.1, 0.78, 0.75, 0.22, 2.4, 0, 0, 1.2, 0.55, 0.95, 1.0),
+  error: look(0.15, 0.62, 0.7, 0.12, 0.5, 5, 0, 1.0, 1.0, 0.18, 0.12),
+};
+
+/**
+ * Looks for a run that is held up while the face is thinking: the agent says why, and the face shows
+ * it by how it moves, with no icon. docs/face.md section 9.
+ */
+const HELD = {
+  compacting: look(0.9, 0.42, 2.4, 0.14, 0.5, 0, 0, 1.0, 0.35, 0.55, 1.0),
+  retrying: look(-2.2, 0.7, 1.0, 0.1, 1.6, 0, 0, 1.0, 1.0, 0.7, 0.25),
+};
+
+class Vortex {
+  /** Draws into `canvas` until stopped. Modes: setup, offline, idle, listening, thinking, speaking, error. */
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.mode = "offline";
+    this.now = { ...LOOKS.offline };
+    this.target = { ...LOOKS.offline };
+    this.idleIndex = 0;
+    this.idleRemaining = 0;
+    this.phase = 0;
+    this.pulsePhase = 0;
+    this.wanderPhase = 0;
+    this.wavePhase = 0;
+    this.tiltPhase = 0;
+    this.level = -1;
+    // What the agent is doing while it thinks, as an icon in the middle; and how far it has faded in.
+    this.icon = undefined;
+    this.iconShown = 0;
+    this.iconStyle = "dots";
+    this.iconMs = ICON_MS;
+    this.iconDots = ICON_DOTS;
+    this.flowPhase = 0;
+    this.flash = new Float32Array(ARMS * DOTS_PER_ARM);
+    this.last = 0;
+    // Someone who asked for less motion gets the same face, turning slowly and without sparkle.
+    this.calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    this.frame = this.frame.bind(this);
+    requestAnimationFrame(this.frame);
+  }
+
+  /**
+   * Shows one look and stays on it, for a viewer: no drifting between idle looks. `mode` decides how
+   * the look is drawn (easing speed, the larger core while listening, whether a voice level is used).
+   */
+  hold(look, mode = "idle") {
+    this.mode = mode;
+    this.held = true;
+    this.target = { ...look };
+  }
+
+  /** Stops drawing for good, when the canvas is taken off the page. */
+  stop() {
+    this.stopped = true;
+  }
+
+  setMode(mode) {
+    this.held = false;
+    if (mode === this.mode) return;
+    this.mode = mode;
+    if (mode === "idle") this.pickIdle();
+    else this.target = { ...(LOOKS[mode] ?? LOOKS.offline) };
+  }
+
+  /**
+   * The kind of work to show in the middle while thinking (a name from icons.js), or nothing.
+   * A name this face has no icon for is nothing.
+   */
+  setIcon(name) {
+    const known = name && ICONS[name] ? name : undefined;
+    if (known) {
+      // The one on show stays drawn while it fades, so only a new one replaces it.
+      this.iconStrokes = ICONS[known];
+      this.iconPoints = iconDots(known);
+      this.iconTint = ICON_TINTS[known] ?? [1, 1, 1];
+    }
+    this.icon = known;
+  }
+
+  /**
+   * What Axis says the agent is doing while it thinks (`doing` on a `turn`): a kind of tool, shown
+   * as an icon; a reason its run is held up, shown as a look; or nothing, which is plain thinking.
+   */
+  setDoing(name) {
+    const held = name ? HELD[name] : undefined;
+    this.setIcon(held ? undefined : name);
+    if (this.mode === "thinking" && !this.held) this.target = { ...(held ?? LOOKS.thinking) };
+  }
+
+  /** How icons are shown: "off", "line" or "dots" (the `toolIcons` setting). Anything else is "dots". */
+  setIconStyle(style) {
+    this.iconStyle = ICON_STYLES.includes(style) ? style : "dots";
+  }
+
+  /**
+   * How long an icon takes to form and to go, in milliseconds (the `toolIconMs` setting), and how many
+   * of the dots draw a dot shape (`toolIconDots`). Anything that is not a number leaves the usual.
+   */
+  setIconTuning(ms, dots) {
+    this.iconMs = Number.isFinite(Number(ms)) && ms !== null && ms !== "" ? Math.min(3000, Math.max(150, Number(ms))) : ICON_MS;
+    this.iconDots = Number.isFinite(Number(dots)) && dots !== null && dots !== "" ? Math.min(ICON_DOTS, Math.max(SHAPE_DOTS_MIN, Math.round(Number(dots)))) : ICON_DOTS;
+  }
+
+  /** Loudness of the voice, 0 to 1. Negative: not known, the face pulses on its own. */
+  setLevel(level) {
+    this.level = level;
+  }
+
+  /**
+   * Idle looks to leave out, as a list of names or one string with commas (the `idleLooksOff` setting).
+   * Names it does not know are ignored, and if every look is named the first one stays, so there is always one.
+   */
+  setIdleOff(names) {
+    const off = new Set((Array.isArray(names) ? names : String(names ?? "").split(",")).map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+    this.idleOn = IDLE.map(([name], index) => (off.has(name) ? -1 : index)).filter((index) => index >= 0);
+    if (!this.idleOn.length) this.idleOn = [0];
+    // A look just switched off should not stay on screen until its time runs out.
+    if (this.mode === "idle" && !this.held && !this.idleOn.includes(this.idleIndex)) this.pickIdle();
+  }
+
+  pickIdle() {
+    const on = this.idleOn ?? IDLE.map((_, index) => index);
+    let next = this.idleIndex;
+    // Never the same look twice in a row, unless it is the only one left on.
+    while (next === this.idleIndex || !on.includes(next)) {
+      next = on[Math.floor(Math.random() * on.length)];
+      if (on.length === 1) break;
+    }
+    this.idleIndex = next;
+    this.idleRemaining = 7 + Math.random() * 10;
+    this.target = { ...IDLE[next][1] };
+  }
+
+  frame(time) {
+    if (this.stopped) return;
+    requestAnimationFrame(this.frame);
+    const dt = Math.min(0.1, this.last ? (time - this.last) / 1000 : 0);
+    this.last = time;
+    this.fit();
+    this.draw(dt);
+  }
+
+  /** Keeps the drawing sharp at whatever size and pixel density the page gives the canvas. */
+  fit() {
+    const ratio = window.devicePixelRatio || 1;
+    const side = Math.round(this.canvas.clientWidth * ratio);
+    if (side && (this.canvas.width !== side || this.canvas.height !== side)) {
+      this.canvas.width = side;
+      this.canvas.height = side;
+    }
+  }
+
+  draw(dt) {
+    const { ctx, canvas } = this;
+    if (this.mode === "idle" && !this.held) {
+      this.idleRemaining -= dt;
+      if (this.idleRemaining <= 0) this.pickIdle();
+    }
+    // Leaving idle should feel immediate; drifting between idle looks should not.
+    const rate = this.mode === "idle" ? 1.2 : 5.0;
+    const k = 1 - Math.exp(-dt * rate);
+    for (const key of KEYS) this.now[key] += (this.target[key] - this.now[key]) * k;
+    const now = this.now;
+    // The icon is only ever there while thinking, and comes and goes quickly.
+    const wantIcon = this.mode === "thinking" && this.icon && this.iconStyle !== "off" ? 1 : 0;
+    // Easing covers all but the last sixtieth in 4.2 time constants: that is when it counts as there.
+    this.iconShown += (wantIcon - this.iconShown) * (1 - Math.exp((-dt * 4.2 * 1000) / this.iconMs));
+    // Easing never quite arrives; close enough is there, or a speck of the core would stay for good.
+    const eye = this.iconShown < 0.01 ? 0 : this.iconShown > 0.985 ? 1 : this.iconShown;
+    // The style on show stays the one drawn while it fades, like the icon itself.
+    if (wantIcon) this.iconDrawnStyle = this.iconStyle;
+    const asDots = this.iconDrawnStyle === "dots" && this.iconPoints;
+    // Drawn with a pen, the arms stand back from the centre to leave it room. Made of dots, the arms are the icon.
+    const hole = asDots ? 0 : ICON_HOLE * eye;
+    this.flowPhase += 5 * dt;
+    // A dot shape breathes with the figure and sways a little, so it never sits still.
+    const shapeUnit = (SHAPE_SIZE / 24) * (1 + 0.05 * Math.sin(this.pulsePhase));
+    const sway = 0.07 * Math.sin(this.wavePhase), swayCos = Math.cos(sway), swaySin = Math.sin(sway);
+    const tint = this.iconTint ?? [1, 1, 1];
+    const shapeColor = [0, 1, 2].map((c) => (0.55 + [now.r, now.g, now.b][c] * 0.45) * 0.6 + tint[c] * 0.4);
+
+    const motion = this.calm ? 0.3 : 1;
+    this.phase += now.spin * dt * motion;
+    this.pulsePhase += now.pulseHz * 2 * Math.PI * dt * motion;
+    this.wanderPhase += 0.6 * dt * motion;
+    this.wavePhase += 1.3 * dt * motion;
+    this.tiltPhase += 0.15 * dt * motion;
+
+    // With a known loudness, the voice drives the size instead of a sine wave.
+    const voiced = (this.mode === "speaking" || this.mode === "listening") && this.level >= 0;
+    const voiceSwell = this.mode === "listening" ? 0.4 : now.pulse;
+    const cx = SIZE / 2 + now.wander * Math.sin(this.wanderPhase);
+    const cy = SIZE / 2 + now.wander * Math.sin(this.wanderPhase * 1.7 + 1);
+
+    // A tipped figure is squashed along one axis, and that axis turns slowly.
+    const axisCos = Math.cos(this.tiltPhase), axisSin = Math.sin(this.tiltPhase), squash = 1 - now.tilt;
+
+    const scale = canvas.width / SIZE;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    // Overlapping dots add up to light, the way they glow on the board's panel.
+    ctx.globalCompositeOperation = "lighter";
+
+    const color = (r, g, b) => `rgb(${clamp(r) * 255 | 0},${clamp(g) * 255 | 0},${clamp(b) * 255 | 0})`;
+    for (let arm = 0; arm < ARMS; arm++) {
+      // Outer dots first, so the bright inner ones are drawn on top.
+      for (let i = DOTS_PER_ARM - 1; i >= 0; i--) {
+        const t = (i + 1) / DOTS_PER_ARM;
+        const at = arm * DOTS_PER_ARM + i;
+        if (!this.calm && now.sparkle > 0 && Math.random() < now.sparkle) this.flash[at] = 1;
+        this.flash[at] *= 0.86;
+        const spark = this.flash[at];
+
+        const swell = voiced ? voiceSwell * this.level : now.pulse * Math.sin(this.pulsePhase - t * 3);
+        // The arms take turns along an icon's strokes, the inner dots first. With fewer dots in the
+        // shape than there are, the outer ones stand off in a ring round it and go on turning.
+        const n = i * ARMS + arm;
+        const inShape = asDots && n < this.iconDots;
+        const room = asDots ? (inShape ? 0 : SHAPE_HALO * eye) : hole;
+        const reach = MAX_RADIUS * now.radius * (1 + swell);
+        const radius = room + Math.max(0, reach - room) * Math.pow(t, 0.85);
+        // The sway runs out along the arm like a wave, and is widest at the tip.
+        const angle = this.phase + arm * ((2 * Math.PI) / ARMS) - now.twist * 2 * Math.PI * t + now.wave * t * Math.sin(this.wavePhase - t * 7);
+        const glow = Math.min(1, 1 - 0.72 * t + spark);
+        const x = radius * Math.cos(angle), y = radius * Math.sin(angle);
+        const along = x * axisCos + y * axisSin, across = (y * axisCos - x * axisSin) * squash;
+        let px = cx + along * axisCos - across * axisSin, py = cy + along * axisSin + across * axisCos;
+        let size = now.dot * (1.4 + 4.2 * t);
+        let red = now.r * glow + spark * 0.5, green = now.g * glow + spark * 0.5, blue = now.b * glow + spark * 0.5;
+        if (inShape && eye > 0) {
+          // Each dot of the shape has a place on the icon, spread evenly over its strokes. It goes there
+          // by the straight way, and a wave of light runs along the strokes once it has arrived.
+          const at = Math.floor((n * ICON_DOTS) / this.iconDots);
+          const ix = (this.iconPoints[at * 2] - 12) * shapeUnit, iy = (this.iconPoints[at * 2 + 1] - 12) * shapeUnit;
+          px += (SIZE / 2 + ix * swayCos - iy * swaySin - px) * eye;
+          py += (SIZE / 2 + ix * swaySin + iy * swayCos - py) * eye;
+          size += (SHAPE_DOT - size) * eye;
+          const lit = 0.62 + 0.38 * Math.sin(this.flowPhase - at * 0.33) + spark * 0.5;
+          red += (shapeColor[0] * lit - red) * eye;
+          green += (shapeColor[1] * lit - green) * eye;
+          blue += (shapeColor[2] * lit - blue) * eye;
+        }
+        ctx.fillStyle = color(red, green, blue);
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+    const core = 7 + (this.mode === "listening" ? 6 : 3) * (voiced ? this.level : Math.sin(this.pulsePhase));
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = color(0.55 + now.r * 0.45, 0.55 + now.g * 0.45, 0.55 + now.b * 0.45);
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(1, core * (1 - eye)), 0, 2 * Math.PI);
+    if (eye < 1) ctx.fill();
+    if (eye > 0 && !asDots) {
+      // The icon takes the core's place and its colour, breathing a little with the figure.
+      const size = ICON_SIZE * (1 + 0.04 * Math.sin(this.pulsePhase)), unit = size / 24;
+      ctx.globalAlpha = eye;
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = ICON_PEN;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (const stroke of this.iconStrokes ?? []) {
+        for (let i = 0; i < stroke.length; i += 2) {
+          const x = cx + (stroke[i] - 12) * unit, y = cy + (stroke[i + 1] - 12) * unit;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+const clamp = (v) => Math.min(1, Math.max(0, v));
+
+// Shared by both mockups, after the face code (icons.js and vortex.js, inlined by build.mjs).
+// The view comes from the address: #overview, #device, #cmdk (overview with the command bar open).
+(function () {
+  const hash = location.hash.slice(1) || "overview";
+  const [view, ...flags] = hash.split("+");
+  document.body.dataset.view = view === "cmdk" ? "overview" : view;
+  if (view === "cmdk" || flags.includes("cmdk")) document.body.classList.add("k-open");
+
+  // Faces: data-face="idle|listening|thinking|speaking|offline", drawn already settled on their look.
+  const looks = { idle: IDLE[0][1], offline: LOOKS.offline, listening: LOOKS.listening, thinking: LOOKS.thinking, speaking: LOOKS.speaking, setup: LOOKS.setup };
+  const pick = { idle: 0, idle2: 6, idle3: 7, idle4: 3 };
+  for (const canvas of document.querySelectorAll("canvas[data-face]")) {
+    const kind = canvas.dataset.face;
+    const look = kind.startsWith("idle") ? IDLE[pick[kind] ?? 0][1] : looks[kind];
+    const mode = kind.startsWith("idle") ? "idle" : kind;
+    const face = new Vortex(canvas);
+    face.calm = false;
+    face.now = { ...look };
+    face.hold(look, mode);
+    if (canvas.dataset.icon) face.setIcon(canvas.dataset.icon);
+  }
+
+  // The round board's edge glow: a ring faded in from the edge like the firmware's (admin.js glowMap), drawn deeper so it reads at this size.
+  for (const canvas of document.querySelectorAll("canvas[data-glow]")) {
+    const [r, g, b] = canvas.dataset.glow.split(",").map(Number);
+    const size = canvas.width;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(size, size);
+    const depth = 12 * (size / 466) * 3.2;
+    const strength = 1;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const d = size / 2 - Math.hypot(x - (size - 1) / 2, y - (size - 1) / 2);
+      const o = (y * size + x) * 4;
+      img.data[o + 3] = 255;
+      if (d < 0 || d >= depth) continue;
+      const f = 1 - d / depth;
+      const a = strength * f * f;
+      img.data[o] = r * a * 255; img.data[o + 1] = g * a * 255; img.data[o + 2] = b * a * 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+})();
+
+document.querySelector(document.body.dataset.view === "device" ? ".s-dev" : ".s-ov").classList.add("on");
+</script>
+</body>
+</html>
