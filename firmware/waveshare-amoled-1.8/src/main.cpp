@@ -254,6 +254,11 @@ static int wantedRotation() {
 // While this is in the future the screen shows only a frame along its edges.
 static uint32_t edgesUntil = 0;
 static bool edgesDrawn = false;
+// Console `shot` requests, counted up on the client's task and taken on the screen loop.
+static volatile uint32_t shotRequests = 0;
+// The console's `fps`: the frame rate since the last time it was asked, printed by the screen loop.
+static volatile uint32_t fpsRequests = 0;
+static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicros = 0;
 
 // ---- pictures from agent replies ---------------------------------------------------------
 // One has the screen to itself, centred on black, until 30 s after the device stops speaking. A tap
@@ -755,6 +760,22 @@ static void onTap() {
     if (state.link == axis::Link::Online) client.startListening();
 }
 
+/** Leaves a request for the screen loop to show one kind of glow for `ms`. False for a kind it does not know. */
+static bool requestGlow(const char *kind, uint32_t ms, int corner) {
+    static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
+    static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
+                                         glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking,
+                                         glow::State::Hands};
+    GlowRequest request = {glow::State::None, ms, corner};
+    for (int i = 0; i < 9; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
+    if (request.kind == glow::State::None) return false;
+    portENTER_CRITICAL(&requestLock);
+    glowRequest = request;
+    glowRequests++;
+    portEXIT_CRITICAL(&requestLock);
+    return true;
+}
+
 void setup() {
     USBSerial.begin(115200);
     logOut.begin();
@@ -800,20 +821,8 @@ void setup() {
             return true;
         }
         if (!strcmp(name, "glow.show")) {
-            static const char *const KINDS[] = {"waiting", "question", "done", "timer", "find", "listening", "thinking", "speaking", "hands"};
-            static const glow::State STATES[] = {glow::State::Waiting, glow::State::Question, glow::State::Done, glow::State::Timer,
-                                                 glow::State::Find, glow::State::Listening, glow::State::Thinking, glow::State::Speaking,
-                                                 glow::State::Hands};
-            const char *kind = params["kind"] | "";
-            GlowRequest request = {glow::State::None, (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
-                                   (int)(params["corner"] | (int)client.settingInt("glowCorner", 56))};
-            for (int i = 0; i < 9; i++) if (!strcmp(kind, KINDS[i])) request.kind = STATES[i];
-            if (request.kind == glow::State::None) return false;
-            portENTER_CRITICAL(&requestLock);
-            glowRequest = request;
-            glowRequests++;
-            portEXIT_CRITICAL(&requestLock);
-            return true;
+            return requestGlow(params["kind"] | "", (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
+                               (int)(params["corner"] | (int)client.settingInt("glowCorner", 56)));
         }
         if (!strcmp(name, "find")) {
             portENTER_CRITICAL(&requestLock);
@@ -868,6 +877,29 @@ void setup() {
             speaker::cue();
             return true;
         }
+        if (word == "glow") {
+            // `glow timer 60`: for that many seconds (15 when not given).
+            const int space = rest.indexOf(' ');
+            const int seconds = space > 0 ? rest.substring(space + 1).toInt() : 15;
+            const String kind = space > 0 ? rest.substring(0, space) : rest;
+            if (!requestGlow(kind.c_str(), (uint32_t)constrain(seconds, 1, 600) * 1000, (int)client.settingInt("glowCorner", 56))) {
+                logOut.println("[glow] one of: waiting question done timer find listening thinking speaking hands, then seconds");
+            }
+            return true;
+        }
+        if (word == "fps") {
+            fpsRequests++;
+            return true;
+        }
+        if (word == "shot") {
+            // A picture of the screen: everything is drawn again into a kept copy, which is then printed.
+            display::mirror(true);
+            shotRequests++;
+            delay(1500);
+            display::dump(logOut);
+            display::mirror(false);
+            return true;
+        }
         if (word == "wake") {
             client.wakeHeard(0.99f, 0.5f);  // as if the wake word had just been heard
             return true;
@@ -887,6 +919,19 @@ void loop() {
     if (started - lastFrame < FRAME_MS) return delay(1);
     const float seconds = lastFrame ? (started - lastFrame) / 1000.0f : 0.033f;
     lastFrame = started;
+
+    // `shot` on the console: everything drawn again, so the kept copy holds the whole screen.
+    static uint32_t seenShot = 0;
+    if (shotRequests != seenShot) {
+        seenShot = shotRequests;
+        display::clear();
+        glow::reset();
+        redrawAll = true;
+        askDrawn = "";
+        edgesDrawn = false;
+        faceY = -1;
+        if (pictureUntil) display::blitScreen(pictureFrame);
+    }
 
     const bool changed = client.revision() != seenRevision;
     if (changed) {
@@ -1032,6 +1077,7 @@ void loop() {
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
 
     if (drawFace) {
+        const uint32_t fpsFaceMark = renderMicros;
         const uint32_t t0 = micros();
         const uint16_t *frame = vortex::render(min(seconds, 0.1f));
         renderMicros += micros() - t0;
@@ -1041,6 +1087,9 @@ void loop() {
         display::blitSquare((display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, frame);
         drawMicros += micros() - t0;
         frames++;
+        fpsFrames++;
+        fpsDrawMicros += micros() - t0;
+        fpsFaceMicros += renderMicros - fpsFaceMark;
     }
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
@@ -1132,12 +1181,27 @@ void loop() {
         if (doneFlashUntil && (int32_t)(started - doneFlashUntil) >= 0) doneFlashUntil = 0;
         glow::Rect face;
         if (drawFace) face = {(display::width() - vortex::SIZE) / 2, faceY, vortex::SIZE, vortex::SIZE};
+        const uint32_t g0 = micros();
         glow::update(nullptr, notice, level, face, sweep);
+        fpsGlowMicros += micros() - g0;
         // Text the glow lay over is drawn again once it is gone.
         if (notice == glow::State::None && noticeShown) redrawAll = true;
         noticeShown = notice != glow::State::None;
     }
 
+    {
+        // `fps` on the console: face frames and the time spent on them since it was last asked.
+        static uint32_t seenFps = 0, fpsFrom = 0;
+        if (fpsRequests != seenFps) {
+            seenFps = fpsRequests;
+            logOut.printf("[fps] %.1f fps over %.1f s, %.1f ms a face frame (%.1f rendering it), edge glow %.1f ms a second, heap %u (low %u)\n",
+                          fpsFrames * 1000.0f / max(1u, (unsigned)(started - fpsFrom)), (started - fpsFrom) / 1000.0f,
+                          fpsDrawMicros / 1000.0f / max(1u, (unsigned)fpsFrames), fpsFaceMicros / 1000.0f / max(1u, (unsigned)fpsFrames),
+                          fpsGlowMicros / max(1.0f, (float)(started - fpsFrom)), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+            fpsFrom = started;
+            fpsFrames = fpsDrawMicros = fpsFaceMicros = fpsGlowMicros = 0;
+        }
+    }
     if (started - lastReport >= 60000) {
         logOut.printf("[run] up %lus, %.1f fps, %.1f ms per frame (%.1f drawing it), idle look \"%s\", heap %u (low %u, largest piece %u)\n",
                          (unsigned long)(started / 1000), frames * 1000.0f / (started - lastReport),
