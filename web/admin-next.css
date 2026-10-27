@@ -696,3 +696,44 @@ b.vname { font-weight: 600; }
   .card-h { flex-wrap: wrap; }
   .sample { min-height: 28px; min-width: 24px; }
 }
+
+/* --- stage 5: Face and screen, Firmware, Wake words, Apps, Integrations, System ----------------------- */
+/* The faces stay black in either theme: they are what the devices show. */
+.face-stage { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.face-big { background: #000; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px; flex: 0 0 auto; }
+.face-big canvas.face { width: 300px; height: 300px; }
+.face-detail { flex: 1 1 280px; min-width: 0; }
+.face-detail h2 { margin: 0 0 4px; font-size: var(--t-lg); }
+.face-detail .tablebox { margin-top: 10px; }
+.face-detail table.t td { padding: 4px 12px; }
+.card-foot { padding: 0 16px 14px; margin: 0; }
+.face-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 10px; margin-top: 10px; }
+.face-tile { display: block; width: 100%; background: #000; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 6px 6px 4px; cursor: pointer; text-align: center; color: #b9c4cc; font: inherit; font-size: var(--t-sm); }
+.face-tile:hover { border-color: var(--line-strong); }
+.face-tile.on { border-color: var(--accent); color: #fff; box-shadow: 0 0 0 1px var(--accent); }
+.face-tile span { display: block; padding-top: 2px; }
+.face-cell { display: flex; flex-direction: column; gap: 4px; }
+.face-cell.off .face-tile { opacity: 0.4; }
+.face-cell .switch-l { font-size: 12px; }
+.face-grid.off .face-tile { opacity: 0.45; }
+.f input[type=range] { flex: 1 1 200px; max-width: 360px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.chip.warn { border-color: var(--warn-line); color: var(--warn-text); }
+.chip .d, td .d { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.chip .d.good, td .d.good { background: var(--good); }
+.shelf .btnrow { margin-top: 12px; }
+.sub-h { margin: 16px 0 8px; font-size: var(--t-sm); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+table.t tr.dirty td { background: var(--accent-soft); }
+.scorestrip { position: relative; height: 16px; min-width: 180px; background: var(--sunk); border-radius: 3px; }
+.scorestrip i { position: absolute; top: 3px; width: 4px; height: 10px; margin-left: -2px; border-radius: 2px; background: var(--dim); opacity: 0.8; }
+.scorestrip i.answered { background: var(--good); }
+.scorestrip i.ignored { background: var(--warn); }
+.scorestrip i.cut { top: 0; height: 16px; width: 1px; margin-left: 0; background: var(--text); opacity: 1; }
+#wake-range { margin-left: auto; }
+@media (max-width: 720px) {
+  .face-big { flex: 1 1 100%; display: flex; justify-content: center; }
+  .face-big canvas.face { width: min(300px, 100%); height: auto; }
+  .face-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+  .scorestrip { min-width: 120px; }
+}
+.f-c.f-v { display: block; padding-top: 7px; }

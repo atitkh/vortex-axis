@@ -293,7 +293,6 @@ export const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : m
 export const enc = encodeURIComponent;
 export const typeHref = (type, tab) => `#type/${enc(type)}${tab ? `/${tab}` : ""}`;
 export const deviceHref = (c, tab) => `#clients/${enc(c.id ?? c)}${tab ? `/${tab}` : ""}`;
-export const classicHref = (hash) => `/admin${hash ? `#${hash}` : ""}`;
 
 /** Names for client types that have one before a person gives their own. */
 const TYPE_NAMES = { "meta-quest": "Meta Quest", web: "Web browser", "windows-desktop": "Windows computer", "macos-desktop": "Mac" };

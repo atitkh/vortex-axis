@@ -3,7 +3,7 @@
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import {
-  ago, api, ask, behind, classicHref, clearDraft, clientById, deviceHref, dirtyEntities, draftCount, dropToast, enc, hasToken, heldBuild,
+  ago, api, ask, behind, clearDraft, clientById, deviceHref, dirtyEntities, download, draftCount, dropToast, enc, hasToken, heldBuild,
   kept, kindOf, loadSlow, offlineAfter, plural, runCommand, set, setTheme, signIn, signOut, span, store, themeChoice, toast, typeHref, typeName,
   typesInUse, updateDevice, useStore,
 } from "/web/adm-core.js";
@@ -11,28 +11,30 @@ import { AddDevice, AllDevices, Defaults, DevicePage, TypePage, DeviceCard, find
 import { Face } from "/web/adm-tools.js";
 import { History, Live, Overview, clearLive, focusSay } from "/web/adm-activity.js";
 import { AgentPage, OpenClawPage, SpeechPage, ToolsPage, VoicesPage, checkAgain, gatewayMark, reconnectGateway } from "/web/adm-agent.js";
+import { AppsPage, FacePage, FirmwarePage, WakeWordsPage } from "/web/adm-hardware.js";
+import { IntegrationsPage, SystemPage } from "/web/adm-system.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
-/** Every page, its group, and where it still lives in the classic admin until it is ported. */
+/** Every page, its group, and what it is for (the command bar searches these words too). */
 export const PAGES = {
   overview: { title: "Overview", purpose: "What needs attention, and how Axis has been doing." },
-  live: { title: "Live", group: "activity", classic: "live", ported: true, purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
-  activity: { title: "History", group: "activity", classic: "overview", ported: true, purpose: "Uptime, turn timings and events over the last day or week." },
+  live: { title: "Live", group: "activity", purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
+  activity: { title: "History", group: "activity", purpose: "Uptime, turn timings and events over the last day or week." },
   clients: { title: "All devices", group: "devices" },
   settings: { title: "Defaults for everything", short: "Defaults", group: "devices" },
-  face: { title: "Face and screen", group: "devices", classic: "face", purpose: "The vortex face's looks, idle looks and tool icons, for every device." },
+  face: { title: "Face and screen", group: "devices", purpose: "The vortex face's looks, idle looks and tool icons, for every device." },
   pair: { title: "Add a device", group: "devices" },
-  agent: { ported: true, title: "Who answers", group: "agent", classic: "agent", purpose: "The OpenClaw agent or another chat endpoint that answers turns." },
-  openclaw: { ported: true, title: "OpenClaw gateway", group: "agent", classic: "openclaw", purpose: "The link to the gateway, what Axis relies on there, and pairing." },
-  tools: { ported: true, title: "Tools and MCP", group: "agent", classic: "tools", purpose: "Which tools agents have, trying one, the desktop block list, MCP and its tokens." },
-  speech: { ported: true, title: "Speech", group: "agent", classic: "speech", purpose: "Speech recognition and synthesis, and the realtime voice." },
-  voices: { ported: true, title: "Voices", group: "agent", classic: "speech", purpose: "Telling voices apart: the voiceprint settings, taught voices and what was heard lately." },
-  firmware: { title: "Firmware", group: "hardware", classic: "firmware", purpose: "The builds Axis holds per device type, and updating devices." },
-  wakewords: { title: "Wake words", group: "hardware", classic: "wakewords", purpose: "Wake word models, their cutoffs, and what devices heard." },
-  apps: { title: "Apps", group: "hardware", classic: "pair", purpose: "The desktop app and Quest app builds this hub holds (the desktop app's download is on Add a device)." },
-  integrations: { title: "Integrations", classic: "integrations", purpose: "Home Assistant, live activities on phones, notifications to browsers." },
-  system: { title: "System", classic: "integrations", purpose: "Public address and proxies, clock and history kept, backup (on the classic Integrations page)." },
+  agent: { title: "Who answers", group: "agent", purpose: "The OpenClaw agent or another chat endpoint that answers turns." },
+  openclaw: { title: "OpenClaw gateway", group: "agent", purpose: "The link to the gateway, what Axis relies on there, and pairing." },
+  tools: { title: "Tools and MCP", group: "agent", purpose: "Which tools agents have, trying one, the desktop block list, MCP and its tokens." },
+  speech: { title: "Speech", group: "agent", purpose: "Speech recognition and synthesis, and the realtime voice." },
+  voices: { title: "Voices", group: "agent", purpose: "Telling voices apart: the voiceprint settings, taught voices and what was heard lately." },
+  firmware: { title: "Firmware", group: "hardware", purpose: "The builds Axis holds per device type, and updating devices." },
+  wakewords: { title: "Wake words", group: "hardware", purpose: "Wake word models, their cutoffs, and what devices heard." },
+  apps: { title: "Apps", group: "hardware", purpose: "The Windows desktop app and the Quest app this hub holds, and the Mac app." },
+  integrations: { title: "Integrations", purpose: "Home Assistant, live activities on phones, notifications to browsers." },
+  system: { title: "System", purpose: "Public address and proxies, clock and history kept, backup, and about this hub." },
 };
 const GROUPS = [
   { key: "activity", title: "Activity", icon: "activity", pages: ["live", "activity"] },
@@ -68,8 +70,8 @@ function safeDecode(text) {
   }
 }
 /** What a page edits, so leaving it with unsaved changes can be caught. */
-// The Agent and voice pages each stage their own form ("page:<name>", web/adm-agent.js).
-const FORM_PAGES = new Set(["agent", "openclaw", "tools", "speech", "voices"]);
+// Pages with a form of their own stage it as "page:<name>" (web/adm-agent.js, adm-hardware.js, adm-system.js).
+const FORM_PAGES = new Set(["agent", "openclaw", "tools", "speech", "voices", "face", "wakewords", "integrations", "system"]);
 export const entityOf = (r) => (r.page === "device" ? `device:${r.id}` : r.page === "type" ? `type:${r.id}` : r.page === "settings" ? "global" : FORM_PAGES.has(r.page) ? `page:${r.page}` : "");
 const entityLabel = (entity) => {
   const [kind, ...rest] = entity.split(":");
@@ -185,9 +187,9 @@ export function attentionItems() {
     }
   }
   const trouble = backupTrouble(store.integrations?.backup);
-  if (trouble) add("bad", trouble, "", classicHref("integrations"));
+  if (trouble) add("bad", trouble, "", "#system/backup");
   const ha = store.integrations?.homeAssistant;
-  if (ha && !ha.connected) add("warn", "Home Assistant is not connected.", ha.error ?? "", classicHref("integrations"));
+  if (ha && !ha.connected) add("warn", "Home Assistant is not connected.", ha.error ?? "", "#integrations");
   const data = store.activity;
   if (data) {
     const failed = data.recentTurns.filter((t) => t.outcome === "failed" && now - t.at < 3_600_000).length;
@@ -209,7 +211,7 @@ export function AttentionList({ items }) {
       <div class="att-t"><b>${it.text}</b>${it.detail ? html`<div>${it.detail}</div>` : null}</div>
       ${it.action?.kind === "update"
         ? html`<${UpdateButton} client=${it.action.client} />`
-        : html`<a class="btn sm ghost" href=${it.href}>${it.href.startsWith("/admin#") ? "Open in classic" : "Open"}</a>`}
+        : html`<a class="btn sm ghost" href=${it.href}>Open</a>`}
     </li>`)}
   </ul>`;
 }
@@ -253,8 +255,8 @@ function Health({ items }) {
     <a class=${`dot ${UP(up.tts)}`} href=${"#speech"}><b>Synthesis</b></a>
     <a class=${`dot ${s.clientsOnline ? "good" : ""}`} href="#clients"><b>${s.clientsOnline} of ${s.clientsKnown}</b> <span class="dim">devices online</span></a>
     ${behindCount ? html`<a class="dot warn" href="#clients?behind">${plural(behindCount, "update")} waiting</a>` : null}
-    ${backup ? html`<a class="dot bad" href=${classicHref("integrations")} title=${backup}>Backup</a>` : null}
-    ${ha && !ha.connected ? html`<a class="dot bad" href=${classicHref("integrations")}>Home Assistant</a>` : null}
+    ${backup ? html`<a class="dot bad" href="#system/backup" title=${backup}>Backup</a>` : null}
+    ${ha && !ha.connected ? html`<a class="dot bad" href="#integrations">Home Assistant</a>` : null}
     ${store.pollError ? html`<span class="dot bad" title=${store.pollError}>Axis not answering</span>` : null}
     <span class="grow"></span>
     ${items.length
@@ -286,6 +288,9 @@ function Sidebar({ route, attention }) {
   const busy = store.now?.clients.length ?? 0;
   // The gateway's mark, as the classic page's: "down" when a link is refused or unreachable, "setup" while not both up.
   const gwMark = gatewayMark(store.gateway);
+  // Integrations and System are marked when something of theirs is in trouble (the same as the health strip).
+  const haDown = store.integrations?.homeAssistant && !store.integrations.homeAssistant.connected;
+  const backupBad = backupTrouble(store.integrations?.backup);
   const groupHead = (g) => html`<button type="button" class="gh" aria-expanded=${isOpen(g.key)} onClick=${() => toggle(g.key)}>
     <${Icon} name=${g.icon} /><span>${g.title}</span><${Icon} name="chev" class=${`chev ${isOpen(g.key) ? "open" : ""}`} />
   </button>`;
@@ -314,8 +319,8 @@ function Sidebar({ route, attention }) {
             </div>`
           : null}
       </div>`)}
-      <a href="#integrations" class=${route.page === "integrations" ? "toplink on" : "toplink"}><${Icon} name="plug" /><span>Integrations</span></a>
-      <a href="#system" class=${route.page === "system" ? "toplink on" : "toplink"}><${Icon} name="gear" /><span>System</span></a>
+      <a href="#integrations" class=${route.page === "integrations" ? "toplink on" : "toplink"}><${Icon} name="plug" /><span>Integrations</span>${haDown ? html`<span class="n bad" title="Home Assistant is not connected">down</span>` : null}</a>
+      <a href="#system" class=${route.page === "system" ? "toplink on" : "toplink"}><${Icon} name="gear" /><span>System</span>${backupBad ? html`<span class="n bad" title=${backupBad}>backup</span>` : null}</a>
     </div>
     <div class="foot">
       <${ThemeSwitch} />
@@ -324,16 +329,8 @@ function Sidebar({ route, attention }) {
         ${s?.commit ? html`<span class="mono" title="The commit this build was made from">${s.commit}</span>` : null}
         ${s ? html`<span title="How devices and Axis talk to each other; it has nothing to do with the release number">protocol ${s.protocol}</span>` : null}
       </div>
-      <a class="classic" href=${classicHref(classicFor(route))}>Open the classic admin</a>
     </div>
   </nav>`;
-}
-
-/** The classic page's address for what is on screen now. */
-function classicFor(route) {
-  if (route.page === "device") return `clients/${enc(route.id)}`;
-  if (route.page === "type") return `type/${enc(route.id)}`;
-  return PAGES[route.page]?.classic ?? route.page;
 }
 
 export function ThemeSwitch() {
@@ -363,7 +360,7 @@ function commandItems(route) {
   const items = [];
   for (const [key, p] of Object.entries(PAGES)) {
     const group = GROUPS.find((g) => g.key === p.group)?.title ?? "";
-    items.push({ section: "Pages", label: p.title, hint: group + (p.classic && !p.ported ? " · classic admin" : ""), go: `#${key}`, words: `${p.title} ${group} ${p.purpose ?? ""}` });
+    items.push({ section: "Pages", label: p.title, hint: group, go: `#${key}`, words: `${p.title} ${group} ${p.purpose ?? ""}` });
   }
   for (const t of typesInUse()) items.push({ section: "Pages", label: typeName(t.type), hint: `Type · ${plural(t.total, "device")}`, go: typeHref(t.type), words: `${typeName(t.type)} ${t.type} type` });
   for (const c of store.clients) {
@@ -387,7 +384,9 @@ function commandItems(route) {
     { label: "Check the gateway again", hint: "what Axis relies on in OpenClaw", run: () => checkAgain().then((c) => toast(c.asked ? `Asked the gateway: ${plural(c.checks.filter((x) => x.state === "problem").length, "problem")}.` : "Nothing to ask: Axis is not connected to an OpenClaw gateway.", c.checks?.some((x) => x.state === "problem") ? "bad" : "good"), (e) => toast(e.message, "bad")), go: "#openclaw", words: "check gateway again openclaw selfcheck" },
     { label: "Reconnect gateway", hint: "OpenClaw links", run: () => reconnectGateway().then(() => toast("Reconnecting to the gateway."), (e) => toast(e.message, "bad")), words: "reconnect gateway openclaw retry" },
     { label: "Clear live words now", hint: "delete the words of recent turns", run: () => clearLive().catch((e) => toast(e.message, "bad")), words: "clear live words turns forget" },
-    { label: "Open the classic admin", hint: "the page this one replaces", go: classicHref(classicFor(route)) },
+    { label: "Download a copy of the database", hint: "System › Backup", run: () => download("/admin/backup/download", `axis-${new Date().toISOString().slice(0, 10)}.sqlite`).catch((e) => toast(e.message, "bad")), words: "download backup database copy sqlite" },
+    { label: "Upload a firmware build", hint: "Firmware", go: "#firmware", words: "upload firmware build bin" },
+    { label: "Add a wake word", hint: "Wake words", go: "#wakewords", words: "add upload wake word model tflite" },
     { label: "Theme: dark", run: () => setTheme("dark") },
     { label: "Theme: light", run: () => setTheme("light") },
     { label: "Theme: as the system", run: () => setTheme("system") },
@@ -562,7 +561,7 @@ function SignIn() {
     <h1>VorteX Axis</h1>
     <label for="token">Admin token</label>
     <input id="token" class="field" type="password" autocomplete="off" required autofocus value=${value} onInput=${(e) => setValue(e.target.value)} />
-    <p class="help">The <code>AXIS_ADMIN_TOKEN</code> value from the hub's <code>.env</code>. The same sign-in serves the classic admin.</p>
+    <p class="help">The <code>AXIS_ADMIN_TOKEN</code> value from the hub's <code>.env</code>.</p>
     <label class="remember"><input id="remember" type="checkbox" checked=${remember} onChange=${(e) => setRemember(e.target.checked)} /> Remember on this device</label>
     <p class="help">Unticked, the token is kept for this tab only. Ticked, this browser keeps it until you sign out.</p>
     <button class="btn primary" type="submit">Sign in</button>
@@ -571,7 +570,7 @@ function SignIn() {
   </form>`;
 }
 
-// --- pages not yet ported ------------------------------------------------
+// --- page header ------------------------------------------------------------------------------
 
 function PageHead({ title, purpose, crumb, children }) {
   return html`<header class="ph">
@@ -580,18 +579,6 @@ function PageHead({ title, purpose, crumb, children }) {
   </header>`;
 }
 export { PageHead };
-
-function ClassicPage({ page }) {
-  const p = PAGES[page];
-  return html`<${PageHead} title=${p.title} purpose=${p.purpose} />
-    <div class="card classic-card">
-      <div class="card-b">
-        <h2>This page is still in the classic admin</h2>
-        <p class="dim">The new admin is built in stages; ${p.title} comes in a later one. Everything it does works on the classic page, with the same sign-in.</p>
-        <a class="btn primary" href=${classicHref(p.classic)}>Open ${p.title} in the classic admin <${Icon} name="arrow" /></a>
-      </div>
-    </div>`;
-}
 
 // --- the app ----------------------------------------------------------------------------------
 
@@ -611,7 +598,13 @@ function Page({ route, attention }) {
     case "tools": return html`<${ToolsPage} />`;
     case "speech": return html`<${SpeechPage} />`;
     case "voices": return html`<${VoicesPage} />`;
-    default: return html`<${ClassicPage} page=${route.page} />`;
+    case "face": return html`<${FacePage} />`;
+    case "firmware": return html`<${FirmwarePage} />`;
+    case "wakewords": return html`<${WakeWordsPage} />`;
+    case "apps": return html`<${AppsPage} />`;
+    case "integrations": return html`<${IntegrationsPage} />`;
+    case "system": return html`<${SystemPage} tab=${route.tab} />`;
+    default: return html`<${Overview} attention=${attention} />`;
   }
 }
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { admin, ctx, newPairedClient, restart, useServer } from "./harness.js";
+import { ADMIN_TOKEN, admin, ctx, newPairedClient, restart, useServer } from "./harness.js";
 
 useServer();
 
@@ -70,5 +70,20 @@ describe("backup", () => {
     expect(saved.body.settings).toMatchObject({ backupEveryHours: 6, backupKeepDays: 14 });
     expect((await admin("GET", "/admin/integrations")).body.backup).toMatchObject({ everyHours: 6, keepDays: 14 });
     expect((await admin("PATCH", "/admin/integrations", { backupEveryHours: 500 })).status).toBe(400);
+  });
+  it("hands the admin a fresh copy of the database to download, with or without a backup folder", async () => {
+    await newPairedClient({ name: "Hall" });
+    expect((await fetch(`${ctx.base}/admin/backup/download`)).status).toBe(401);
+    const res = await fetch(`${ctx.base}/admin/backup/download`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="axis-\d{4}-\d{2}-\d{2}\.sqlite"$/);
+    const dir = folder();
+    writeFileSync(join(dir, "copy.sqlite"), Buffer.from(await res.arrayBuffer()));
+    const copy = new DatabaseSync(join(dir, "copy.sqlite"), { readOnly: true });
+    expect(copy.prepare("SELECT name FROM clients").all()).toEqual([{ name: "Hall" }]);
+    copy.close();
+    rmSync(dir, { recursive: true, force: true });
+    // The copy made for it is gone once it has been sent.
+    await expect.poll(() => readdirSync(tmpdir()).filter((name) => name.startsWith("axis-download-"))).toEqual([]);
   });
 });

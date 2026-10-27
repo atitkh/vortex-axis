@@ -13,7 +13,7 @@ import { PAGES, PageHead } from "/web/adm-shell.js";
 const sameValue = (a, b) => String(a ?? "") === String(b ?? "");
 
 /** A page's fields: what is saved, what is staged over it, and how to stage a value. */
-function useForm(entity, saved) {
+export function useForm(entity, saved) {
   const staged = draftOf(entity).values;
   return {
     value: (key) => (Object.hasOwn(staged, key) ? staged[key] : saved?.[key]),
@@ -33,7 +33,7 @@ function useForm(entity, saved) {
  * Undo writes the values from before back, unless a key was among the changes (it cannot be read back). Returns the
  * error for the save bar, or "".
  */
-async function saveForm(entity, saved, apply, { secrets = [], words } = {}) {
+export async function saveForm(entity, saved, apply, { secrets = [], words } = {}) {
   const staged = { ...draftOf(entity).values };
   const keys = new Set(Object.keys(staged));
   try {
@@ -58,7 +58,7 @@ async function saveForm(entity, saved, apply, { secrets = [], words } = {}) {
 }
 
 /** One labelled line of a form; `dirty` marks it as not saved yet. */
-function F({ label, help, dirty, children, id, hidden }) {
+export function F({ label, help, dirty, children, id, hidden }) {
   if (hidden) return null;
   return html`<div class=${`f${dirty ? " dirty" : ""}`}>
     <label class="f-l" for=${id}>${label}${dirty ? html`<span class="src-chip unsaved">unsaved</span>` : null}</label>
@@ -66,7 +66,7 @@ function F({ label, help, dirty, children, id, hidden }) {
   </div>`;
 }
 
-function Text({ form, k, id, placeholder, mono, type = "text", area, rows = 4, ...rest }) {
+export function Text({ form, k, id, placeholder, mono, type = "text", area, rows = 4, ...rest }) {
   const props = {
     id, "data-f": k, class: `field${mono ? " mono" : ""}`, value: form.value(k) ?? "", placeholder, spellcheck: "false",
     onInput: (e) => form.put(k, e.currentTarget.value),
@@ -76,20 +76,20 @@ function Text({ form, k, id, placeholder, mono, type = "text", area, rows = 4, .
     : html`<input ...${props} type=${type} autocomplete=${type === "password" ? "off" : undefined} onKeyDown=${(e) => e.key === "Enter" && e.currentTarget.blur()} ...${rest} />`;
 }
 
-function Seg({ form, k, options, label }) {
+export function Seg({ form, k, options, label }) {
   const v = form.value(k);
   return html`<div class="seg" role="group" aria-label=${label} data-f=${k}>
     ${options.map(([value, text]) => html`<button type="button" key=${String(value)} class=${sameValue(v, value) ? "on" : ""} aria-pressed=${sameValue(v, value)} data-v=${String(value)} onClick=${() => form.put(k, value)}>${text}</button>`)}
   </div>`;
 }
 
-function Switch({ form, k, label, disabled }) {
+export function Switch({ form, k, label, disabled }) {
   const on = Boolean(form.value(k));
   return html`<label class="switch-l"><input type="checkbox" class="switch" data-f=${k} aria-label=${label} checked=${on} disabled=${disabled} onChange=${(e) => form.put(k, e.currentTarget.checked)} /><span>${label}</span></label>`;
 }
 
-const Stat = ({ label, kind = "" }) => html`<span class=${`badge ${kind}`}>${label}</span>`;
-const Note = ({ m, id }) => (m?.text ? html`<p class=${`msg ${m.kind ?? ""}`} id=${id} role="status">${m.text}</p>` : html`<p class="msg" id=${id}></p>`);
+export const Stat = ({ label, kind = "" }) => html`<span class=${`badge ${kind}`}>${label}</span>`;
+export const Note = ({ m, id }) => (m?.text ? html`<p class=${`msg ${m.kind ?? ""}`} id=${id} role="status">${m.text}</p>` : html`<p class="msg" id=${id}></p>`);
 
 /** The text in a box, or nothing when it is the built-in one, so a later change to the built-in one is picked up. */
 const builtIn = (typed, given) => (String(typed ?? "").trim() === String(given ?? "").trim() ? "" : String(typed ?? "").trim());
@@ -98,7 +98,7 @@ const builtIn = (typed, given) => (String(typed ?? "").trim() === String(given ?
 
 const cache = {};
 /** Reads `path` on mount, and every `every` ms while shown (not while `pause.current`). */
-function useLoad(path, every = 0, pause) {
+export function useLoad(path, every = 0, pause) {
   const [data, setData] = useState(cache[path]);
   const [error, setError] = useState("");
   const load = async (method = "GET") => {
@@ -139,10 +139,10 @@ function useConfig() {
   return store.config;
 }
 
-const Loading = () => html`<div class="loading" aria-busy="true"><span class="spinner"></span> Loading…</div>`;
+export const Loading = () => html`<div class="loading" aria-busy="true"><span class="spinner"></span> Loading…</div>`;
 const Head = ({ page, children }) => html`<${PageHead} title=${PAGES[page].title} purpose=${PAGES[page].purpose}>${children}</${PageHead}>`;
 
-async function copy(text, field) {
+export async function copy(text, field) {
   try {
     await navigator.clipboard.writeText(text);
     toast("Copied.");

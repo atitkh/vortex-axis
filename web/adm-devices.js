@@ -5,7 +5,7 @@ import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import qrcode from "/web/qr.js";
 import { strip, stripAxis, percent, ms as fmtMs, clock } from "/web/charts.js";
 import {
-  AUTO_OFFLINE_MS, ago, api, ask, behind, classicHref, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
+  AUTO_OFFLINE_MS, ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
   plural, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
 import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
@@ -524,9 +524,9 @@ function TypeFirmware({ type, members }) {
     ${held
       ? html`<p>Devices are sent ${type === "meta-quest" ? "app" : ""} version <b>${held.version}</b>. ${late.length ? late.map((c) => `${c.name} is on ${c.version}${c.online ? "" : " (offline)"}`).join(", ") + "." : "Every device is on it."}</p>
         <div class="btnrow"><button type="button" class="btn primary" disabled=${!ready.length} onClick=${updateAll}>${ready.length ? `Update ${plural(ready.length, "device")} to ${held.version}` : "Nothing to update"}</button>
-          ${type === "meta-quest" ? null : html`<a class="btn" href=${classicHref("firmware")}>Manage builds in the classic admin</a>`}</div>`
+          <a class="btn" href=${type === "meta-quest" ? "#apps" : "#firmware"}>${type === "meta-quest" ? "The Quest app on Apps" : "Manage builds on Firmware"}</a></div>`
       : html`<p class="dim">${type === "meta-quest" ? "No Quest app build is on this hub (scripts/build-quest-client.sh)." : "No build has been uploaded for this type yet."}</p>
-        ${type === "meta-quest" ? null : html`<a class="btn" href=${classicHref("firmware")}>Upload one in the classic admin</a>`}`}
+        <a class="btn" href=${type === "meta-quest" ? "#apps" : "#firmware"}>${type === "meta-quest" ? "Apps" : "Upload one on Firmware"}</a>`}
     ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status">${note[0]}</p>` : null}
   </div></section>`;
 }

@@ -178,6 +178,16 @@ for (const theme of ["dark", "light"]) {
   await shot(`voices-${theme}`, "#voices", { theme, full: true });
   await shot(`phone-openclaw-${theme}`, "#openclaw", { width: 390, height: 844, theme });
 }
+// The rest (stage 5).
+for (const theme of ["dark", "light"]) {
+  await shot(`face-${theme}`, "#face", { theme, full: true, before: `document.querySelector('.face-cell[data-look="curl"] input')?.click()` });
+  await shot(`firmware-${theme}`, "#firmware", { theme, full: true });
+  await shot(`wakewords-${theme}`, "#wakewords", { theme, full: true });
+  await shot(`apps-${theme}`, "#apps", { theme, full: true });
+  await shot(`integrations-${theme}`, "#integrations", { theme, full: true });
+  await shot(`system-${theme}`, "#system", { theme, full: true });
+  await shot(`phone-face-${theme}`, "#face", { width: 390, height: 844, theme });
+}
 await shot("signin-dark", "#overview", { before: `localStorage.removeItem('axis-admin-token'); location.reload()` });
 
 console.log("page errors:", errors.length ? errors : "none");

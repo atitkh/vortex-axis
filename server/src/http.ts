@@ -1,7 +1,8 @@
 import type { Timers } from "./timers.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { createReadStream, readFileSync, readdirSync, statSync } from "node:fs";
+import { createReadStream, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
+import { tmpdir } from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { CAPABILITIES, PAIR_PATH, PROTOCOL_VERSION, isPairRequest, type Capability, type PairResponse, type Scalar, type ScalarMap } from "@vortex-axis/protocol";
 import type { Activity } from "./activity.js";
@@ -1193,6 +1194,26 @@ export function createHttpHandler(deps: HttpDeps) {
         const result = await deps.backup.run();
         if (!result.ok) throw new HttpError(502, `the backup failed: ${result.error}`);
         return sendJson(res, 200, deps.backup.status());
+      }
+      // A copy of the database to keep somewhere else: made now, as a backup is, whether or not a backup folder is set
+      // up. It holds the same keys and token hashes as the hub itself, so it is only handed to the admin token.
+      if (method === "GET" && parts.length === 3 && parts[1] === "backup" && parts[2] === "download") {
+        if (config.dataDir === ":memory:") throw new HttpError(409, "there is no data folder to copy");
+        const dir = mkdtempSync(join(tmpdir(), "axis-download-"));
+        const file = join(dir, "axis.sqlite");
+        try {
+          await store.backupTo(file);
+          res.writeHead(200, {
+            "content-type": "application/vnd.sqlite3",
+            "content-length": statSync(file).size,
+            "content-disposition": `attachment; filename="axis-${new Date(now()).toISOString().slice(0, 10)}.sqlite"`,
+          });
+          await new Promise<void>((resolve) => createReadStream(file).on("close", resolve).pipe(res));
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+        activity?.note("admin", "", "A copy of the database was downloaded from the admin page");
+        return;
       }
       // Forgets, now, every word Axis is holding in memory for the admin page: the live turns and the device sketches.
       if (method === "POST" && parts.length === 3 && parts[1] === "live" && parts[2] === "clear" && deps.live) {

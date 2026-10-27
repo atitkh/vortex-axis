@@ -496,7 +496,7 @@ function Wakes({ wakes }) {
           return html`<tr key=${i}><td class="mono sm">${second(w.at)}</td><td>${w.client}</td><td class="num">${Math.round(w.score * 100)} %</td><td class="num">${Math.round(w.level * 100)} %</td><td><${Stat} label=${word} kind=${kind} /></td></tr>`;
         })}</tbody></table></div>`
     : html`<p class="empty">No wake word since this page was opened.</p>`}
-    <p class="help"><a href="/admin#wakewords">Scores by device</a> are on the classic Wake words page until it moves here.</p>`;
+    <p class="help"><a href="#wakewords">Scores by device and the cutoffs</a> are on the Wake words page.</p>`;
 }
 
 function TasksEnded() {
