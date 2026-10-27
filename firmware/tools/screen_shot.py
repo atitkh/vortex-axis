@@ -46,10 +46,16 @@ for attempt in range(4):
     s.reset_input_buffer()
     s.write(command)
     buf = b""
-    start = time.time()
+    start = last = time.time()
     while time.time() - start < 40:
-        buf += s.read(65536)
+        got = s.read(65536)
+        buf += got
+        if got:
+            last = time.time()
         if b"[shot] end" in buf:
+            break
+        # The end line can be lost like any other: rows that stopped coming for a second are all there will be.
+        if b"[shot] begin" in buf and time.time() - last > 1.0:
             break
     for line in buf.decode("utf-8", "replace").splitlines():
         b = re.search(r"\[shot\] begin (\d+) (\d+)", line)

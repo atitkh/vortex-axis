@@ -88,8 +88,10 @@ Set these in the admin page: open the device under Clients, then pick the layer 
 | --- | --- | --- |
 | `rotation` | Screen rotation in degrees: 0, 90, 180 or 270 | 90 |
 | `brightness` | Screen brightness, 10 to 255 | 200 |
-| `textSize` | Round board only (since 0.3.1): size of the words and buttons, `small`, `medium` or `large`; the face does not change | `medium` |
-| `idleFace` | Round board only (since 0.4.0): size of the face with the screen to itself, `normal` (288 pixels), `large` (360) or `max` (380); with text it shrinks to 288 at the top | `large` |
+| `textSize` | Size of the words and buttons, `small`, `medium` or `large`; the face does not change. `small` is the 1.8's look before 0.20.0 (body 9 point, headings Bold 12, buttons 12), `medium` 11, 14, 14, `large` 12, 15, 15. The 1.8 since 0.20.0, the round board since 0.3.1 | `medium` |
+| `idleFace` | Size of the face with the screen to itself; with text it shrinks to its normal size at the top. 1.8 (since 0.20.0): `normal` 240 pixels, `large` 264, `max` 288. Round board (since 0.4.0): 288, 360, 380 | `large` |
+| `maxFps` | Frame rate limit: the most frames a second the screen draws, 20, 30, 45 or 60. The 1.8 since 0.20.0, the round board since 0.4.1 | 30 |
+| `glowCorner` | 1.8 only: how round the edge glow turns the corners, 12 to 120 pixels | 56 |
 | `volume` | Speaker volume, 0 to 100 | 60 |
 | `wakeListen` | 1 to listen for the wake word, 0 for tap-to-talk only | 1 |
 | `wakeSense` | Wake word cutoff in percent, 50 to 99. Lower wakes more easily. 0 uses the model's own (87) | 0 |
@@ -117,7 +119,15 @@ The default face is a vortex: dots on three spiral arms, drawn on the device fro
 | No Axis or no Wi-Fi | Small, dim and grey |
 | Setup | Amber |
 
-Text sits under the face: what was heard, the reply, or what is wrong (which service is down, "Can't reach Axis"). With nothing to say, the face sits in the middle of the screen; when text is needed it slides up and the text appears once it is out of the way. On the round board the face is also bigger in the middle (`idleFace`) and shrinks as it slides up.
+Text sits under the face: what was heard, the reply, or what is wrong (which service is down, "Can't reach Axis"). With nothing to say, the face sits in the middle of the screen; when text is needed it slides up and the text appears once it is out of the way. On both boards the face is also bigger in the middle (`idleFace`; the 1.8 since 0.20.0) and shrinks as it slides up, size and place together over 300 ms.
+
+On the 1.8 since 0.20.0 (the round board's 0.3.1 to 0.4.1, on a rectangle):
+
+- **Text size** (`textSize`): the same three sizes as the round board, in one table in `display.cpp` (`SIZES`: body rows 22, 26, 28 pixels, headings 30, 36, 38, button rows up to 56, 64, 68); `main.cpp` asks `display::lineHeight()` and `display::buttons()` each time it lays out. Under the face that leaves 7, 5 and 5 body rows standing up, 4, 3 and 3 lying down. A question that takes the whole screen may have three lines (two under the face).
+- **Idle face** (`idleFace`): 240, 264 or 288 in the middle (`-D VORTEX_MAX_SIZE=288`, `vortex::setSize()`), shrinking to 240 at the top for text, a question or a timer; text and buttons appear once a frame has gone out at 240 at the top. Measured with the widest idle look (`set idleLook open`, `fps`): the figure stays 66 pixels from the nearest edge at 240, 54 at 264 and 42 at 288, outside the 12-pixel glow.
+- **Only what the face drew is sent**, writes byte-swapped into internal memory first, and text bands lying sideways sent a few panel rows per write: a face frame takes 7 to 11 ms (was about 22).
+- **Edge glow** from a table made once in PSRAM in the panel's own coordinates (the rounded rectangle is the panel's whatever the rotation; made again when `glowCorner` changes), over black looked up, down the sides joined into one write per piece; the face lays the glow into its own frame where they meet (`glow::tint`). A glow no longer costs frames: 30 fps with `waiting` or `timer` (0.19.1: 6.8 and 4.3).
+- **Console**: `set textSize|idleFace|maxFps|rotation|idleLook <value>` (stand in for the setting, or turn the screen, on the bench; the key alone goes back), `preview <state>` (as the round board's), `glow <kind> [seconds]`, `fps` (frame rate, frame and glow cost, heap, how near the figure came to the edge), `still`/`still off`, `edges`, `shot` (the screen as runs of colour; `tools/screen_shot.py OUT.png --turn 270` turns it the right way up), `shot keep`/`shot keep off` (this board keeps no copy of the panel unless asked) and `shot held` (that copy as it stands).
 
 ## Sound
 

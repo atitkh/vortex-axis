@@ -184,7 +184,7 @@ Checked in this order; the first that applies wins.
 
 These may differ between devices; everything else above should not.
 
-- **Drawing size and placement.** The board draws 240 by 240 (the round 1.75 draws 288 by 288 over text, every size scaled by 1.2: `VORTEX_SIZE` in its build flags, and with the screen to itself 288, 360 or 380 by its `idleFace` setting, shrinking to 288 as it slides up for text: `vortex::setSize`, up to `VORTEX_MAX_SIZE`) and slides the face up to make room for text; the web page scales it to the window and shrinks it a little when words appear. Every size in the face is drawn to its scale, so a different size is the same face.
+- **Drawing size and placement.** The board draws 240 by 240 over text, and with the screen to itself 240, 264 or 288 by its `idleFace` setting (the 1.8 since 0.20.0; the round 1.75 draws 288 by 288 over text, every size scaled by 1.2: `VORTEX_SIZE` in its build flags, and with the screen to itself 288, 360 or 380 by its `idleFace` setting, shrinking to 288 as it slides up for text: `vortex::setSize`, up to `VORTEX_MAX_SIZE`) and slides the face up to make room for text; the web page scales it to the window and shrinks it a little when words appear. Every size in the face is drawn to its scale, so a different size is the same face.
 - **How overlaps mix.** The board paints dots over each other; the web adds their light (`lighter`), closer to how the panel glows. Either is fine.
 - **Frame rate.** Anything from about 30 fps up. Sparkle fades per frame (`× 0.86`), so it fades a little faster at higher rates; acceptable.
 - **Reduced motion.** A client that knows the person asked for less motion may turn the face at 30 % speed and drop sparkle, as the web client does.
