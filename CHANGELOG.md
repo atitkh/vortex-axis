@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.6.1 (2026-10-27)
+
+- **The talk key no longer waits for the microphone** (the Windows app 0.13.1's fix). `Voice.keyDown` started a new `AVAudioEngine` (`AudioIO.startCapture`: device choice, tap, converter, `prepare`, `start`) on the main thread under the voice part's lock, and the hold's listening cue opened an output engine the same way; a Bluetooth headset switching profile or a cold input device could freeze the app, the hold timer and the pills for seconds. Now `WarmMic` (`AxisDesktopCore/TalkMic.swift`) opens and closes it in order on its own queue; a hold shows listening at 220 ms, the pre-roll still keeps what was said once the device is on, a failure is said at the hold (a tap types), and the cue plays on that queue.
+- **Warm for 3 s** after a release so a quick second press is instant; closed at once when the agent's speech starts, when it is interrupted (sleep included), when the link drops and when the microphone is switched off on the admin page.
+- **Timing lines** in Recently, the last five kept: `Talk key: handler +3 ms, mic open +412 ms, first audio +450 ms, listening shown +460 ms` (from the hot key's event time, `GetEventTime`, or the Fn key's `NSEvent.timestamp`). A press while the link is not online says so instead of doing nothing silently.
+- Ping and watchdog unchanged (not on the key's path). Core XCTest on Linux under Swift 5.10 with stand-ins: 177 passing (the warm microphone, a slow one on the real queue, failure at a tap and a hold, the line). The AppKit part (`TalkKeyWatcher`'s event time, `AppModel`'s lines and marks) is not compiled.
+
 ## Desktop app 0.13.1 (2026-10-27)
 
 - **The talk key no longer waits for the microphone.** The key's handler opened the microphone on the UI thread (`WaveInEvent.StartRecording`, and the listening cue's `waveOutOpen` at the hold), so a slow device (a Bluetooth headset switching to its call profile, a microphone waking up) froze the app, the 220 ms tap/hold timer and the pills for as long as it took, seconds at worst. Now every open and close runs in order on a worker (`WarmMic`, `Axis.Desktop.Core/TalkMic.cs`); a hold shows listening at 220 ms whatever the device is doing, the pre-roll still keeps what was said from key-down once the device is on, and a microphone that fails is said at the hold as before (a tap types and says nothing). The listening cue plays on the same worker.

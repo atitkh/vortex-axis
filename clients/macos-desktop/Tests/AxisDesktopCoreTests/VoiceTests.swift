@@ -49,6 +49,29 @@ final class Count: @unchecked Sendable {
     var n = 0
 }
 
+/** The microphone's grace periods, kept to run by hand. */
+final class Graces: @unchecked Sendable {
+    private let lock = NSLock()
+    private var work: [@Sendable () -> Void] = []
+    func add(_ w: @escaping @Sendable () -> Void) { lock.withLock { work.append(w) } }
+    func runAll() {
+        let due = lock.withLock { () -> [@Sendable () -> Void] in
+            let d = work
+            work.removeAll()
+            return d
+        }
+        for w in due { w() }
+    }
+}
+
+extension Voice {
+    /** The microphone's queue inline and its grace kept, so the checks run in order. */
+    func inline(_ graces: Graces) {
+        mic.run = { $0() }
+        mic.after = { _, work in graces.add(work) }
+    }
+}
+
 final class FakeClock: @unchecked Sendable {
     var ms: UInt64 = 1000
 }
@@ -77,6 +100,7 @@ final class VoiceTests: XCTestCase {
     var clock: FakeClock!
     var sent: Sent!
     var voice: Voice!
+    var graces: Graces!
 
     override func setUp() {
         io = FakeVoiceIO()
@@ -84,6 +108,8 @@ final class VoiceTests: XCTestCase {
         sent = Sent()
         let c = clock!, s = sent!
         voice = Voice(io: io, out: { s.put($0) }, clock: { c.ms })
+        graces = Graces()
+        voice.inline(graces)
     }
 
     let loud = [Int16](repeating: 3000, count: PCM.frameSamples)
@@ -111,6 +137,7 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(sent.last("audio.end")?["reason"], "silence")
         XCTAssertEqual(sent.last("audio.end")?["turnId"], start["turnId"])
         XCTAssertEqual(voice.currentMode, .transcribing)
+        graces.runAll()
         XCTAssertFalse(io.capturing)
         if case .audio(let pcm) = sent.all[1] { XCTAssertEqual(pcm.count, 640, "20 ms of 16-bit samples") } else { XCTFail("a frame") }
     }

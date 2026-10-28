@@ -30,6 +30,8 @@ public final class TalkKeyWatcher {
     private var isDown = false
     private var held = false
     private var presses = 0
+    /** When the last press's event happened, in milliseconds since startup (`Voice.uptimeMs`'s clock); 0 before any. */
+    public private(set) var pressedAtMs: UInt64 = 0
 
     /** `id`: 1 for the talk key, 2 for the typing key. */
     public init(id: UInt32 = 1) { hotKeyId = id }
@@ -82,8 +84,10 @@ public final class TalkKeyWatcher {
             // The other watcher's key: left for its own handler, installed on the same target.
             guard got == noErr, id.signature == talkSignature, id.id == watcher.hotKeyId else { return OSStatus(eventNotHandledErr) }
             let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
+            // Seconds since startup, the clock of `Voice.uptimeMs`: for the talk key's timing line.
+            let at = UInt64(max(0, GetEventTime(event)) * 1000)
             Task { @MainActor in
-                if pressed { watcher.down() } else { watcher.up() }
+                if pressed { watcher.down(at: at) } else { watcher.up() }
             }
             return noErr
         }, 2, &specs, me, &installed)
@@ -97,8 +101,9 @@ public final class TalkKeyWatcher {
             guard event.keyCode == fnCode else { return }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let fnDown = flags.contains(.function) && flags.isDisjoint(with: [.command, .control, .option, .shift])
+            let at = UInt64(max(0, event.timestamp) * 1000)
             Task { @MainActor in
-                if fnDown { self?.down() } else { self?.up() }
+                if fnDown { self?.down(at: at) } else { self?.up() }
             }
         }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: changed) { monitors.append(global) }
@@ -124,8 +129,9 @@ public final class TalkKeyWatcher {
         return InputEvents.keyCodes.first { $0.value == code }?.key
     }
 
-    private func down() {
+    private func down(at: UInt64) {
         guard !isDown else { return }
+        pressedAtMs = at
         isDown = true
         held = false
         presses += 1

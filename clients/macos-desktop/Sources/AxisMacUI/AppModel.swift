@@ -150,6 +150,17 @@ public final class AppModel: ObservableObject {
         if recently.count > 40 { recently.removeLast(recently.count - 40) }
     }
 
+    /** A talk key timing line: in the list, keeping only the last five of them. */
+    func noteTiming(_ line: String) {
+        note(line)
+        var seen = 0
+        recently.removeAll { entry in
+            guard TalkTiming.isLine(entry) else { return false }
+            seen += 1
+            return seen > 5
+        }
+    }
+
     /** What a command did: in the list, and on the "using this computer" pill. */
     func did(_ line: String) {
         note(line)
@@ -219,6 +230,7 @@ public final class AppModel: ObservableObject {
         let notices = self.notices
         voice.onListening = { _ = notices.play(.listening) }
         voice.onFailed = { [weak self] why in Task { @MainActor in self?.note("⚠ voice: \(why)") } }
+        voice.timing.onMeasured = { [weak self] line in Task { @MainActor in self?.noteTiming(line) } }
         self.outbox = outbox
         return voice
     }
@@ -242,6 +254,7 @@ public final class AppModel: ObservableObject {
             if !screenOff { voicePill.show(now, talkKey: talkKey.label, picture: pictureURL == now.picture?.url ? pictureImage : nil) }
         }
         showFace()
+        if voiceNow?.mode == .listening, let voice { voice.timing.shown(at: Voice.uptimeMs(), "listening") }
     }
 
     /** A reply's picture, fetched once from Axis; the pill shows it when it is here (and loses it with the reply). */
@@ -483,7 +496,14 @@ public final class AppModel: ObservableObject {
 
     /** The talk key went down: the microphone starts at once (or the agent is stopped, or listening finishes). */
     func talkDown() {
+        if voice != nil, !paused, state != .online {
+            note("Talk key: not connected to Axis (\(state == .connecting ? "connecting" : "offline")), so nothing was heard")
+        }
         guard let voice, !paused, state == .online, voice.listens else { return }
+        let now = Voice.uptimeMs()
+        let at = talkKeys.pressedAtMs
+        // The event's own time when it is on this clock (within a minute); else the handler's.
+        voice.timing.begin(keyAt: at > 0 && at <= now && now - at < 60_000 ? at : now, handlerAt: now)
         voice.keyDown()
     }
 
@@ -511,6 +531,7 @@ public final class AppModel: ObservableObject {
         guard voice != nil, state == .online, !paused, !screenOff else { return }
         voicePill.hold(true)
         typingPill.open(question: voiceNow?.question, choices: voiceNow?.choices ?? [])
+        voice?.timing.shown(at: Voice.uptimeMs(), "typing")
     }
 
     /** Uses `key` to open the typing pill (nil: a tap of the talk key does). Returns why it cannot be, or nil. */

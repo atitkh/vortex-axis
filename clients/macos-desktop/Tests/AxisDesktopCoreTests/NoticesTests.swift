@@ -227,6 +227,7 @@ final class TypingTests: XCTestCase {
     var clock: FakeClock!
     var sent: Sent!
     var voice: Voice!
+    var graces: Graces!
 
     override func setUp() {
         io = FakeVoiceIO()
@@ -234,6 +235,8 @@ final class TypingTests: XCTestCase {
         sent = Sent()
         let c = clock!, s = sent!
         voice = Voice(io: io, out: { s.put($0) }, clock: { c.ms })
+        graces = Graces()
+        voice.inline(graces)
     }
 
     let loud = [Int16](repeating: 3000, count: PCM.frameSamples)
@@ -261,6 +264,8 @@ final class TypingTests: XCTestCase {
         XCTAssertEqual(voice.currentMode, .listening, "a pause does not end a hold")
         XCTAssertEqual(voice.keyUp(), .released)
         XCTAssertEqual(sent.last("audio.end")?["reason"], "silence")
+        XCTAssertTrue(io.capturing, "kept warm a moment")
+        graces.runAll()
         XCTAssertFalse(io.capturing)
     }
 
@@ -271,6 +276,8 @@ final class TypingTests: XCTestCase {
         voice.keyDown()
         voice.frame(loud)
         XCTAssertEqual(voice.keyUp(), .tap)
+        XCTAssertTrue(io.capturing, "kept warm a moment")
+        graces.runAll()
         XCTAssertFalse(io.capturing)
         XCTAssertTrue(sent.all.isEmpty)
         XCTAssertEqual(voice.currentMode, .idle)
@@ -400,5 +407,103 @@ final class TypingTests: XCTestCase {
         XCTAssertEqual(task.pill.maxY, typing.pill.y - PillLayout.gap)
         XCTAssertNil(PillLayout.under([nil, nil]))
         XCTAssertEqual(PillLayout.under([nil, 500, 700]), 500)
+    }
+}
+
+/** The microphone opens off the key's thread, stays warm a moment, and closes at once before speech (the Windows app's checks). */
+final class WarmMicTests: XCTestCase {
+    var io: FakeVoiceIO!
+    var clock: FakeClock!
+    var sent: Sent!
+    var voice: Voice!
+    var graces: Graces!
+
+    override func setUp() {
+        io = FakeVoiceIO()
+        clock = FakeClock()
+        sent = Sent()
+        let c = clock!, s = sent!
+        voice = Voice(io: io, out: { s.put($0) }, clock: { c.ms })
+        graces = Graces()
+        voice.inline(graces)
+    }
+
+    let quiet = [Int16](repeating: 0, count: PCM.frameSamples)
+
+    func testAQuickSecondPressIsWarmAndSpeechClosesIt() {
+        let lines = Shared<[String]>([])
+        voice.timing.onMeasured = { lines.value.append($0) }
+        voice.keyDown()
+        _ = voice.keyUp()
+        voice.timing.begin(keyAt: 1000, handlerAt: 1003)
+        voice.keyDown()
+        graces.runAll()
+        XCTAssertTrue(io.capturing, "pressed again while warm: still on, the first grace does nothing")
+        voice.keyHeld()
+        voice.timing.shown(at: clock.ms, "listening")
+        voice.frame(quiet)
+        XCTAssertEqual(lines.value.count, 1)
+        XCTAssertTrue(lines.value.first?.contains("mic warm +") == true, lines.value.first ?? "")
+        _ = voice.keyUp()
+        let id = sent.last("audio.start")?["turnId"]?.stringValue ?? ""
+        voice.handle("speak.start", ["turnId": .string(id), "format": ["sampleRate": 24000]])
+        XCTAssertFalse(io.capturing, "speech: the microphone closed at once")
+    }
+
+    func testFailingWhileArmed() {
+        io.failCapture = true
+        voice.keyDown()
+        XCTAssertEqual(voice.keyUp(), .tap)
+        XCTAssertEqual(voice.currentMode, .idle, "a tap: no error")
+        voice.keyDown()
+        voice.keyHeld()
+        XCTAssertEqual(voice.currentMode, .error, "a hold: the error")
+        XCTAssertTrue(sent.all.isEmpty)
+    }
+
+    func testASlowMicrophoneDoesNotHoldTheKey() {
+        final class Slow: VoiceIO, @unchecked Sendable {
+            let lock = NSLock()
+            var started = false
+            func startCapture(_ frame: @escaping @Sendable ([Int16]) -> Void) throws {
+                Thread.sleep(forTimeInterval: 0.6)
+                lock.withLock { started = true }
+            }
+            func stopCapture() {}
+            func playBegin(sampleRate: Int) {}
+            func playWrite(_ pcm: Data) {}
+            func playEnd(_ finished: @escaping @Sendable () -> Void) {}
+            func stopPlayback() -> Bool { false }
+            var playLevel: Double { 0 }
+        }
+        let slow = Slow()
+        let real = Voice(io: slow, out: { _ in })
+        let t0 = Date()
+        real.keyDown()
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 0.1, "keyDown returns before the microphone is open")
+        real.keyHeld()
+        XCTAssertEqual(real.currentMode, .listening, "a hold shows listening before the microphone is open")
+        let opened = expectation(description: "opened")
+        DispatchQueue.global().async {
+            while !slow.lock.withLock({ slow.started }) { Thread.sleep(forTimeInterval: 0.02) }
+            opened.fulfill()
+        }
+        wait(for: [opened], timeout: 3)
+    }
+
+    func testTheLine() {
+        let timing = TalkTiming()
+        let line = Shared<String?>(nil)
+        timing.onMeasured = { line.value = $0 }
+        timing.begin(keyAt: 1000, handlerAt: 1003)
+        timing.mic(at: 1412, warm: false)
+        timing.shown(at: 1460, "listening")
+        XCTAssertNil(line.value)
+        timing.audio(at: 1450)
+        XCTAssertEqual(line.value, "Talk key: handler +3 ms, mic open +412 ms, first audio +450 ms, listening shown +460 ms")
+        timing.begin(keyAt: 3000, handlerAt: 3001)
+        timing.failed(at: 3050, "busy")
+        timing.begin(keyAt: 4000, handlerAt: 4000)
+        XCTAssertEqual(line.value, "Talk key: handler +1 ms, mic failed +50 ms (busy), first audio never, pill shown never")
     }
 }

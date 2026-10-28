@@ -194,12 +194,18 @@ public final class Voice: @unchecked Sendable {
     private var waitError: Error?
     private var waitAt: UInt64 = 0
     private var preRoll = PreRoll()
+    private var recordTrigger = ""
+
+    /** The microphone, opened off the caller's thread (the checks run it inline). */
+    public let mic: WarmMic
+    /** How long the talk key took, press by press (the app starts each with `begin` and marks what it showed). */
+    public let timing = TalkTiming()
 
     /** Anything shown changed. Called on whichever thread changed it: hop to the main thread before drawing. */
     public var onChange: (@Sendable () -> Void)?
     /** Something went wrong handling a message from Axis (for the app's list). */
     public var onFailed: (@Sendable (String) -> Void)?
-    /** A recording has just started (for the listening cue). Called under the voice part's lock: hop before doing much. */
+    /** A recording has just started (for the listening cue). Called on the microphone's queue, never on the caller's thread. */
     public var onListening: (@Sendable () -> Void)?
 
     /** `out` sends in order (an `Outbox`); `clock` is milliseconds from any fixed start. */
@@ -207,6 +213,13 @@ public final class Voice: @unchecked Sendable {
         self.io = io
         self.out = out
         self.clock = clock
+        mic = WarmMic(io: io)
+        mic.frame = { [weak self] samples in self?.frame(samples) }
+        mic.onOpened = { [weak self] warm in
+            guard let self else { return }
+            self.timing.mic(at: self.clock(), warm: warm)
+        }
+        mic.onFailed = { [weak self] error in self?.micFailed(error) }
     }
 
     public static let uptimeMs: @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
@@ -245,11 +258,11 @@ public final class Voice: @unchecked Sendable {
         if micOff {
             if waiting {
                 waiting = false
-                if waitCapturing { io.stopCapture() }
                 waitCapturing = false
                 preRoll.clear()
             }
             if recording != nil { finish("cancel") }
+            mic.release(now: true)
         }
         if speakerOff, let was = playing {
             playing = nil
@@ -284,6 +297,7 @@ public final class Voice: @unchecked Sendable {
         guard !online else { return }
         lock.lock(); defer { lock.unlock() }
         let was = mode
+        if recording == nil && !waiting { mic.release(now: true) }
         if playing != nil {
             io.stopPlayback()
             playing = nil
@@ -369,14 +383,10 @@ public final class Voice: @unchecked Sendable {
         waitAt = clock()
         waitError = nil
         preRoll.clear()
-        do {
-            try io.startCapture { [weak self] samples in self?.frame(samples) }
-            waitCapturing = true
-        } catch {
-            // Said only if it turns out to be a hold: a tap types, and needs no microphone.
-            waitCapturing = false
-            waitError = error
-        }
+        // Opened on the microphone's own queue: the key's handler (the main thread) never waits for the device.
+        // A failure is said only if it turns out to be a hold: a tap types, and needs no microphone.
+        waitCapturing = true
+        mic.want()
         return .waiting
     }
 
@@ -401,7 +411,7 @@ public final class Voice: @unchecked Sendable {
                 commit(askId != nil ? "question" : "tap", holding: false)
                 return .tap
             }
-            if waitCapturing { io.stopCapture() }
+            mic.release()
             waitCapturing = false
             preRoll.clear()
             level = 0
@@ -443,7 +453,7 @@ public final class Voice: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if waiting {
             waiting = false
-            if waitCapturing { io.stopCapture() }
+            mic.release()
             waitCapturing = false
             preRoll.clear()
         }
@@ -462,18 +472,30 @@ public final class Voice: @unchecked Sendable {
 
     private func start(_ trigger: String, wait: UInt64? = nil) {
         begin(trigger, at: clock(), wait: wait)
-        do {
-            try io.startCapture { [weak self] samples in self?.frame(samples) }
-        } catch {
-            // A follow-up nobody asked for fails quietly.
-            if trigger == "follow_up", let id = recording {
-                recording = nil
-                send(["t": "audio.end", "turnId": .string(id), "reason": "cancel"])
-                set(.idle)
-                return
-            }
-            failToStart(error)
+        mic.want()
+    }
+
+    /** The microphone could not open for what still wants it (on the microphone's queue). */
+    private func micFailed(_ error: Error) {
+        lock.lock(); defer { lock.unlock() }
+        timing.failed(at: clock(), describeError(error))
+        if waiting {
+            waitCapturing = false
+            waitError = error
+            return
         }
+        guard let id = recording else { return }
+        mic.release(now: true)
+        // A follow-up nobody asked for fails quietly.
+        if recordTrigger == "follow_up" {
+            recording = nil
+            holding = false
+            send(["t": "audio.end", "turnId": .string(id), "reason": "cancel"])
+            set(.idle)
+            return
+        }
+        holding = false
+        failToStart(error)
     }
 
     /**
@@ -508,7 +530,9 @@ public final class Voice: @unchecked Sendable {
             "trigger": .string(trigger),
         ])
         // A follow-up has no cue: the pill turning green is enough when the Mac was just talking (as on the boards).
-        if trigger != "follow_up" { onListening?() }
+        recordTrigger = trigger
+        // On the microphone's queue: opening the speaker for the cue can take as long as opening the microphone.
+        if trigger != "follow_up", let cue = onListening { mic.run(cue) }
     }
 
     private func failToStart(_ error: Error) {
@@ -522,6 +546,7 @@ public final class Voice: @unchecked Sendable {
 
     /** One frame from the microphone. Internal for the tests; the IO calls it through `startCapture`'s closure. */
     func frame(_ samples: [Int16]) {
+        timing.audio(at: clock())
         do {
             lock.lock(); defer { lock.unlock() }
             if waiting {
@@ -559,7 +584,7 @@ public final class Voice: @unchecked Sendable {
         recording = nil
         holding = false
         level = 0
-        io.stopCapture()
+        mic.release()
         send(["t": "audio.end", "turnId": .string(id), "reason": .string(reason)])
         set(reason == "cancel" ? .idle : .transcribing)
     }
@@ -568,6 +593,7 @@ public final class Voice: @unchecked Sendable {
     public func interrupt() {
         lock.lock(); defer { lock.unlock() }
         if recording != nil { finish("cancel") }
+        if !waiting { mic.release(now: true) }
         let was = playing
         playing = nil
         if io.stopPlayback(), let was { send(["t": "playback", "turnId": .string(was), "state": "stopped"]) }
@@ -637,6 +663,8 @@ public final class Voice: @unchecked Sendable {
             }
             if recording != nil { finish("silence") }
             if playing != nil { io.stopPlayback() }
+            // No echo canceller: the microphone is off before the agent speaks (and a headset leaves its call profile).
+            if !waiting { mic.release(now: true) }
             playing = id
             io.playBegin(sampleRate: rate)
             send(["t": "playback", "turnId": .string(id), "state": "started"])
