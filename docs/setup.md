@@ -95,6 +95,10 @@ Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime on the admin pag
 
 To have something other than OpenClaw answer, choose "Another OpenAI-style chat endpoint" on the admin page and give its address. That is useful for trying other agent harnesses. The gateway link keeps running if it is paired.
 
+### The system map
+
+The admin page's **Map** (`/admin#map`) draws every device grouped by its location, Axis, and the services behind it (the agent, speech recognition and synthesis, voiceprints, Home Assistant), coloured by state and kept current while the page is open. A running turn lights its path with the time of each stage. Selecting a device opens its own map page (`/admin#map/<client id>`) with its readings, what needs attention, the settings in effect, its last turns and what it can do. The map is read-only; settings are changed on the device page.
+
 ### Admin API
 
 Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these routes on the local network.

@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.61.0 (2026-10-28)
+
+The system map on the admin page, read-only.
+
+- **Map** (`#map`, `web/adm-map.js`, in the sidebar under Overview and in the command bar): one SVG in fixed columns. Devices on the left grouped by location (Unplaced last), each with its name, kind, state colour (idle, listening, thinking, speaking, offline), battery, Wi-Fi bars and version when reported, and a badge with the number of attention items; Axis in the middle; the agent, gateway command link, speech recognition, speech synthesis, voiceprints and Home Assistant on the right with their state and last latency. The lines are the links `GET /admin/map` reports, coloured by state. Under 720 px wide it becomes one column: devices, Axis, services.
+- **Live:** follows `GET /admin/map/stream`. A device's colour changes as its state does; a running turn lights its path (the device's line, recognition, the agent, synthesis) with each stage's time, and fades 2 s after it ends. The current stage's line has a moving dash, left out under reduced motion. At most five redraws a second; the stream is closed while the tab is hidden and reopened with a back-off of 1 to 30 s, with `GET /admin/map` read every 10 s meanwhile. A pill shows live, reconnecting or paused.
+- **A device's map page** (`#map/<client id>`): its sketch with the live face, its readings as gauges (battery ring, Wi-Fi bars, uptime, free memory, chip temperature, today's use, sound level), only those it reports, with the ones a board did not report listed; attention, version, settings in effect, its last turns and its capabilities (in effect and switched off), and a link to the device page.
+- A **Map** link on the Overview and on each device page.
+- `npm run browser-check` opens the map (Axis, the device and its line, the services, the stream live), checks that a typed turn lights its path, and opens the device's map page.
+
 ## Axis 0.60.0 (2026-10-28)
 
 How each device is doing, in one place, for the agent and for the admin page's system map.

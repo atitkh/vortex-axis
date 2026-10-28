@@ -205,7 +205,7 @@ const fit = (text, px, size = 13) => {
 };
 
 const KIND_ICON = {
-  board: "M2 3h10v8H2zM5 13h4",
+  board: "M3 2h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM5.5 9.5h3",
   round: "M7 1.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z",
   browser: "M1.5 2.5h11v9h-11zM1.5 5h11",
   computer: "M1.5 2h11v7.5h-11zM5 12.5h4M7 9.5v3",
@@ -501,7 +501,7 @@ function MapDevice({ id }) {
   const settings = client ? SUMMARY_KEYS.filter((k) => client.settings?.[k] !== undefined && client.settings[k] !== "") : [];
   const turns = (store.activity?.recentTurns ?? []).filter((t) => t.clientId === id).slice(0, 6);
   const lit = [...feed.turns.values()].find((r) => r.clientId === id && r.endedAt === undefined);
-  return html`<${PageHead} title=${n.name} crumb=${crumb} purpose=${[KIND_WORDS[n.kind] ?? typeName(n.type), typeName(n.type), n.location].filter(Boolean).filter((x, i, all) => all.indexOf(x) === i).join(" · ")}>
+  return html`<${PageHead} title=${n.name} crumb=${crumb} purpose=${[typeName(n.type), n.location].filter(Boolean).join(" · ")}>
       <${LinkPill} />
       <a class="btn" href=${deviceHref(id)} id="map-device-page">Device page</a>
     </${PageHead}>

@@ -46,7 +46,7 @@ Every board, and the web page, shows the same face. It listens, thinks, speaks a
 - **The agent can reach you:** it speaks on a device, a location or everywhere; asks a question with choices you tap or say; sets timers; shows pictures; keeps a long task's progress on every screen; sends a notification to your phone when you are away.
 - **Thin devices:** a device captures and plays audio and shows a face. Speech, settings and the agent link live in Axis, so every device behaves the same and is set up once.
 - **Local speech included:** recognition, synthesis and voiceprints run on the CPU beside Axis. Point it at any OpenAI-style audio API instead if you prefer.
-- **An admin page:** devices, shared settings, a live view of each turn as it happens, wake words, firmware and app updates, Home Assistant, backups.
+- **An admin page:** devices, shared settings, a live view of each turn as it happens, a system map of the devices and services, wake words, firmware and app updates, Home Assistant, backups.
 - **Tools for any agent:** OpenClaw gets them through its gateway; anything else through MCP.
 - **Your computer and headset, experimentally:** a Windows app, and an app for a Meta Quest's 2D panels, let the agent read the screen and act on it, off until you switch it on. Read [SECURITY.md](SECURITY.md) first.
 
