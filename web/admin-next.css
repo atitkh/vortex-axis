@@ -772,9 +772,25 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .map-svg .edge.ended .glow { opacity: 0; }
 .map-svg .lit-t { fill: var(--accent-text); font-weight: 600; }
 @keyframes map-dash { to { stroke-dashoffset: -12; } }
+.map-svg .node.focus .card { stroke: var(--accent); stroke-width: 2; }
+.map-svg .node.heard-answered .card { stroke: var(--accent); stroke-width: 2.5; }
+.map-svg .node.heard-stood_down, .map-svg .node.heard-ignored { opacity: 0.55; transition: opacity 0.3s; }
+.map-svg .wake .panel { fill: var(--surface); stroke: var(--line-strong); }
+.map-svg .wake.answered .panel { stroke: var(--accent); stroke-width: 1.5; }
+.map-svg .wake.stood_down, .map-svg .wake.ignored { opacity: 0.6; }
+.map-svg .wake .track { fill: var(--sunk); }
+.map-svg .wake .b-score .fill { fill: var(--accent); }
+.map-svg .wake .b-level .fill { fill: var(--muted); }
+.map-svg .wake .w-out { font-weight: 600; }
+.map-svg .wake.answered .w-out { fill: var(--accent-text); }
+.map-svg .contest { animation: map-in 0.25s ease-out; transition: opacity 0.6s; }
+.map-svg .contest.fading, .map-wake.fading { opacity: 0; }
+.map-wake { margin: 0 0 8px; min-height: 1.4em; transition: opacity 0.6s; }
+@keyframes map-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .map-svg .edge.now .glow { animation: none; stroke-dasharray: none; }
-  .map-svg .edge .glow, .map-svg .node .card, .map-svg .node .st { transition: none; }
+  .map-svg .edge .glow, .map-svg .node .card, .map-svg .node .st, .map-svg .node.dev { transition: none; }
+  .map-svg .contest, .map-wake { animation: none; transition: none; }
 }
 .map-dev { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .map-side { display: grid; gap: 16px; }

@@ -9,6 +9,7 @@ import {
   plural, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
 import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
+import { DeviceTwin } from "/web/adm-twin.js";
 import {
   DEVICE_ONLY, LayerBanner, SaveBar, SettingsEditor, capabilityGroup, differsOn, inherited, saveDraft, shareWithType, showValue, stage,
 } from "/web/adm-settings.js";
@@ -167,7 +168,7 @@ export function DevicePage({ id, tab, focusKey }) {
         <h1 id="device-title">${client.name}</h1>
         <div class="meta"><${StateDot} client=${client} /><a class="badge" href=${typeHref(client.type)}>${typeName(client.type)}</a><${VersionBadge} client=${client} />${client.settings.location ? html`<span class="dim">Location: ${client.settings.location}</span>` : null}</div>
       </div>
-      <div class="dband-acts"><a class="btn" href=${`#map/${encodeURIComponent(client.id)}`} id="device-map" title="This device on the system map: its readings and what it is doing">Map</a><${FindButton} client=${client} cls="btn" /><${UpdateNow} client=${client} cls="btn" />${canSay(client) ? html`<button type="button" class="btn" disabled=${!client.online} onClick=${() => announce(client)}>Announce…</button>` : null}</div>
+      <div class="dband-acts"><a class="btn" href=${`#map?device=${enc(client.id)}`} id="device-map" title="The system map, with this device picked out">On the map</a><${FindButton} client=${client} cls="btn" /><${UpdateNow} client=${client} cls="btn" />${canSay(client) ? html`<button type="button" class="btn" disabled=${!client.online} onClick=${() => announce(client)}>Announce…</button>` : null}</div>
     </header>
     <nav class="tabs" aria-label="Device">
       ${tabs.map((t) => html`<a key=${t} href=${deviceHref(client, t === "overview" ? "" : t)} class=${`${t === current ? "on" : ""}${t === "danger" ? " danger" : ""}`} aria-current=${t === current ? "page" : undefined}>${TAB_LABELS[t]}${t === "settings" && (own || n) ? html`<span class=${`badge ${n ? "warn" : "accent"}`}>${n ? `${n} unsaved` : `${own} set here`}</span>` : null}</a>`)}
@@ -256,7 +257,7 @@ function DeviceOverview({ client, schema }) {
   const line = history?.clients?.[0]?.id === client.id ? history.clients[0] : undefined;
   const fact = (label, ...value) => html`<div class="fact"><dt>${label}</dt><dd>${value}</dd></div>`;
   const actions = schema.actions.filter((a) => a.name !== "reset");
-  return html`<div class="dgrid">
+  return html`<${DeviceTwin} client=${client} />
     <div class="dmain">
       <section class="card">
         <div class="card-h"><h3>About this device</h3><a class="btn ghost sm" href=${deviceHref(client, "settings")}>Name and location</a></div>
@@ -299,9 +300,7 @@ function DeviceOverview({ client, schema }) {
             <details class="raw card-b"><summary>As reported</summary><table class="t"><tbody>${Object.entries(client.readings).map(([k, v]) => html`<tr><td class="mono">${k}</td><td>${String(v)}</td></tr>`)}</tbody></table></details>
           </section>`
         : null}
-    </div>
-    <aside class="rail"><div class="card"><${DeviceSketch} client=${client} /></div></aside>
-  </div>`;
+    </div>`;
 }
 
 function Strip({ line, from, to }) {

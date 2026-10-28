@@ -58,7 +58,8 @@ export function parseRoute(hash) {
     if (!id) return { page: "clients", id: "", tab: "", key };
     return { page: "device", id, tab: DEVICE_TABS.includes(parts[2]) ? parts[2] : key ? "settings" : "overview", key };
   }
-  if (first === "map") return { page: "map", id, tab: "", key };
+  // A device's own map page (#map/<id>, Axis 0.61) became the Overview of its device page; #map?device=<id> picks it out.
+  if (first === "map") return id ? { page: "device", id, tab: "overview", key } : { page: "map", id: new URLSearchParams(query).get("device") || "", tab: "", key };
   if (first === "type") {
     if (!id) return { page: "settings", id: "", tab: "", key };
     return { page: "type", id, tab: TYPE_TABS.includes(parts[2]) ? parts[2] : key ? "settings" : "devices", key };
@@ -591,7 +592,7 @@ function Page({ route, attention }) {
   if (!store.loaded) return html`<div class="loading" aria-busy="true"><span class="spinner"></span> Loading…</div>`;
   switch (route.page) {
     case "overview": return html`<${Overview} attention=${attention} />`;
-    case "map": return html`<${MapPage} id=${route.id} />`;
+    case "map": return html`<${MapPage} focus=${route.id} />`;
     case "live": return html`<${Live} tab=${route.tab} />`;
     case "activity": return html`<${History} />`;
     case "clients": return html`<${AllDevices} />`;
