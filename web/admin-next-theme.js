@@ -1,4 +1,4 @@
-// Runs before the new admin page is drawn, so it never flashes the wrong theme.
+// Runs before the admin page is drawn, so it never flashes the wrong theme.
 // The choice (dark, light or system) is kept in this browser; dark unless chosen otherwise.
 (function () {
   var chosen = "dark";

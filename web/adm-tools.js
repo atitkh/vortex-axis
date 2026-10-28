@@ -1,4 +1,4 @@
-// Pictures and live tools on the new admin page: the vortex face, a sketch of a device as Axis understands it,
+// Pictures and live tools on the admin page: the vortex face, a sketch of a device as Axis understands it,
 // the edge glow drawn the way the boards draw it, and the microphone level meter. Ported from the classic admin.js.
 // The face and the device screens stay black in either theme: they are what the devices show.
 

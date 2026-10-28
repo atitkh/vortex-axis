@@ -514,11 +514,16 @@ export function createHttpHandler(deps: HttpDeps) {
     // The pages themselves hold no secrets. Everything they do goes through
     // the same endpoints, with the same checks, as any other caller.
     if (method === "GET") {
+      // The new page's address while it was built: a bookmark of it lands on /admin, its #route kept by the browser.
+      if (url.pathname === "/admin-next" && !isPublic(req)) {
+        res.writeHead(302, { ...SECURITY_HEADERS, location: `/admin${url.search}`, "cache-control": "no-cache" });
+        return void res.end();
+      }
       const file =
         url.pathname === "/" ? web.get("index.html")
-        : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin.html"))
-        // The new admin page, beside the classic one while it is built (docs/admin-revamp): the same rule, local network only.
-        : url.pathname === "/admin-next" ? (isPublic(req) ? undefined : web.get("admin-next.html"))
+        : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin-next.html"))
+        // The classic admin page, kept for one release after the switch (docs/admin-revamp): the same rule, local network only.
+        : url.pathname === "/admin-classic" ? (isPublic(req) ? undefined : web.get("admin.html"))
         : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
         // The service worker has to live at the top to be allowed to act for the whole web client.
         : url.pathname === "/sw.js" ? web.get("sw.js")

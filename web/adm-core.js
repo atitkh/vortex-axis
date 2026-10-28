@@ -1,4 +1,4 @@
-// The new admin page's shared core: the one store the 3 s poll fills, the API, sign-in, toasts, dialogs,
+// The admin page's shared core: the one store the 3 s poll fills, the API, sign-in, toasts, dialogs,
 // staged setting edits (drafts) and small helpers. Every page reads the store; nothing here draws a page.
 // Untrusted text (device names, replies) only ever goes into the page through htm's text holes, never as markup.
 

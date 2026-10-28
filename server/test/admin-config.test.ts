@@ -14,7 +14,7 @@ const page = async (path: string) => {
 };
 
 describe("web pages", () => {
-  it("serves the client and admin pages without a token", async () => {
+  it("serves the client and the admin page without a token", async () => {
     const client = await page("/");
     expect(client.status).toBe(200);
     expect(client.type).toMatch(/text\/html/);
@@ -22,26 +22,31 @@ describe("web pages", () => {
 
     const adminPage = await page("/admin");
     expect(adminPage.status).toBe(200);
-    expect(adminPage.body).toContain("/web/admin.js");
-    expect((await page("/web/admin.js")).type).toMatch(/javascript/);
+    expect(adminPage.type).toMatch(/text\/html/);
+    expect(adminPage.body).toMatch(/\/web\/admin-next\.js\?v=[0-9a-f]{12}/);
+    expect((await page("/web/admin-next.js")).type).toMatch(/javascript/);
     expect((await page("/web/style.css")).type).toMatch(/css/);
-  });
-
-  it("serves the new admin page beside the classic one, on the local network only", async () => {
-    const next = await page("/admin-next");
-    expect(next.status).toBe(200);
-    expect(next.type).toMatch(/text\/html/);
-    expect(next.body).toMatch(/\/web\/admin-next\.js\?v=[0-9a-f]{12}/);
     // Its vendored libraries are plain files of the same flat folder.
     expect((await page("/web/preact.js")).body).toContain("export{");
     expect((await page("/web/qr.js")).type).toMatch(/javascript/);
-    // Under a public name neither admin page exists.
+  });
+
+  it("keeps the classic admin page at /admin-classic and sends /admin-next on to /admin, on the local network only", async () => {
+    const classic = await page("/admin-classic");
+    expect(classic.status).toBe(200);
+    expect(classic.body).toContain("/web/admin.js");
+    expect(classic.body).toContain('href="/admin"');
+    expect((await page("/web/admin.js")).type).toMatch(/javascript/);
+    const moved = await fetch(`${ctx.base}/admin-next`, { redirect: "manual" });
+    expect(moved.status).toBe(302);
+    expect(moved.headers.get("location")).toBe("/admin");
+    // Under a public name no admin page exists, nor the old address of the new one.
     await admin("PATCH", "/admin/integrations", { publicHosts: "axis.example.org" });
-    for (const path of ["/admin", "/admin-next"]) {
-      const outside = await fetch(`${ctx.base}${path}`, { headers: { "x-forwarded-host": "axis.example.org" } });
+    for (const path of ["/admin", "/admin-classic", "/admin-next"]) {
+      const outside = await fetch(`${ctx.base}${path}`, { headers: { "x-forwarded-host": "axis.example.org" }, redirect: "manual" });
       expect(outside.status).toBe(404);
     }
-    expect((await page("/admin-next")).status).toBe(200);
+    expect((await page("/admin-classic")).status).toBe(200);
     await admin("PATCH", "/admin/integrations", { publicHosts: "" });
   });
 

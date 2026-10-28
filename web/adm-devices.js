@@ -1,4 +1,4 @@
-// The Devices area of the new admin page: All devices, one device (Overview · Settings · Tools · Danger zone),
+// The Devices area of the admin page: All devices, one device (Overview · Settings · Tools · Danger zone),
 // a type (Devices · Settings · Firmware), Defaults for everything, and Add a device with a QR code of the setup string.
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";

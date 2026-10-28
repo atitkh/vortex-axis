@@ -1,4 +1,4 @@
-// The settings editor of the new admin page, one for every layer (a device, a type, everything): grouped rows with
+// The settings editor of the admin page, one for every layer (a device, a type, everything): grouped rows with
 // where each value comes from, edits staged until Save, one PATCH per save, and Undo afterwards (ia.md 2.3).
 // Kept from the classic page: a value equal to what the layers below give is sent as null, so nothing is stored and
 // the setting keeps following the shared value.
