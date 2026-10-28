@@ -9,7 +9,7 @@ Two implementations exist and must stay in step with this page and with each oth
 
 Two more copies draw it on computers and follow the same settings (`idleLooksOff`, `toolIcons`, `toolIconMs`, `toolIconDots`): `clients/windows-desktop/Axis.Desktop.Core/Face.cs` and `clients/macos-desktop/Sources/AxisDesktopCore/Face.swift`, each a line-for-line port of `web/vortex.js`.
 
-A change to a number or a rule goes into this page and both files in the same commit. Keep the two computer copies in step too.
+A change to a number or a rule goes into this page and both files in the same commit. Keep the two computer copies in step too. The admin page's battery and edge glow previews (`web/adm-tools.js`) copy the boards' battery look (section 10) and glow.
 
 Nothing is streamed as pixels: each client draws the face itself from the turn state Axis sends.
 
@@ -306,6 +306,8 @@ It only follows a fresh reading with a battery: the power chip is read every 30 
 - A bolt in the same cyan beside the mark, at 45 % to 100 % brightness with the swell, then 80 %.
 
 While charging the mark stays, with the bolt and the filled cells green (0.34, 1.00, 0.40). The face is never sleepy while charging.
+
+The admin page draws a preview copy of all of this (`web/adm-tools.js`, `BatteryPreview`, beside its copy of the glow) and can have a board show it (`docs/setup.md`, "The battery preview"); keep its numbers in step with this section.
 
 `batteryGlyph` (default on) turns the lasting mark off; the sleepy face, the swell and the mark with its bolt during the 3 s cue stay. The board's console shows each without a battery for a minute: `preview lowbattery` (12 %), `preview charging` (64 %, with the cue), `preview battery N` (N %), `preview off`.
 

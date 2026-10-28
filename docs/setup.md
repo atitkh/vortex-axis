@@ -108,6 +108,12 @@ A profile is a named set of overrides on a device's own settings. There are thre
 
 The admin page's **Map** (`/admin#map`) draws every device grouped by its location, Axis, and the services behind it (the agent, speech recognition and synthesis, voiceprints, Home Assistant), coloured by state and kept current while the page is open. A running turn lights its path with the time of each stage. When devices hear the wake word, each one that heard it shows two bars beside it for about 6 s, how sure it was and how loud, with what came of it: the one that answered is outlined and says by how much its score won, the others are dimmed as stood down or ignored. Selecting a device opens its device page (`/admin#clients/<client id>`), whose Overview is the same live view of that one device: its sketch with the face, its readings as gauges, what needs attention, the settings in effect, its last turns and what it can do, above the device's details, actions and last 24 hours. The older address `/admin#map/<client id>` opens that page too, and the device page's **On the map** opens the map with the device picked out (`/admin#map?device=<client id>`). The map and the Overview are read-only; settings are changed under the device page's Settings.
 
+### The battery preview
+
+A board with the battery look (it offers **Low battery look**, `lowBatteryBelow`) has a **Battery** card beside **Edge glow**, on its **Tools** tab and in the side column of its **Settings**. It draws the board's screen at a made-up charge the way the board does (the sleepy idle face, the battery mark, the charging swell and bolt; `docs/face.md` section 10): a **Charge** slider, a **Charging** switch, and quick choices **Low** (12 %), **Critical** (4 %), **Charging** (64 %, with the cue) and **Full/none** (nothing shown). The slider marks the threshold the look starts at, with a staged **Low battery look** or **Battery mark** drawn before it is saved.
+
+**Show on the device** has the board show the same for 20 s, then its own battery again; **Off** ends it sooner. Nothing is sent while the slider moves. A board on firmware from before the command (1.8 0.23.1, 1.75 0.7.1) is reported as needing newer firmware.
+
 ### Admin API
 
 Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these routes on the local network.
@@ -117,6 +123,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/pairing-codes` | Creates a one-time pairing code (valid 10 minutes by default). |
 | `GET /admin/clients` | Lists clients with whether each is online, its address, its resolved settings and the three layers they come from, its `kind` (board, round, browser, computer, headset) and `offlineAfterMs` (how long it may be offline before the attention list names it; null for never), plus `types`: what each client type described (settings, actions, links). |
 | `POST /admin/clients/:id/commands/:name` | Sends one of the actions the device offered and returns its answer (`{ok, payload, error}`). 409 when offline, 504 when it does not answer. |
+| `POST /admin/clients/:id/battery` | Body `{ percent?, charging?, ms?, off? }` (percent 0 to 100, 12 by default; ms 2000 to 60000, 20000 by default). Shows a made-up battery state on a board for that long; `off` ends it. 400 when the board has no battery look. |
 | `POST /admin/clients/:id/announce` | Body `{ text }`. Speaks or shows it on that device and returns `{heard}`. |
 | `GET /admin/clients/:id` | One client. |
 | `PATCH /admin/clients/:id` | Body `{ name }`. Renames a client (1 to 60 characters). 409 when another client already has that name, ignoring case. |
