@@ -11,11 +11,12 @@ The first board Axis had firmware for (the round 1.75 below is the other). It is
 | Chip | ESP32-S3R8: dual core, Wi-Fi, 8 MB PSRAM, 16 MB flash |
 | Screen | 1.8 inch AMOLED, 368 x 448, touch |
 | Sound | A microphone and a small speaker on an ES8311 codec |
-| Also on it | A motion sensor (the picture turns with the board), a battery connector and charger, USB-C |
+| Power | An AXP2101 power chip (I2C 0x34): charger and fuel gauge for a 3.7 V lithium battery on an MX1.25 two-pin connector |
+| Also on it | A motion sensor (the picture turns with the board), a clock, a TF card slot, USB-C |
 
 What it does with Axis: shows the face, listens for "Hey Vortex" on the device itself (nothing leaves the board until it hears it), takes a tap to talk, speaks answers, shows questions with buttons, timers, pictures and long tasks, glows along its edges for things that want your attention, and updates itself over Wi-Fi.
 
-A battery is optional. Without one it runs from USB-C.
+A battery is optional. Without one it runs from USB-C. Use a protected single-cell 3.7 V lithium battery with an MX1.25 plug, and check its polarity against the connector before plugging it in: lead colours are not standard. With a battery the board reports its charge, whether it is charging and its voltage to Axis; without one it reports none of these (see `firmware/README.md`, "Vitals").
 
 ### First install
 
@@ -67,7 +68,8 @@ The same firmware as the 1.8, laid out on a round screen. Type `waveshare-amoled
 | Chip | ESP32-S3R8: dual core, Wi-Fi, 8 MB PSRAM, 16 MB flash |
 | Screen | 1.75 inch round AMOLED, 466 x 466, touch |
 | Sound | Two microphones on an ES7210, a small speaker on an ES8311 |
-| Also on it | A motion sensor, a battery connector and charger, a clock, a TF card slot, USB-C. The `-G` version adds GPS, which the firmware does not use. |
+| Power | An AXP2101 power chip (I2C 0x34, the same as the 1.8's): charger and fuel gauge for a 3.7 V lithium battery on an MX1.25 two-pin connector |
+| Also on it | A motion sensor, a clock, a TF card slot, USB-C. The `-G` version adds GPS, which the firmware does not use. |
 
 It does everything the 1.8 does, the same way: face, "Hey Vortex", tap to talk, questions with buttons, timers, pictures, long tasks, edge glows (round here), gestures, updates over Wi-Fi. Text and buttons are fitted inside the circle. The two microphones are averaged; the speaker's own sound comes back to the ES7210 for the echo canceller, as on the 1.8.
 

@@ -161,8 +161,8 @@ A device that can update itself over the network implements `update`: answer `ok
 | `charging` | 1 or 0 | Whether the battery is charging. |
 | `batteryMv` | millivolts | Battery voltage. |
 | `onPower` | 1 or 0 | Whether a computer runs on mains power. |
-| `chipTempC` | °C | The processor's temperature. |
-| `pickupsToday` | count | Times it was picked up today (devices with a motion sensor). |
+| `chipTempC` | °C | The device's chip temperature: the processor's, or on the Waveshare boards the power chip's own. |
+| `pickupsToday` | count | Times it was picked up today (devices with a motion sensor). A device with no clock counts from its last start instead and says so in its documentation (the Waveshare boards do). |
 | `touchesToday` | count | Touches on its screen today. |
 | `turnsToday` | count | Turns it started today. |
 | `soundDb`, `soundActive` | dBFS, 1 or 0 | Room sound level and whether there is sound now (see design.md, Home Assistant). |

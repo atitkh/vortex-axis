@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.21.0 (Waveshare 1.8) (2026-10-28)
+
+- **Vitals as readings**, the same code as the round board's 0.5.0 (`common/src/axis_power.*`, the 1.8's `imu` and `main.cpp`): the AXP2101 power chip read every 30 s from the screen loop; `chipTempC` always, `battery`, `charging` and `batteryMv` only with a battery connected; `pickupsToday`, `touchesToday`, `turnsToday` counted from the last start; console `power` and `i2c`.
+- Client core: 16 board readings (was 8), `Client::clearReading`, and `setReading(key, value, false)` for a value that goes with the regular minute instead of straight away.
+- Built; NOT flashed (no 1.8 attached), not run on a 1.8; the 1.8's power chip is taken from Waveshare's documentation and example code (AXP2101, I2C 0x34, SDA 15, SCL 14), not seen on its bus.
+
+## Round board firmware 0.5.0 (Waveshare 1.75) (2026-10-28)
+
+- **Vitals as readings** (`firmware/README.md`, "Vitals"): the AXP2101 power chip at 0x34 (found by its chip ID 0x4A and the console's `i2c` scan) read every 30 s from the screen loop, which only switches on its measurements; `chipTempC` (the power chip's own temperature) always; `battery` (its fuel gauge), `charging` and `batteryMv` only with a battery connected, none of them without one.
+- **Use:** `pickupsToday` (motion sensor: more than 0.15 g off the resting pull after 5 s still), `touchesToday` (taps the board acted on) and `turnsToday` (voice turns whose audio went to Axis), counted from the last start: the board has no clock and no time zone.
+- Console `power` (the last reading and the counts) and `i2c` (what answers on the bus).
+- Flashed by USB on 2026-10-28 to the round board on the bench: boot says `power chip AXP2101 found`, `i2c` lists 0x18 0x20 0x34 0x40 0x50 0x51 0x5A 0x6B 0x7E, `power` says `USB yes, battery none; power chip 49.9 C, processor 54.4 C`, and Axis's `/admin/map` shows its `chipTempC` 50 and the three counts at 0 with no battery block. Pushed to the hub without `--update`. Not exercised: anything with a battery (none connected), a real pickup, tap or turn being counted.
+
 ## Axis 0.62.0 (2026-10-28)
 
 Wake contests on the map, and the device's live view as the Overview of its device page.
