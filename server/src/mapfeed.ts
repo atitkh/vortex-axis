@@ -127,11 +127,12 @@ export function startMapFeed(deps: MapFeedDeps): () => void {
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const stages = new Map<string, string>();
 
-  const sendClient = (clientId: string) => {
+  /** Sends a device as it is now; with `readings`, it counts toward that device's readings limit. */
+  const sendClient = (clientId: string, readings = false) => {
     const timer = pending.get(clientId);
     if (timer) clearTimeout(timer);
     pending.delete(clientId);
-    sentAt.set(clientId, now());
+    if (readings || timer) sentAt.set(clientId, now());
     const info = deps.info(clientId);
     deps.send("client", info ?? { id: clientId, removed: true });
   };
@@ -140,8 +141,8 @@ export function startMapFeed(deps: MapFeedDeps): () => void {
     if (change !== "readings") return sendClient(clientId);
     if (pending.has(clientId)) return;
     const wait = (sentAt.get(clientId) ?? -Infinity) + every - now();
-    if (wait <= 0) return sendClient(clientId);
-    const timer = setTimeout(() => sendClient(clientId), wait);
+    if (wait <= 0) return sendClient(clientId, true);
+    const timer = setTimeout(() => sendClient(clientId, true), wait);
     timer.unref?.();
     pending.set(clientId, timer);
   });
