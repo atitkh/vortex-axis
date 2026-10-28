@@ -415,6 +415,9 @@ details.raw { padding-top: 0; }
 .slider { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: var(--t-sm); color: var(--muted); margin-top: 8px; }
 .slider input { width: 100%; }
 .slider .mono { color: var(--dim); }
+.batrange { position: relative; display: block; }
+.batrange[style]::before { content: ""; position: absolute; left: 0; bottom: -1px; width: var(--low); height: 3px; border-radius: 2px; background: rgb(255 153 20 / 0.55); pointer-events: none; }
+.battick { position: absolute; left: var(--low); top: 0; bottom: -3px; width: 2px; margin-left: -1px; background: rgb(255 153 20); pointer-events: none; }
 .meters { display: grid; gap: 4px; margin: 8px 0 0; }
 .meter { display: grid; grid-template-columns: 96px 1fr 104px; gap: 10px; align-items: center; font-size: var(--t-sm); }
 .meter .bar { height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }

@@ -8,7 +8,7 @@ import {
   ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
   plural, PROFILE_WORDS, profileLine, refresh, RolloutCard, rolloutRunning, runCommand, startRollout, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
-import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
+import { BatteryPreview, DeviceSketch, GlowPreview, MicPanel, batteryDef, doingOf, glowDef } from "/web/adm-tools.js";
 import { DeviceTwin } from "/web/adm-twin.js";
 import {
   DEVICE_ONLY, LayerBanner, SaveBar, SettingsEditor, capabilityGroup, differsOn, inherited, saveDraft, shareWithType, showValue, stage,
@@ -161,7 +161,7 @@ export function DevicePage({ id, tab, focusKey }) {
   }
   const entity = `device:${client.id}`;
   const schema = store.types[client.type] ?? { settings: [], actions: [], links: [] };
-  const hasTools = Boolean(glowDef(client)) || schema.actions.some((a) => a.name === "mic");
+  const hasTools = Boolean(glowDef(client)) || Boolean(batteryDef(client)) || schema.actions.some((a) => a.name === "mic");
   const tabs = ["overview", "settings", ...(hasTools ? ["tools"] : []), "danger"];
   const current = tabs.includes(tab) ? tab : "overview";
   const own = ownKeys(client).length;
@@ -368,6 +368,8 @@ function DeviceSettings({ client, schema, focusKey }) {
     <div class="card"><${DeviceSketch} client=${client} /></div>
     ${glow ? html`<div class="card"><div class="card-h"><h3>Edge glow</h3><a class="sm" href=${deviceHref(client, "tools")}>Tools</a></div><div class="card-b">
       <${GlowPreview} client=${client} radius=${glowNow} saved=${glowSaved} compact=${true} onRadius=${(r) => stage(entity, glow.def, r, glowOwn, inherited(glow.def, client.layers, "device"))} /></div></div>` : null}
+    ${batteryDef(client) ? html`<div class="card"><div class="card-h"><h3>Battery</h3><a class="sm" href=${deviceHref(client, "tools")}>Tools</a></div><div class="card-b">
+      <${BatteryPreview} client=${client} ...${batteryLook(client, d, glowNow)} compact=${true} /></div></div>` : null}
     ${schema.actions.some((a) => a.name === "mic") ? html`<div class="card"><div class="card-h"><h3>Microphone levels</h3></div><div class="card-b"><${MicPanel} client=${client} /></div></div>` : null}`;
   const banner = html`<${LayerBanner} tab="device" who="this device" entity=${entity} save=${save}
     detail=${`${client.name}: its values win over ${typeName(client.type)} and everything.`}
@@ -381,6 +383,13 @@ function DeviceSettings({ client, schema, focusKey }) {
     <${SaveBar} entity=${entity} save=${save} floating=${true} />`;
 }
 
+/** What the battery preview draws with: the staged or saved low-battery threshold and battery mark, and the glow's curve. */
+function batteryLook(client, draft, radius) {
+  const value = (key, fallback) => (Object.hasOwn(draft.values, key) && draft.values[key] !== null ? draft.values[key] : client.settings[key] ?? fallback);
+  const glyphDef = store.types[client.type]?.settings.find((x) => x.key === "batteryGlyph");
+  return { below: Number(value("lowBatteryBelow", batteryDef(client).default ?? 15)), glyph: Boolean(Number(value("batteryGlyph", glyphDef?.default ?? 1))), radius };
+}
+
 function DeviceTools({ client, schema }) {
   const entity = `device:${client.id}`;
   const glow = glowDef(client);
@@ -390,6 +399,8 @@ function DeviceTools({ client, schema }) {
   return html`<div class="tools-grid">
     ${glow ? html`<section class="card"><div class="card-h"><h3>Edge glow</h3><span class="dim sm">Drawn the way the device draws it</span></div><div class="card-b">
       <${GlowPreview} client=${client} radius=${radius} saved=${saved} onRadius=${(r) => stage(entity, glow.def, r, client.layers.device.glowCorner, inherited(glow.def, client.layers, "device"))} /></div></section>` : null}
+    ${batteryDef(client) ? html`<section class="card"><div class="card-h"><h3>Battery</h3><span class="dim sm">Drawn the way the device draws it</span></div><div class="card-b">
+      <${BatteryPreview} client=${client} ...${batteryLook(client, d, radius)} /></div></section>` : null}
     ${schema.actions.some((a) => a.name === "mic") ? html`<section class="card"><div class="card-h"><h3>Microphone levels</h3></div><div class="card-b"><${MicPanel} client=${client} /></div></section>` : null}
   </div>`;
 }

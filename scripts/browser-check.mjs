@@ -442,6 +442,46 @@ try {
     if (sentValues().volume === 0) throw new Error("the board kept silent's volume after Auto");
     sock.close();
     await fetch(`${base}/admin/clients/${board.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
+    // The battery preview, on a board that declares the battery look; the route is answered in the page, so the
+    // check covers the page whatever the firmware or Axis build: the body sent, and each kind of refusal shown.
+    const batCode = app.store.createPairingCode(60_000).code;
+    const bat = app.store.pair({ code: batCode, type: "waveshare-amoled-1.8", version: "0.0.0", capabilities: ["mic", "speaker", "screen"], name: "Glyph board" });
+    const batSock = new WebSocket(`ws://localhost:${app.port}/v1/client`);
+    await new Promise((r, j) => (batSock.once("open", r), batSock.once("error", j)));
+    batSock.send(JSON.stringify({ t: "hello", protocol: 1, clientId: bat.client.id, token: bat.token, type: "waveshare-amoled-1.8", version: "0.0.0", capabilities: ["mic", "speaker", "screen"], settingsVersion: 0 }));
+    batSock.send(JSON.stringify({ t: "describe", settings: [
+      { key: "lowBatteryBelow", label: "Low battery look", kind: "number", group: "Screen", min: 0, max: 30, default: 15 },
+      { key: "batteryGlyph", label: "Battery mark", kind: "toggle", group: "Screen", default: 1 },
+    ], actions: [], links: [] }));
+    batSock.send(JSON.stringify({ t: "sense", readings: { screenW: 368, screenH: 448 } }));
+    await next.run(`(() => { window.__bat = []; window.__batAnswer = [200, { ok: true }]; const f = window.fetch; window.fetch = (u, o) => String(u).endsWith('/battery') ? (window.__bat.push(JSON.parse(o.body)), Promise.resolve(new Response(JSON.stringify(window.__batAnswer[1]), { status: window.__batAnswer[0], headers: { 'content-type': 'application/json' } }))) : f(u, o); return true; })()`);
+    await next.run(`location.hash = '#clients/${encodeURIComponent(bat.client.id)}/tools'`);
+    await next.until(`document.querySelector('[data-battery-canvas]') && document.querySelector('[data-battery-send]') && !document.querySelector('[data-battery-send]').disabled`, "the battery preview");
+    // The mark's amber cells at 12 % (below the default 15): some pixel in the bottom block is amber.
+    step("admin: battery preview draws", await next.until(`(c => { const d = c.getContext('2d').getImageData(114, 448 - 36, 140, 22).data; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 100 && d[i + 1] < 180 && d[i + 2] < 60) return 'amber cells in the mark at 12 %'; return false; })(document.querySelector('[data-battery-canvas]'))`, "the battery mark on the preview canvas"));
+    const batLabel = (key, want) => next.run(`document.querySelector('[data-battery=${key}]').click()`).then(() => next.until(`document.querySelector('[data-battery-label]').textContent === ${JSON.stringify(want)} && ${JSON.stringify(want)}`, `the label after ${key}`));
+    step("admin: battery quick buttons", [await batLabel("critical", "4 %"), await batLabel("charging", "64 %, charging"), await batLabel("none", "No battery look (full, or no battery)"), await batLabel("low", "12 %")].join(" / "));
+    await next.run(`document.querySelector('[data-battery-send]').click()`);
+    await next.until(`document.querySelector('[data-battery-note].good')`, "the battery sent");
+    await batLabel("charging", "64 %, charging");
+    await next.run(`document.querySelector('[data-battery-send]').click()`);
+    await next.until(`window.__bat.length === 2`, "the second send");
+    await next.run(`document.querySelector('[data-battery-off]').click()`);
+    const batSent = await next.until(`window.__bat.length === 3 && JSON.stringify(window.__bat)`, "the off send");
+    if (batSent !== JSON.stringify([{ percent: 12, charging: false }, { percent: 64, charging: true }, { off: true }])) throw new Error(`battery bodies: ${batSent}`);
+    step("admin: battery Show on the device", batSent);
+    const batRefusal = async (status, body, want) => {
+      await next.run(`(window.__batAnswer = [${status}, ${JSON.stringify(body)}], document.querySelector('[data-battery-send]').click(), true)`);
+      return next.until(`(n => n && /bad/.test(n.className) && ${want}.test(n.textContent) && n.textContent)(document.querySelector('[data-battery-note]'))`, `the note after ${status}`);
+    };
+    const old = await batRefusal(504, { error: "not implemented on this device" }, /newer firmware/);
+    const none = await batRefusal(400, { error: "Glyph board has no battery look" }, /no battery look/);
+    await batRefusal(404, { error: "not found" }, /newer firmware/);
+    step("admin: battery refusals", `${old} / ${none}`);
+    await next.run(`(location.hash = '#clients/${encodeURIComponent(bat.client.id)}/settings', true)`);
+    step("admin: battery threshold tick", await next.until(`(t => t && getComputedStyle(t.parentElement).getPropertyValue('--low').trim() === '15%' && 'tick at 15 %')(document.querySelector('.battick'))`, "the tick at lowBatteryBelow"));
+    batSock.close();
+    await fetch(`${base}/admin/clients/${bat.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
     // All devices: a card per device, the filter, the list view.
     await next.run(`location.hash = '#clients'`);
     step("admin: all devices", await next.until(`document.querySelectorAll('#device-list [data-device]').length === ${known.clients.length} && [...document.querySelectorAll('#device-list .nm span:first-child')].map(e => e.textContent).join(', ')`, "the device cards"));

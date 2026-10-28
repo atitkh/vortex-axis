@@ -132,7 +132,32 @@ function glowMap(w, hgt, radius, round = false) {
   return { index: Int32Array.from(index), fall: Float32Array.from(fall), turn: Float32Array.from(turn) };
 }
 
-/** Whether a device draws the glow: it offers glowCorner, or its screen is round (no corners to set). */
+/**
+ * Lays the glow over the RGBA pixels in `data` (a picture or black), as the board's blend: mixed towards the colour by
+ * its strength times the fall-off, in 5-6-5 steps. With `sweep` below 1 only that much of the turn is drawn.
+ */
+function paintGlow(data, { index, fall, turn }, [r, gr, b], strength, sweep = 1) {
+  for (let k = 0; k < index.length; k++) {
+    if (sweep < 1 && turn[k] > sweep) continue;
+    const a = strength * fall[k], o = index[k] * 4;
+    data[o] = (Math.round(((data[o] / 255) * (1 - a) + r * a) * 31) * 255) / 31;
+    data[o + 1] = (Math.round(((data[o + 1] / 255) * (1 - a) + gr * a) * 63) * 255) / 63;
+    data[o + 2] = (Math.round(((data[o + 2] / 255) * (1 - a) + b * a) * 31) * 255) / 31;
+  }
+}
+
+/** Shades what a round screen's glass hides, outside its circle. */
+function roundMask(ctx, w, hgt) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, hgt);
+  ctx.arc(w / 2, hgt / 2, Math.min(w, hgt) / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = "rgba(17,17,17,0.85)";
+  ctx.fill("evenodd");
+  ctx.restore();
+}
+
+/** Whether a device draws the glow:it offers glowCorner, or its screen is round (no corners to set). */
 export function glowDef(client) {
   const schema = store.types[client.type];
   const round = Number(client.readings?.screenRound) === 1 && client.capabilities.includes("screen");
@@ -187,25 +212,10 @@ export function GlowPreview({ client, radius, saved, onRadius, compact = false }
       const data = image.data;
       data.fill(0);
       for (let i = 3; i < data.length; i += 4) data[i] = 255;
-      const { index, fall, turn } = m;
-      const [r, gr, b] = s.rgb;
-      for (let k = 0; k < index.length; k++) {
-        if (sweep < 1 && turn[k] > sweep) continue;
-        const a = strength * fall[k], o = index[k] * 4;
-        // Over black, as the board's blend: the colour times its strength, in 5-6-5 steps.
-        data[o] = (Math.round(r * a * 31) * 255) / 31;
-        data[o + 1] = (Math.round(gr * a * 63) * 255) / 63;
-        data[o + 2] = (Math.round(b * a * 31) * 255) / 31;
-      }
+      paintGlow(data, m, s.rgb, strength, sweep);
       ctx.putImageData(image, 0, 0);
       if (round) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, w, hgt);
-        ctx.arc(w / 2, hgt / 2, Math.min(w, hgt) / 2, 0, 2 * Math.PI);
-        ctx.fillStyle = "rgba(17,17,17,0.85)";
-        ctx.fill("evenodd");
-        ctx.restore();
+        roundMask(ctx, w, hgt);
       } else if (g > 0) {
         ctx.save();
         ctx.beginPath();
@@ -252,6 +262,209 @@ export function GlowPreview({ client, radius, saved, onRadius, compact = false }
           <p class="help">${w} × ${hgt}, the way up it stands now. A new curve is saved with the page's other changes.</p>`}
       <div class="row-acts"><button type="button" class="btn sm" disabled=${!client.online} onClick=${show}>Show on the device</button></div>
       ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status">${note[0]}</p>` : null}
+    </div>
+  </div>`;
+}
+
+// --- the battery, as the boards show it --------------------------------------------------------------------
+
+/*
+ * The boards' battery look (docs/face.md section 10): firmware battery_cue.cpp for the mark and when it shows, the
+ * sleepy idle in vortex.cpp, the charging swell in main.cpp and glow.cpp. This is the admin page's preview copy;
+ * web/vortex.js, the web client's face, has no battery look on purpose (a page has no battery it can rely on).
+ * Keep these numbers in step with docs/face.md, as the glow's are.
+ */
+const BAT = {
+  hysteresis: 3, // low clears above the threshold plus this
+  pulseBelow: 5, // below this the cells turn red and the mark pulses, once every pulseMs
+  pulseMs: 2500,
+  cueMs: 3000, // the charging swell
+  slow: 0.4, // sleepy: the idle face at 60 % speed
+  dim: 0.25, // and 75 % brightness
+  easeIn: 1.5,
+  easeOut: 8,
+  cell: 3, // the mark: 5 by 7 signs, 3 pixels to a cell, in a 140 by 22 block
+  w: 140,
+  h: 22,
+  bottom: 14, // pixels under the block; the round 1.75 keeps it higher, inside the glass
+  bottomRound: 26,
+  ink: [0.8, 0.82, 0.85],
+  amber: [1, 0.6, 0.08],
+  red: [1, 0.16, 0.1],
+  green: [0.34, 1, 0.4],
+  cyan: [0.1, 0.78, 0.95],
+};
+const BAT_DIGITS = [
+  [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e], [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
+  [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f], [0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e],
+  [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02], [0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e],
+  [0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e], [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+  [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e], [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
+  [0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03], // %
+];
+const BAT_BOLT = [0x03, 0x06, 0x0c, 0x1f, 0x06, 0x0c, 0x18];
+// The idle face's usual size on a board (main.cpp, IDLE_FACES), in the middle of the screen.
+const IDLE_FACE = 264;
+export const BATTERY_QUICK = [
+  { key: "low", label: "Low", percent: 12, charging: false },
+  { key: "critical", label: "Critical", percent: 4, charging: false },
+  { key: "charging", label: "Charging", percent: 64, charging: true },
+  { key: "none", label: "Full/none" },
+];
+
+/** The battery-look setting of a device's type, when its boards have the look. */
+export function batteryDef(client) {
+  return store.types[client.type]?.settings.find((d) => d.key === "lowBatteryBelow");
+}
+
+/** A colour as the board makes it: times its brightness, in 5-6-5 steps. */
+const c565 = ([r, g, b], k) =>
+  `rgb(${[[r, 31], [g, 63], [b, 31]].map(([c, n]) => Math.round((Math.min(n, Math.max(0, Math.round(c * k * n))) * 255) / n)).join(",")})`;
+
+/** The mark, as battery_cue.cpp lays it out: [bolt] battery percent, centred in its block at (x, y). */
+function drawBatteryMark(ctx, x, y, { percent, low, charging, full, k, boltK }) {
+  const { cell } = BAT;
+  const cells = (cx, cy, cw, ch, color) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + cx * cell, y + cy * cell, cw * cell, ch * cell);
+  };
+  const sign = (cx, rows, color) => {
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (rows[r] & (0x10 >> c)) cells(cx + c, r, 1, 1, color);
+  };
+  const text = String(percent);
+  const width = (charging ? 7 : 0) + (full ? 13 + 2 + text.length * 6 + 5 : -2);
+  let at = Math.trunc((Math.floor(BAT.w / cell) - width) / 2);
+  const ink = c565(BAT.ink, k * 0.85);
+  if (charging) {
+    sign(at, BAT_BOLT, c565(BAT.cyan, boltK));
+    at += 7;
+  }
+  if (!full) return;
+  cells(at, 0, 12, 1, ink);
+  cells(at, 6, 12, 1, ink);
+  cells(at, 0, 1, 7, ink);
+  cells(at + 11, 0, 1, 7, ink);
+  cells(at + 12, 2, 1, 3, ink);
+  const fill = percent <= 0 ? 0 : Math.max(1, Math.floor((percent * 10 + 50) / 100));
+  const level = charging ? c565(BAT.green, 0.8) : percent < BAT.pulseBelow ? c565(BAT.red, k) : low ? c565(BAT.amber, k) : ink;
+  if (fill) cells(at + 1, 1, fill, 5, level);
+  at += 15;
+  for (const ch of text) (sign(at, BAT_DIGITS[Number(ch)], ink), (at += 6));
+  sign(at, BAT_DIGITS[10], ink);
+}
+
+/** The vortex face, drawn only when the battery preview's own loop says (so it can run slower, as a sleepy board's does). */
+class StepVortex extends Vortex {
+  frame() {}
+}
+
+/**
+ * The battery preview: the board's screen at a made-up charge, drawn as the board draws it (the sleepy idle face, the
+ * mark, the charging swell and bolt), with "Show on the device" to have the board show the same for a while.
+ * `below` and `glyph` are the lowBatteryBelow and batteryGlyph values to draw with (staged or saved); `radius` the
+ * glow's corner curve.
+ */
+export function BatteryPreview({ client, below, glyph = true, radius = 56, compact = false }) {
+  const round = Number(client.readings?.screenRound) === 1;
+  const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
+  const [shown, setShown] = useState({ on: true, percent: 12, charging: false, quick: "low" });
+  const [note, setNote] = useState(["", ""]);
+  const canvas = useRef();
+  const threshold = below > 0 ? Math.min(30, Math.max(5, below)) : 0;
+  const map = useMemo(() => glowMap(w, hgt, radius, round), [w, hgt, radius, round]);
+  const live = useRef({ low: false, sleepy: 0, cueFrom: -Infinity });
+  Object.assign(live.current, { shown, threshold, glyph, map });
+  // Charging that begins plays the cue, as on the board.
+  const wasCharging = useRef(false);
+  useEffect(() => {
+    const now = shown.on && shown.charging;
+    if (now && !wasCharging.current) live.current.cueFrom = performance.now();
+    wasCharging.current = now;
+  }, [shown]);
+  useEffect(() => {
+    const ctx = canvas.current.getContext("2d");
+    const side = Math.min(IDLE_FACE, w, hgt);
+    const faceCanvas = document.createElement("canvas");
+    faceCanvas.width = faceCanvas.height = side;
+    const face = new StepVortex(faceCanvas);
+    face.calm = false;
+    face.setIdleOff(client.settings.idleLooksOff);
+    face.setMode("idle");
+    const fx = ((w - side) / 2) & ~1, fy = ((hgt - side) / 2) & ~1;
+    const mx = ((w - BAT.w) / 2) & ~1, my = (hgt - BAT.h - (round ? BAT.bottomRound : BAT.bottom)) & ~1;
+    let frame, last = 0;
+    const draw = (now) => {
+      frame = requestAnimationFrame(draw);
+      if (now - last < 33 || document.hidden) return;
+      const dt = Math.min(0.1, last ? (now - last) / 1000 : 0);
+      last = now;
+      const L = live.current, s = L.shown;
+      const percent = s.on ? Math.round(s.percent) : -1;
+      const charging = s.on && s.charging;
+      // Low, with the board's hysteresis: it clears only above the threshold plus 3.
+      L.low = percent >= 0 && !charging && L.threshold > 0 && (L.low ? percent <= L.threshold + BAT.hysteresis : percent <= L.threshold);
+      const want = L.low ? 1 : 0;
+      L.sleepy += (want - L.sleepy) * (1 - Math.exp(-dt * (want > L.sleepy ? BAT.easeIn : BAT.easeOut)));
+      if (L.sleepy < 0.01) L.sleepy = 0;
+      face.draw(dt * (1 - BAT.slow * L.sleepy));
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, hgt);
+      ctx.globalAlpha = 1 - BAT.dim * L.sleepy;
+      ctx.drawImage(faceCanvas, fx, fy);
+      ctx.globalAlpha = 1;
+      const t = charging ? (now - L.cueFrom) / BAT.cueMs : 1;
+      const cue = t >= 0 && t < 1 ? Math.sin(Math.PI * t) : -1;
+      if (cue >= 0) {
+        const image = ctx.getImageData(0, 0, w, hgt);
+        paintGlow(image.data, L.map, BAT.cyan, 0.35 + 0.6 * cue);
+        ctx.putImageData(image, 0, 0);
+      }
+      if (percent >= 0 && (cue >= 0 || (L.glyph && (L.low || charging)))) {
+        const k = L.low && percent < BAT.pulseBelow ? 0.35 + 0.65 * (0.5 + 0.5 * Math.cos((2 * Math.PI * (now % BAT.pulseMs)) / BAT.pulseMs)) : 1;
+        drawBatteryMark(ctx, mx, my, { percent, low: L.low, charging, full: L.glyph || cue < 0, k, boltK: cue >= 0 ? 0.45 + 0.55 * cue : 0.8 });
+      }
+      if (round) roundMask(ctx, w, hgt);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => (cancelAnimationFrame(frame), face.stop());
+  }, [w, hgt, round]);
+  const pick = (q) => (q.charging && (live.current.cueFrom = performance.now()), setShown(q.percent === undefined ? { ...shown, on: false, charging: false, quick: q.key } : { on: true, percent: q.percent, charging: q.charging, quick: q.key }));
+  const send = async (body, done) => {
+    setNote(["Sending…", ""]);
+    try {
+      const result = await api("POST", `/admin/clients/${enc(client.id)}/battery`, body);
+      if (!result.ok) throw new Error(result.error || "the device did not show it");
+      setNote([done, "good"]);
+    } catch (error) {
+      // Firmware from before the battery command answers "not implemented"; an Axis without the route, 404.
+      const old = /not implemented/i.test(error.message) || error.status === 404 || error.status === 405;
+      setNote([old ? `${client.name} needs newer firmware to show the battery from here.` : error.message, "bad"]);
+    }
+  };
+  const show = () =>
+    send(shown.on ? { percent: Math.round(shown.percent), charging: shown.charging } : { off: true },
+      shown.on ? `${client.name} is showing ${Math.round(shown.percent)} %${shown.charging ? ", charging" : ""} for 20 s.` : `${client.name} is back to its own battery.`);
+  const words = !shown.on ? "No battery look (full, or no battery)" : `${Math.round(shown.percent)} %${shown.charging ? ", charging" : ""}`;
+  const scale = Math.min(1, (compact ? 180 : 220) / Math.max(w, hgt));
+  return html`<div class="glow battery">
+    <div class=${`glow-frame${round ? " round" : ""}`}><canvas ref=${canvas} width=${w} height=${hgt} style=${`width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px`} aria-label=${`Battery preview: ${words}`} role="img" data-battery-canvas></canvas></div>
+    <div class="glow-controls">
+      <div class="glowkinds" role="group" aria-label="Battery">
+        ${BATTERY_QUICK.map((q) => html`<button type="button" key=${q.key} class=${q.key === shown.quick ? "on" : ""} aria-pressed=${q.key === shown.quick} data-battery=${q.key} onClick=${() => pick(q)}>${q.label}</button>`)}
+      </div>
+      <label class="slider">Charge
+        <span class="batrange" style=${threshold ? `--low:${threshold}%` : undefined}>
+          <input type="range" min="0" max="100" value=${shown.percent} data-edit="battery-percent" onInput=${(e) => setShown({ ...shown, on: true, percent: Number(e.target.value), quick: "" })} />
+          ${threshold ? html`<i class="battick" title=${`Low battery look at or below ${threshold} %`}></i>` : null}
+        </span>
+        <span class="mono" data-battery-label>${words}</span></label>
+      <label class="switch-l"><input type="checkbox" class="switch" checked=${shown.on && shown.charging} data-edit="battery-charging" onChange=${(e) => setShown({ ...shown, on: true, charging: e.currentTarget.checked, quick: "" })} /> Charging</label>
+      <p class="help">${threshold ? `The look starts at or below ${threshold} % and clears above ${threshold + BAT.hysteresis} %.` : "The low battery look is off (Low battery look is 0)."}${glyph ? "" : " The battery mark is off: only the sleepy face and the charging cue show."}</p>
+      <div class="row-acts">
+        <button type="button" class="btn sm" disabled=${!client.online} onClick=${show} data-battery-send>Show on the device</button>
+        <button type="button" class="btn sm" disabled=${!client.online} onClick=${() => send({ off: true }, `${client.name} is back to its own battery.`)} data-battery-off>Off</button>
+      </div>
+      ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status" data-battery-note>${note[0]}</p>` : null}
     </div>
   </div>`;
 }
