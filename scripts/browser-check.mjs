@@ -378,7 +378,7 @@ try {
     await client.run(`${byId("say")}.value = 'what time is it'; ${byId("say-form")}.requestSubmit()`);
     step("admin: map lights a turn", await next.until(`(lit => lit.length && 'lit: ' + lit.join(', '))([...document.querySelectorAll('#map-svg .edge.lit')].map(e => e.dataset.edge.replace(${JSON.stringify(dev.id)}, 'device')))`, "a lit path on the map", 30000));
     await next.run(`location.hash = '#clients/${encodeURIComponent(dev.id)}'`);
-    step("admin: device overview", await next.until(`(m => m && document.querySelector('main h1')?.textContent === ${JSON.stringify(dev.name)} && document.querySelector('#map-caps .chip') && document.querySelector('#device-facts') && document.querySelector('#device-map')?.getAttribute('href') === '#map?device=${encodeURIComponent(dev.id)}' && !document.querySelector('.dgrid .rail') && (document.querySelectorAll('#map-caps .chip').length + ' capabilities, ' + (document.querySelectorAll('.gauge').length ? document.querySelectorAll('.gauge').length + ' gauges' : 'readings not reported') + ', then About, Actions and the last 24 hours'))(document.querySelector('#map-device'))`, "the device's overview"));
+    step("admin: device overview", await next.until(`(m => m && document.querySelector('main h1')?.textContent === ${JSON.stringify(dev.name)} && document.querySelector('#map-caps .chip') && document.querySelector('#map-device .map-twin #device-facts') && ![...document.querySelectorAll('main h3')].some(h => h.textContent === 'About this device') && document.querySelector('#map-device .twin-head a[href$="/settings"]') && document.querySelector('#device-map')?.getAttribute('href') === '#map?device=${encodeURIComponent(dev.id)}' && !document.querySelector('.dgrid .rail') && (document.querySelectorAll('#map-caps .chip').length + ' capabilities, ' + (document.querySelectorAll('.gauge').length ? document.querySelectorAll('.gauge').length + ' gauges' : 'readings not reported') + ', the facts in the same card, then Actions and the last 24 hours'))(document.querySelector('#map-device'))`, "the device's overview"));
     await next.run(`document.querySelector('#device-map').click()`);
     step("admin: on the map", await next.until(`document.querySelector('#map-svg .node.focus[data-id="${dev.id}"]') && 'the device picked out'`, "the device picked out on the map"));
     // The address the page had while it was built sends a bookmark on to /admin with its #route.
@@ -478,8 +478,10 @@ try {
     const none = await batRefusal(400, { error: "Glyph board has no battery look" }, /no battery look/);
     await batRefusal(404, { error: "not found" }, /newer firmware/);
     step("admin: battery refusals", `${old} / ${none}`);
-    await next.run(`(location.hash = '#clients/${encodeURIComponent(bat.client.id)}/settings', true)`);
     step("admin: battery threshold tick", await next.until(`(t => t && getComputedStyle(t.parentElement).getPropertyValue('--low').trim() === '15%' && 'tick at 15 %')(document.querySelector('.battick'))`, "the tick at lowBatteryBelow"));
+    // The Settings tab's side column holds the device sketch only; the previews are on the Tools tab, linked from the rows.
+    await next.run(`(location.hash = '#clients/${encodeURIComponent(bat.client.id)}/settings', true)`);
+    step("admin: settings rail sketch only", await next.until(`(r => r && r.querySelectorAll('.card').length === 1 && !r.querySelector('.glow, [data-battery-canvas], #mic-go') && document.querySelector('[data-key=lowBatteryBelow] .hlp a[href$="/tools"]') && 'sketch, Tools link on the battery row')(document.querySelector('aside.rail'))`, "the settings rail"));
     batSock.close();
     await fetch(`${base}/admin/clients/${bat.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
     // All devices: a card per device, the filter, the list view.

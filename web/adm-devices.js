@@ -263,24 +263,22 @@ function DeviceOverview({ client, schema }) {
   const line = history?.clients?.[0]?.id === client.id ? history.clients[0] : undefined;
   const fact = (label, ...value) => html`<div class="fact"><dt>${label}</dt><dd>${value}</dd></div>`;
   const actions = schema.actions.filter((a) => a.name !== "reset");
-  return html`<${DeviceTwin} client=${client} />
+  return html`<${DeviceTwin} client=${client} head=${html`<a class="btn ghost sm" href=${deviceHref(client, "settings")}>Name and location</a>`}>
+      <dl class="facts twin-facts" id="device-facts">
+        ${fact("Type", html`<a href=${typeHref(client.type)}>${typeName(client.type)}</a>`, typeName(client.type) !== client.type ? html` <span class="mono dim">${client.type}</span>` : null)}
+        ${fact("Version", client.version || "not reported", " ", behind(client) ? html`<span class="badge warn">${heldBuild(client).version} on the shelf</span>` : null, " ", html`<${UpdateNow} client=${client} />`)}
+        ${fact("Can", (client.reported ?? client.capabilities).length ? (client.reported ?? client.capabilities).map((c) => html`<span class=${`chip${client.off?.includes(c) ? " no" : ""}`} title=${client.off?.includes(c) ? "Switched off" : ""}>${c}</span> `) : "nothing reported", " ", html`<a class="sm" href=${deviceHref(client, "settings?key=capabilities")}>Switch off…</a>`)}
+        ${client.address ? fact("Address", html`<span class="mono">${client.address}</span>`) : null}
+        ${client.online && base && schema.links.length ? fact("Pages", schema.links.map((l, i) => html`${i ? " · " : ""}<a href=${base + l.path} target="_blank" rel="noopener">${l.label} ↗</a>`)) : null}
+        ${client.readings?.axis ? fact("Reaches Axis at", html`<span class="mono">${client.readings.axis}</span>`, " ", html`<button type="button" class="btn sm" disabled=${!client.online} onClick=${changeAddress}>Change…</button>`) : null}
+        ${client.type === "web" ? fact("When its page is closed", client.notifications ? "gets a notification " : html`<span class="dim">not reachable (notifications are off in that browser) </span>`, client.notifications ? html`<button type="button" class="btn sm" onClick=${testNotify}>Send a test</button>` : null) : null}
+        ${client.waiting ? fact("Waiting for it", `${plural(client.waiting, "message")}, said when it is back`) : null}
+        ${fact("Offline alert", `${client.settings.offlineAlert ?? "auto"}${(client.settings.offlineAlert ?? "auto") === "auto" ? ` (a ${KIND_WORDS[kindOf(client)]}: ${autoWords(client)})` : ""}`)}
+        ${fact("Id", html`<span class="mono dim">${client.id}</span>`)}
+      </dl>
+      ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status">${note[0]}</p>` : null}
+    <//>
     <div class="dmain">
-      <section class="card">
-        <div class="card-h"><h3>About this device</h3><a class="btn ghost sm" href=${deviceHref(client, "settings")}>Name and location</a></div>
-        <dl class="facts card-b" id="device-facts">
-          ${fact("Type", html`<a href=${typeHref(client.type)}>${typeName(client.type)}</a>`, typeName(client.type) !== client.type ? html` <span class="mono dim">${client.type}</span>` : null)}
-          ${fact("Version", client.version || "not reported", " ", behind(client) ? html`<span class="badge warn">${heldBuild(client).version} on the shelf</span>` : null, " ", html`<${UpdateNow} client=${client} />`)}
-          ${fact("Can", (client.reported ?? client.capabilities).length ? (client.reported ?? client.capabilities).map((c) => html`<span class=${`chip${client.off?.includes(c) ? " no" : ""}`} title=${client.off?.includes(c) ? "Switched off" : ""}>${c}</span> `) : "nothing reported", " ", html`<a class="sm" href=${deviceHref(client, "settings?key=capabilities")}>Switch off…</a>`)}
-          ${client.address ? fact("Address", html`<span class="mono">${client.address}</span>`) : null}
-          ${client.online && base && schema.links.length ? fact("Pages", schema.links.map((l, i) => html`${i ? " · " : ""}<a href=${base + l.path} target="_blank" rel="noopener">${l.label} ↗</a>`)) : null}
-          ${client.readings?.axis ? fact("Reaches Axis at", html`<span class="mono">${client.readings.axis}</span>`, " ", html`<button type="button" class="btn sm" disabled=${!client.online} onClick=${changeAddress}>Change…</button>`) : null}
-          ${client.type === "web" ? fact("When its page is closed", client.notifications ? "gets a notification " : html`<span class="dim">not reachable (notifications are off in that browser) </span>`, client.notifications ? html`<button type="button" class="btn sm" onClick=${testNotify}>Send a test</button>` : null) : null}
-          ${client.waiting ? fact("Waiting for it", `${plural(client.waiting, "message")}, said when it is back`) : null}
-          ${fact("Offline alert", `${client.settings.offlineAlert ?? "auto"}${(client.settings.offlineAlert ?? "auto") === "auto" ? ` (a ${KIND_WORDS[kindOf(client)]}: ${autoWords(client)})` : ""}`)}
-          ${fact("Id", html`<span class="mono dim">${client.id}</span>`)}
-        </dl>
-        ${note[0] ? html`<p class=${`msg ${note[1]} card-b`} role="status">${note[0]}</p>` : null}
-      </section>
       <section class="card">
         <div class="card-h"><h3>Actions</h3>${client.online ? null : html`<span class="dim sm">Offline: actions wait until it is back</span>`}</div>
         <div class="card-b"><${Actions} client=${client} actions=${actions} /></div>
@@ -359,18 +357,9 @@ function DeviceSettings({ client, schema, focusKey }) {
         <div class="src">${Object.hasOwn(d.values, "location") ? html`<span class="src-chip unsaved">unsaved</span>` : null}</div><div class="rst"></div></div>`,
   };
   const save = () => saveDevice(client);
-  const glow = glowDef(client);
-  const glowOwn = client.layers.device.glowCorner;
-  const glowSaved = Number(client.settings.glowCorner ?? glow?.def.default ?? 56);
-  const glowNow = Object.hasOwn(d.values, "glowCorner") && d.values.glowCorner !== null ? Number(d.values.glowCorner) : glowSaved;
   const kind = kindOf(client);
-  const rail = html`
-    <div class="card"><${DeviceSketch} client=${client} /></div>
-    ${glow ? html`<div class="card"><div class="card-h"><h3>Edge glow</h3><a class="sm" href=${deviceHref(client, "tools")}>Tools</a></div><div class="card-b">
-      <${GlowPreview} client=${client} radius=${glowNow} saved=${glowSaved} compact=${true} onRadius=${(r) => stage(entity, glow.def, r, glowOwn, inherited(glow.def, client.layers, "device"))} /></div></div>` : null}
-    ${batteryDef(client) ? html`<div class="card"><div class="card-h"><h3>Battery</h3><a class="sm" href=${deviceHref(client, "tools")}>Tools</a></div><div class="card-b">
-      <${BatteryPreview} client=${client} ...${batteryLook(client, d, glowNow)} compact=${true} /></div></div>` : null}
-    ${schema.actions.some((a) => a.name === "mic") ? html`<div class="card"><div class="card-h"><h3>Microphone levels</h3></div><div class="card-b"><${MicPanel} client=${client} /></div></div>` : null}`;
+  const rail = html`<div class="card"><${DeviceSketch} client=${client} /></div>`;
+  const tools = html`<a href=${deviceHref(client, "tools")}>Preview and test on the Tools tab.</a>`;
   const banner = html`<${LayerBanner} tab="device" who="this device" entity=${entity} save=${save}
     detail=${`${client.name}: its values win over ${typeName(client.type)} and everything.`}
     layers=${[{ label: "This device", href: deviceHref(client, "settings"), on: true }, { label: `Every ${typeName(client.type)}`, href: typeHref(client.type, "settings") }, { label: "Everything", href: "#settings" }]} />`;
@@ -378,7 +367,7 @@ function DeviceSettings({ client, schema, focusKey }) {
     ${defs.length
       ? html`<${SettingsEditor} defs=${defs} layers=${client.layers} tab="device" entity=${entity} focusKey=${focusKey}
           head=${[identity, capabilityGroup(client, entity)]} extra=${shareWithType(client)} rail=${rail}
-          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(client)}.` }} />`
+          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(client)}.`, glowCorner: tools, lowBatteryBelow: tools, batteryGlyph: tools }} />`
       : html`<div class="edit-grid with-rail"><div class="edit-main"><p class="empty">This device has not described its settings yet. It does so each time it connects.</p></div><aside class="rail">${rail}</aside></div>`}
     <${SaveBar} entity=${entity} save=${save} floating=${true} />`;
 }

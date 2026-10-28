@@ -351,19 +351,21 @@ function settingLabel(type, key) {
 }
 
 /**
- * A device's overview: the sketch with its face as it is now, gauges for what it reports, then what needs attention,
- * the settings in effect, its last turns and what it can do. Opens the stream while on screen.
+ * A device's overview: the sketch with its face as it is now, gauges for what it reports and, in the same card, the
+ * page's `head` (beside the status line) and `children` (below the gauges); then what needs attention, the settings in
+ * effect, its last turns and what it can do. Opens the stream while on screen.
  */
-export function DeviceTwin({ client }) {
+export function DeviceTwin({ client, head = null, children = null }) {
   useMap();
   const id = client.id;
   const map = feed.map;
   const n = map?.nodes.find((x) => x.id === id);
   if (!n) {
     return html`<div class="map-dev" id="map-device" data-id=${id}><section class="card map-twin">
-      <div class="twin-head"><${LinkPill} /></div>
+      <div class="twin-head"><span class="grow"></span>${head}<${LinkPill} /></div>
       <div class="twin-pic"><${DeviceSketch} client=${client} /></div>
       ${feed.error ? html`<p class="dim">Axis did not answer: ${feed.error}</p>` : map ? html`<p class="dim">Readings: not reported.</p>` : html`<p class="dim" aria-busy="true">Loading its readings…</p>`}
+      ${children}
     </section></div>`;
   }
   const [colour, word] = stateOf(n);
@@ -376,10 +378,11 @@ export function DeviceTwin({ client }) {
   return html`<div class="map-dev" id="map-device" data-id=${id}>
       <section class="card map-twin">
         <div class="twin-head" style=${`--c: var(${colour})`}><i class="st-dot"></i><b>${lit ? STATE[lit.stage]?.[1] ?? word : word}</b>
-          <span class="dim">${n.online ? (n.connectedSince ? `connected ${ago(n.connectedSince)}` : "connected") : n.lastSeen ? `last seen ${ago(n.lastSeen)}` : "never connected"}</span><span class="grow"></span><${LinkPill} /></div>
+          <span class="dim">${n.online ? (n.connectedSince ? `connected ${ago(n.connectedSince)}` : "connected") : n.lastSeen ? `last seen ${ago(n.lastSeen)}` : "never connected"}</span><span class="grow"></span>${head}<${LinkPill} /></div>
         <div class="twin-pic"><${DeviceSketch} client=${client} /></div>
         <div class="gauges">${shown}</div>
         ${!shown.length ? html`<p class="dim" id="map-no-readings">Readings: not reported.</p>` : missing.length ? html`<p class="help">Not reported: ${missing.join(", ")}.</p>` : null}
+        ${children}
       </section>
       <div class="map-side">
         <${ProfileSwitch} client=${client} battery=${n.vitals?.battery?.percent} />

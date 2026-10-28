@@ -169,13 +169,12 @@ export function glowDef(client) {
  * The glow preview. `radius` is the corner curve to draw (a staged value or the saved one); `onRadius` stages a new
  * one (it is saved with the page's other changes). "Show on the device" sends what is drawn.
  */
-export function GlowPreview({ client, radius, saved, onRadius, compact = false }) {
+export function GlowPreview({ client, radius, saved, onRadius }) {
   const { def, round } = glowDef(client);
   const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
   const [state, setState] = useState(GLOW_STATES[0]);
   const [glass, setGlass] = useState(() => Number(kept.get(GLASS_KEY, 40)) || 40);
   const [note, setNote] = useState(["", ""]);
-  const [all, setAll] = useState(!compact);
   const canvas = useRef();
   const map = useMemo(() => glowMap(w, hgt, radius, round), [w, hgt, radius, round]);
   const live = useRef({});
@@ -245,14 +244,12 @@ export function GlowPreview({ client, radius, saved, onRadius, compact = false }
       setNote([error.message, "bad"]);
     }
   };
-  const scale = Math.min(1, (compact ? 180 : 220) / Math.max(w, hgt));
-  const kinds = all ? GLOW_STATES : GLOW_STATES.slice(0, 4);
+  const scale = Math.min(1, 220 / Math.max(w, hgt));
   return html`<div class="glow">
     <div class=${`glow-frame${round ? " round" : ""}`}><canvas ref=${canvas} width=${w} height=${hgt} style=${`width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px`} aria-label=${`Edge glow preview: ${state.label}`} role="img"></canvas></div>
     <div class="glow-controls">
       <div class="glowkinds" role="group" aria-label="Glow">
-        ${kinds.map((s) => html`<button type="button" key=${s.key} class=${s === state ? "on" : ""} aria-pressed=${s === state} onClick=${() => setState(s)}><i style=${`background:rgb(${s.rgb.map((c) => Math.round(c * 255)).join(",")})`}></i>${s.label}</button>`)}
-        ${all ? null : html`<button type="button" class="more" onClick=${() => setAll(true)} aria-label="Show every glow">+${GLOW_STATES.length - 4}</button>`}
+        ${GLOW_STATES.map((s) => html`<button type="button" key=${s.key} class=${s === state ? "on" : ""} aria-pressed=${s === state} onClick=${() => setState(s)}><i style=${`background:rgb(${s.rgb.map((c) => Math.round(c * 255)).join(",")})`}></i>${s.label}</button>`)}
       </div>
       ${round
         ? html`<p class="help">${w} × ${hgt}, round: no corners to set.</p>`
@@ -376,7 +373,7 @@ class StepVortex extends Vortex {
  * `below` and `glyph` are the lowBatteryBelow and batteryGlyph values to draw with (staged or saved); `radius` the
  * glow's corner curve.
  */
-export function BatteryPreview({ client, below, glyph = true, radius = 56, compact = false }) {
+export function BatteryPreview({ client, below, glyph = true, radius = 56 }) {
   const round = Number(client.readings?.screenRound) === 1;
   const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
   const [shown, setShown] = useState({ on: true, percent: 12, charging: false, quick: "low" });
@@ -457,7 +454,7 @@ export function BatteryPreview({ client, below, glyph = true, radius = 56, compa
     send(shown.on ? { percent: Math.round(shown.percent), charging: shown.charging } : { off: true },
       shown.on ? `${client.name} is showing ${Math.round(shown.percent)} %${shown.charging ? ", charging" : ""} for 20 s.` : `${client.name} is back to its own battery.`);
   const words = !shown.on ? "No battery look (full, or no battery)" : `${Math.round(shown.percent)} %${shown.charging ? ", charging" : ""}`;
-  const scale = Math.min(1, (compact ? 180 : 220) / Math.max(w, hgt));
+  const scale = Math.min(1, 220 / Math.max(w, hgt));
   return html`<div class="glow battery">
     <div class=${`glow-frame${round ? " round" : ""}`}><canvas ref=${canvas} width=${w} height=${hgt} style=${`width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px`} aria-label=${`Battery preview: ${words}`} role="img" data-battery-canvas></canvas></div>
     <div class="glow-controls">

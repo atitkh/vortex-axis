@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.66.2 (2026-10-28)
+
+- **The device page's Overview is one card** (`web/adm-twin.js`, `web/adm-devices.js`): the status line (with **Name and location** beside it), the sketch and the gauges, then the device's details in the same card: type, version with its update, what it can do, address, pages, where it reaches Axis, the web client's notifications, messages waiting, the offline alert and the id. The separate **About this device** card is gone. `DeviceTwin` takes the details as children and shows them in the card drawn while the map's data is missing too.
+- **The previews are on the Tools tab only**: the side column of a device's **Settings** holds its sketch; the edge glow, battery and microphone level cards there are gone, with the `compact` previews they used (`GlowPreview` always lists every glow). The **Glow corner curve**, **Low battery look** and **Battery mark** rows link to the Tools tab.
+- browser-check: the overview's details sit inside `#map-device`, no About card; the Settings side column holds one card and no canvas; the battery threshold tick is checked on the Tools tab.
+
 ## Axis 0.66.1 (2026-10-28)
 
 - **The battery preview draws the boards' new mark** (`web/adm-tools.js`, `drawBatteryMark`; firmware 1.8 0.23.2, 1.75 0.7.2): a battery outline with soft edges and its fill, the bolt as a filled shape, and the percent as text beside it, in the fill's colour, laid out with the numbers in `docs/face.md` section 10. The percent is drawn in a 22 px sans (Arial or Helvetica, the same figure height and widths as the boards' FreeSans 11 pt), so its letters are an approximation.

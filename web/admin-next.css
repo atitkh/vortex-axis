@@ -806,6 +806,8 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .twin-head .st-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
 .twin-pic { display: flex; justify-content: center; margin: 4px 0 16px; }
 .gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.twin-facts { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.map-twin > .msg { margin: 12px 0 0; }
 .gauge { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; background: var(--sunk); }
 .g-l { font-size: var(--t-xs); color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
 .g-v { font-size: var(--t-lg); font-weight: 600; }
