@@ -227,7 +227,7 @@ export function UpdateButton({ client, label, cls = "btn sm" }) {
   const [busy, setBusy] = useState(false);
   if (!held) return null;
   const go = async () => {
-    const ok = await ask({ title: `Update ${client.name}?`, body: `From ${client.version} to ${held.version}. It restarts and is away for about half a minute.`, confirm: "Update" });
+    const ok = await ask({ title: `Update ${client.name}?`, body: `From ${client.version} to ${held.version}. It restarts and is away for about half a minute.${client.type === "meta-quest" ? "" : " This board updates on its own, without the one-board-first check of Update all; if the new build cannot reach Axis it goes back to the old one by itself."}`, confirm: "Update" });
     if (!ok) return;
     setBusy(true);
     try {

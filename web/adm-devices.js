@@ -6,7 +6,7 @@ import qrcode from "/web/qr.js";
 import { strip, stripAxis, percent, ms as fmtMs, clock } from "/web/charts.js";
 import {
   ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
-  plural, PROFILE_WORDS, profileLine, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
+  plural, PROFILE_WORDS, profileLine, refresh, RolloutCard, rolloutRunning, runCommand, startRollout, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
 import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
 import { DeviceTwin } from "/web/adm-twin.js";
@@ -44,7 +44,7 @@ function UpdateNow({ client, cls = "btn sm" }) {
   const go = async (event) => {
     event.stopPropagation();
     event.preventDefault();
-    if (!(await ask({ title: `Update ${client.name}?`, body: `From ${client.version} to ${held.version}. It restarts and is away for about half a minute.`, confirm: "Update" }))) return;
+    if (!(await ask({ title: `Update ${client.name}?`, body: `From ${client.version} to ${held.version}. It restarts and is away for about half a minute.${client.type === "meta-quest" ? "" : " This board updates on its own, without the one-board-first check of Update all; if the new build cannot reach Axis it goes back to the old one by itself."}`, confirm: "Update" }))) return;
     try {
       toast(await updateDevice(client));
     } catch (error) {
@@ -519,7 +519,16 @@ function TypeFirmware({ type, members }) {
   const late = members.filter((c) => behind(c));
   const ready = late.filter((c) => c.online);
   const [note, setNote] = useState(["", ""]);
+  const board = type !== "meta-quest";
   const updateAll = async () => {
+    if (board) {
+      try {
+        await startRollout(ready, held.version);
+      } catch (error) {
+        setNote([error.message, "bad"]);
+      }
+      return;
+    }
     if (!(await ask({ title: `Update ${plural(ready.length, "device")} to ${held.version}?`, body: "Each restarts and is away for about half a minute.", confirm: "Update" }))) return;
     const failed = [];
     for (const c of ready) await updateDevice(c).catch((error) => failed.push(`${c.name}: ${error.message}`));
@@ -528,12 +537,13 @@ function TypeFirmware({ type, members }) {
   return html`<section class="card"><div class="card-b">
     ${held
       ? html`<p>Devices are sent ${type === "meta-quest" ? "app" : ""} version <b>${held.version}</b>. ${late.length ? late.map((c) => `${c.name} is on ${c.version}${c.online ? "" : " (offline)"}`).join(", ") + "." : "Every device is on it."}</p>
-        <div class="btnrow"><button type="button" class="btn primary" disabled=${!ready.length} onClick=${updateAll}>${ready.length ? `Update ${plural(ready.length, "device")} to ${held.version}` : "Nothing to update"}</button>
+        <div class="btnrow"><button type="button" class="btn primary" id="update-all" disabled=${!ready.length || (board && rolloutRunning())} title=${board ? "One board first, the rest once it is proven" : ""} onClick=${updateAll}>${board && rolloutRunning() ? "A rollout is running" : ready.length ? `Update ${plural(ready.length, "device")} to ${held.version}` : "Nothing to update"}</button>
           <a class="btn" href=${type === "meta-quest" ? "#apps" : "#firmware"}>${type === "meta-quest" ? "The Quest app on Apps" : "Manage builds on Firmware"}</a></div>`
       : html`<p class="dim">${type === "meta-quest" ? "No Quest app build is on this hub (scripts/build-quest-client.sh)." : "No build has been uploaded for this type yet."}</p>
         <a class="btn" href=${type === "meta-quest" ? "#apps" : "#firmware"}>${type === "meta-quest" ? "Apps" : "Upload one on Firmware"}</a>`}
     ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status">${note[0]}</p>` : null}
-  </div></section>`;
+  </div></section>
+  ${board ? html`<${RolloutCard} type=${type} />` : null}`;
 }
 
 // --- Defaults for everything ------------------------------------------------------------------------

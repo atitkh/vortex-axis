@@ -7,7 +7,7 @@ import { HELD, IDLE, LOOKS, LOOK_FIELDS, Vortex } from "/web/vortex.js";
 import { ICONS } from "/web/icons.js";
 import {
   Button, ago, api, ask, authHeader, behind, deviceHref, download, draftOf, enc, plural, refresh, setDraft, store, toast, typeHref, typeName,
-  typesInUse, updateDevice,
+  typesInUse, updateDevice, RolloutCard, rolloutRunning, startRollout,
 } from "/web/adm-core.js";
 import { SaveBar } from "/web/adm-settings.js";
 import { PAGES, PageHead, UpdateButton } from "/web/adm-shell.js";
@@ -241,6 +241,7 @@ export async function updateType(type) {
   const held = store.firmware.find((f) => f.type === type) ?? (type === "meta-quest" && store.quest?.available ? store.quest : undefined);
   const ready = store.clients.filter((c) => c.type === type && c.online && behind(c));
   if (!held || !ready.length) return "";
+  if (type !== "meta-quest") return startRollout(ready, held.version);
   if (!(await ask({ title: `Update ${plural(ready.length, "device")} to ${held.version}?`, body: "Each restarts and is away for about half a minute.", confirm: "Update" }))) return "";
   const failed = [];
   for (const c of ready) await updateDevice(c).catch((error) => failed.push(`${c.name}: ${error.message}`));
@@ -340,7 +341,7 @@ function Shelf({ type }) {
           </tbody></table></div>`
         : html`<p class="empty">No builds held for this type. Add one above.</p>`}
       <div class="btnrow">
-        ${held ? html`<${Button} class="btn primary" disabled=${!ready.length} run=${run(() => updateType(type))}>${ready.length ? `Update ${plural(ready.length, "device")} to ${held.version}` : "Nothing to update"}</${Button}>` : null}
+        ${held ? html`<${Button} class="btn primary" disabled=${!ready.length || rolloutRunning()} title="One board first, the rest once it is proven" run=${run(() => updateType(type))}>${rolloutRunning() ? "A rollout is running" : ready.length ? `Update ${plural(ready.length, "device")} to ${held.version}` : "Nothing to update"}</${Button}>` : null}
         ${shelf.builds.length ? html`<${Button} class="btn ghost" run=${removeAll}>Remove every build</${Button}>` : null}
       </div>
       <${Note} m=${m} />
@@ -352,6 +353,7 @@ export function FirmwarePage() {
   const types = firmwareTypes();
   return html`<${Head} page="firmware" />
     <${AddBuild} />
+    <${RolloutCard} />
     <div id="firmware-shelves">
       ${types.length ? types.map((t) => html`<${Shelf} key=${t} type=${t} />`) : html`<p class="empty">No devices are paired and no builds are held yet.</p>`}
     </div>

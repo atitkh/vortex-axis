@@ -3,7 +3,7 @@
 // path stage by stage, and a wake word heard by several devices shows who answered; both symbolic, never words.
 
 import { html, useEffect, useRef, useState } from "/web/preact.js";
-import { PROFILE_WORDS, ago, deviceHref, plural, profileLine, span, typeName, useStore } from "/web/adm-core.js";
+import { PROFILE_WORDS, ago, deviceHref, plural, profileLine, rolloutRunning, span, store, typeName, useStore } from "/web/adm-core.js";
 import { PageHead } from "/web/adm-shell.js";
 import { Bars, KIND_ICON, KIND_WORDS, LinkPill, STATE, SERVICE_WORDS, feed, fit, litEdges, ms, serviceColour, stateOf, useMap, wakeContest } from "/web/adm-twin.js";
 
@@ -192,6 +192,7 @@ function AxisNode({ a, map }) {
     <circle cx=${cx} cy=${a.y + 26} r="11" class="ring" /><circle cx=${cx} cy=${a.y + 26} r="4" class="st" />
     <text x=${cx} y=${a.y + 58} text-anchor="middle" class="t-name">VorteX Axis</text>
     <text x=${cx} y=${a.y + 77} text-anchor="middle" class="t-sm dim">${map.axis?.version ? `${map.axis.version} · ` : ""}up ${span(Date.now() - (map.axis?.startedAt ?? Date.now()))}</text>
+    ${rolloutRunning() ? html`<a href="#firmware"><text x=${cx} y=${a.y + 93} text-anchor="middle" class="t-xs" id="map-rollout" style="fill: var(--warn)">updating boards: ${store.rollout.stage === "canary" ? "first one" : "the rest"}</text></a>` : null}
   </g>`;
 }
 

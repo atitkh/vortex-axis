@@ -142,7 +142,7 @@ export const authHeader = () => ({ authorization: `Bearer ${token}` });
 export async function refresh() {
   if (!store.signedIn) return;
   try {
-    const [status, gateway, clients, settings, now, firmware, quest] = await Promise.all([
+    const [status, gateway, clients, settings, now, firmware, quest, rollout] = await Promise.all([
       api("GET", "/admin/status"),
       api("GET", "/admin/gateway"),
       api("GET", "/admin/clients"),
@@ -150,6 +150,7 @@ export async function refresh() {
       api("GET", "/admin/now").catch(() => undefined),
       api("GET", "/admin/firmware").catch(() => undefined),
       api("GET", "/admin/quest").catch(() => undefined),
+      api("GET", "/admin/updates/rollout").catch(() => undefined),
     ]);
     set({
       loaded: true,
@@ -165,6 +166,7 @@ export async function refresh() {
       firmware: firmware?.firmware ?? [],
       shelves: firmware?.shelves ?? [],
       quest,
+      rollout: rollout?.rollout ?? undefined,
     });
   } catch (error) {
     if (error.status !== 401 && store.signedIn) set({ pollError: error.message || "Axis did not answer." });
@@ -346,6 +348,54 @@ export async function runCommand(client, action) {
 export async function updateDevice(client) {
   const told = await api("POST", `/admin/clients/${enc(client.id)}/update`);
   return `${told.client} is updating from ${told.from} to ${told.to}. It restarts by itself in about half a minute.`;
+}
+
+// --- firmware rollout ("Update all" for boards) ------------------------------------------------------
+
+/** Whether a board rollout is under way (running, or waiting on boards already sent the update). */
+export const rolloutRunning = () => store.rollout?.state === "running" || store.rollout?.state === "stopping";
+
+/** Starts a staged rollout over these boards, after asking; the page follows it through the 3 s poll. */
+export async function startRollout(clients, version) {
+  if (!(await ask({
+    title: `Update ${plural(clients.length, "board")} to ${version}?`,
+    body: "One board goes first. The rest follow, two at a time, only once it is back on the new build and sending readings (up to 6 minutes). If it comes back on the old build or not at all, the others are held.",
+    confirm: "Start",
+  }))) return "";
+  const { rollout } = await api("POST", "/admin/updates/rollout", { ids: clients.map((c) => c.id) });
+  set({ rollout });
+  return "";
+}
+
+const ROLLOUT_STATE = { running: "running", stopping: "finishing what was sent", done: "finished", aborted: "stopped", cancelled: "cancelled", interrupted: "interrupted" };
+const ROLLOUT_KIND = { waiting: "", updating: "warn", proven: "good", held: "bad", skipped: "", failed: "bad" };
+
+/** The current or last rollout: its stage, each board with its versions and status, the reason it stopped, Cancel. */
+export function RolloutCard({ type }) {
+  const r = store.rollout;
+  if (!r) return null;
+  const devices = type ? r.devices.filter((d) => d.type === type) : r.devices;
+  if (!devices.length) return null;
+  const running = rolloutRunning();
+  if (!running && Date.now() + store.nowSkew - (r.endedAt ?? 0) > 86_400_000) return null;
+  const cancel = async () => {
+    if (!(await ask({ title: "Cancel the rollout?", body: "No more boards are sent the update. Boards already updating carry on.", confirm: "Cancel rollout", danger: true }))) return;
+    set({ rollout: (await api("POST", "/admin/updates/rollout/cancel")).rollout });
+  };
+  const stage = r.stage === "canary" ? "the first board" : r.stage === "rest" ? "the rest" : "";
+  return html`<section class="card rollout" id="rollout" data-state=${r.state}>
+    <div class="card-h"><h3>Firmware rollout</h3><span class=${`badge ${running ? "warn" : r.state === "done" ? "good" : "bad"}`}>${ROLLOUT_STATE[r.state] ?? r.state}${running && stage ? `: ${stage}` : ""}</span></div>
+    <div class="card-b">
+      ${r.canary ? html`<p class="sm">${r.devices.find((d) => d.id === r.canary)?.name ?? "A board"} went first: ${r.canaryWhy}.</p>` : running ? html`<p class="sm dim">Waiting for a board that is not in a turn.</p>` : null}
+      ${r.reason ? html`<p class="msg bad" role="status">${r.reason}</p>` : null}
+      <div class="tablebox"><table class="t"><thead><tr><th>Board</th><th>From</th><th>To</th><th>Now on</th><th>Status</th></tr></thead><tbody>
+        ${devices.map((d) => html`<tr key=${d.id} data-rollout=${d.id}><td><a href=${deviceHref(d)}>${d.name}</a>${d.canary ? html` <span class="dim sm">first</span>` : null}</td>
+          <td class="mono">${d.from}</td><td class="mono">${d.to}</td><td class="mono">${d.version ?? ""}</td>
+          <td><span class=${`badge ${ROLLOUT_KIND[d.status] ?? ""}`}>${d.status}</span>${d.detail ? html` <span class="dim sm">${d.detail}</span>` : null}</td></tr>`)}
+      </tbody></table></div>
+      ${running && r.state === "running" ? html`<div class="btnrow"><${Button} class="btn ghost" id="rollout-cancel" run=${cancel}>Cancel rollout</${Button}></div>` : null}
+    </div>
+  </section>`;
 }
 
 /** Puts a DOM node made elsewhere (charts.js) into a component. */

@@ -740,6 +740,48 @@ try {
     await next.until(`/No builds held/.test(${shelfWeb}?.textContent ?? '')`, "the build to go");
     if ((await adminGet("/admin/firmware")).shelves.some((sh) => sh.builds.length)) throw new Error("the firmware build was not removed");
     step("admin: firmware download and remove", `downloaded ${firmwareBlob} bytes, removed after the dialog`);
+    // Update all as a staged rollout: two pretend boards on an old build; the one with the stronger Wi-Fi goes first,
+    // restarts on the new build and sends readings, then the other follows. The rollout card shows both proven.
+    {
+      const bytes = Buffer.alloc(70000, 3);
+      bytes[0] = 0xe9;
+      const up = await fetch(`${base}/admin/firmware/rollout-board?version=2.0.0`, { method: "POST", headers: { authorization: "Bearer browser-check-admin-token-0123", "content-type": "application/octet-stream" }, body: bytes });
+      if (up.status !== 201) throw new Error(`the rollout build upload answered ${up.status}`);
+      const told = [];
+      const pretend = (name, rssi) => {
+        const paired = app.store.pair({ code: app.store.createPairingCode(60_000).code, type: "rollout-board", version: "1.0.0", capabilities: ["speaker", "screen"], name });
+        const open = (version) => {
+          const ws = new WebSocket(`ws://localhost:${app.port}/v1/client`);
+          ws.on("open", () => {
+            ws.send(JSON.stringify({ t: "hello", protocol: 1, clientId: paired.client.id, token: paired.token, type: "rollout-board", version, capabilities: ["speaker", "screen"], settingsVersion: 0 }));
+            setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: "sense", readings: { rssi } })), 200);
+          });
+          ws.on("message", (d) => {
+            const m = JSON.parse(String(d));
+            if (m.t !== "command" || m.name !== "update") return;
+            told.push(name);
+            ws.send(JSON.stringify({ t: "command.result", id: m.id, ok: true }));
+            // "Installs" and comes back on the new build, as a board that keeps it does.
+            setTimeout(() => (ws.close(), setTimeout(() => open(String(m.params.version)), 300)), 300);
+          });
+        };
+        open("1.0.0");
+        return paired.client;
+      };
+      const strong = pretend("Strong board", -48);
+      pretend("Weak board", -77);
+      await next.run(`location.hash = '#firmware'`);
+      const shelfR = `document.querySelector('.shelf[data-type="rollout-board"]')`;
+      await next.until(`/Update 2 devices to 2\\.0\\.0/.test(${shelfR}?.textContent ?? '')`, "Update all on the rollout shelf", 15000);
+      await next.run(`[...${shelfR}.querySelectorAll('button')].find(b => /^Update 2/.test(b.textContent)).click()`);
+      await next.until(`/One board goes first/.test(document.querySelector('.dialog')?.textContent ?? '')`, "the rollout dialog");
+      await next.run(confirmDialog("Start"));
+      step("admin: rollout running", await next.until(`(c => c && /running/.test(c.textContent) && c.querySelector('[data-rollout="${strong.id}"]')?.textContent.includes('first') && c.textContent.replace(/\\s+/g, ' ').slice(0, 90))(document.querySelector('#rollout'))`, "the rollout card while it runs", 15000));
+      step("admin: rollout finished", await next.until(`(c => c?.dataset.state === 'done' && c.querySelectorAll('.badge.good').length === 3 && c.textContent.replace(/\\s+/g, ' ').slice(0, 140))(document.querySelector('#rollout'))`, "both boards proven", 30000));
+      if (told.join() !== "Strong board,Weak board") throw new Error(`the boards were told to update in this order: ${told.join()}`);
+      const last = (await adminGet("/admin/updates/rollout")).rollout;
+      if (last.canary !== strong.id || !last.devices.every((d) => d.status === "proven" && d.version === "2.0.0")) throw new Error(`the rollout ended as ${JSON.stringify(last)}`);
+    }
     // Wake words: a manifest fills the form, a model is added, its cutoff staged and saved, then it is removed.
     await next.run(`location.hash = '#wakewords'`);
     step("admin: wake words", await next.until(`(t => /built-in/.test(t) && document.querySelector('#wake-scores') && t.replace(/\\s+/g, ' ').slice(0, 80))(document.querySelector('#wakewords-list')?.textContent ?? '')`, "the wake words page"));
