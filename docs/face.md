@@ -298,16 +298,18 @@ It only follows a fresh reading with a battery: the power chip is read every 30 
 **Low battery.** At or below `lowBatteryBelow` (default 15 %; 0 off; 1 to 4 count as 5; at most 30) while not charging, and until the charge is back above that plus 3 (hysteresis):
 
 - The idle face turns sleepy: it runs at 60 % speed and draws at 75 % brightness. Only in idle; every other mode looks as usual. It eases in at rate 1.5 and out at rate 8.0 (the same easing as section 3), so it settles in slowly and leaves quickly.
-- A small battery mark stays at the bottom middle of the screen (a 140 by 22 block; on the 1.75 26 pixels up from the bottom edge, inside the round glass): a battery of ten cells and the percent, in grey (0.80, 0.82, 0.85 at 85 %). The filled cells are amber (1.00, 0.60, 0.08). Below 5 % they turn red (1.00, 0.16, 0.10) and the mark pulses slowly (once every 2.5 s, between 35 % and 100 %).
+- A small battery mark stays at the bottom middle of the screen (a 140 by 24 block; on the 1.75 26 pixels up from the bottom edge, inside the round glass): a battery outline and the percent beside it, 6 pixels apart. The outline is grey (0.80, 0.82, 0.85 at 85 %); the fill inside it and the percent are amber (1.00, 0.60, 0.08). Below 5 % they turn red (1.00, 0.16, 0.10) and the whole mark pulses slowly (once every 2.5 s, between 35 % and 100 %).
+- The percent (`12%`) is body text, drawn by the display's own text path (`display::textInto`, the canvas and FreeSans font every other line uses: FreeSans 9, 11 or 12 pt with the `textSize` setting), its figures centred on the block's height.
+- The battery is 34 by 16 pixels: a body 30 by 16 with corners of radius 4 and a 2-pixel outline, a tip 4 by 7 (radius 1.5) on its right, and the fill 3.5 pixels in from the body's outside (23 by 9, radius 1.5), as wide as the charge (at least 1.5 pixels above 0 %). Its edges are soft: each pixel takes its colour times how much of it the shape covers, from 4 by 4 samples. The outline and the bolt are worked out once into PSRAM (under 1 KB); the fill is worked out each time it is drawn.
 
 **Charging.** When charging begins while the board is running (not for a board started on the charger):
 
 - One swell of the idle face's cyan (0.10, 0.78, 0.95) in the edge glow over 3 s (strength `sin(π t)` for t from 0 to 1), unless a turn is under way. It stops early if charging stops.
-- A bolt in the same cyan beside the mark, at 45 % to 100 % brightness with the swell, then 80 %.
+- A bolt in the same cyan left of the battery (11 by 18 pixels, a filled polygon through (6.5, 0), (0.5, 10), (5, 10), (3.5, 18), (10.5, 7.5), (6, 7.5), (8.5, 0), with the same soft edges; 6 pixels from the battery), at 45 % to 100 % brightness with the swell, then 80 %.
 
-While charging the mark stays, with the bolt and the filled cells green (0.34, 1.00, 0.40). The face is never sleepy while charging.
+While charging the mark stays, with the bolt, and the fill and the percent green (0.34, 1.00, 0.40 at 80 %). The face is never sleepy while charging.
 
-The admin page draws a preview copy of all of this (`web/adm-tools.js`, `BatteryPreview`, beside its copy of the glow) and can have a board show it (`docs/setup.md`, "The battery preview"); keep its numbers in step with this section.
+The admin page draws a preview copy of all of this (`web/adm-tools.js`, `BatteryPreview`, beside its copy of the glow) and can have a board show it (`docs/setup.md`, "The battery preview"); keep its numbers in step with this section. It draws the percent in a 22 px sans (Arial or Helvetica: the same figure height and widths as FreeSans 11 pt, the medium text size), so its letters are an approximation; the shapes, colours and places are the board's.
 
 `batteryGlyph` (default on) turns the lasting mark off; the sleepy face, the swell and the mark with its bolt during the 3 s cue stay. The board's console shows each without a battery for a minute: `preview lowbattery` (12 %), `preview charging` (64 %, with the cue), `preview battery N` (N %), `preview off`.
 

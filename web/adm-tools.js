@@ -283,9 +283,12 @@ const BAT = {
   dim: 0.25, // and 75 % brightness
   easeIn: 1.5,
   easeOut: 8,
-  cell: 3, // the mark: 5 by 7 signs, 3 pixels to a cell, in a 140 by 22 block
-  w: 140,
-  h: 22,
+  w: 140, // the mark's block
+  h: 24,
+  // The percent: FreeSans 11 pt on the board (the medium text size), drawn here in a 22 px sans that has the same
+  // figure height and widths; the font is an approximation, the colours and places are the board's.
+  font: "22px Arial, Helvetica, 'Liberation Sans', sans-serif",
+  baseline: 19,
   bottom: 14, // pixels under the block; the round 1.75 keeps it higher, inside the glass
   bottomRound: 26,
   ink: [0.8, 0.82, 0.85],
@@ -294,15 +297,9 @@ const BAT = {
   green: [0.34, 1, 0.4],
   cyan: [0.1, 0.78, 0.95],
 };
-const BAT_DIGITS = [
-  [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e], [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
-  [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f], [0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e],
-  [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02], [0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e],
-  [0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e], [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
-  [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e], [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
-  [0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03], // %
-];
-const BAT_BOLT = [0x03, 0x06, 0x0c, 0x1f, 0x06, 0x0c, 0x18];
+// The battery (with its tip) and the bolt, as battery_cue.cpp shapes them.
+const BAT_SHAPE = { w: 34, h: 16, body: 30, radius: 4, stroke: 2, fillIn: 3.5, gap: 6 };
+const BAT_BOLT = [[6.5, 0], [0.5, 10], [5, 10], [3.5, 18], [10.5, 7.5], [6, 7.5], [8.5, 0]];
 // The idle face's usual size on a board (main.cpp, IDLE_FACES), in the middle of the screen.
 const IDLE_FACE = 264;
 export const BATTERY_QUICK = [
@@ -323,34 +320,49 @@ const c565 = ([r, g, b], k) =>
 
 /** The mark, as battery_cue.cpp lays it out: [bolt] battery percent, centred in its block at (x, y). */
 function drawBatteryMark(ctx, x, y, { percent, low, charging, full, k, boltK }) {
-  const { cell } = BAT;
-  const cells = (cx, cy, cw, ch, color) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(x + cx * cell, y + cy * cell, cw * cell, ch * cell);
-  };
-  const sign = (cx, rows, color) => {
-    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (rows[r] & (0x10 >> c)) cells(cx + c, r, 1, 1, color);
-  };
-  const text = String(percent);
-  const width = (charging ? 7 : 0) + (full ? 13 + 2 + text.length * 6 + 5 : -2);
-  let at = Math.trunc((Math.floor(BAT.w / cell) - width) / 2);
-  const ink = c565(BAT.ink, k * 0.85);
+  const S = BAT_SHAPE;
+  const text = `${percent}%`;
+  ctx.save();
+  ctx.font = BAT.font;
+  const textW = full ? Math.round(ctx.measureText(text).width) : 0;
+  const width = (charging ? 11 : 0) + (charging && full ? S.gap : 0) + (full ? S.w + S.gap + textW : 0);
+  let at = x + Math.trunc((BAT.w - width) / 2);
+  const grey = c565(BAT.ink, k * 0.85);
+  const levelK = charging ? 1 : k;
+  const level = charging ? c565(BAT.green, 0.8) : percent < BAT.pulseBelow ? c565(BAT.red, levelK) : low ? c565(BAT.amber, levelK) : grey;
+  const rounded = (x0, y0, w, h, r) => (ctx.beginPath(), ctx.roundRect(x0, y0, w, h, r));
   if (charging) {
-    sign(at, BAT_BOLT, c565(BAT.cyan, boltK));
-    at += 7;
+    const top = y + (BAT.h - 18) / 2;
+    ctx.beginPath();
+    BAT_BOLT.forEach(([px, py], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, at + px, top + py));
+    ctx.closePath();
+    ctx.fillStyle = c565(BAT.cyan, boltK);
+    ctx.fill();
+    at += 11 + (full ? S.gap : 0);
   }
-  if (!full) return;
-  cells(at, 0, 12, 1, ink);
-  cells(at, 6, 12, 1, ink);
-  cells(at, 0, 1, 7, ink);
-  cells(at + 11, 0, 1, 7, ink);
-  cells(at + 12, 2, 1, 3, ink);
-  const fill = percent <= 0 ? 0 : Math.max(1, Math.floor((percent * 10 + 50) / 100));
-  const level = charging ? c565(BAT.green, 0.8) : percent < BAT.pulseBelow ? c565(BAT.red, k) : low ? c565(BAT.amber, k) : ink;
-  if (fill) cells(at + 1, 1, fill, 5, level);
-  at += 15;
-  for (const ch of text) (sign(at, BAT_DIGITS[Number(ch)], ink), (at += 6));
-  sign(at, BAT_DIGITS[10], ink);
+  if (full) {
+    const top = y + (BAT.h - S.h) / 2;
+    ctx.fillStyle = grey;
+    rounded(at + S.body - 1, top + S.h / 2 - 3.5, S.w - S.body + 1, 7, 1.5);
+    ctx.fill();
+    rounded(at, top, S.body, S.h, S.radius);
+    ctx.roundRect(at + S.stroke, top + S.stroke, S.body - 2 * S.stroke, S.h - 2 * S.stroke, S.radius - S.stroke);
+    ctx.fill("evenodd");
+    if (percent > 0) {
+      const inside = S.body - 2 * S.fillIn;
+      ctx.save();
+      rounded(at + S.fillIn, top + S.fillIn, inside, S.h - 2 * S.fillIn, 1.5);
+      ctx.clip();
+      ctx.fillStyle = level;
+      ctx.fillRect(at + S.fillIn, top, Math.max(1.5, (inside * percent) / 100), S.h);
+      ctx.restore();
+    }
+    at += S.w + S.gap;
+    ctx.fillStyle = level;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(text, at, y + BAT.baseline);
+  }
+  ctx.restore();
 }
 
 /** The vortex face, drawn only when the battery preview's own loop says (so it can run slower, as a sleepy board's does). */

@@ -4,6 +4,20 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.66.1 (2026-10-28)
+
+- **The battery preview draws the boards' new mark** (`web/adm-tools.js`, `drawBatteryMark`; firmware 1.8 0.23.2, 1.75 0.7.2): a battery outline with soft edges and its fill, the bolt as a filled shape, and the percent as text beside it, in the fill's colour, laid out with the numbers in `docs/face.md` section 10. The percent is drawn in a 22 px sans (Arial or Helvetica, the same figure height and widths as the boards' FreeSans 11 pt), so its letters are an approximation.
+- browser-check's battery step looks for an amber fill inside the battery and amber figures beside it at 12 %. NOT verified: the preview side by side with a board's screen.
+
+## Board firmware 0.23.2 (Waveshare 1.8) (2026-10-28)
+
+- **The battery mark looks like the rest of the screen** (`battery_cue.cpp`, `docs/face.md` section 10). The percent is body text in FreeSans (9, 11 or 12 pt with `textSize`), drawn through the same canvas as every other line (`display::textInto`), in the fill's colour: amber, red below 5 %, green while charging. The battery (34 by 16: rounded body, 2-pixel outline, tip, a fill as wide as the charge) and the bolt (a filled polygon) have soft edges, each pixel coloured by how much the shape covers it (4 by 4 samples); the outline and the bolt are worked out once into PSRAM (under 1 KB). The block is 140 by 24 (was 22). Before, all of it was drawn from a 5 by 7 grid at 3 pixels a cell.
+- Put on the bench 1.8 over Wi-Fi by a staged rollout from 0.23.1: proven 36 s after it was told to update. NOT verified: its screen.
+
+## Round board firmware 0.7.2 (Waveshare 1.75) (2026-10-28)
+
+- The battery mark as in the 1.8's 0.23.2. Flashed by USB to the round board on the bench: back on Axis at 0.7.2. Pictures of its screen (`shot`) at `preview lowbattery`, `preview charging` and `preview battery 4`: the mark inside the glass, nothing cut off. Frames a second (`fps`, 19 s each, medium text): idle 60.2, low battery 55.1, charging 52.4; listening 62.5 (11 s); before, idle about 60, low battery about 51, listening about 62.
+
 ## Axis 0.66.0 (2026-10-28)
 
 The boards' battery look, previewed on the admin page and shown on a board from there.
