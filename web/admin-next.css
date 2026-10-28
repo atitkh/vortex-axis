@@ -734,3 +734,63 @@ table.t tr.dirty td { background: var(--accent-soft); }
   .scorestrip { min-width: 120px; }
 }
 .f-c.f-v { display: block; padding-top: 7px; }
+
+/* --- the system map (adm-map.js): an SVG in fixed columns; one column under 720 px -------------------- */
+.map-pill .dot-i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.map-legend .lit-key b { width: 18px; height: 3px; border-radius: 2px; background: var(--accent); }
+.map-card { padding: 4px; overflow: hidden; }
+.map-box { width: 100%; }
+.map-svg { display: block; width: 100%; height: auto; font-family: var(--font); }
+.map-svg text { fill: var(--text); }
+.map-svg .t-name { font-size: 13.5px; font-weight: 600; }
+.map-svg .t-sm { font-size: 11.5px; fill: var(--muted); }
+.map-svg .t-xs { font-size: 11px; font-variant-numeric: tabular-nums; }
+.map-svg .t-head { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; fill: var(--dim); }
+.map-svg .dim, .map-svg tspan.dim { fill: var(--dim); }
+.map-svg .st-t { fill: var(--text); }
+.map-svg .node .card { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; transition: stroke 0.3s; }
+.map-svg .node.busy .card, .map-svg .node.axis .card { stroke: var(--c); stroke-width: 1.5; }
+.map-svg .node .st { fill: var(--c); transition: fill 0.3s; }
+.map-svg .node .ring { fill: none; stroke: var(--c); stroke-width: 2; }
+.map-svg .node .kind { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-linejoin: round; }
+.map-svg .node.off .t-name { fill: var(--dim); }
+.map-svg a.node { cursor: pointer; }
+.map-svg a.node:hover .card, .map-svg a.node:focus-visible .card { stroke: var(--accent); fill: var(--raise); }
+.map-svg a.node:focus { outline: none; }
+.map-svg .glyph { fill: none; stroke: var(--muted); stroke-width: 1; }
+.map-svg .glyph-fill { fill: var(--muted); }
+.map-svg .warn .glyph-fill { fill: var(--warn); } .map-svg .warn text { fill: var(--warn-text); }
+.map-svg .bars .on, .bars-g .on { fill: var(--muted); } .map-svg .bars .off, .bars-g .off { fill: var(--line-strong); }
+.map-svg .att circle { fill: var(--warn); } .map-svg .att text { fill: var(--on-warn); font-size: 11px; font-weight: 700; }
+.map-svg .edge .base { fill: none; stroke: var(--c); stroke-width: 1.5; opacity: 0.45; }
+.map-svg .edge.lit .base { opacity: 0.2; }
+.map-svg .edge .glow { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; opacity: 1; transition: opacity 2s; }
+.map-svg .edge.now .glow { stroke-dasharray: 6 6; animation: map-dash 0.9s linear infinite; }
+.map-svg .edge.ended .glow { opacity: 0; }
+.map-svg .lit-t { fill: var(--accent-text); font-weight: 600; }
+@keyframes map-dash { to { stroke-dashoffset: -12; } }
+@media (prefers-reduced-motion: reduce) {
+  .map-svg .edge.now .glow { animation: none; stroke-dasharray: none; }
+  .map-svg .edge .glow, .map-svg .node .card, .map-svg .node .st { transition: none; }
+}
+.map-dev { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.map-side { display: grid; gap: 16px; }
+.map-side .card-b > p { margin: 0; }
+.map-twin { padding: 16px; }
+.twin-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.twin-head .st-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.twin-pic { display: flex; justify-content: center; margin: 4px 0 16px; }
+.gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.gauge { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; background: var(--sunk); }
+.g-l { font-size: var(--t-xs); color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.g-v { font-size: var(--t-lg); font-weight: 600; }
+.g-n { font-size: var(--t-xs); }
+.ring-g .track { fill: none; stroke: var(--line-strong); stroke-width: 6; }
+.ring-g .fill { fill: none; stroke: var(--good); stroke-width: 6; stroke-linecap: round; }
+.ring-g.low .fill { stroke: var(--warn); }
+.ring-g text { fill: var(--text); font-size: 13px; font-weight: 600; }
+.att-list { margin: 0; padding-left: 18px; color: var(--warn-text); }
+@media (max-width: 900px) { .map-dev { grid-template-columns: 1fr; } }

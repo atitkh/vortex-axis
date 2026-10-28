@@ -360,6 +360,14 @@ try {
       routes.push(`${hash.replace(dev.id, "<id>")}→${title}`);
     }
     step("admin: old addresses", routes.join(", "));
+    // The system map: Axis, the paired device and the services in one drawing, the stream live; a typed turn lights its
+    // path; the device's own map page with its readings and capabilities.
+    await next.run(`location.hash = '#map'`);
+    step("admin: map", await next.until(`(s => s && s.querySelector('[data-id="axis"]') && s.querySelector('a.node[data-id="${dev.id}"]')?.getAttribute('href') === '#map/${encodeURIComponent(dev.id)}' && s.querySelectorAll('.node.svc').length >= 3 && s.querySelector('[data-edge="${dev.id}>axis"]') && document.querySelector('#map-link')?.textContent.trim() === 'live' && (s.querySelectorAll('.node.svc').length + ' services, the device and its line, Axis; stream live'))(document.querySelector('#map-svg'))`, "the map"));
+    await client.run(`${byId("say")}.value = 'what time is it'; ${byId("say-form")}.requestSubmit()`);
+    step("admin: map lights a turn", await next.until(`(lit => lit.length && 'lit: ' + lit.join(', '))([...document.querySelectorAll('#map-svg .edge.lit')].map(e => e.dataset.edge.replace(${JSON.stringify(dev.id)}, 'device')))`, "a lit path on the map", 30000));
+    await next.run(`location.hash = '#map/${encodeURIComponent(dev.id)}'`);
+    step("admin: map of one device", await next.until(`(m => m && document.querySelector('main h1')?.textContent === ${JSON.stringify(dev.name)} && document.querySelector('#map-caps .chip') && document.querySelector('#map-device-page')?.getAttribute('href') === '#clients/${encodeURIComponent(dev.id)}' && (document.querySelectorAll('#map-caps .chip').length + ' capabilities, ' + (document.querySelectorAll('.gauge').length ? document.querySelectorAll('.gauge').length + ' gauges' : 'readings not reported') + ', links to the device page'))(document.querySelector('#map-device'))`, "the device's map page"));
     // The address the page had while it was built sends a bookmark on to /admin with its #route.
     await next.run(`location.href = '/admin-next#clients/${dev.id}'`);
     step("admin: /admin-next bookmark", await next.until(`location.pathname === '/admin' && location.hash === '#clients/${dev.id}' && document.querySelector('main h1')?.textContent === ${JSON.stringify(dev.name)} && 'lands on /admin#clients/<id>'`, "the /admin-next redirect"));

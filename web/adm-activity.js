@@ -311,6 +311,7 @@ export function Overview({ attention }) {
   const up = store.status?.uptimeMs !== undefined ? ` · up ${duration(store.status.uptimeMs)}` : "";
   const shown = clients.slice(0, 8);
   return html`<${PageHead} title="Overview" purpose=${today + up}>
+      <a class="btn" href="#map" id="overview-map">Map</a>
       <a class="btn" href="#pair">Add a device</a>
       <button type="button" class="btn primary" onClick=${focusSay}>Say something</button>
     </${PageHead}>

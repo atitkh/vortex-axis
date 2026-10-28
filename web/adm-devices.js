@@ -167,7 +167,7 @@ export function DevicePage({ id, tab, focusKey }) {
         <h1 id="device-title">${client.name}</h1>
         <div class="meta"><${StateDot} client=${client} /><a class="badge" href=${typeHref(client.type)}>${typeName(client.type)}</a><${VersionBadge} client=${client} />${client.settings.location ? html`<span class="dim">Location: ${client.settings.location}</span>` : null}</div>
       </div>
-      <div class="dband-acts"><${FindButton} client=${client} cls="btn" /><${UpdateNow} client=${client} cls="btn" />${canSay(client) ? html`<button type="button" class="btn" disabled=${!client.online} onClick=${() => announce(client)}>Announce…</button>` : null}</div>
+      <div class="dband-acts"><a class="btn" href=${`#map/${encodeURIComponent(client.id)}`} id="device-map" title="This device on the system map: its readings and what it is doing">Map</a><${FindButton} client=${client} cls="btn" /><${UpdateNow} client=${client} cls="btn" />${canSay(client) ? html`<button type="button" class="btn" disabled=${!client.online} onClick=${() => announce(client)}>Announce…</button>` : null}</div>
     </header>
     <nav class="tabs" aria-label="Device">
       ${tabs.map((t) => html`<a key=${t} href=${deviceHref(client, t === "overview" ? "" : t)} class=${`${t === current ? "on" : ""}${t === "danger" ? " danger" : ""}`} aria-current=${t === current ? "page" : undefined}>${TAB_LABELS[t]}${t === "settings" && (own || n) ? html`<span class=${`badge ${n ? "warn" : "accent"}`}>${n ? `${n} unsaved` : `${own} set here`}</span>` : null}</a>`)}

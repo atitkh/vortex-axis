@@ -13,12 +13,14 @@ import { History, Live, Overview, clearLive, focusSay } from "/web/adm-activity.
 import { AgentPage, OpenClawPage, SpeechPage, ToolsPage, VoicesPage, checkAgain, gatewayMark, reconnectGateway } from "/web/adm-agent.js";
 import { AppsPage, FacePage, FirmwarePage, WakeWordsPage } from "/web/adm-hardware.js";
 import { IntegrationsPage, SystemPage } from "/web/adm-system.js";
+import { MapPage } from "/web/adm-map.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
 /** Every page, its group, and what it is for (the command bar searches these words too). */
 export const PAGES = {
   overview: { title: "Overview", purpose: "What needs attention, and how Axis has been doing." },
+  map: { title: "Map", purpose: "A drawing of the devices, Axis and the services behind it, live; and one page per device with its readings." },
   live: { title: "Live", group: "activity", purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
   activity: { title: "History", group: "activity", purpose: "Uptime, turn timings and events over the last day or week." },
   clients: { title: "All devices", group: "devices" },
@@ -56,6 +58,7 @@ export function parseRoute(hash) {
     if (!id) return { page: "clients", id: "", tab: "", key };
     return { page: "device", id, tab: DEVICE_TABS.includes(parts[2]) ? parts[2] : key ? "settings" : "overview", key };
   }
+  if (first === "map") return { page: "map", id, tab: "", key };
   if (first === "type") {
     if (!id) return { page: "settings", id: "", tab: "", key };
     return { page: "type", id, tab: TYPE_TABS.includes(parts[2]) ? parts[2] : key ? "settings" : "devices", key };
@@ -140,6 +143,7 @@ const PATHS = {
   chev: "M7 5l5 5-5 5",
   arrow: "M4 10h12M11 5l5 5-5 5",
   bolt: "M11 2 4 11h5l-1 7 7-9h-5l1-7Z",
+  map: "M2.5 4h5v4h-5zM2.5 12h5v4h-5zM12.5 8h5v4h-5zM7.5 6H10v8H7.5M10 10h2.5",
 };
 export const Icon = ({ name, class: cls = "ic" }) =>
   html`<svg class=${cls} viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d=${PATHS[name]} /></svg>`;
@@ -300,6 +304,7 @@ function Sidebar({ route, attention }) {
     <button type="button" class="find" onClick=${() => set({ cmdk: true })} aria-keyshortcuts="Control+K"><${Icon} name="search" /><span>Search or jump</span><kbd>Ctrl K</kbd></button>
     <div class="nav">
       <a href="#overview" class=${route.page === "overview" ? "toplink on" : "toplink"}><${Icon} name="home" /><span>Overview</span>${attention.length ? html`<span class=${`n ${attention.some((a) => a.level === "bad") ? "bad" : "warn"}`}>${attention.length}</span>` : null}</a>
+      <a href="#map" class=${route.page === "map" ? "toplink on" : "toplink"}><${Icon} name="map" /><span>Map</span></a>
       ${GROUPS.map((g) => html`<div class="grp" key=${g.key}>
         ${groupHead(g)}
         ${isOpen(g.key)
@@ -586,6 +591,7 @@ function Page({ route, attention }) {
   if (!store.loaded) return html`<div class="loading" aria-busy="true"><span class="spinner"></span> Loading…</div>`;
   switch (route.page) {
     case "overview": return html`<${Overview} attention=${attention} />`;
+    case "map": return html`<${MapPage} id=${route.id} />`;
     case "live": return html`<${Live} tab=${route.tab} />`;
     case "activity": return html`<${History} />`;
     case "clients": return html`<${AllDevices} />`;
@@ -611,6 +617,7 @@ function Page({ route, attention }) {
 function where(route) {
   if (route.page === "device") return clientById(route.id)?.name ?? "Device";
   if (route.page === "type") return typeName(route.id);
+  if (route.page === "map" && route.id) return `Map · ${clientById(route.id)?.name ?? "Device"}`;
   return PAGES[route.page]?.short ?? PAGES[route.page]?.title ?? "";
 }
 
