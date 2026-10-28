@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.58.0 (2026-10-27)
+
+The classic admin page is removed, and firmware releases are checked like the rest.
+
+- `web/admin.html`, `admin.js` and `admin.css` are gone, and `/admin-classic` answers 404 (a server test says so). The new page's sidebar no longer has **Open the classic admin**. A token kept by the classic page still signs in: the keys are the same. `/admin-next` still redirects to `/admin`.
+- `browser-check` drops its classic steps and gets back the one they carried: a running agent task is listed on the admin page under Live > Now and, once over, under Tasks finished. It also checks that no page links to `/admin-classic` and that the address answers 404; the wrong-token and right-token sign-in on `/admin` was already checked.
+- `scripts/release-check.mjs` checks each board's firmware: the CHANGELOG heading and the CLAUDE.md Versions line name the code's version, the `fw-<board>-v<version>` tag exists (a warning when not), and the running hub's `/flash/types.json` offers that version (a failure naming `node scripts/push-firmware.mjs <board>` when not).
+- Firmware releases are tagged `fw-<board>-v<version>` on the commit that set the version: `fw-waveshare-amoled-1.8-v0.20.0` and `fw-waveshare-amoled-1.75-v0.4.1` are the first under this rule. `docs/release.md` has a Firmware section (bump, `pio run`, flash the bench board, `push-firmware.mjs` with or without `--update`, the tag; `/flash` lists only boards whose firmware was pushed); `firmware/README.md` and `CLAUDE.md` point to it.
+
 ## Axis 0.57.0 (2026-10-27)
 
 The new admin page, stage 6 of `docs/admin-revamp/ia.md` section 4.1: the switch.
