@@ -195,3 +195,8 @@ export class FirmwareStore {
     return true;
   }
 }
+
+/** The `update` command's parameters for a build: what a board fetches and checks. */
+export function updateParams(info: FirmwareInfo): { version: string; size: number; md5: string; path: string } {
+  return { version: info.version, size: info.size, md5: info.md5, path: `/v1/firmware/${encodeURIComponent(info.type)}` };
+}

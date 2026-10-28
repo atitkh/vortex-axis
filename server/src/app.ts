@@ -1,8 +1,9 @@
 import { sentDefaults } from "./schema.js";
-import { DesktopApp } from "./desktopapp.js";
+import { DESKTOP_TYPE, DesktopApp, MACOS_DESKTOP_TYPE } from "./desktopapp.js";
 import { QUEST_TYPE, QuestApp } from "./questapp.js";
 import { titleFrom } from "./background.js";
-import { FirmwareStore } from "./firmware.js";
+import { FirmwareStore, updateParams } from "./firmware.js";
+import { Rollouts } from "./rollout.js";
 import { Devices } from "./deviceinfo.js";
 import { importBundledFirmware } from "./bundled.js";
 import { createServer, type Server } from "node:http";
@@ -197,6 +198,25 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   importBundledFirmware(config.bundledDir, firmwareStore, log);
   // The same builds the admin page's attention list compares against: the shelf's current one, or the Quest app.
   const devices = new Devices(store, hub, (type) => (type === QUEST_TYPE ? questApp.build()?.version : firmwareStore.info(type)?.version));
+  // "Update all" for boards: one first, the rest once it is proven. Computers and headsets update themselves.
+  const rollouts = new Rollouts({
+    client: (id) => store.getClient(id),
+    clientIds: () => store.listClients().map((client) => client.id),
+    session: (id) => hub.session(id),
+    busy: (id) => hub.doing().some((now) => now.clientId === id),
+    target: (type) => (type === QUEST_TYPE || type === DESKTOP_TYPE || type === MACOS_DESKTOP_TYPE ? undefined : firmwareStore.info(type)?.version),
+    send: async (id) => {
+      const session = hub.session(id);
+      const info = session ? firmwareStore.info(session.client.type) : undefined;
+      if (!session || !info) throw new Error(session ? "no build is held for it" : "it went offline");
+      const outcome = await hub.command(session, "update", updateParams(info));
+      if (!outcome.ok) throw new Error(outcome.error ?? "refused");
+    },
+    note: (subject, text, level) => activity.note("admin", subject === "rollout" ? "" : subject, text, level),
+    load: () => store.getMeta("rollout"),
+    save: (json) => store.setMeta("rollout", json),
+  });
+  devices.useAttention((id) => rollouts.attention(id));
   const desktops = new Desktops(hub, store, Date.now, {}, () => config.desktopBlocked);
   const timers = new Timers({
     store,
@@ -465,7 +485,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ desktopApp, questApp, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ desktopApp, questApp, rollouts, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -509,6 +529,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     server,
     port,
     async close() {
+      rollouts.close();
       backup.stop();
       progress.stop();
       liveActivities.stop();

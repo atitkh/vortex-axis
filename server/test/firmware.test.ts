@@ -159,4 +159,30 @@ describe("firmware for updates over Wi-Fi", () => {
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatch(/cable/);
   });
+
+  it("runs Update all as a rollout: one board first, one rollout at a time, cancel", async () => {
+    expect((await admin("GET", "/admin/updates/rollout")).body).toEqual({ rollout: null });
+    const desk = await newPairedClient({ type: "board", capabilities: ["speaker"], name: "Desk" });
+    const deskClient = await connect(desk, { type: "board", capabilities: ["speaker"], version: "1.0.0" });
+    await deskClient.next("status");
+    const hall = await newPairedClient({ type: "board", capabilities: ["speaker"], name: "Hall" });
+    const hallClient = await connect(hall, { type: "board", capabilities: ["speaker"], version: "1.0.0" });
+    await hallClient.next("status");
+    expect((await admin("POST", "/admin/updates/rollout", {})).status).toBe(400);
+    await upload("board", "1.2.0", image());
+    expect((await admin("POST", "/admin/updates/rollout", { ids: "x" })).status).toBe(400);
+
+    const started = await admin("POST", "/admin/updates/rollout", {});
+    expect(started.status).toBe(202);
+    expect(started.body.rollout).toMatchObject({ state: "running", stage: "canary" });
+    const first = started.body.rollout.canary === desk.clientId ? deskClient : hallClient;
+    const command = await first.next("command", 0, (m) => m.name === "update");
+    first.send({ t: "command.result", id: command.id, ok: true });
+    expect((await admin("POST", "/admin/updates/rollout", {})).status).toBe(409);
+
+    const cancelled = await admin("POST", "/admin/updates/rollout/cancel");
+    expect(cancelled.body.rollout.state).toBe("stopping");
+    expect(cancelled.body.rollout.devices.map((d: any) => d.status).sort()).toEqual(["skipped", "updating"]);
+    expect((await admin("GET", "/admin/updates/rollout")).body.rollout.reason).toMatch(/cancelled/);
+  });
 });

@@ -124,8 +124,15 @@ export class Devices {
     private readonly now: () => number = Date.now,
   ) {}
 
+  private extra: (clientId: string) => string[] = () => [];
+
+  /** Adds items to every device's attention list (a firmware rollout's held boards). */
+  useAttention(extra: (clientId: string) => string[]): void {
+    this.extra = extra;
+  }
+
   info(client: ClientRecord, doing = this.hub.doing()): DeviceInfo {
-    return deviceInfo(
+    const info = deviceInfo(
       {
         client,
         settings: this.store.resolveSettings(client),
@@ -136,6 +143,8 @@ export class Devices {
       },
       this.now(),
     );
+    info.attention.push(...this.extra(client.id));
+    return info;
   }
 
   all(): DeviceInfo[] {

@@ -24,7 +24,8 @@ import type { ToolAccess } from "./tools.js";
 import { DESKTOP_TYPE, MACOS_DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
 import { QUEST_TYPE, type QuestApp } from "./questapp.js";
 import type { Desktops } from "./desktop.js";
-import { FirmwareStore, MAX_FIRMWARE_BYTES } from "./firmware.js";
+import { FirmwareStore, MAX_FIRMWARE_BYTES, updateParams } from "./firmware.js";
+import { RolloutBusy, type Rollouts } from "./rollout.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
@@ -163,6 +164,8 @@ export interface HttpDeps {
   devices?: Devices;
   /** The desktop app build computers update to. */
   desktopApp?: DesktopApp;
+  /** Staged firmware rollouts ("Update all"). */
+  rollouts?: Rollouts;
   /** The Quest panel client build headsets update to. */
   questApp?: QuestApp;
   /** The computers, for which ones an agent is using. */
@@ -1106,12 +1109,7 @@ export function createHttpHandler(deps: HttpDeps) {
         if (!info) throw new HttpError(404, `no firmware has been uploaded for ${client.type}`);
         let outcome;
         try {
-          outcome = await hub.command(session, "update", {
-            version: info.version,
-            size: info.size,
-            md5: info.md5,
-            path: `/v1/firmware/${encodeURIComponent(info.type)}`,
-          });
+          outcome = await hub.command(session, "update", updateParams(info));
         } catch (error) {
           throw new HttpError(504, (error as Error).message);
         }
@@ -1120,6 +1118,27 @@ export function createHttpHandler(deps: HttpDeps) {
         }
         activity?.note("admin", client.id, `${client.name} told to update from ${client.version} to ${info.version}`);
         return sendJson(res, 202, { client: client.name, from: client.version, to: info.version });
+      }
+      // Staged rollout of board firmware: one board first, the rest once it is proven (rollout.ts).
+      if (parts[1] === "updates" && parts[2] === "rollout" && deps.rollouts) {
+        const rollouts = deps.rollouts;
+        if (method === "GET" && parts.length === 3) return sendJson(res, 200, { rollout: rollouts.view() ?? null });
+        if (method === "POST" && parts.length === 3) {
+          const body = (await readJson(req)) as { ids?: unknown };
+          if (body.ids !== undefined && (!Array.isArray(body.ids) || !body.ids.every((id) => typeof id === "string"))) {
+            throw new HttpError(400, "body must be { ids?: string[] }");
+          }
+          try {
+            const rollout = rollouts.start(body.ids as string[] | undefined);
+            return sendJson(res, 202, { rollout });
+          } catch (error) {
+            throw new HttpError(error instanceof RolloutBusy ? 409 : 400, (error as Error).message);
+          }
+        }
+        if (method === "POST" && parts.length === 4 && parts[3] === "cancel") {
+          if (!rollouts.running()) throw new HttpError(409, "no rollout is running");
+          return sendJson(res, 200, { rollout: rollouts.cancel() });
+        }
       }
       // Says something from the admin page: on one client, in one location, or on every client that can speak.
       if (method === "POST" && parts.length === 2 && parts[1] === "announce" && deps.delivery) {
