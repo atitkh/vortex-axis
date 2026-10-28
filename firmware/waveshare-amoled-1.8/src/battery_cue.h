@@ -32,6 +32,11 @@ void draw(uint32_t now, bool markOn);
  */
 enum class Preview : uint8_t { Off, LowBattery, Charging, Battery };
 void preview(Preview kind, int percent = 0);
+/**
+ * The admin page's battery preview (the `battery.show` command): `percent` (0 to 100), charging or not, for `ms`, then
+ * back to the real state. Charging plays the cue once, then shows the bolt. A newer one, or `preview(Off)`, replaces it.
+ */
+void show(int percent, bool charging, uint32_t ms);
 
 /** One line of what it shows and why, for the console's `power`. */
 void print(Print &out);

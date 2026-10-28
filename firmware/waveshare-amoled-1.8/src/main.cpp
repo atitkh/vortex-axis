@@ -1096,6 +1096,16 @@ void setup() {
             payload["started"] = client.startListening();
             return true;
         }
+        if (!strcmp(name, "battery.show")) {
+            // The admin page's battery preview: what the console's `preview battery N` and `preview charging` show.
+            if (params["off"] | false) {
+                batterycue::preview(batterycue::Preview::Off);
+            } else {
+                batterycue::show((int)(params["percent"] | 12), params["charging"] | false,
+                                 (uint32_t)constrain((int)(params["ms"] | 20000), 2000, 60000));
+            }
+            return true;
+        }
         if (!strcmp(name, "glow.show")) {
             return requestGlow(params["kind"] | "", (uint32_t)constrain((int)(params["ms"] | 5000), 1000, 15000),
                                (int)(params["corner"] | (int)client.settingInt("glowCorner", 56)));

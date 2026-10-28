@@ -42,6 +42,7 @@ bool cueOn = false;
 // The console's preview, handed over from its task.
 volatile uint8_t previewWanted = 0;
 volatile int previewPercent = 0;
+volatile uint32_t previewMs = PREVIEW_MS;
 volatile uint32_t previewRequests = 0;
 uint32_t previewSeen = 0, previewUntil = 0;
 Preview previewShown = Preview::Off;
@@ -85,8 +86,16 @@ void startCue(uint32_t now) {
 }  // namespace
 
 void preview(Preview kind, int value) {
-    previewPercent = value;
+    previewPercent = kind == Preview::LowBattery ? 12 : kind == Preview::Charging ? 64 : value;
+    previewMs = PREVIEW_MS;
     previewWanted = (uint8_t)kind;
+    previewRequests++;
+}
+
+void show(int value, bool charging, uint32_t ms) {
+    previewPercent = constrain(value, 0, 100);
+    previewMs = ms;
+    previewWanted = (uint8_t)(charging ? Preview::Charging : Preview::Battery);
     previewRequests++;
 }
 
@@ -95,9 +104,10 @@ void update(const power::Reading &reading, uint32_t readAt, uint32_t now, int lo
     if (previewRequests != previewSeen) {
         previewSeen = previewRequests;
         previewShown = (Preview)previewWanted;
-        previewUntil = now + PREVIEW_MS;
+        previewUntil = now + previewMs;
         low = false;
         cueOn = false;
+        haveCharging = false;  // after it, the real state is taken as it stands, without a cue
         if (previewShown == Preview::Charging) startCue(now);
     }
     if (previewShown != Preview::Off && (int32_t)(now - previewUntil) >= 0) {
@@ -108,7 +118,7 @@ void update(const power::Reading &reading, uint32_t readAt, uint32_t now, int lo
     if (previewShown != Preview::Off) {
         fresh = true;
         charging = previewShown == Preview::Charging;
-        percent = previewShown == Preview::LowBattery ? 12 : previewShown == Preview::Charging ? 64 : constrain((int)previewPercent, 0, 100);
+        percent = constrain((int)previewPercent, 0, 100);
         if (previewShown == Preview::LowBattery) {
             low = true;
         } else if (charging || lowBelow <= 0) {

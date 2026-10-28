@@ -202,3 +202,77 @@ describe("renaming a client", () => {
     expect((await admin("PATCH", "/admin/clients/c_nobody", { name: "X" })).status).toBe(404);
   });
 });
+
+describe("the battery preview on a device", () => {
+  const withBattery: Describe = {
+    ...description,
+    settings: [...description.settings!, { key: "lowBatteryBelow", label: "Low battery look", kind: "number", min: 0, max: 30, default: 15 }],
+  };
+
+  it("needs the admin token", async () => {
+    const { identity } = await board();
+    expect((await admin("POST", `/admin/clients/${identity.clientId}/battery`, {}, "wrong")).status).toBe(401);
+  });
+
+  it("is refused on a client with no battery look", async () => {
+    const { client, identity } = await board();
+    client.send(description);
+    await described("board");
+    const result = await admin("POST", `/admin/clients/${identity.clientId}/battery`, {});
+    expect(result.status).toBe(400);
+    expect(result.body.error).toMatch(/no battery look/);
+  });
+
+  it("checks what it is given", async () => {
+    const { client, identity } = await board();
+    client.send(withBattery);
+    await described("board");
+    for (const body of [{ percent: 101 }, { percent: -1 }, { percent: "12" }, { charging: "yes" }, { off: 1 }, { ms: "5000" }]) {
+      expect((await admin("POST", `/admin/clients/${identity.clientId}/battery`, body)).status).toBe(400);
+    }
+  });
+
+  it("sends battery.show with the defaults filled in", async () => {
+    const { client, identity } = await board();
+    client.send(withBattery);
+    await described("board");
+    const pending = admin("POST", `/admin/clients/${identity.clientId}/battery`, {});
+    const command = await client.next("command");
+    expect(command).toMatchObject({ name: "battery.show", params: { percent: 12, charging: false, ms: 20000, off: false } });
+    client.send({ t: "command.result", id: command.id, ok: true });
+    const result = await pending;
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ ok: true });
+  });
+
+  it("passes the fields on, with ms kept to 2 to 60 seconds", async () => {
+    const { client, identity } = await board();
+    client.send(withBattery);
+    await described("board");
+    const long = admin("POST", `/admin/clients/${identity.clientId}/battery`, { percent: 64, charging: true, ms: 999999 });
+    const first = await client.next("command");
+    expect(first).toMatchObject({ name: "battery.show", params: { percent: 64, charging: true, ms: 60000, off: false } });
+    client.send({ t: "command.result", id: first.id, ok: true });
+    await long;
+    const off = admin("POST", `/admin/clients/${identity.clientId}/battery`, { off: true, ms: 10 });
+    const second = await client.next("command", 0, (m) => m.id !== first.id);
+    expect(second).toMatchObject({ name: "battery.show", params: { off: true, ms: 2000 } });
+    client.send({ t: "command.result", id: second.id, ok: true });
+    expect((await off).status).toBe(200);
+  });
+
+  it("passes on an older board's not implemented", async () => {
+    const { client, identity } = await board();
+    client.send(withBattery);
+    await described("board");
+    const pending = admin("POST", `/admin/clients/${identity.clientId}/battery`, { percent: 5 });
+    const command = await client.next("command");
+    client.send({ t: "command.result", id: command.id, ok: false, error: "not implemented on this device" });
+    expect((await pending).body).toMatchObject({ ok: false, error: "not implemented on this device" });
+  });
+
+  it("is refused while the device is offline", async () => {
+    const identity = await newPairedClient({ capabilities: ["screen"] });
+    expect((await admin("POST", `/admin/clients/${identity.clientId}/battery`, {})).status).toBe(409);
+  });
+});

@@ -827,6 +827,29 @@ export function createHttpHandler(deps: HttpDeps) {
           throw new HttpError(504, (error as Error).message);
         }
       }
+      // The battery's looks shown on a board for a while (a made-up percent, charging or not), from the admin page's battery preview.
+      if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "battery") {
+        const { client, session } = requireOnline(parts[2]!);
+        const body = (await readJson(req)) as { percent?: unknown; charging?: unknown; ms?: unknown; off?: unknown };
+        if (body.percent !== undefined && (typeof body.percent !== "number" || !Number.isFinite(body.percent) || body.percent < 0 || body.percent > 100)) {
+          throw new HttpError(400, "percent must be a number from 0 to 100");
+        }
+        if (body.charging !== undefined && typeof body.charging !== "boolean") throw new HttpError(400, "charging must be true or false");
+        if (body.off !== undefined && typeof body.off !== "boolean") throw new HttpError(400, "off must be true or false");
+        if (body.ms !== undefined && (typeof body.ms !== "number" || !Number.isFinite(body.ms))) throw new HttpError(400, "ms must be a number");
+        // Only a board with the battery look says so, by its lowBatteryBelow setting.
+        if (!withBuiltIns(store.getSchema(client.type)).settings.some((s) => s.key === "lowBatteryBelow")) {
+          throw new HttpError(400, `${client.name} has no battery look`);
+        }
+        const percent = Math.round((body.percent as number | undefined) ?? 12);
+        const ms = Math.min(60_000, Math.max(2_000, Math.round((body.ms as number | undefined) ?? 20_000)));
+        const args = { percent, charging: (body.charging as boolean | undefined) ?? false, ms, off: (body.off as boolean | undefined) ?? false };
+        try {
+          return sendJson(res, 200, await hub.command(session, "battery.show", args, 5000));
+        } catch (error) {
+          throw new HttpError(504, (error as Error).message);
+        }
+      }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "announce") {
         const { client, session } = requireOnline(parts[2]!);
         const body = (await readJson(req)) as { text?: unknown };
