@@ -16,6 +16,7 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <stdarg.h>
+#include <climits>
 #include <mbedtls/platform.h>
 
 #include "vad.h"
@@ -36,6 +37,14 @@ const uint32_t JOIN_TIMEOUT_MS = 45000;
 // A router outage must not strand the device in setup mode either: with saved
 // credentials and nobody on the setup network, it goes back to trying them.
 const uint32_t SETUP_IDLE_RETRY_MS = 5 * 60 * 1000;
+// Saved networks, most recently joined first, in a namespace of their own so a
+// reset of the settings keeps them. Each one in range gets this long to join
+// when there are several to try; a lone one gets JOIN_TIMEOUT_MS as before.
+const char *const NETS_PREFS = "axisnets";
+const int MAX_NETWORKS = 5;
+const uint32_t TRY_NETWORK_MS = 12000;
+// Off a network it was on, the device looks around again this often.
+const uint32_t RESCAN_MS = 60000;
 const uint32_t PAIR_RETRY_MS = 5000;
 const uint32_t SENSE_INTERVAL_MS = 60000;
 // The largest picture accepted over the socket; Axis sends screen-sized JPEGs of a few tens of KB.
@@ -240,6 +249,22 @@ struct Client::Impl {
     uint32_t joinStartedAt = 0;
     uint32_t setupStartedAt = 0;
     String networkOptions;
+    // Disconnects count as failed joins only while a join is being tried.
+    bool joining = false;
+    uint32_t attemptMs = JOIN_TIMEOUT_MS;
+    uint32_t droppedAt = 0;
+    struct Network {
+        String ssid, pass;
+    };
+    Network nets[MAX_NETWORKS];
+    int netCount = 0;
+    // False until the list is safely in NVS; until then the device joins
+    // with what the Wi-Fi driver keeps, exactly as before the list existed.
+    bool netsReady = false;
+    int tryOrder[MAX_NETWORKS] = {};
+    int tryCount = 0, tryNext = 0;
+    uint32_t planAt = 0;
+    String joinedSsid;
 
     bool socketStarted = false;
     bool welcomed = false;
@@ -395,9 +420,20 @@ struct Client::Impl {
     // --- Wi-Fi -------------------------------------------------------------
 
     String savedNetwork() {
+        String ssid, pass;
+        return driverNetwork(ssid, pass) ? ssid : "";
+    }
+
+    // The network the Wi-Fi driver keeps: the last one it was asked to join.
+    bool driverNetwork(String &ssid, String &pass) {
         wifi_config_t config;
-        if (esp_wifi_get_config(WIFI_IF_STA, &config) != ESP_OK) return "";
-        return String((const char *)config.sta.ssid);
+        if (esp_wifi_get_config(WIFI_IF_STA, &config) != ESP_OK) return false;
+        char s[sizeof config.sta.ssid + 1] = {}, p[sizeof config.sta.password + 1] = {};
+        memcpy(s, config.sta.ssid, sizeof config.sta.ssid);
+        memcpy(p, config.sta.password, sizeof config.sta.password);
+        ssid = s;
+        pass = p;
+        return true;
     }
 
     String setupNetworkName() {
@@ -408,6 +444,119 @@ struct Client::Impl {
         return name;
     }
 
+    // --- saved networks ----------------------------------------------------
+
+    bool hasNetworks() { return netsReady ? netCount > 0 : !savedNetwork().isEmpty(); }
+
+    int findNetwork(const String &ssid) {
+        for (int i = 0; i < netCount; i++)
+            if (nets[i].ssid == ssid) return i;
+        return -1;
+    }
+
+    bool storeNetworks() {
+        Preferences p;
+        if (!p.begin(NETS_PREFS, false)) return false;
+        bool ok = p.putUChar("n", netCount) == 1;
+        for (int i = 0; i < MAX_NETWORKS; i++) {
+            char sk[4], pk[4];
+            snprintf(sk, sizeof sk, "s%d", i);
+            snprintf(pk, sizeof pk, "p%d", i);
+            if (i < netCount) {
+                ok = ok && p.putString(sk, nets[i].ssid) > 0;
+                p.putString(pk, nets[i].pass);
+                ok = ok && p.getString(pk, "\x01") == nets[i].pass;
+            } else {
+                if (p.isKey(sk)) p.remove(sk);
+                if (p.isKey(pk)) p.remove(pk);
+            }
+        }
+        p.end();
+        return ok;
+    }
+
+    /**
+     * Reads the saved networks. On the first start with a list, the network
+     * the Wi-Fi driver keeps becomes its first entry. If the list cannot be
+     * stored, `netsReady` stays false and the device joins as it did before.
+     */
+    void loadNetworks() {
+        Preferences p;
+        if (!p.begin(NETS_PREFS, false)) return logf("network list cannot be opened; joining as before");
+        const bool migrated = p.getBool("migrated", false);
+        const int n = min((int)p.getUChar("n", 0), MAX_NETWORKS);
+        netCount = 0;
+        for (int i = 0; i < n; i++) {
+            char sk[4], pk[4];
+            snprintf(sk, sizeof sk, "s%d", i);
+            snprintf(pk, sizeof pk, "p%d", i);
+            const String ssid = p.getString(sk, "");
+            if (!ssid.isEmpty()) nets[netCount++] = {ssid, p.getString(pk, "")};
+        }
+        p.end();
+        if (migrated) {
+            netsReady = true;
+            return;
+        }
+        // Without the driver's network in hand the list is not started, so it is not lost.
+        String ssid, pass;
+        if (!driverNetwork(ssid, pass)) return logf("saved network cannot be read; joining as before");
+        if (!ssid.isEmpty() && findNetwork(ssid) < 0) {
+            for (int i = min(netCount, MAX_NETWORKS - 1); i > 0; i--) nets[i] = nets[i - 1];
+            nets[0] = {ssid, pass};
+            if (netCount < MAX_NETWORKS) netCount++;
+        }
+        if (!storeNetworks() || !p.begin(NETS_PREFS, false)) return logf("network list cannot be saved; joining as before");
+        netsReady = p.putBool("migrated", true);
+        p.end();
+        if (!netsReady) return logf("network list cannot be saved; joining as before");
+        logf("network list started with %d network%s", netCount, netCount == 1 ? "" : "s");
+    }
+
+    /**
+     * Puts a network first (a join worked) or, with `atEnd`, adds it last
+     * without joining. A full list drops its oldest for a join and refuses an
+     * add. A known name gets the new password and, for a join, moves first.
+     */
+    bool rememberNetwork(const String &ssid, const String &pass, bool atEnd) {
+        if (!netsReady || ssid.isEmpty()) return false;
+        const int at = findNetwork(ssid);
+        if (atEnd) {
+            if (at >= 0) {
+                if (nets[at].pass == pass) return true;
+                nets[at].pass = pass;
+            } else {
+                if (netCount >= MAX_NETWORKS) return false;
+                nets[netCount++] = {ssid, pass};
+            }
+            return storeNetworks();
+        }
+        if (at == 0 && nets[0].pass == pass) return true;
+        for (int i = at >= 0 ? at : min(netCount, MAX_NETWORKS - 1); i > 0; i--) nets[i] = nets[i - 1];
+        nets[0] = {ssid, pass};
+        if (at < 0 && netCount < MAX_NETWORKS) netCount++;
+        return storeNetworks();
+    }
+
+    bool forgetNetwork(const String &ssid) {
+        const int at = findNetwork(ssid);
+        if (!netsReady || at < 0) return false;
+        for (int i = at; i < netCount - 1; i++) nets[i] = nets[i + 1];
+        netCount--;
+        return storeNetworks();
+    }
+
+    void forgetAllNetworks() {
+        Preferences p;
+        if (p.begin(NETS_PREFS, false)) {
+            p.clear();
+            p.end();
+        }
+        netCount = 0;
+    }
+
+    // --- joining -----------------------------------------------------------
+
     void join(const char *ssid = nullptr, const char *password = nullptr) {
         if (setupMode) {
             dns.stop();
@@ -415,28 +564,83 @@ struct Client::Impl {
             setupMode = false;
         }
         WiFi.mode(WIFI_STA);
+        tryCount = tryNext = 0;
+        if (ssid) return attempt(ssid, password, JOIN_TIMEOUT_MS);
+        if (!netsReady) return attempt(nullptr, nullptr, JOIN_TIMEOUT_MS);
+        planJoin();
+        if (tryCount == 0) return startSetup("");
+        tryNextNetwork();
+    }
+
+    // One join; `ms` is how long it gets before the next network, or the setup network.
+    void attempt(const char *ssid, const char *password, uint32_t ms) {
         if (ssid) WiFi.begin(ssid, password);
         else WiFi.begin();
+        joining = true;
+        joinedSsid = "";
         joinFailures = 0;
         joinStartedAt = millis();
+        attemptMs = ms;
         logf("joining Wi-Fi \"%s\"", ssid ? ssid : savedNetwork().c_str());
         setLink(Link::WifiConnecting, "");
     }
 
-    void scanNetworks() {
-        networkOptions = "";
+    void tryNextNetwork() {
+        const Network &n = nets[tryOrder[tryNext++]];
+        attempt(n.ssid.c_str(), n.pass.c_str(), tryCount > 1 ? TRY_NETWORK_MS : JOIN_TIMEOUT_MS);
+    }
+
+    /**
+     * Looks around and lines up the saved networks in range, strongest first.
+     * With none in sight (a hidden network, or a failed scan) the most recent
+     * one is tried anyway, as the one network was before there was a list.
+     */
+    void planJoin() {
+        tryCount = tryNext = 0;
+        planAt = millis();
+        if (netCount == 0) return;
+        joining = false;
+        // A scan cannot run while the driver is busy reconnecting; leaving on purpose stops that.
+        if (WiFi.status() != WL_CONNECTED) WiFi.disconnect(false, false);
         const int found = WiFi.scanNetworks();
+        int best[MAX_NETWORKS];
+        for (int i = 0; i < netCount; i++) best[i] = INT_MIN;
+        for (int j = 0; j < found; j++) {
+            const int k = findNetwork(WiFi.SSID(j));
+            if (k >= 0 && WiFi.RSSI(j) > best[k]) best[k] = WiFi.RSSI(j);
+        }
+        fillNetworkOptions(found);
+        WiFi.scanDelete();
+        for (int i = 0; i < netCount; i++) {
+            if (best[i] == INT_MIN) continue;
+            int at = tryCount++;
+            for (; at > 0 && best[tryOrder[at - 1]] < best[i]; at--) tryOrder[at] = tryOrder[at - 1];
+            tryOrder[at] = i;
+        }
+        String seen;
+        for (int i = 0; i < tryCount; i++) seen += (i ? ", \"" : "\"") + nets[tryOrder[i]].ssid + "\" " + best[tryOrder[i]];
+        logf("Wi-Fi scan: %d around, saved in range: %s", found, seen.isEmpty() ? "none" : seen.c_str());
+        if (tryCount == 0) tryOrder[tryCount++] = 0;
+    }
+
+    void fillNetworkOptions(int found) {
+        networkOptions = "";
         for (int i = 0; i < found && i < 20; i++) {
             const String name = htmlEscape(WiFi.SSID(i));
             if (name.isEmpty() || networkOptions.indexOf("\"" + name + "\"") >= 0) continue;
             networkOptions += "<option value=\"" + name + "\">" + name + "</option>";
         }
+    }
+
+    void scanNetworks() {
+        fillNetworkOptions(WiFi.scanNetworks());
         WiFi.scanDelete();
     }
 
     void startSetup(const String &why) {
         stopSocket();
         const String name = setupNetworkName();
+        joining = false;
         WiFi.mode(WIFI_AP_STA);
         WiFi.disconnect(false, false);
         WiFi.softAP(name.c_str());
@@ -457,20 +661,46 @@ struct Client::Impl {
     void wifiTick() {
         if (setupMode) {
             if (WiFi.softAPgetStationNum() > 0) setupStartedAt = millis();
-            if (!savedNetwork().isEmpty() && millis() - setupStartedAt > SETUP_IDLE_RETRY_MS) join();
+            if (hasNetworks() && millis() - setupStartedAt > SETUP_IDLE_RETRY_MS) join();
             return;
         }
         if (WiFi.status() == WL_CONNECTED) {
+            joining = false;
+            droppedAt = 0;
+            tryCount = tryNext = 0;
             if (!everJoined || state.address != WiFi.localIP().toString()) {
                 everJoined = true;
                 logf("Wi-Fi up, address %s", WiFi.localIP().toString().c_str());
                 update([&](Snapshot &s) { s.address = WiFi.localIP().toString(); });
             }
+            String ssid, pass;
+            if (netsReady && joinedSsid.isEmpty() && driverNetwork(ssid, pass)) {
+                joinedSsid = ssid;
+                if (!rememberNetwork(ssid, pass, false)) logf("could not save \"%s\" in the network list", ssid.c_str());
+            }
             return;
         }
-        if (!everJoined && (joinFailures >= JOIN_FAILURES_BEFORE_SETUP || millis() - joinStartedAt > JOIN_TIMEOUT_MS)) {
-            startSetup("Could not join \"" + savedNetwork() + "\"");
+        if (everJoined && droppedAt == 0) {
+            // Dropped: the driver reconnects on its own for a while before the device looks around.
+            droppedAt = millis();
+            joinedSsid = "";
+            joining = false;
+            joinStartedAt = millis();
+            attemptMs = JOIN_TIMEOUT_MS;
+            return;
         }
+        if (!(joining && joinFailures >= JOIN_FAILURES_BEFORE_SETUP) && millis() - joinStartedAt <= attemptMs) return;
+        if (tryNext < tryCount) return tryNextNetwork();
+        if (!everJoined) {
+            String tried;
+            if (!netsReady || tryCount == 0) tried = "\"" + savedNetwork() + "\"";
+            for (int i = 0; i < tryCount; i++) tried += (i ? ", \"" : "\"") + nets[tryOrder[i]].ssid + "\"";
+            return startSetup("Could not join " + tried);
+        }
+        // As before, a device that was online never opens its setup network by itself.
+        if (!netsReady || millis() - planAt < RESCAN_MS) return;
+        planJoin();
+        if (tryCount) tryNextNetwork();
     }
 
     // --- the device's own setup page ---------------------------------------
@@ -488,13 +718,23 @@ struct Client::Impl {
         if (!baseUrl.isEmpty()) html += " &middot; Axis at " + htmlEscape(baseUrl);
         html += "</small></p><form method=post action=/save>";
         html += "<label>Wi-Fi network</label><select name=ssid><option value=''>";
-        html += savedNetwork().isEmpty() ? "choose" : "keep \"" + htmlEscape(savedNetwork()) + "\"";
+        html += hasNetworks() ? "keep the saved networks" : "choose";
         html += "</option>" + networkOptions + "</select>";
         html += F("<label>or type its name</label><input name=ssid2 autocapitalize=off autocorrect=off>"
                   "<label>Wi-Fi password</label><input name=pass type=password>"
                   "<label>Setup string from the Axis admin page</label><input name=setup autocapitalize=off autocorrect=off placeholder='axis://address:port/code'>"
                   "<small>Leave a field empty to keep what the device already has.</small>"
-                  "<button>Save</button></form><p><a href='/?rescan=1' style='color:#19b8c9'>Search for networks again</a> &middot; <a href='/logs' style='color:#19b8c9'>Device log</a></p>");
+                  "<button>Save</button></form>");
+        // Names only: a saved password never leaves the device.
+        if (netsReady && netCount > 0) {
+            html += "<label>Saved networks, joined when in range (up to " + String(MAX_NETWORKS) + ")</label>";
+            for (int i = 0; i < netCount; i++) {
+                const String name = htmlEscape(nets[i].ssid);
+                html += "<form method=post action=/forget style='display:flex;gap:.5em;align-items:center'><span style='flex:1'>" + name +
+                        "</span><input type=hidden name=ssid value=\"" + name + "\"><button style='width:auto;margin:.2em 0'>Forget</button></form>";
+            }
+        }
+        html += F("<p><a href='/?rescan=1' style='color:#19b8c9'>Search for networks again</a> &middot; <a href='/logs' style='color:#19b8c9'>Device log</a></p>");
         return html;
     }
 
@@ -507,7 +747,10 @@ struct Client::Impl {
             String ssid = web.arg("ssid2");
             ssid.trim();
             if (ssid.isEmpty()) ssid = web.arg("ssid");
-            const String pass = web.arg("pass");
+            String pass = web.arg("pass");
+            // An empty password for a saved network keeps the saved one.
+            const int saved = netsReady && pass.isEmpty() ? findNetwork(ssid) : -1;
+            if (saved >= 0) pass = nets[saved].pass;
             String setup = web.arg("setup");
             setup.trim();
             String message;
@@ -518,7 +761,7 @@ struct Client::Impl {
                 }
                 message = "Setup string saved. ";
             }
-            if (!ssid.isEmpty()) message += "Joining \"" + ssid + "\". This page stops working when the device leaves its setup network; watch its screen.";
+            if (!ssid.isEmpty()) message += "Joining \"" + ssid + "\"; it is saved once joined. This page stops working when the device leaves its setup network; watch its screen.";
             else if (message.isEmpty()) message = "Nothing to change.";
             web.send(200, "text/html", page(message));
             if (!ssid.isEmpty()) {
@@ -526,6 +769,12 @@ struct Client::Impl {
                 everJoined = false;
                 join(ssid.c_str(), pass.c_str());
             }
+        });
+        web.on("/forget", HTTP_POST, [this] {
+            const String ssid = web.arg("ssid");
+            const bool done = forgetNetwork(ssid);
+            if (done) logf("Wi-Fi \"%s\" forgotten from the setup page", ssid.c_str());
+            web.send(200, "text/html", page(done ? "Forgot \"" + ssid + "\"." : "\"" + ssid + "\" is not saved."));
         });
         // The last stretch of the device's log, as plain text. `?tail=N` limits it to the last N bytes.
         web.on("/logs", HTTP_GET, [this] {
@@ -871,7 +1120,10 @@ struct Client::Impl {
         wk.begin(WAKE_PREFS, false);
         wk.clear();
         if (mountFiles()) LittleFS.remove(WAKE_FILE);
-        if (wifiToo) WiFi.disconnect(true, true);
+        if (wifiToo) {
+            forgetAllNetworks();
+            WiFi.disconnect(true, true);
+        }
         delay(300);
         ESP.restart();
     }
@@ -1451,6 +1703,8 @@ struct Client::Impl {
             JsonDocument doc;
             doc["t"] = "sense";
             doc["readings"]["rssi"] = WiFi.RSSI();
+            doc["readings"]["wifi"] = WiFi.SSID();
+            doc["readings"]["wifiNetworks"] = netsReady ? netCount : (int)hasNetworks();
             doc["readings"]["heap"] = ESP.getFreeHeap();
             doc["readings"]["uptimeS"] = millis() / 1000;
             doc["readings"]["axis"] = baseUrl;
@@ -1739,6 +1993,40 @@ struct Client::Impl {
         }
     }
 
+    // `wifi`, `wifi scan`, `wifi add <name> <password>`, `wifi forget <name>`. Passwords are never printed.
+    void wifiCommand(const String &rest) {
+        if (rest.isEmpty()) {
+            const bool up = WiFi.status() == WL_CONNECTED;
+            logf("Wi-Fi %s, %d saved (up to %d)%s", up ? ("on \"" + WiFi.SSID() + "\", signal " + String(WiFi.RSSI()) + " dBm").c_str() : "not connected",
+                 netsReady ? netCount : (int)hasNetworks(), MAX_NETWORKS, netsReady ? "" : "; list not in use, the driver's one network is joined");
+            if (!netsReady && hasNetworks()) logf("  1. \"%s\"", savedNetwork().c_str());
+            for (int i = 0; netsReady && i < netCount; i++)
+                logf("  %d. \"%s\"%s%s", i + 1, nets[i].ssid.c_str(), nets[i].pass.isEmpty() ? " (open)" : "", up && nets[i].ssid == WiFi.SSID() ? " (current)" : "");
+        } else if (rest == "scan") {
+            const int found = WiFi.scanNetworks();
+            logf("Wi-Fi scan: %d around", found);
+            for (int i = 0; i < found && i < 20; i++)
+                logf("  \"%s\" %d dBm ch %d%s%s", WiFi.SSID(i).c_str(), (int)WiFi.RSSI(i), (int)WiFi.channel(i),
+                     WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? " open" : "", findNetwork(WiFi.SSID(i)) >= 0 ? " (saved)" : "");
+            WiFi.scanDelete();
+        } else if (rest.startsWith("add ")) {
+            // The password is everything after the last space, so names with spaces work; no space means an open network.
+            String arg = rest.substring(4);
+            arg.trim();
+            const int split = arg.lastIndexOf(' ');
+            const String ssid = split < 0 ? arg : arg.substring(0, split);
+            const String pass = split < 0 ? "" : arg.substring(split + 1);
+            if (!netsReady) logf("network list not in use on this device");
+            else if (rememberNetwork(ssid, pass, true)) logf("Wi-Fi \"%s\" saved; joined when in range", ssid.c_str());
+            else logf("Wi-Fi \"%s\" not saved: %d networks already, forget one first", ssid.c_str(), netCount);
+        } else {
+            String ssid = rest.substring(7);
+            ssid.trim();
+            if (!forgetNetwork(ssid)) return logf("Wi-Fi \"%s\" is not saved", ssid.c_str());
+            logf("Wi-Fi \"%s\" forgotten%s", ssid.c_str(), WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid ? "; staying on it until it drops or the device restarts" : "");
+        }
+    }
+
     void onConsole(const String &line) {
         const int space = line.indexOf(' ');
         const String word = space < 0 ? line : line.substring(0, space);
@@ -1750,7 +2038,9 @@ struct Client::Impl {
                  links[(int)state.link], savedNetwork().c_str(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
                  baseUrl.c_str(), state.name.c_str(), (unsigned)settingsVersion, (unsigned)ESP.getFreeHeap(),
                  (unsigned)ESP.getMinFreeHeap(), state.note.c_str());
-        } else if (word == "wifi" && !rest.isEmpty()) {
+        } else if (word == "wifi" && (rest.isEmpty() || rest == "scan" || rest.startsWith("add ") || rest.startsWith("forget "))) {
+            wifiCommand(rest);
+        } else if (word == "wifi") {
             // The password is everything after the last space, so names with spaces work.
             const int split = rest.lastIndexOf(' ');
             everJoined = false;
@@ -1775,6 +2065,7 @@ struct Client::Impl {
                  (unsigned)m.onset, (unsigned)m.peak, (unsigned)m.dropped);
         } else if (word == "forget") {
             if (rest == "wifi") {
+                forgetAllNetworks();
                 WiFi.disconnect(false, true);
                 everJoined = false;
                 startSetup("");
@@ -1799,7 +2090,7 @@ struct Client::Impl {
         } else if (self.consoleHandler_ && self.consoleHandler_(word, rest)) {
             // the board handled it
         } else {
-            logf("commands: status | wifi <name> <password> | setup <axis://...> | text <words> | talk | mic | stop | forget [wifi] | tlscheck <https://...> | reboot");
+            logf("commands: status | wifi [scan | add <name> <password> | forget <name>] | wifi <name> <password> | setup <axis://...> | text <words> | talk | mic | stop | forget [wifi] | tlscheck <https://...> | reboot");
         }
     }
 
@@ -1813,12 +2104,13 @@ struct Client::Impl {
         WiFi.setHostname(setupNetworkName().c_str());
         WiFi.onEvent([this](arduino_event_id_t, arduino_event_info_t info) {
             const uint8_t reason = info.wifi_sta_disconnected.reason;
-            if (!everJoined) joinFailures++;
+            if (joining) joinFailures++;
             logf("Wi-Fi disconnected, reason %u %s", reason, disconnectReason(reason));
         }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
+        loadNetworks();
         startWeb();
-        if (savedNetwork().isEmpty()) startSetup("");
+        if (!hasNetworks()) startSetup("");
         else join();
 
         for (;;) {
