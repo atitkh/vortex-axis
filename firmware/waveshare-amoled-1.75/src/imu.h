@@ -1,5 +1,5 @@
 #pragma once
-// The QMI8658 motion sensor, used only to tell which way up the board is.
+// The QMI8658 motion sensor: which way up the board is, and how often it was picked up.
 // Polled from the main loop, the same place the touch controller is read, so
 // the I2C bus is never used from two tasks at once.
 #include <Arduino.h>
@@ -16,6 +16,8 @@ void tick();
  * before the first steady reading.
  */
 int orientation();
+/** Times the board was picked up since it started (see PICKUP_G in imu.cpp). */
+uint32_t pickups();
 /** Gravity along the board's three axes, in thousandths of g, for tuning. */
 void read(int &x, int &y, int &z);
 

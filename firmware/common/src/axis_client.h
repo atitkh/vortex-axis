@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.20.1"
+#define AXIS_FIRMWARE_VERSION "0.21.0"
 #endif
 
 namespace axis {
@@ -189,9 +189,15 @@ class Client {
 
     /**
      * A number about this board for Axis to show, sent with the regular readings: for example its
-     * screen size. `key` must outlive the client (a string literal). A change is sent straight away.
+     * screen size. `key` must outlive the client (a string literal). A change is sent straight away,
+     * unless `soon` is false (a value that drifts, such as a temperature): then it goes with the next
+     * regular readings, about a minute later at most.
      */
-    void setReading(const char *key, long value);
+    void setReading(const char *key, long value, bool soon = true);
+    /** Stops sending a reading, for a value that is no longer known (a battery taken out). */
+    void clearReading(const char *key);
+    /** Turns this device has started since it started (a voice turn whose audio went out to Axis). */
+    uint32_t turnsStarted() const { return turnsStarted_; }
 
     void onCommand(CommandHandler handler) { commandHandler_ = handler; }
 
@@ -283,6 +289,7 @@ class Client {
     volatile bool online_ = false;
     /** True while the device is playing Axis's voice; its own sound must not pass for the room. */
     volatile bool speaking_ = false;
+    volatile uint32_t turnsStarted_ = 0;
     CommandHandler commandHandler_;
     ConsoleHandler consoleHandler_;
     std::function<void()> listenCue_;

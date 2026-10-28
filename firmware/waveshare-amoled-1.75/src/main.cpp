@@ -14,6 +14,9 @@
 #include "mic.h"
 #include "speaker.h"
 #include "imu.h"
+#include "axis_power.h"
+#include <Wire.h>
+#include "pins.h"
 #include "touch.h"
 #include "vortex.h"
 #include <JPEGDEC.h>
@@ -329,6 +332,10 @@ static uint32_t edgesUntil = 0;
 static volatile uint32_t shotRequests = 0;
 // The console's `fps`: the frame rate since the last time it was asked, printed by the screen loop.
 static volatile uint32_t fpsRequests = 0, benchRequests = 0;
+// The console's `i2c`: the screen loop lists what answers on the shared bus (it owns the bus).
+static volatile uint32_t i2cRequests = 0;
+// Taps the board acted on since it started, sent as touchesToday (it has no clock of its own to tell the day by).
+static uint32_t touches = 0;
 static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicros = 0;
 // A JPEG sent over the cable (`pcm picture`), shown by the screen loop.
 static const uint8_t *volatile testPicture = nullptr;
@@ -955,6 +962,7 @@ static void onGesture(touch::Gesture g) {
 
 /** A tap on a button answers the question. A tap anywhere else does nothing. */
 static void onAskTap(const AskLayout &l) {
+    touches++;
     int px = 0, py = 0, x = 0, y = 0;
     touch::tapPoint(px, py);
     display::toLogical(px, py, x, y);
@@ -977,6 +985,7 @@ static void onAskTap(const AskLayout &l) {
  * the same as interrupting speech.
  */
 static void onTap() {
+    touches++;
     // A task with named steps: a tap anywhere under the face lists them, and another puts the list away.
     // The line alone was too small to hit. A tap on the face still starts listening.
     const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
@@ -1121,6 +1130,7 @@ void setup() {
     logOut.printf("[boot] microphone %s, wake word %s, touch %s, heap %u\n", hasMic ? "started" : "FAILED",
                      wakeOk ? "loaded" : "NOT loaded", touch::begin() ? "found" : "NOT FOUND", (unsigned)ESP.getFreeHeap());
     logOut.printf("[boot] motion sensor %s\n", imu::begin() ? "found" : "NOT FOUND");
+    logOut.printf("[boot] power chip %s\n", power::begin(ADDR_PMIC) ? "AXP2101 found" : "NOT FOUND");
     // Actions the admin page can send.
     client.onCommand([](const char *name, JsonObjectConst params, JsonObject payload) {
         if (!strcmp(name, "cue")) {
@@ -1179,6 +1189,16 @@ void setup() {
     });
     // Serial-only helpers for testing without anybody in the room.
     client.onConsole([](const String &word, const String &rest) {
+        if (word == "power") {
+            power::print(logOut);
+            logOut.printf("[usage] since the start: %lu pickups, %lu taps, %lu turns\n", (unsigned long)imu::pickups(),
+                          (unsigned long)touches, (unsigned long)client.turnsStarted());
+            return true;
+        }
+        if (word == "i2c") {
+            i2cRequests++;
+            return true;
+        }
         if (word == "chime") {
             speaker::chime();
             return true;
@@ -1348,6 +1368,10 @@ void loop() {
     client.setReading("screenH", display::height());
     client.setReading("screenRound", 1);  // and that it is round, so it is drawn as a circle there
     client.setReading("gestures", 1);  // says it can send them, so Axis gives it a Gesture entity
+    // Use since the start (the board does not know the local day); see firmware/README.md.
+    client.setReading("pickupsToday", imu::pickups());
+    client.setReading("touchesToday", touches);
+    client.setReading("turnsToday", client.turnsStarted());
     static uint32_t lastFrame = 0, lastText = 0, lastReport = 0, frames = 0, drawMicros = 0, renderMicros = 0;
     const uint32_t started = millis();
     if (started - lastFrame < FRAME_MS) return delay(1);
@@ -1519,6 +1543,17 @@ void loop() {
 
     // Turning the device over turns the picture, once it has stayed that way for a moment.
     imu::tick();
+    if (power::tick()) power::report(client);
+    static uint32_t seenI2c = 0;
+    if (i2cRequests != seenI2c) {
+        seenI2c = i2cRequests;
+        logOut.print("[i2c] answering:");
+        for (uint8_t a = 1; a < 127; a++) {
+            Wire.beginTransmission(a);
+            if (Wire.endTransmission() == 0) logOut.printf(" 0x%02X", a);
+        }
+        logOut.println();
+    }
     static int shownRotation = -1;
     if (wantedRotation() != shownRotation) {
         if (shownRotation >= 0) logOut.printf("[screen] rotation %d\n", wantedRotation());

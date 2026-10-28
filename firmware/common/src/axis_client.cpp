@@ -246,7 +246,7 @@ struct Client::Impl {
     uint32_t lastPairAttempt = 0;
     uint32_t lastSense = 0;
     // Readings the board adds to the regular ones, such as its screen size.
-    static const int MAX_BOARD_READINGS = 8;
+    static const int MAX_BOARD_READINGS = 16;
     const char *boardReadingKey[MAX_BOARD_READINGS] = {};
     long boardReadingValue[MAX_BOARD_READINGS] = {};
     int boardReadings = 0;
@@ -1711,6 +1711,7 @@ struct Client::Impl {
             doc["trigger"] = trigger;
             send(doc);
             logf("recording %s (%s)", tid.c_str(), trigger);
+            self.turnsStarted_ = self.turnsStarted_ + 1;
         }
         if (count) socket.sendBIN((uint8_t *)block, count * sizeof(int16_t));
         if (sendEnd) {
@@ -2016,7 +2017,7 @@ bool Client::takePicture(uint8_t *&data, size_t &size, String &turnId) {
     return have;
 }
 
-void Client::setReading(const char *key, long value) {
+void Client::setReading(const char *key, long value, bool soon) {
     xSemaphoreTake(impl_->lock, portMAX_DELAY);
     int at = 0;
     while (at < impl_->boardReadings && strcmp(impl_->boardReadingKey[at], key)) at++;
@@ -2029,8 +2030,20 @@ void Client::setReading(const char *key, long value) {
         if (impl_->boardReadingValue[at] != value) {
             impl_->boardReadingValue[at] = value;
             // Send the readings on the next pass. Not 0: in the first minute after a start that would wait it out.
-            impl_->lastSense = millis() - SENSE_INTERVAL_MS - 1;
+            if (soon) impl_->lastSense = millis() - SENSE_INTERVAL_MS - 1;
         }
+    }
+    xSemaphoreGive(impl_->lock);
+}
+
+void Client::clearReading(const char *key) {
+    xSemaphoreTake(impl_->lock, portMAX_DELAY);
+    for (int at = 0; at < impl_->boardReadings; at++) {
+        if (strcmp(impl_->boardReadingKey[at], key)) continue;
+        impl_->boardReadings--;
+        impl_->boardReadingKey[at] = impl_->boardReadingKey[impl_->boardReadings];
+        impl_->boardReadingValue[at] = impl_->boardReadingValue[impl_->boardReadings];
+        break;
     }
     xSemaphoreGive(impl_->lock);
 }
