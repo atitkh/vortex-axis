@@ -166,6 +166,7 @@ A device that can update itself over the network implements `update`: answer `ok
 | `touchesToday` | count | Touches on its screen today. |
 | `turnsToday` | count | Turns it started today. |
 | `soundDb`, `soundActive` | dBFS, 1 or 0 | Room sound level and whether there is sound now (see design.md, Home Assistant). |
+- A computer (the Windows and Mac desktop apps) sends `battery`, `charging`, `onPower`, `turnsToday` (by the local calendar day) and `uptimeS`, and leaves out what its operating system does not say: one with no battery sends `onPower` only. It sends them when it connects, on a change at most every 30 s, and otherwise every minute.
 - Reconnect by itself, without a limit, with a few seconds between tries.
 - Keep a log a person can read without a cable when the device has the memory for it (the Waveshare board serves its last 64 KB at `/logs`), and list it under `links` in `describe`.
 

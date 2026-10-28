@@ -62,6 +62,15 @@ Every `desktop.*` command the Windows app has, with the same answers, line forma
 - **Coordinates**: points with the origin at the top left of the main display (the one with the menu bar), y down; displays left of or above it are negative. That is Accessibility's, CGEvent's and Quartz's own space, so a point is used as is on whichever display it is; a bare x,y on no display is refused rather than clamped (`Coordinates.display(at:)`, tested with displays above, left and right).
 - Not here: self-update (Axis never offers this Mac the Windows build; update by building again), a hotkey to pause (the Windows app's ctrl+alt+S), an Esc key that cancels (the Windows app has none either).
 
+## Readings: power and use (0.7.0)
+
+The app sends `sense` readings (client guide, section 11), as the Windows app does:
+
+- `battery` (0 to 100 %) and `charging` (1/0), from the Mac's internal battery; `onPower` (1/0), whether it runs on mains power (a UPS's or the battery's power is not); `uptimeS`, seconds since the Mac started (`kern.boottime`); `turnsToday`, turns started on this Mac since local midnight (talk key or typed text; the count restarts when the app does).
+- What macOS does not say is left out, never guessed: a Mac with no battery sends `onPower` only.
+- When: as soon as the connection is up, then on a change at most every 30 s, and every minute otherwise. IOKit's power sources are read on a task of their own every 5 s, and at once when macOS reports a change (`IOPSNotificationCreateRunLoopSource`) or the Mac wakes; never on the main thread or the talk key's path.
+- `AxisDesktopCore/Readings.swift` holds the logic behind a `PowerSource` protocol (tested on Linux with a fake); `AxisMacPlatform/MacPower.swift` is the IOKit part. That part has not been compiled yet.
+
 ## What is new in 0.4.0
 
 The five gaps of `docs/client-parity.md` section 4 that are the Mac's own, with talking from this Mac on (Axis sends all of it only to a client with `screen`).

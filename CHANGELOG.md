@@ -4,6 +4,17 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.14.0 (2026-10-28)
+
+- **Power and use as readings** (`sense`, client guide section 11): `battery` (0 to 100 %), `charging` (1/0), `onPower` (1/0), `turnsToday` (turns started on this computer since local midnight: a hold or a press of the talk key, or typed text) and `uptimeS`. Each is left out when Windows does not say; a computer with no battery sends `onPower` only, and only when Windows reports mains power.
+- Sent when the connection comes up, on a change at most every 30 s, and otherwise every minute. Windows is asked (`GetSystemPowerStatus`) on the readings' own loop every 5 s, never on the UI thread or the talk key's path; `PowerModeChanged` (a power status change, waking) makes it look at once.
+- Core `Readings` (`PowerState.FromWin32`, `TurnCount`, `ReadingsPace`) and `AxisLink.TurnStarted`. Smoke checks 233 (the message's shape, what is left out, the day's count, the pace); the WPF app compiled in the SDK container, not built into the data folder, never run on Windows, never seen on a laptop with a battery.
+
+## Mac desktop app 0.7.0 (2026-10-28)
+
+- **The same readings as the Windows app 0.14.0**, from IOKit's power sources (`AxisMacPlatform/MacPower.swift`: `IOPSCopyPowerSourcesInfo`, `IOPSGetProvidingPowerSourceType`, the internal battery's description; `IOPSNotificationCreateRunLoopSource` for changes) and `kern.boottime` for `uptimeS`. A Mac with no battery sends `onPower` only; a UPS is not taken for the Mac's battery.
+- The Core stays Foundation only: `Readings`, `PowerState.fromPowerSources`, `TurnCount` (the local calendar day), `ReadingsPace`, a `PowerSource` protocol (a fake in the tests) and `AxisLink.onTurnStarted`. Core XCTest on Linux under Swift 5.10 with stand-ins: 183 passing. `MacPower` and the `AppModel` wiring were never compiled (no macOS here).
+
 ## Board firmware 0.21.0 (Waveshare 1.8) (2026-10-28)
 
 - **Vitals as readings**, the same code as the round board's 0.5.0 (`common/src/axis_power.*`, the 1.8's `imu` and `main.cpp`): the AXP2101 power chip read every 30 s from the screen loop; `chipTempC` always, `battery`, `charging` and `batteryMv` only with a battery connected; `pickupsToday`, `touchesToday`, `turnsToday` counted from the last start; console `power` and `i2c`.

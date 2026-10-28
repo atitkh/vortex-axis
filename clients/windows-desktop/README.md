@@ -26,3 +26,11 @@ All of this needs "Talk from this computer" on (capabilities `mic`, `speaker`, `
 - **Sounds** (Core `Sounds`, made in code, no files): Axis's `chime` action (declared always; a small bell before a timer is announced), the task chime (when Axis marks `chime` on `progress.show`; setting `taskChime`), and the listening cue when a recording starts (setting `listenCue`). Never in quiet hours (`quietFrom`/`quietTo`, read on this computer's clock, normally the hub's time zone too). They play on the chosen speaker beside speech, not through it.
 - **Pictures** (`reply.image`): shown in the voice pill under the reply, rounded, at most 360 by 240, fetched from Axis's `/v1/media/<id>`; the pill stays 12 s instead of 6.
 - Every pill is left out of screen captures (`SetWindowDisplayAffinity`, `WDA_EXCLUDEFROMCAPTURE`), so neither an agent's look nor anyone's screenshot shows them.
+
+## Readings: power and use (0.14.0)
+
+The app sends `sense` readings (client guide, section 11), whether or not talking is on:
+
+- `battery` (0 to 100 %) and `charging` (1/0), from the computer's battery; `onPower` (1/0), whether it runs on mains power; `uptimeS`, seconds since Windows started; `turnsToday`, turns started on this computer since local midnight (a hold or a press of the talk key, or typed text; the count restarts when the app does).
+- What Windows does not say is left out, never guessed: a computer with no battery sends `onPower` only, and only when Windows reports mains power.
+- When: as soon as the connection is up, then on a change at most every 30 s, and every minute otherwise. Windows is asked (`GetSystemPowerStatus`) on a loop of its own every 5 s, and at once when it reports a power change or waking (`PowerModeChanged`); never on the UI thread or the talk key's path. The logic is Core `Readings.cs`, checked by `smoke check`.
