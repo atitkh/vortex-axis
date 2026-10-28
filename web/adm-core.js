@@ -320,10 +320,9 @@ export function heldBuild(client) {
   if (client.type === "meta-quest") return store.quest?.available ? store.quest : undefined;
   return store.firmware.find((f) => f.type === client.type);
 }
-/** True when Axis holds a different build than the one the device runs. */
+/** True when Axis holds a newer build than the one the device runs. Axis decides (server/src/versions.ts). */
 export function behind(client) {
-  const held = heldBuild(client);
-  return Boolean(held && client.version && held.version !== client.version);
+  return Boolean(client.updateAvailable && heldBuild(client));
 }
 
 /** What kind of thing a device is, for its picture and for when being offline matters. Axis decides (server/src/deviceinfo.ts). */

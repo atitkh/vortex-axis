@@ -323,6 +323,8 @@ export function createHttpHandler(deps: HttpDeps) {
       kind: info.kind,
       offlineAfterMs: info.offlineAfterMs,
       offlineAfterAutoMs: offlineAfterMs(info.kind, "auto"),
+      // The newer build Axis holds for it, when it is behind; absent when it is on that build or ahead (server/src/versions.ts).
+      ...(info.updateAvailable ? { updateAvailable: info.updateAvailable } : {}),
       settings: store.resolveSettings(client),
       // The three layers separately, so the editor can show which one a value comes from.
       layers: {

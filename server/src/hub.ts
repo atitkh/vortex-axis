@@ -40,6 +40,8 @@ export interface Session {
   connectedAt: number;
   /** Latest sensor readings the client reported. Not persisted. */
   readings: ScalarMap;
+  /** When each reading last arrived, so a reading the client stopped sending can be told apart from a current one. */
+  readAt: Record<string, number>;
   /** Where the client's own pages are reachable, from its last `describe`. */
   address?: string | undefined;
   /** Links the client offers, relative to `address`. */
@@ -393,6 +395,7 @@ export class Hub implements TurnPort {
       audioBufferMs: hello.audioBufferMs ?? DEFAULT_AUDIO_BUFFER_MS,
       connectedAt: this.now(),
       readings: {},
+      readAt: {},
       links: [],
     };
     this.online.set(client.id, session);
@@ -427,6 +430,7 @@ export class Hub implements TurnPort {
         return;
       case "sense":
         session.readings = { ...session.readings, ...message.readings };
+        for (const key of Object.keys(message.readings)) session.readAt[key] = this.now();
         this.changed(session.client.id, "readings");
         return;
       case "gesture":

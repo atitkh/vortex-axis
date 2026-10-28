@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Capability, ScalarMap } from "@vortex-axis/protocol";
 import { createInvokeHandler } from "../src/commands.js";
-import { deviceInfo, duration, lowest, signalLabel, spokenSummary, type DeviceInfo } from "../src/deviceinfo.js";
+import { STALE_READING_MS, deviceInfo, duration, lowest, signalLabel, spokenSummary, type DeviceInfo } from "../src/deviceinfo.js";
 import type { ClientChange } from "../src/hub.js";
 import type { LiveEvent } from "../src/live.js";
 import { startMapFeed } from "../src/mapfeed.js";
 import type { ClientRecord } from "../src/store.js";
+import { olderThanHeld } from "../src/versions.js";
 import { ADMIN_TOKEN, admin, ctx, ready, useServer } from "./harness.js";
 
 const NOW = 1_800_000_000_000;
@@ -49,6 +50,30 @@ describe("deviceInfo", () => {
     expect(deviceInfo({ client: record(), settings: {}, session: { connectedAt: NOW, readings: {} }, held: "0.20.1" }, NOW).attention).toEqual([]);
   });
 
+  it("offers a held build only when it is newer than the device's", () => {
+    const withHeld = (version: string, held: string) => deviceInfo({ client: record({ version }), settings: {}, session: { connectedAt: NOW, readings: {} }, held }, NOW);
+    const ahead = withHeld("0.5.0", "0.4.2");
+    expect(ahead.updateAvailable).toBeUndefined();
+    expect(ahead.attention).toEqual([]);
+    expect(withHeld("odd build", "0.4.2").attention).toEqual([]);
+    expect(withHeld("0.4.2", "0.10.0").updateAvailable).toBe("0.10.0");
+  });
+
+  it("leaves out a vital that has not arrived for five minutes, everywhere it is used", () => {
+    const old = NOW - STALE_READING_MS - 1;
+    const readings = { battery: 9, charging: 0, batteryMv: 3500, rssi: -55, uptimeS: 600 };
+    const info = deviceInfo({ client: record(), settings: {}, session: { connectedAt: NOW - HOUR, readings, readAt: { battery: old, charging: old, batteryMv: old, rssi: NOW - 60_000, uptimeS: old } } }, NOW);
+    expect(info.vitals.battery).toBeUndefined();
+    expect(info.vitals.signal).toEqual({ rssi: -55, label: "strong" });
+    expect(info.vitals.uptime?.seconds).toBe(600);
+    expect(info.attention).toEqual([]);
+    expect(spokenSummary(info, NOW)).toBe("Desk board: online, strong Wi-Fi, up 10 minutes.");
+    expect(lowest([info])).toEqual({ client: "Desk board", reason: "strong Wi-Fi (-55 dBm)" });
+    const fresh = deviceInfo({ client: record(), settings: {}, session: { connectedAt: NOW - HOUR, readings, readAt: { battery: NOW - 4 * 60_000 } } }, NOW);
+    expect(fresh.vitals.battery).toEqual({ percent: 9, label: "low", charging: false, millivolts: 3500 });
+    expect(fresh.attention).toEqual(["battery low (9%)"]);
+  });
+
   it("lists a device offline past its alert time, by kind and setting, as the admin page does", () => {
     const away = (ms: number, extra: Partial<ClientRecord> = {}, settings: ScalarMap = {}) =>
       deviceInfo({ client: record({ lastSeenAt: NOW - ms, ...extra }), settings }, NOW);
@@ -66,6 +91,23 @@ describe("deviceInfo", () => {
   it("takes the state from what the device is doing", () => {
     const info = deviceInfo({ client: record(), settings: {}, session: { connectedAt: NOW, readings: {} }, now: { clientId: "c1", state: "speaking", since: NOW - 500 } }, NOW);
     expect(info).toMatchObject({ state: "speaking", stateSince: NOW - 500 });
+  });
+});
+
+describe("olderThanHeld", () => {
+  it("compares dotted numbers and never flags what it cannot read", () => {
+    expect(olderThanHeld("0.4.2", "0.5.0")).toBe(true);
+    expect(olderThanHeld("0.9.9", "0.10.0")).toBe(true);
+    expect(olderThanHeld("0.5", "0.5.1")).toBe(true);
+    expect(olderThanHeld("v0.4.2", "0.5.0")).toBe(true);
+    expect(olderThanHeld("0.5.0", "0.5.0")).toBe(false);
+    expect(olderThanHeld("0.5.0", "0.5")).toBe(false);
+    expect(olderThanHeld("0.5.0-dev", "0.5.0")).toBe(false);
+    expect(olderThanHeld("0.5.0", "0.4.2")).toBe(false);
+    expect(olderThanHeld("dev", "0.5.0")).toBe(false);
+    expect(olderThanHeld("0.4.2", "nightly")).toBe(false);
+    expect(olderThanHeld("", "0.5.0")).toBe(false);
+    expect(olderThanHeld("0.4.2", undefined)).toBe(false);
   });
 });
 

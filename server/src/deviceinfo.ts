@@ -2,6 +2,7 @@ import type { Capability, Scalar, ScalarMap } from "@vortex-axis/protocol";
 import type { Hub } from "./hub.js";
 import type { ClientRecord, Store } from "./store.js";
 import type { ClientNow } from "./turns.js";
+import { olderThanHeld } from "./versions.js";
 
 /**
  * One device as a plain object: who it is, whether it is here, what it is doing, and its vitals from the readings it
@@ -10,7 +11,9 @@ import type { ClientNow } from "./turns.js";
  *
  * The readings it understands (all optional): battery (0 to 100 %), charging (1/0), batteryMv, rssi (dBm), heap
  * (free bytes), uptimeS, chipTempC, pickupsToday, touchesToday, turnsToday, onPower (1/0), lastStart (why it last
- * started), soundDb and soundActive (1/0).
+ * started), soundDb and soundActive (1/0). Boards send all of them every minute; a vital (battery, charging,
+ * batteryMv, chipTempC, rssi, heap, soundDb, soundActive) that has not arrived for STALE_READING_MS is left out as
+ * unknown, so a battery taken out of a running board stops being shown once the board stops reporting it.
  */
 
 /** What kind of thing a device is: for its picture and for when being offline matters. */
@@ -81,7 +84,7 @@ export interface DeviceInfo {
   lastSeen: number | null;
   /** Its firmware or app version, as it said in its `hello`. */
   version: string;
-  /** A different build Axis holds for it, when there is one. */
+  /** A newer build Axis holds for it, when there is one (server/src/versions.ts decides). */
   updateAvailable?: string;
   capabilities: { reported: Capability[]; off: Capability[]; effective: Capability[] };
   state: DeviceState;
@@ -98,7 +101,7 @@ export interface DeviceInput {
   /** Its resolved settings (location, offlineAlert). */
   settings: ScalarMap;
   /** Its live connection, when online. */
-  session?: { connectedAt: number; readings: ScalarMap } | undefined;
+  session?: { connectedAt: number; readings: ScalarMap; readAt?: Record<string, number> } | undefined;
   /** What it is in the middle of, when anything. */
   now?: ClientNow | undefined;
   /** The version of the build Axis holds for its type, if any. */
@@ -136,7 +139,7 @@ export class Devices {
 
 export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
   const { client, settings, session } = input;
-  const readings = session?.readings ?? {};
+  const readings = fresh(session, at);
   const kind = deviceKind(client, readings);
   const online = Boolean(session);
   const location = typeof settings.location === "string" && settings.location.trim() ? settings.location.trim() : undefined;
@@ -150,7 +153,7 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
     ...(session ? { connectedSince: session.connectedAt } : {}),
     lastSeen: online ? at : client.lastSeenAt,
     version: client.version,
-    ...(input.held && client.version && input.held !== client.version ? { updateAvailable: input.held } : {}),
+    ...(input.held && olderThanHeld(client.version, input.held) ? { updateAvailable: input.held } : {}),
     capabilities: { reported: client.reported, off: client.off, effective: client.capabilities },
     state: !online ? "offline" : input.now?.state ?? "idle",
     ...(online && input.now ? { stateSince: input.now.since } : {}),
@@ -160,6 +163,22 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
   };
   info.attention = attention(info, at);
   return info;
+}
+
+/** How long a vital reading counts after it last arrived: five of a board's minutely reports. */
+export const STALE_READING_MS = 5 * 60_000;
+const VITAL_KEYS = ["battery", "charging", "batteryMv", "chipTempC", "rssi", "heap", "soundDb", "soundActive"];
+
+/** The readings without the vitals that have not arrived for STALE_READING_MS. */
+function fresh(session: DeviceInput["session"], at: number): ScalarMap {
+  const readings = session?.readings ?? {};
+  const readAt = session?.readAt;
+  if (!readAt) return readings;
+  const stale = VITAL_KEYS.filter((key) => key in readings && readAt[key] !== undefined && at - readAt[key]! > STALE_READING_MS);
+  if (!stale.length) return readings;
+  const out = { ...readings };
+  for (const key of stale) delete out[key];
+  return out;
 }
 
 function vitals(readings: ScalarMap): Vitals {
@@ -198,7 +217,7 @@ function vitals(readings: ScalarMap): Vitals {
   return out;
 }
 
-/** The admin page's rules for a device: offline past its alert time, never connected, a different build held, plus vitals. */
+/** The admin page's rules for a device: offline past its alert time, never connected, a newer build held, plus vitals. */
 function attention(info: DeviceInfo, at: number): string[] {
   const items: string[] = [];
   if (!info.online && info.offlineAfterMs !== null) {
