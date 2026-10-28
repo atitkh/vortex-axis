@@ -16,7 +16,7 @@ The first board Axis had firmware for (the round 1.75 below is the other). It is
 
 What it does with Axis: shows the face, listens for "Hey Vortex" on the device itself (nothing leaves the board until it hears it), takes a tap to talk, speaks answers, shows questions with buttons, timers, pictures and long tasks, glows along its edges for things that want your attention, and updates itself over Wi-Fi.
 
-A battery is optional. Without one it runs from USB-C. Use a protected single-cell 3.7 V lithium battery with an MX1.25 plug, and check its polarity against the connector before plugging it in: lead colours are not standard. With a battery the board reports its charge, whether it is charging and its voltage to Axis; without one it reports none of these (see `firmware/README.md`, "Vitals").
+A battery is optional. Without one it runs from USB-C. Use a protected single-cell 3.7 V lithium battery with an MX1.25 plug, and check its polarity against the connector before plugging it in: lead colours are not standard. With a battery the board reports its charge, whether it is charging and its voltage to Axis; without one it reports none of these (see `firmware/README.md`, "Vitals"). The face shows it too: a sleepy idle face and a battery mark at low battery, a short cyan glow and a bolt when charging begins (the 1.8 since 0.23.0, the round board since 0.7.0; `docs/face.md` section 10).
 
 ### First install
 

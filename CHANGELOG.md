@@ -4,6 +4,18 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.23.0 (Waveshare 1.8) (2026-10-28)
+
+- **Low battery and charging on the face** (`battery_cue.*`, `docs/face.md` section 10, `firmware/README.md`, "Vitals"). At or below `lowBatteryBelow` (default 15 %, 0 off, clears 3 above) while not charging, the idle face turns sleepy (60 % speed, 75 % brightness) and a battery mark with the percent stays at the bottom of the screen, amber, red and slowly pulsing below 5 %. When charging begins while the board runs, the edge glow swells once in the idle face's cyan over 3 s and a bolt shows by the mark; while charging the mark stays with the bolt. Never a sound. Follows the power chip's 30 s readings; with no battery nothing shows.
+- Settings `lowBatteryBelow` and `batteryGlyph` (the mark on or off). Console `preview lowbattery`, `preview charging`, `preview battery N`.
+- The mark's block is in PSRAM, not internal memory.
+- Put on the bench 1.8 over Wi-Fi on 2026-10-28 by the hub's staged rollout, from 0.22.0: it was the only board in the rollout, so it went first, and it was proven 36 s after it was told to update. The hub showed 0.23.0, fresh readings and both settings. NOT verified: its screen (no picture taken), a real battery, a real start of charging.
+
+## Round board firmware 0.7.0 (Waveshare 1.75) (2026-10-28)
+
+- **Low battery and charging on the face**, the same as the 1.8's 0.23.0 (the round board links to its `battery_cue.cpp`). The mark sits 26 pixels up from the bottom edge, inside the round glass.
+- Flashed by USB on 2026-10-28 to the round board on the bench: the hub showed 0.7.0; screen shots of `preview lowbattery`, `preview charging` and listening showed the mark and the face without clipping. NOT verified: a real battery, a real start of charging, long reply text against the mark.
+
 ## Axis 0.65.0 (2026-10-28)
 
 Staged rollout of board firmware: one board first, the rest only once it is proven.
