@@ -369,5 +369,9 @@ public sealed class AxisLink : IAsyncDisposable
         await sendLock.WaitAsync(ct);
         try { await ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct); }
         finally { sendLock.Release(); }
+        if (message["t"]?.GetValue<string>() is "audio.start" or "text") TurnStarted?.Invoke();
     }
+
+    /** A turn went to Axis from this computer (`audio.start` or `text`), for `turnsToday` (`Readings`). */
+    public event Action? TurnStarted;
 }

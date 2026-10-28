@@ -89,4 +89,17 @@ static class Native
         var black = 0x00000000;
         DwmSetWindowAttribute(hwnd, 35, ref black, sizeof(int));  // DWMWA_CAPTION_COLOR
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SYSTEM_POWER_STATUS
+    {
+        public byte ACLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag;
+        public uint BatteryLifeTime, BatteryFullLifeTime;
+    }
+
+    [DllImport("kernel32.dll")] public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+
+    /** Power as Windows says it; unknown when the call fails. Fast, but asked only from `Readings`' own loop. */
+    public static Axis.Desktop.PowerState ReadPower() =>
+        GetSystemPowerStatus(out var s) ? Axis.Desktop.PowerState.FromWin32(s.ACLineStatus, s.BatteryFlag, s.BatteryLifePercent) : Axis.Desktop.PowerState.Unknown;
 }

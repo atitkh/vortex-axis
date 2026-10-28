@@ -42,6 +42,9 @@ public final class AppModel: ObservableObject {
     /** The long-task line, the next timer and the sounds: what Axis asks a screen for besides the voice. */
     public let notices = Notices()
     public let audio = AudioIO()
+    /** Power and turns today, sent as `sense` readings; kept across links so the count survives pairing again. */
+    private let power: MacPower
+    private let readings: Readings
     let talkKeys = TalkKeyWatcher(id: 1)
     let typingKeys = TalkKeyWatcher(id: 2)
     /** The reply's picture once fetched, and the address it came from. */
@@ -57,6 +60,9 @@ public final class AppModel: ObservableObject {
 
     public init(version: String) {
         self.version = version
+        let power = MacPower()
+        self.power = power
+        readings = Readings(source: power, uptimeS: { MacPower.uptimeS() })
         commands = DesktopCommands(desktop: desktop)
         pointer = PointerPanel()
         face = FacePanel()
@@ -104,14 +110,19 @@ public final class AppModel: ObservableObject {
         }
         // Sleep, wake and the screen coming back: the connection, the keys, the face and the pills are made good again.
         let workspace = NSWorkspace.shared.notificationCenter
+        let readings = self.readings
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             _ = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                readings.poke()
                 Task { @MainActor in self?.woke() }
             }
         }
         _ = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.sleeping() }
         }
+        // Plugged in or out, or a battery step: the readings look again (on their own task, not here).
+        power.watch { readings.poke() }
+        readings.start()
         applyFace()
     }
 
@@ -187,7 +198,11 @@ public final class AppModel: ObservableObject {
         // The Windows app's 8000: Axis paces speech to what the Mac can hold ahead.
         link.audioBufferMs = voice != nil ? 8000 : 0
         let notices = self.notices
+        let readings = self.readings
+        readings.use(send: { [weak link] message in await link?.trySend(message) ?? false })
+        link.onTurnStarted = { readings.turns.add() }
         link.onState = { [weak self] state, why in
+            readings.linkChanged(online: state == .online)
             voice?.linkChanged(online: state == .online)
             notices.linkChanged(online: state == .online)
             Task { @MainActor in self?.linked(state, why) }
@@ -376,6 +391,7 @@ public final class AppModel: ObservableObject {
         if let voice, voice.currentMode != .idle { voice.interrupt() }
         typingPill.close()
         await link?.stop()
+        readings.linkChanged(online: false)
         link = nil
         voice = nil
         outbox = nil

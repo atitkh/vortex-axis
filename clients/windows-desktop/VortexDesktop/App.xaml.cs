@@ -44,6 +44,8 @@ public partial class App : System.Windows.Application
     VoicePill? pill;
     // Tasks and timers Axis tells every client with a screen about, and the pill that shows them.
     readonly Glance glance = new();
+    // Power and turns today, sent as `sense` readings; kept across links so the count survives pairing again.
+    readonly Readings readings = new(Native.ReadPower);
     TaskPill? taskPill;
     TypingPill? typing;
     // The window that was in front when the typing pill opened, to give the front back to.
@@ -98,6 +100,8 @@ public partial class App : System.Windows.Application
         {
             if (args.Mode == Microsoft.Win32.PowerModes.Suspend) Dispatcher.BeginInvoke(Sleeping);
             else if (args.Mode == Microsoft.Win32.PowerModes.Resume) Dispatcher.BeginInvoke(Woke);
+            // Plugged in or out, a battery level step, or waking: the readings look again (on their own loop).
+            if (args.Mode is Microsoft.Win32.PowerModes.StatusChange or Microsoft.Win32.PowerModes.Resume) readings.Poke();
         };
         Microsoft.Win32.SystemEvents.SessionSwitch += (_, args) =>
         {
@@ -184,6 +188,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         tray?.Dispose();
+        readings.Dispose();
         // The socket closes with the process; nothing to wait for.
         _ = link?.StopAsync();
         base.OnExit(e);
@@ -238,6 +243,7 @@ public partial class App : System.Windows.Application
             },
         };
         link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
+        readings.Attach(link);
         link.StateChanged += (state, why) => Dispatcher.BeginInvoke(() =>
         {
             StateWhy = why;

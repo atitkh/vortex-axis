@@ -31,6 +31,7 @@ static class Checks
         await CapabilitiesOffAsync();
         ListeningChecks();
         AsksElsewhere();
+        ReadingsChecks();
         Console.WriteLine($"{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -624,5 +625,49 @@ static class Checks
         g.Handle("ask.waiting", Json("""{"elsewhere":1}"""), 0);
         g.Clear();
         Is(g.Elsewhere, 0, "forgotten when the link drops (Axis sends it again)");
+    }
+
+    /** `sense` readings about power and use: unknown is left out, the count starts again at local midnight, the pace. */
+    static void ReadingsChecks()
+    {
+        // A laptop on battery, 76 %; Windows' flags: 8 charging, 128 no battery, 255 unknown.
+        Is(PowerState.FromWin32(0, 1, 76), new PowerState(76, false, false), "laptop on battery");
+        Is(PowerState.FromWin32(1, 8, 40), new PowerState(40, true, true), "laptop charging");
+        Is(PowerState.FromWin32(1, 128, 255), new PowerState(null, null, true), "desktop with no battery: onPower only");
+        Is(PowerState.FromWin32(255, 255, 255), PowerState.Unknown, "Windows does not know: nothing");
+        Is(PowerState.FromWin32(1, 255, 90), new PowerState(90, null, true), "battery flags unknown: no charging");
+
+        var m = Readings.Message(new PowerState(76, false, false), 3, 3600);
+        Is(m["t"]?.GetValue<string>(), "sense", "a sense message");
+        var r = m["readings"]!.AsObject();
+        Is((r["battery"]?.GetValue<int>(), r["charging"]?.GetValue<int>(), r["onPower"]?.GetValue<int>()), ((int?)76, (int?)0, (int?)0), "battery, charging and onPower as numbers");
+        Is((r["turnsToday"]?.GetValue<int>(), r["uptimeS"]?.GetValue<long>()), ((int?)3, (long?)3600), "turnsToday and uptimeS");
+        Is(r.All(p => p.Value is JsonValue), true, "scalars only");
+        var desk = Readings.Message(new PowerState(null, null, true), 0, null)["readings"]!.AsObject();
+        Is(string.Join(",", desk.Select(p => p.Key)), "onPower,turnsToday", "no battery: no battery, no charging, no uptime when unknown");
+        Is(Readings.Message(PowerState.Unknown, 0, null)["readings"]!.ToJsonString(), """{"turnsToday":0}""", "power unknown: left out, not guessed");
+
+        var now = new DateTime(2026, 10, 28, 23, 59, 0);
+        var turns = new TurnCount(() => now);
+        turns.Add(); turns.Add();
+        Is(turns.Today, 2, "two turns today");
+        now = now.AddMinutes(2);
+        Is(turns.Today, 0, "a new day at local midnight");
+        turns.Add();
+        Is(turns.Today, 1, "counted on the new day");
+
+        var pace = new ReadingsPace();
+        var on = new PowerState(80, true, true);
+        Is(pace.Due(on, 0, 0), true, "at connect");
+        pace.Sent(on, 0, 0);
+        Is(pace.Due(on, 0, 10_000), false, "nothing changed: wait");
+        Is(pace.Due(on with { OnPower = false, Charging = false }, 0, 10_000), false, "a change within 30 s waits");
+        Is(pace.Due(on with { OnPower = false, Charging = false }, 0, 30_000), true, "a change after 30 s goes");
+        Is(pace.Due(on, 1, 30_000), true, "a turn is a change");
+        Is(pace.Due(on, 0, 59_999), false, "unchanged: not before a minute");
+        Is(pace.Due(on, 0, 60_000), true, "unchanged: every minute");
+        pace.Sent(on, 0, 60_000);
+        pace.Connected();
+        Is(pace.Due(on, 0, 61_000), true, "again at once after connecting again");
     }
 }

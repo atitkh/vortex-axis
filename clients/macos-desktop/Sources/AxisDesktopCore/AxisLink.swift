@@ -123,6 +123,8 @@ public final class AxisLink: @unchecked Sendable {
     public var onTrouble: (@Sendable (String) -> Void)?
     /** Speech from Axis: the binary frames between a speak.start and its speak.end (16-bit mono PCM). */
     public var onAudio: (@Sendable (Data) -> Void)?
+    /** A turn went to Axis from this computer (`audio.start` or `text`), for `turnsToday` (`Readings`). Set before `start`. */
+    public var onTurnStarted: (@Sendable () -> Void)?
     /**
      * How much speech the Mac can hold ahead of playing it, told to Axis in the hello when it has speakers (the
      * Windows app's 8000; Axis paces speech to it). 0: no speaker, not sent. Set before `start`.
@@ -445,6 +447,7 @@ public final class AxisLink: @unchecked Sendable {
 
     private func send(_ message: JSONValue) async throws {
         try await sendFrame(.string(String(decoding: try message.encoded(), as: UTF8.self)))
+        if let t = message["t"]?.stringValue, t == "audio.start" || t == "text" { onTurnStarted?() }
     }
 
     /** One frame at a time, in the order asked: sends are chained so two answers (or an answer and audio) never interleave. */
