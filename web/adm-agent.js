@@ -1,5 +1,5 @@
-// The Agent and voice area of the admin page: Who answers, OpenClaw gateway, Tools and MCP, Speech and Voices
-// (docs/admin-revamp/ia.md 2.4). Everything the classic pages #agent, #openclaw, #tools and #speech do is here. What is a
+// The Agent and voice area of the admin page: Who answers, OpenClaw gateway, Tools and MCP, Speech and Voices.
+// Everything the classic pages #agent, #openclaw, #tools and #speech do is here. What is a
 // setting is staged and saved with the save bar (one per page, entity "page:<name>"); what is an action runs at once.
 
 import { html, useEffect, useRef, useState } from "/web/preact.js";

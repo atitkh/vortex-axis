@@ -1,4 +1,4 @@
-// Integrations and System on the admin page (docs/admin-revamp/ia.md 1): Home Assistant, live activities and
+// Integrations and System on the admin page: Home Assistant, live activities and
 // notifications to browsers on one page; the hub's own housekeeping (public address, clock and keeping, backup, about)
 // on the other. Both edit GET/PATCH /admin/integrations; settings are staged with the save bar, actions run at once.
 

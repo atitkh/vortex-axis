@@ -93,15 +93,20 @@ A release image comes with the board firmware, the Windows app and the Quest app
 
 - [docs/setup.md](docs/setup.md): addresses and HTTPS, agents and MCP, backups, speech, pairing with OpenClaw, the admin API, developing.
 - [docs/hardware.md](docs/hardware.md): the board, the computer app, a phone, and making your own device.
-- [SECURITY.md](SECURITY.md): what protects what, and what does not.
-- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and sending a change.
 - [docs/design.md](docs/design.md): how it works and why.
 - [docs/face.md](docs/face.md): the face, to the pixel.
+- [docs/client-guide.md](docs/client-guide.md): what a new client type has to declare and do.
+- [docs/client-parity.md](docs/client-parity.md): how the existing clients differ in how they work.
+- [docs/release.md](docs/release.md): cutting a release and the checks that go with it.
+- [protocol/README.md](protocol/README.md): the client protocol, version 1.
+- [firmware/README.md](firmware/README.md): firmware for the boards.
+- [flasher/README.md](flasher/README.md): the browser page that flashes a new board over USB.
+- [clients/windows-desktop/README.md](clients/windows-desktop/README.md): the Windows desktop app.
+- [clients/macos-desktop/README.md](clients/macos-desktop/README.md): the Mac menu bar app.
+- [clients/quest-client/README.md](clients/quest-client/README.md): the Meta Quest app.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and sending a change.
+- [SECURITY.md](SECURITY.md): what protects what, and what does not.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.
-
-## Status
-
-Used every day by its author with two boards, a phone, browsers, a Windows computer and a Meta Quest, against an OpenClaw gateway. The server and the boards are steady. The Windows and Quest apps are new and experimental. Not there yet: signed firmware and signed Windows and Quest apps, a Mac app, more board types.
 
 ## Licence
 

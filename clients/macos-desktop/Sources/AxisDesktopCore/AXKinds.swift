@@ -4,7 +4,7 @@ import Foundation
  * Accessibility roles to the element kinds Axis and Core know (the Windows app's UI Automation names, lower case).
  * Strings only, so it is tested off the Mac. Every kind is one token with no spaces: Axis reads element lines with
  * `^(\d+) \S+ ...`. `document` means a web page only: the clip and the browser-bar guard key on it.
- * A starting table (docs/mac-port.md 3.2); AX trees differ per toolkit, so expect to tune it on a real Mac.
+ * A starting table; AX trees differ per toolkit, so expect to tune it on a real Mac.
  */
 public enum AXKinds {
     static let byRole: [String: String] = [

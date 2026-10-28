@@ -36,7 +36,7 @@ public struct Box: Equatable, Hashable, Sendable, CustomStringConvertible {
 /**
  * Where on a control a click lands, and when it would hit a browser's own bar instead. Port of the Windows
  * app's `Geometry.cs` (0.10.4), pure arithmetic, checked by `GeometryTests`. The constants are in points here
- * (pixels on Windows); `chromeBand` 100 is a guess for macOS browsers to be measured (docs/mac-port.md 3.3).
+ * (pixels on Windows); `chromeBand` 100 is a guess for macOS browsers to be measured on a real Mac.
  */
 public enum Geometry {
     /** Under this share of a control showing (and not a big piece of it), it is scrolled into view before a click. */

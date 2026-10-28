@@ -1,5 +1,5 @@
 // The admin page's frame: sign-in, the sidebar with its groups, the header's health strip, the command bar,
-// toasts, dialogs and the router that keeps every address of the old (classic) page working (docs/admin-revamp/ia.md 1.1).
+// toasts, dialogs and the router that keeps every address of the old (classic) page working.
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import {

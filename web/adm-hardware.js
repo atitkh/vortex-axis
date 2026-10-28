@@ -1,4 +1,4 @@
-// Face and screen, and the Hardware group of the admin page: Firmware, Wake words and Apps (docs/admin-revamp/ia.md 1).
+// Face and screen, and the Hardware group of the admin page: Firmware, Wake words and Apps.
 // Everything the classic pages #face, #firmware and #wakewords do is here. What is a setting (idle looks, tool icons,
 // wake word cutoffs) is staged and saved with the save bar; uploads, downloads, removals and updates run at once.
 

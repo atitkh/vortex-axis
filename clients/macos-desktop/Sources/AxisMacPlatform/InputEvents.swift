@@ -8,7 +8,7 @@ import AxisDesktopCore
  * (the look's space; `Coordinates.display(at:)` is the multi-display rule). A click moves the person's pointer
  * there for an instant and puts it back. Posting needs Accessibility access (the same grant that reads controls).
  * Every function blocks its thread for the few milliseconds between events: call them off the main thread.
- * Patterns from the public-domain "Bluey" app's ComputerControl.swift (docs/mac-port.md section 7).
+ * Patterns from the public-domain "Bluey" app's ComputerControl.swift.
  */
 enum InputEvents {
     static let source = CGEventSource(stateID: .hidSystemState)

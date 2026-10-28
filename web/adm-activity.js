@@ -1,4 +1,4 @@
-// The Overview dashboard and the Activity area (docs/admin-revamp/ia.md 2.1): what needs attention, the day's numbers,
+// The Overview dashboard and the Activity area: what needs attention, the day's numbers,
 // the devices, what is running now, Say something; Live (the stream from GET /admin/live) and History (charts.js).
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
