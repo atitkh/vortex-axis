@@ -79,7 +79,7 @@ More than one agent works on this repository, in separate sessions that share no
 - Name things `vortex-axis`, never plain `axis`, in hostnames, containers and Home Assistant entities. Plain `axis` collides with Axis Communications cameras and Home Assistant's `axis` integration.
 - Gateway commands are named `vortex.axis.*` and the tools agents see `vortex_axis_*`. A bare `axis.` prefix could collide with someone else's plugin.
 - No host-specific values in code. Addresses come from environment variables.
-- Do not build what `README.md`'s Status or this file's "Not built" list names as not there yet without being asked.
+- Do not build what this file's "Not built" list or `docs/design.md` section 12 names as not there yet without being asked.
 
 ## Stack
 
