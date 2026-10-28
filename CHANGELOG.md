@@ -41,6 +41,16 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - Console `power` (the last reading and the counts) and `i2c` (what answers on the bus).
 - Flashed by USB on 2026-10-28 to the round board on the bench: boot says `power chip AXP2101 found`, `i2c` lists 0x18 0x20 0x34 0x40 0x50 0x51 0x5A 0x6B 0x7E, `power` says `USB yes, battery none; power chip 49.9 C, processor 54.4 C`, and Axis's `/admin/map` shows its `chipTempC` 50 and the three counts at 0 with no battery block. Pushed to the hub without `--update`. Not exercised: anything with a battery (none connected), a real pickup, tap or turn being counted.
 
+## Axis 0.64.0 (2026-10-28)
+
+Device profiles: normal, power saver and silent, as overrides between a device's own settings and quiet hours.
+
+- **Profiles** (`server/src/profiles.ts`, `docs/design.md`, "Profiles"). Power saver caps `brightness` at 100 and `maxFps` at 15; silent sets `volume` 0 and switches off `listenCue` and `taskChime`, and nothing is spoken on the device: replies and `say` are shown as text, and a device without a screen keeps messages until it leaves silent. Only settings a device has are overridden, so no firmware or app changes. Quiet hours stay the hard cap.
+- **Per-device `profile` setting** (group Axis, server-only): `auto` by default (normal, with power saver while a reported battery is at or below the hub's level and not charging, back at that plus 10 or on charging), or a profile chosen by hand, which holds until set back to `auto`.
+- **Hub setting `powerSaverBelow`** (0 to 90, default 20, 0 off; `AXIS_POWER_SAVER_BELOW`), edited as **Power saver below** on the admin page's System page.
+- **Admin page.** A device's Overview has a **Profile** switch (Auto, Normal, Power saver, Silent) that applies at once, the one control there that does, with the profile in force and why (`on silent (manual)`, `on power saver (battery 17%)`); **Settings in effect** shows the values sent, with the profile and quiet hours applied (`effective` on `GET /admin/clients/:id`, with `profile` and `profileReason`). Settings labels the choices with a line each. A device not on normal carries a chip on the map and in Devices.
+- **Agents.** `vortex_axis_config` with key `profile` switches it; `vortex_axis_sense` reports `info.profile` and `info.profileReason`; a turn's context line says a device is silent and to answer in short text.
+
 ## Axis 0.63.0 (2026-10-28)
 
 Fixes for board vitals and firmware updates.
