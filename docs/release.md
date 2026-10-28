@@ -39,6 +39,10 @@ For each board whose firmware changed (`waveshare-amoled-1.8`, `waveshare-amoled
 
 The web flasher at `/flash` lists only the boards whose firmware was pushed to the hub, at the version pushed. `release-check` fails when the hub's `/flash/types.json` offers another version than the code (the fix is step 4) and warns when the `fw-` tag is missing.
 
+## GitHub Pages (the flasher page)
+
+The release workflow's `flasher` job deploys the browser flasher to GitHub Pages from a `v*` tag. On a new GitHub repo: Settings > Pages > Source: GitHub Actions, and Settings > Environments > `github-pages` > Deployment branches and tags: add the tag rule `v*`. Without the tag rule the job fails in seconds with "Tag ... is not allowed to deploy to github-pages". Pages on a private repo needs a paid GitHub plan.
+
 ## Order matters when
 
 - A client starts sending a message the server does not know: deploy the server first. (An old server answers an unknown message with an `error` that clients ignore, so nothing breaks, but the feature does not work.)
