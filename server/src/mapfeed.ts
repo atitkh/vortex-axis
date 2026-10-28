@@ -105,20 +105,40 @@ export interface MapTurn {
   outcome?: LiveTurn["outcome"];
 }
 
+/** How much later than the wake window a report may come and still be counted in the same contest. */
+export const WAKE_SLACK_MS = 300;
+
+/**
+ * One device's wake word as the map shows it: no words, only how sure and how loud, and what came of it. `contest`
+ * is the same for every report Axis settled together: they came within the wake window (plus a little slack) of the
+ * first one.
+ */
+export interface MapWake {
+  contest: string;
+  at: number;
+  clientId: string;
+  client: string;
+  score: number;
+  level: number;
+  outcome: "answered" | "stood_down" | "ignored";
+}
+
 export interface MapFeedDeps {
   /** One device as it is now; undefined when it was removed. */
   info: (clientId: string) => DeviceInfo | undefined;
   onClientChange: (listener: (clientId: string, change: ClientChange) => void) => () => void;
   subscribeLive?: ((listener: (event: LiveEvent) => void) => () => void) | undefined;
-  send: (event: "client" | "turn", data: unknown) => void;
+  send: (event: "client" | "turn" | "wake", data: unknown) => void;
   everyMs?: number;
+  /** The wake window (AXIS_WAKE_WINDOW_MS), for grouping wakes into one contest. */
+  wakeWindowMs?: number;
   now?: () => number;
 }
 
 /**
  * The map's stream of changes: a device's info when it comes online or goes offline (at once), when it reports
  * readings (at most once per `everyMs` per device, the latest winning) and when a turn changes stage; and each turn's
- * stage. Returns how to stop.
+ * stage; and each wake word a device reported, grouped into contests. Returns how to stop.
  */
 export function startMapFeed(deps: MapFeedDeps): () => void {
   const every = deps.everyMs ?? READINGS_EVERY_MS;
@@ -126,6 +146,8 @@ export function startMapFeed(deps: MapFeedDeps): () => void {
   const sentAt = new Map<string, number>();
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const stages = new Map<string, string>();
+  const wakeWindow = (deps.wakeWindowMs ?? 200) + WAKE_SLACK_MS;
+  let contest: { id: string; from: number } | undefined;
 
   /** Sends a device as it is now; with `readings`, it counts toward that device's readings limit. */
   const sendClient = (clientId: string, readings = false) => {
@@ -148,6 +170,13 @@ export function startMapFeed(deps: MapFeedDeps): () => void {
   });
 
   const stopLive = deps.subscribeLive?.((event) => {
+    if (event.type === "wake") {
+      const w = event.wake;
+      if (!contest || w.at - contest.from > wakeWindow || w.at < contest.from) contest = { id: `w${w.at}-${w.clientId}`, from: w.at };
+      const view: MapWake = { contest: contest.id, at: w.at, clientId: w.clientId, client: w.client, score: w.score, level: w.level, outcome: w.outcome };
+      deps.send("wake", view);
+      return;
+    }
     if (event.type !== "turn") return;
     const turn = event.turn;
     const stage: MapTurn["stage"] = turn.endedAt !== undefined ? "done" : turn.stages.at(-1)?.name ?? "listening";

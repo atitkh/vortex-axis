@@ -98,6 +98,8 @@ export class Hub implements TurnPort {
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
   private readonly pingIntervalMs: number;
+  /** How long Axis waits for other devices to report the same wake word (AXIS_WAKE_WINDOW_MS). */
+  readonly wakeWindowMs: number;
   private readonly activity: Activity | undefined;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -115,6 +117,7 @@ export class Hub implements TurnPort {
     this.store = options.store;
     this.helloTimeoutMs = options.helloTimeoutMs;
     this.pingIntervalMs = options.pingIntervalMs ?? 0;
+    this.wakeWindowMs = options.wakeWindowMs ?? 200;
     this.activity = options.activity;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
@@ -122,7 +125,7 @@ export class Hub implements TurnPort {
     this.timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
-      wakeWindowMs: options.wakeWindowMs ?? 200,
+      wakeWindowMs: this.wakeWindowMs,
       ...(options.wakeMargin ? { wakeMargin: options.wakeMargin } : {}),
       maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),

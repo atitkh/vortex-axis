@@ -1182,6 +1182,7 @@ export function createHttpHandler(deps: HttpDeps) {
           onClientChange: (listener) => hub.onClientChange(listener),
           subscribeLive: deps.live ? (listener) => deps.live!.subscribe(listener) : undefined,
           send: write,
+          wakeWindowMs: hub.wakeWindowMs,
           now,
         });
         const beat = setInterval(() => res.write(": still here\n\n"), 20_000);

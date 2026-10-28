@@ -144,6 +144,24 @@ describe("the map's stream", () => {
     expect(f.sent.filter((s) => s.event === "client")).toHaveLength(3);
     f.stop();
   });
+
+  it("sends each wake without the word, grouping those within the wake window into one contest", () => {
+    const f = feed();
+    const wake = (at: number, clientId: string, outcome: "answered" | "stood_down" | "ignored", score: number) =>
+      f.live({ type: "wake", wake: { at, clientId, client: clientId.toUpperCase(), word: "secret-word", score, level: 0.5, outcome } });
+    wake(1_000, "a", "answered", 0.9);
+    wake(1_010, "b", "stood_down", 0.78);
+    wake(1_400, "c", "stood_down", 0.6);
+    wake(5_000, "a", "answered", 0.8);
+    const wakes = f.sent.filter((s) => s.event === "wake").map((s) => s.data);
+    expect(wakes).toHaveLength(4);
+    expect(wakes[0]).toEqual({ contest: wakes[0].contest, at: 1_000, clientId: "a", client: "A", score: 0.9, level: 0.5, outcome: "answered" });
+    expect(JSON.stringify(wakes)).not.toContain("secret");
+    expect(new Set(wakes.slice(0, 3).map((w) => w.contest)).size).toBe(1);
+    expect(wakes[3].contest).not.toBe(wakes[0].contest);
+    expect(f.sent.filter((s) => s.event === "client")).toHaveLength(0);
+    f.stop();
+  });
 });
 
 describe("through a running Axis", () => {
