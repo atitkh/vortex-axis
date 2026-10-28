@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.65.0 (2026-10-28)
+
+Staged rollout of board firmware: one board first, the rest only once it is proven.
+
+- **Rollout** (`server/src/rollout.ts`, `docs/design.md`, section 8.1). Update all runs on the server over the given boards, or every board on an older build than the shelf's. The first board (the canary) is one not in a turn with the strongest reported Wi-Fi. It counts as proven once it has connected again on the build it was sent and sent readings on that connection, within 6 minutes (the firmware's own window before it rolls back is 3). If it refuses, comes back on another version or does not come back, the rollout stops and the other boards are held, with the reason, under attention and in the activity log. Once it is proven the rest follow at most two at a time; a failure stops the queue. Boards in a turn are tried again; offline ones are listed as skipped. One rollout at a time; one that was running when Axis stopped is marked interrupted at the next start, not resumed.
+- **Routes:** `POST /admin/updates/rollout` (`{ ids? }`, 409 while one runs), `GET /admin/updates/rollout`, `POST /admin/updates/rollout/cancel`.
+- **Admin page.** Update all on Firmware and on a type's Firmware tab starts the rollout; the rollout card shows the stage, which board went first and why, each board's versions and status (waiting, updating, proven, held, skipped, failed), why it stopped, and Cancel, through the 3 s poll. The map's Axis node says when one runs. A device's own Update button still updates it alone, and its dialog says so. The Quest app's Update all is unchanged.
+- `scripts/push-firmware.mjs --update` starts the same rollout.
+- Server tests with pretend boards and a pretend clock; `browser-check` runs a rollout over two pretend boards. NOT verified: a real rollout on two real boards; a real rolled-back canary.
+
 ## Round board firmware 0.6.0 (Waveshare 1.75) (2026-10-28)
 
 - **Several saved Wi-Fi networks** (`firmware/README.md`, "Saved networks"): up to five, most recently joined first, in a Preferences namespace of their own. At start, and when a dropped connection has not come back within 45 s, the board scans and tries the saved networks in range, strongest first, 12 s each; with none in sight it tries the most recent one. A board that was online looks again every minute and never opens its setup network by itself.
