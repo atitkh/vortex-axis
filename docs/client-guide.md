@@ -149,6 +149,23 @@ A device that can update itself over the network implements `update`: answer `ok
 - Answer WebSocket pings. Axis drops a client that misses them and shows it offline.
 - A client that cannot see those pings (a browser, .NET, URLSession) sends `ping` every 15 s; Axis answers `pong`. Treat 40 s without any frame from Axis as a dead connection: close it, and connect again straight away when the device wakes or the network returns, without the usual wait.
 - Send `sense` about once a minute with at least signal strength, free memory and uptime, so the admin page can show a device's health.
+- Use these names for what the readings say about the device's health and use. Each is optional: one a device does not send is shown as unknown, never guessed. Axis turns them into the `vitals` and `attention` of the device's info (`server/src/deviceinfo.ts`), which the agent's `vortex_axis_sense` and the admin page share.
+
+| Reading | Unit | Meaning |
+| --- | --- | --- |
+| `rssi` | dBm | Wi-Fi signal. Strong at -60 and above, ok to -70, weak to -80, poor below; weak and poor are listed under attention. |
+| `heap` | bytes | Free memory. |
+| `uptimeS` | seconds | Time since the device started. |
+| `lastStart` | text | Why it last started (a reset reason on a board, such as `power on`). |
+| `battery` | % (0 to 100) | Battery charge. Under 20 is low and listed under attention unless it is charging. |
+| `charging` | 1 or 0 | Whether the battery is charging. |
+| `batteryMv` | millivolts | Battery voltage. |
+| `onPower` | 1 or 0 | Whether a computer runs on mains power. |
+| `chipTempC` | °C | The processor's temperature. |
+| `pickupsToday` | count | Times it was picked up today (devices with a motion sensor). |
+| `touchesToday` | count | Touches on its screen today. |
+| `turnsToday` | count | Turns it started today. |
+| `soundDb`, `soundActive` | dBFS, 1 or 0 | Room sound level and whether there is sound now (see design.md, Home Assistant). |
 - Reconnect by itself, without a limit, with a few seconds between tries.
 - Keep a log a person can read without a cable when the device has the memory for it (the Waveshare board serves its last 64 KB at `/logs`), and list it under `links` in `describe`.
 

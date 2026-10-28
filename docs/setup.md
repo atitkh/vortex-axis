@@ -102,7 +102,7 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | Call | Does |
 | --- | --- |
 | `POST /admin/pairing-codes` | Creates a one-time pairing code (valid 10 minutes by default). |
-| `GET /admin/clients` | Lists clients with whether each is online, its address, its resolved settings and the three layers they come from, plus `types`: what each client type described (settings, actions, links). |
+| `GET /admin/clients` | Lists clients with whether each is online, its address, its resolved settings and the three layers they come from, its `kind` (board, round, browser, computer, headset) and `offlineAfterMs` (how long it may be offline before the attention list names it; null for never), plus `types`: what each client type described (settings, actions, links). |
 | `POST /admin/clients/:id/commands/:name` | Sends one of the actions the device offered and returns its answer (`{ok, payload, error}`). 409 when offline, 504 when it does not answer. |
 | `POST /admin/clients/:id/announce` | Body `{ text }`. Speaks or shows it on that device and returns `{heard}`. |
 | `GET /admin/clients/:id` | One client. |
@@ -136,6 +136,8 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `PATCH /admin/mcp/tools` | `{tool_name: true or false, ...}`. Switches tools on or off for every agent, by MCP and by the OpenClaw node. |
 | `GET /admin/live` | A stream that stays open (server-sent events): `snapshot` with the recent turns, then `turn` each time a turn reaches a stage or ends, and `wake` for each wake word a device reports. Words are memory only. |
 | `POST /admin/live/clear` | Deletes, now, the words Axis holds in memory for the admin page: finished live turns and the device sketches. |
+| `GET /admin/map` | The system map, read-only: `nodes` (every client with its info: online, state, version, capabilities, `vitals` from its readings and `attention`), `services` (agent, gateway command link, speech recognition and synthesis, voiceprints, Home Assistant: each with its state and, where a turn used it, `lastMs` and `lastAt`), `edges` (`{from, to, kind}`; `axis` is Axis itself), `axis` (version, start time) and `at`. |
+| `GET /admin/map/stream` | A stream that stays open (server-sent events) for the map: `snapshot` (as `GET /admin/map`), then `client` with one client's info when it comes online or goes offline (at once), when it reports readings (at most once every 5 s per client, the latest kept) and when one of its turns changes stage; and `turn` (`{key, clientId, stage, startedAt, endedAt?, outcome?}`: listening, transcribing, thinking, speaking, done) with no words. A comment line every 20 s keeps it open. |
 | `PATCH /admin/integrations` | Changes hub settings: `mqtt` `{host, port, user, password, discoveryPrefix}`, `publicHosts`, `trustedProxies`, `timeZone`, `activityDays`, `messageHoldMinutes`. Only the fields given change; a saved value wins over the environment. |
 | `GET /admin/wakes` | `?hours=168`. Wake words devices reported: device, score, loudness, the wake word in use and the outcome. |
 | `POST /admin/announce` | `{text, client?, location?, urgent?}`. Says it on one client, in one location, or on every client that can speak. |

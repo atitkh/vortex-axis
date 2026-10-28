@@ -113,7 +113,7 @@ The commands:
 | `vortex.axis.ask` | Ask a question with choices and return the answer. |
 | `vortex.axis.clients` | List clients, their state and capabilities. |
 | `vortex.axis.config` | Read or change a client's settings. |
-| `vortex.axis.sense` | Read sensor data a client reports. |
+| `vortex.axis.sense` | How one client or every client is doing: for each, its raw readings, its info (online, state, version, capabilities, vitals, attention) and a one-sentence `summary` meant to be spoken; for every client, also `lowest`, the one most in need (lowest battery not charging, else weakest signal). |
 | `vortex.axis.progress` | Show, silently, how long work of the agent's is going. |
 | `vortex.axis.diag` | Read diagnostics for Axis or a client. |
 | `vortex.axis.session` | Point every device at another of the agent's conversations, and back. |
@@ -193,6 +193,12 @@ This command, `update`, `wake.model`, `timer.next`, `progress.show`, `ask.waitin
 ### 8.4 What is going on now
 
 `GET /admin/now` returns the timers running (label, client, when due) and what each client is in the middle of (listening, waiting for the agent, speaking, or asked a question, with the question). The admin overview draws it as the "Now" table, refreshed with the rest of the page, with a Cancel button per timer (`DELETE /admin/timers/:id`). Nothing here is stored beyond the timers themselves.
+
+### 8.4.1 Device info and the system map
+
+`server/src/deviceinfo.ts` makes one plain object per client from what Axis holds: its record, its resolved settings, its connection, what it is in the middle of, the build Axis holds for its type, and its `sense` readings put into `vitals` (battery, signal, uptime, memory, chip temperature, today's use, mains power, last restart, room sound). A reading a client did not send is left out. The same object carries `attention`, short lines such as `battery low (14%)`, `weak Wi-Fi (-75 dBm)`, `old firmware (0.20.1; 0.21.0 is available)` and `offline for 3 hours`. The offline rule (by kind and the `offlineAlert` setting: boards after 15 minutes, computers and headsets after 12 hours, browsers never) is decided here only; the admin page reads a client's `kind` and `offlineAfterMs` from `GET /admin/clients`. The agent's `vortex.axis.sense` and the map both use it.
+
+`GET /admin/map` puts the clients beside the services behind Axis and the links between them; `GET /admin/map/stream` sends what changes, with a client's readings at most every 5 s and turn stages without words (`server/src/mapfeed.ts`). Both are read-only.
 
 ### 8.5 Activity log
 

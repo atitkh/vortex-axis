@@ -4,6 +4,17 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.60.0 (2026-10-28)
+
+How each device is doing, in one place, for the agent and for the admin page's system map.
+
+- **Device info** (`server/src/deviceinfo.ts`): one object per client with who it is, whether it is online, what it is doing, its version and capabilities, its `vitals` from its `sense` readings (battery and charging, Wi-Fi signal in words, uptime, free memory, chip temperature, today's pickups, touches and turns, mains power, last restart, room sound) and `attention` (low battery, weak Wi-Fi, an update waiting, offline past its alert time). A reading a device does not send is left out.
+- **The readings contract**, in `docs/client-guide.md` section 11: `battery` (0 to 100 %), `charging` (1/0), `batteryMv`, `chipTempC`, `pickupsToday`, `touchesToday`, `turnsToday`, `onPower` (1/0), beside `rssi`, `heap`, `uptimeS` and `lastStart`. Signal: strong at -60 dBm and above, ok to -70, weak to -80, poor below. A battery under 20 % is low.
+- **`vortex_axis_sense`** keeps each device's raw `readings` and adds `info` and a `summary` sentence to be spoken ("Desk board: online, battery 62% and charging, strong Wi-Fi, up 3 days."). Without a device named it covers every paired device, offline ones too, and adds `lowest`, the one most in need. Its description now names battery, signal, uptime, restarts and use.
+- **`GET /admin/map`** (read-only): the devices with their info, the services behind Axis (agent, gateway command link, speech recognition and synthesis, voiceprints, Home Assistant) with their state and last latency, and the links between them. **`GET /admin/map/stream`** (server-sent events): a device when it comes online or goes offline, when it reports readings (at most every 5 s each) and when its turn changes stage, plus turn stages without words.
+- The offline rule for the attention list (boards after 15 minutes, computers and headsets after 12 hours, browsers never, or the `offlineAlert` setting) is decided by Axis only: `GET /admin/clients` gives each client's `kind`, `offlineAfterMs` and `offlineAfterAutoMs`, and the admin page reads them.
+- Tests: `server/test/deviceinfo.test.ts` (thresholds, omissions, offline by kind and setting, the spoken summary, `lowest`, the stream's limit and turn stages, `sense` through a running Axis, the map's admin token and shape).
+
 ## Mac desktop app 0.6.1 (2026-10-27)
 
 - **The talk key no longer waits for the microphone** (the Windows app 0.13.1's fix). `Voice.keyDown` started a new `AVAudioEngine` (`AudioIO.startCapture`: device choice, tap, converter, `prepare`, `start`) on the main thread under the voice part's lock, and the hold's listening cue opened an output engine the same way; a Bluetooth headset switching profile or a cold input device could freeze the app, the hold timer and the pills for seconds. Now `WarmMic` (`AxisDesktopCore/TalkMic.swift`) opens and closes it in order on its own queue; a hold shows listening at 220 ms, the pre-roll still keeps what was said once the device is on, a failure is said at the hold (a tap types), and the cue plays on that queue.

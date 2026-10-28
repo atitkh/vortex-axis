@@ -110,7 +110,7 @@ Command names and their parameters are not fixed in version 1. They are defined 
 
 - `status` reports whether OpenClaw, speech recognition and speech synthesis are up, so a client can say or show which part is down. Axis sends it after `welcome` and whenever it changes.
 - `error` reports a problem with a code from a closed list: `bad_message`, `unsupported_protocol`, `unauthorized`, `busy`, `upstream_down`, `timeout`, `not_supported`, `internal`. When `fatal` is true, Axis closes the connection next.
-- `sense` lets a client report sensor readings as flat key-value pairs.
+- `sense` lets a client report sensor readings as flat key-value pairs. The names Axis understands, with their units, are listed in `docs/client-guide.md` (section 11).
 
 ## Message list
 
