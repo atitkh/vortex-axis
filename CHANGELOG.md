@@ -13,6 +13,15 @@ The boards' battery look, previewed on the admin page and shown on a board from 
 - The glow preview's blend is shared with the battery preview: the glow is mixed over what is underneath, as on the board (over black, as before, on the glow card).
 - Checked by browser-check (a pretend board that declares the battery look: the mark's amber cells at 12 %, the quick choices, the bodies sent, the refusals, the threshold mark) and three screenshots. NOT verified: Show on the device against a real board (needs the new firmware and this Axis deployed); the drawing was not compared pixel by pixel with a board's screen.
 
+## Board firmware 0.23.1 (Waveshare 1.8) (2026-10-28)
+
+- **The battery preview from the admin page**: the admin-only command `battery.show` `{ percent, charging, ms, off }` (`firmware/README.md`, "Vitals"), what the console's `preview battery N` and `preview charging` show, for `ms` (2 to 60 s, 20 s by default), then the real state; `off` ends it, a newer one replaces it. The console's previews still last a minute. Axis's side is `POST /admin/clients/:id/battery` (admin only; 400 for a board without `lowBatteryBelow`; the board's own error passed on), in the server since commit 0941515, released with Axis 0.66.0.
+- Put on the bench 1.8 (VorteX-Axis-C484) over Wi-Fi by a staged rollout from 0.23.0: proven 34 s after it was told to update. NOT verified: `battery.show` sent to it through Axis (not deployed when this was written), its screen.
+
+## Round board firmware 0.7.1 (Waveshare 1.75) (2026-10-28)
+
+- `battery.show`, the same as the 1.8's 0.23.1. Flashed by USB to the round board on the bench (VorteX-Axis-D460): back on Axis showing 0.7.1; `preview lowbattery` and `preview off` on the console still switch it (`power` said `low battery (preview)`, then nothing). NOT verified: `battery.show` through Axis, the screen while it shows (no picture taken).
+
 ## Board firmware 0.23.0 (Waveshare 1.8) (2026-10-28)
 
 - **Low battery and charging on the face** (`battery_cue.*`, `docs/face.md` section 10, `firmware/README.md`, "Vitals"). At or below `lowBatteryBelow` (default 15 %, 0 off, clears 3 above) while not charging, the idle face turns sleepy (60 % speed, 75 % brightness) and a battery mark with the percent stays at the bottom of the screen, amber, red and slowly pulsing below 5 %. When charging begins while the board runs, the edge glow swells once in the idle face's cyan over 3 s and a bolt shows by the mark; while charging the mark stays with the bolt. Never a sound. Follows the power chip's 30 s readings; with no battery nothing shows.
