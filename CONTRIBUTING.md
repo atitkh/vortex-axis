@@ -22,7 +22,7 @@ speech/     the local speech services (Python)
 docs/       design, the face, the client guide, setup, hardware
 ```
 
-`CLAUDE.md` is the working handoff: the current state, the rules that are settled, a map of the server and the firmware, and a list of things that have bitten before. Read its Status section; it is short.
+[`CLAUDE.md`](CLAUDE.md) holds notes for AI coding assistants working in the repository: the current state, the rules that are settled, and maps of the server and the firmware. The maps are useful to anyone finding their way around the code.
 
 ## Building and testing
 

@@ -1,6 +1,6 @@
 # Releasing
 
-Run `node scripts/release-check.mjs` before saying anything is done, and again after the build and the deploy. It checks the things we have forgotten before; a ✗ is a failure, a ⚠ is something to look at.
+Run `node scripts/release-check.mjs` before a release, and again after the build and the deploy. It checks the steps that are easy to miss; a ✗ is a failure, a ⚠ is something to look at.
 
 ## What changed → what to do
 
@@ -14,17 +14,17 @@ Do the steps in order. Each says what the check will look for.
    - The protocol changes (`protocol/src/messages.ts`): regenerate with `npm run schema --workspace protocol`, commit `protocol/schema/`, update `protocol/README.md`, and `docs/client-guide.md` if clients must act. The protocol number itself moves only when devices and Axis must change how they talk; a new message old clients can ignore does not move it.
 2. **Write it down in the same commit.**
    - `CHANGELOG.md`: a `## Axis X (date)`, `## Desktop app X (date)`, `## Mac desktop app X (date)`, `## Board firmware X (Waveshare 1.8) (date)` or `## Round board firmware X (Waveshare 1.75) (date)` entry, newest first.
-   - `CLAUDE.md`: the **Versions** line (and what is built, what is not, what the owner has tried).
+   - `CLAUDE.md`: the **Versions** line (and what is built, what is not, what has been tried on real hardware).
    - Anything a client does differently: `docs/client-parity.md`.
 3. **Test.** `npm test` and `npm run typecheck` for Axis; `npm run browser-check` when the admin page (`/admin`, `web/admin-next.*` and `web/adm-*.js`) or the web client changed. Since the classic page was removed (Axis 0.58.0) it drives only the new page: sign-in (a wrong token, then the right one), every area, a running agent task under Live > Now and then Tasks finished, and that `/admin-classic` answers 404. Windows: the Docker build in `scripts/build-desktop.sh` compiles it; `Axis.Desktop.Smoke check` for clicks. Mac: `swift build && swift test` on a Mac only (the owner runs them; paste errors back).
 4. **Commit and push.** The message says what changed and what version each part is now at.
 5. **Ship what changed.**
    - Axis: `npm run deploy`, then `scripts/release-check.mjs` (it reads the commit the running container was built from).
    - Windows app: `scripts/build-desktop.sh` puts it on the shelf; the PC takes it in about 5 minutes. The server must be deployed first when the app needs a new message.
-   - Mac app: the owner builds it. Nothing is served yet (notarization and an update path come with the Developer ID certificate).
+   - Mac app: built by hand on a Mac. Nothing is served yet (notarization and an update path come with the Developer ID certificate).
    - Firmware: build, flash the bench board, publish to the hub; see **Firmware** below.
 6. **Tag.** `vX.Y.Z` for Axis when it is a release (runs `.github/workflows/release.yml`: firmware, desktop app, image). `desktop-vX.Y.Z`, `quest-vX.Y.Z` and `fw-<board>-vX.Y.Z` (e.g. `fw-waveshare-amoled-1.8-v0.20.0`, `fw-waveshare-amoled-1.75-v0.4.1`) are markers on the commit that changed that client or board to that version; they build nothing. Push tags with `git push origin <tag>` (never force).
-7. **The project card** (`memory/projects/vortex-hub.md`): a dated line with versions, commits, what is deployed and what is not yet tried by the owner; bump `updated:`. Mirror a short version to the Discord post when it is a milestone.
+7. **Notes outside the repository.** Any project log kept elsewhere gets a dated line with versions, commits, what is deployed and what has not been tried on hardware yet. A milestone gets a short announcement.
 8. **Run the check again.** Everything ✓ means the code, the changelog, the notes, the tags, the running server and the shelf agree.
 
 ## Firmware

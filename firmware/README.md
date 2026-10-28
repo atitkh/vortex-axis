@@ -152,7 +152,7 @@ The microphone and the speaker share one 16 kHz stream from the ES8311 codec. A 
   - Own voice taken out: about 21 dB at volume 40 and below, 10 to 12 dB at volume 87. The small speaker distorts when loud, and distortion is not in the reference.
   - Cost: 4 to 5.5 ms per 32 ms frame on core 0, 7 KB of internal memory and 100 KB of PSRAM (`AEC_MODE_SR_HIGH_PERF`, filter length 4).
   - It does NOT stop the device waking on its own voice. With cancelling off, five of its own "Hey Vortex" scored nothing (the overloaded microphone hears mush). With cancelling on, the cleaned signal is intelligible and one of five scored 0.96. That is why `bargeIn` is off by default.
-  - Not tried: a person saying the wake word over speech with cancelling on. Worth trying at volume 50 or lower before giving up on it.
+  - Untested: a person (rather than the board's own speaker) saying the wake word over speech with cancelling on. Volume 50 or lower is the likeliest to work.
   - Seen in the same test: a second board in the room woke on the first board's spoken "Hey Vortex". `bargeIn` does not cover that.
 
 - **Follow-up.** When an answer to something you said has been spoken to the end, the device listens for `followUpMs` without the wake word. Silence ends it quietly. It does not open after an answer that was cut off, after something Axis said unprompted, or when the agent answered `NO_REPLY` or nothing (Axis neither shows nor speaks those, so there is no speech to follow).
@@ -163,19 +163,17 @@ The face goes green and pulses with your voice while listening (the size follows
 
 ## Status
 
-Milestones 1 to 4 of 5 are done on the Waveshare board: display, Wi-Fi setup network, pairing, the socket to Axis with settings sync, the face, the speaker, the microphone with tap-to-talk, and the "Hey Vortex" wake word.
+Working on the Waveshare 1.8 board: display, Wi-Fi setup network, pairing, the socket to Axis with settings sync, the face, the speaker, the microphone with tap-to-talk, the "Hey Vortex" wake word, follow-up listening, the cue, questions and timers.
 
-Tried on the real board with nobody in the room, using the board's own speaker as the sound source: tap-to-talk into a quiet room (cancels after `onsetMs`), tap-to-talk with a sound (recorded, trimmed by silence, transcribed, answered, spoken), the wake word recognised from the board's own voice saying "Hey Vortex" (scores 0.94 to 0.98), a wake being granted by Axis, and interrupting a spoken answer with the wake word.
+Checked on the real board with nobody in the room, using the board's own speaker as the sound source: tap-to-talk into a quiet room (cancels after `onsetMs`), tap-to-talk with a sound (recorded, trimmed by silence, transcribed, answered, spoken), the wake word recognised from the board's own voice saying "Hey Vortex" (scores 0.94 to 0.98), a wake being granted by Axis, and interrupting a spoken answer with the wake word.
 
-**Tried by a person (2026-10-08):** wake word, tap-to-talk, follow-up, NO_REPLY, cue, green face, transcripts: all good. Wake word over a long answer does NOT stop speech (accepted for now, tap to interrupt). See "Tests for a person".
+**Known limitation:** saying the wake word over a long answer does not reliably stop the speech; tap the screen to interrupt. See "Interrupting" above and "Manual tests" below.
 
 Measured: the face is now sent to the panel four rows at a time (960 pixels, under the driver's 1024 limit), which cut a frame from 31 ms to about 21 ms. The wake word costs about 3 ms in every 30, on the other core. With everything running, 118 KB of internal memory is free and the lowest seen is 115 KB.
 
-Build order: (1) display, Wi-Fi setup, pairing and a face that follows Axis's state; (2) speaker; (3) microphone with tap-to-talk; (4) wake word; (5) polish and updates over Wi-Fi.
+Questions from an agent with choices to tap or say, and a countdown for timers kept on Axis (0.7.0).
 
-Also built (0.7.0): questions from an agent with choices to tap or say, and a countdown for timers kept on Axis.
-
-Milestone 5 and after (firmware 0.8 to 0.11.4, all on both boards):
+Added in firmware 0.8 to 0.11.4, on both boards:
 
 - Updates over Wi-Fi with rollback; an encrypted link (`axis+tls://`); moving to another address for Axis without pairing again; wake word models fetched from Axis; a reset from the admin page.
 - A smoother font, auto-rotate from the motion sensor, an adjustable picture offset.
@@ -184,58 +182,58 @@ Milestone 5 and after (firmware 0.8 to 0.11.4, all on both boards):
 - Seven more idle looks, with arms that sway and a figure tipped at an angle (0.11.1); idle looks can be switched off from Axis (`idleLooksOff`, 0.11.3).
 - The board reports its screen size, the way up it stands (`screenW`, `screenH`, through `Client::setReading`, 0.11.4).
 
-Known and unexplained: after a reset triggered over the serial cable, the log can fill with `i2cWrite(): i2c_master_transmit failed: [259] ESP_ERR_INVALID_STATE` (the touch and motion sensors' bus). A power-on start does not show it.
+**Known limitation:** after a reset triggered over the serial cable, the log can fill with `i2cWrite(): i2c_master_transmit failed: [259] ESP_ERR_INVALID_STATE` (the touch and motion sensors' bus); the cause is not known. A power-on start does not show it.
 
-## Tests for a person
+## Manual tests
 
-All done by the owner on 2026-10-08, with the exceptions noted.
+Checks to run on a board after a change to listening, speech or the screen. Each says what should happen.
 
-1. [x] Say "Hey Vortex" from a metre away. The face should turn green within about half a second. Then ask something. Repeat from across the room and with the TV on. Note misses and false wakes.
-2. [x] Tap the screen while idle: green face, speak, stop talking. It should send after about a second of quiet.
-3. [x] Tap once while it is listening, before and after you speak: it should finish early, or cancel if you had said nothing.
-4. [x] Tap while it is speaking or thinking: it should go quiet and return to the idle face.
-5. [x] Say "Hey Vortex" while it is speaking a long answer: it should stop and listen. If it triggers on its own voice, set `bargeIn` to 0 in the admin page. **Tried 2026-10-08: does not work** (the wake word does not stop speech mid-answer even with ducking). Accepted for now; tap the screen to interrupt. An echo canceller is the real fix.
-6. [x] Say nothing after the wake word: it should give up after about six seconds with no error.
-7. [x] Check the transcripts: words cut at the start mean the pre-roll or settle time is wrong, misheard words mean the microphone gain is.
-8. [x] Leave it alone for an hour and read the `[mic]` serial lines for false wakes (`wake: N heard`).
-9. [x] Say whether the speaker buzz you reported is gone (codec gain and resampling changed in 0.3.x). No report back after the 0.5.1 resampler fix.
+1. Say "Hey Vortex" from a metre away. The face should turn green within about half a second. Then ask something. Repeat from across the room and with the TV on. Note misses and false wakes.
+2. Tap the screen while idle: green face, speak, stop talking. It should send after about a second of quiet.
+3. Tap once while it is listening, before and after you speak: it should finish early, or cancel if you had said nothing.
+4. Tap while it is speaking or thinking: it should go quiet and return to the idle face.
+5. Say "Hey Vortex" while it is speaking a long answer: it should stop and listen. If it triggers on its own voice, set `bargeIn` to 0 in the admin page. Known limitation: the wake word does not reliably stop speech mid-answer, even with ducking; tap the screen to interrupt.
+6. Say nothing after the wake word: it should give up after about six seconds with no error.
+7. Check the transcripts: words cut at the start mean the pre-roll or settle time is wrong, misheard words mean the microphone gain is.
+8. Leave it alone for an hour and read the `[mic]` serial lines for false wakes (`wake: N heard`).
+9. Listen for a buzz from the speaker while idle and while it speaks (codec gain and resampling changed in 0.3.x).
 
 Added in 0.5.0 (follow-up, cue, log page, livelier listening face):
 
-10. [x] Ask something, let it answer, then reply WITHOUT the wake word within six seconds: it should take your reply. Say nothing: the green face should end quietly after six seconds.
-11. [x] Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
-12. [x] Listen for the rising tone on wake and on tap (not on follow-up, removed at his request). Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
-13. [x] While listening, talk at different volumes: the green face should swell and shrink with your voice.
-14. [x] Open `http://<the board's address>/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
-15. [x] Say "Hey Vortex" over a long answer again (any volume): the speech should dip as you start the phrase and the device should stop and listen. If not, `/logs` shows whether the score rose (`ducking the speaker`). **Tried 2026-10-08: does not work** (the wake word does not stop speech mid-answer even with ducking). Accepted for now; tap the screen to interrupt. An echo canceller is the real fix.
-16. [x] Is the buzz gone or lighter (0.5.1 resampler)? No report back after the 0.5.1 resampler fix.
+10. Ask something, let it answer, then reply WITHOUT the wake word within six seconds: it should take your reply. Say nothing: the green face should end quietly after six seconds.
+11. Make the agent answer nothing (ask it to reply `NO_REPLY`): nothing is spoken or shown and it does not open a follow-up.
+12. Listen for the rising tone on wake and on tap (not on follow-up). Check it is not so loud it is picked up as your speech, and that your first word after it is not lost. `listenCue` 0 turns it off.
+13. While listening, talk at different volumes: the green face should swell and shrink with your voice.
+14. Open `http://<the board's address>/logs` after trying "Hey Vortex" over a long answer and look for `[wake]` lines.
+15. Say "Hey Vortex" over a long answer again (any volume): the speech should dip as you start the phrase and the device should stop and listen. If not, `/logs` shows whether the score rose (`ducking the speaker`). Same known limitation as test 5.
+16. Listen for buzz or harshness in spoken answers (the 0.5.1 resampler; see below).
 
 Resampling: speech arrives at 24 kHz and the codec runs at 16 kHz. Until 0.5.1 this used linear interpolation, which let everything above 8 kHz fold down into the audible range (measured with `probe`: a 1 kHz tone came back with a 7 kHz ghost only 34 dB down, a 9 kHz tone folded to 7 kHz at full strength). It is now a 24-tap windowed-sinc low-pass evaluated at the exact output time (ghost -53 dB, 9 kHz tone about 25 dB lower). The display is NOT the source of the buzz: `probe` shows no sidebands at the frame rate with the face running or paused.
 
 Added in 0.10.0 (wake words from Axis):
 
-26. [ ] On the admin page, Wake words: "Hey Vortex" is stored and this board is set to listen with the stored copy (`wakeWord` = `hey-vortex` on the device). It should wake exactly as before; the log's first `[wake]` line says `"Hey Vortex" loaded` without "(built-in)". Set Wake word back to `built-in` on the device's page: the board restarts within a few seconds of being idle and the log says "(built-in)" again.
-27. [ ] Upload a different microWakeWord model with its manifest, choose it, and say the new phrase.
+26. On the admin page, Wake words: "Hey Vortex" is stored and this board is set to listen with the stored copy (`wakeWord` = `hey-vortex` on the device). It should wake exactly as before; the log's first `[wake]` line says `"Hey Vortex" loaded` without "(built-in)". Set Wake word back to `built-in` on the device's page: the board restarts within a few seconds of being idle and the log says "(built-in)" again.
+27. Upload a different microWakeWord model with its manifest, choose it, and say the new phrase.
 
 How it works: `axis::loadStoredWakeModel` (client core) reads `/wake.tflite` from the flash partition for files into PSRAM, checked against the checksum Axis gave, and `mic::loadWakeWord` hands it to `wake::begin`, which falls back to the built-in model if it will not load. The `wake.model` command from Axis fetches or drops the file and restarts the device when it is idle. Measured with the stored copy: 2.5 ms an inference, the same as the built-in.
 
-Added in 0.9.0, not yet seen by a person:
+Added in 0.9.0 (text, turning with the device, picture offset):
 
-23. [ ] The text. Everything is now drawn in FreeSans (headings bold, body regular, buttons a size up) and not the blocky built-in font. Check a long reply, a question with buttons, the timer line and the setup screens. Curly quotes, dashes and accented letters should come out as plain ones, and emoji as nothing.
-24. [ ] Turn with the device (`autoRotate`, on by default). Stand the board on each of its four edges for a second: the picture should turn upright each time. Lying flat it should stay as it was. 0.9.0 had this a quarter turn out (standing upright showed the picture sideways); 0.9.1 corrects it. The two landscape ways are set from a reading on the real board, the two portrait ways are worked out from the sensor's axes and not yet seen. If one way comes out wrong, run the "Which way up" action on the admin page in that position and report the numbers.
+23. The text. Everything is now drawn in FreeSans (headings bold, body regular, buttons a size up) and not the blocky built-in font. Check a long reply, a question with buttons, the timer line and the setup screens. Curly quotes, dashes and accented letters should come out as plain ones, and emoji as nothing.
+24. Turn with the device (`autoRotate`, on by default). Stand the board on each of its four edges for a second: the picture should turn upright each time. Lying flat it should stay as it was. 0.9.0 had this a quarter turn out (standing upright showed the picture sideways); 0.9.1 corrects it. The two landscape ways are set from a reading on the real board, the two portrait ways are worked out from the sensor's axes and not yet seen. If one way comes out wrong, run the "Which way up" action on the admin page in that position and report the numbers.
 
-25. [ ] Picture offset (0.9.2). On this board everything sat to one side in portrait, and in flipped landscape the top of the picture came back in at the bottom and stayed as stains: the panel driver's column offset (16, the value that suited another unit of this board) was too large for this unit. It is now the `screenOffset` setting, set to 0 for this device. Run "Show screen edges": all four sides of the frame should be visible and the cross in the middle. If one side is missing or doubled, change `screenOffset` while the frame shows.
+25. Picture offset (0.9.2). On this board everything sat to one side in portrait, and in flipped landscape the top of the picture came back in at the bottom and stayed as stains: the panel driver's column offset (16, the value that suited another unit of this board) was too large for this unit. It is now the `screenOffset` setting, set to 0 for this device. Run "Show screen edges": all four sides of the frame should be visible and the cross in the middle. If one side is missing or doubled, change `screenOffset` while the frame shows.
 
 Text: `display::textLine` takes 2 (body) or 3 (heading); widths are measured (`display::textWidth`), lines are wrapped by width in `main.cpp`, and `display::plain` turns UTF-8 into what the fonts hold. The fonts are in `src/fonts/`, from the Adafruit GFX Library (the round board's 15-point ones made the same way by `tools/gfx_font.py`). Motion: `src/imu.cpp` reads the QMI8658 accelerometer from the main loop; an edge must carry 0.55 g and hold for 0.9 s before the picture turns.
 
-Added in 0.7.0 (questions and timers). Tried by the owner on 2026-10-08: tapping a choice and all the timer tests work. The 0.7.1 button layout and timers showing on every screen are not yet seen by a person:
+Added in 0.7.0 (questions and timers; the button layout and timers on every screen in 0.7.1):
 
-17. [ ] Have the agent ask a question with choices ("ask me on the board whether I want tea or coffee"). It should speak the question, play the cue, and show the question with one choice per row filling the screen. Tap a choice: the agent should get exactly that one. Check the row you tapped is the one it took (the log line `[ask] tap at ...` shows where the tap landed); try it at another `rotation` too.
-18. [ ] The same question, answered by voice ("coffee", "the second one"). The question text turns green while it listens. The agent should get the choice, and the words must not be answered as a normal turn.
-19. [ ] An open question with no choices ("ask me what to call the new timer"): the face stays, the question shows under it, and the agent gets your words.
-20. [ ] Ask a question and say nothing: after the timeout the choices go away and the face comes back.
-21. [ ] Set a timer by voice ("set a two minute pasta timer"). "pasta 1:59" should count down above the face area while idle. When it is due: the chime, then "Your pasta timer is done." Set two and check "(+1)". Cancel one by voice.
-22. [ ] Unplug the board with a timer running and plug it back in before it is due: the countdown should come back.
+17. Have the agent ask a question with choices ("ask me on the board whether I want tea or coffee"). It should speak the question, play the cue, and show the question with one choice per row filling the screen. Tap a choice: the agent should get exactly that one. Check the row you tapped is the one it took (the log line `[ask] tap at ...` shows where the tap landed); try it at another `rotation` too.
+18. The same question, answered by voice ("coffee", "the second one"). The question text turns green while it listens. The agent should get the choice, and the words must not be answered as a normal turn.
+19. An open question with no choices ("ask me what to call the new timer"): the face stays, the question shows under it, and the agent gets your words.
+20. Ask a question and say nothing: after the timeout the choices go away and the face comes back.
+21. Set a timer by voice ("set a two minute pasta timer"). "pasta 1:59" should count down above the face area while idle. When it is due: the chime, then "Your pasta timer is done." Set two and check "(+1)". Cancel one by voice.
+22. Unplug the board with a timer running and plug it back in before it is due: the countdown should come back.
 
 Questions: `ask` from Axis puts the question in the snapshot (`askId`, `question`, `choices`). The core opens the microphone with the cue for up to 20 seconds and leaves matching a spoken answer to Axis. With choices the face stays at the top, green while it listens; the question goes under it and the choices are rounded buttons below, laid out by `askLayout()` in `main.cpp` (as many to a row as fit the longest choice; when they do not fit under the face, the question and buttons take the whole screen). A tap is turned from panel to logical coordinates (`display::toLogical`) and the button under it is sent with `client.answer(index)`. Since 0.7.1; 0.7.0 drew plain text rows over the whole screen. `ask.end`, the question's own timeout or a lost connection clears it. Timers live on Axis; the board only shows the one Axis names in the `timer.next` command.
 

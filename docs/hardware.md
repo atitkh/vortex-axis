@@ -60,7 +60,7 @@ Its settings (volume, brightness, rotation, wake word, how long it waits for you
 
 ## The round board: Waveshare ESP32-S3-Touch-AMOLED-1.75 (new)
 
-The same firmware as the 1.8, laid out on a round screen. Type `waveshare-amoled-1.75`; it counts its own firmware versions (0.1.0 is the first). New in this checkout and not yet used by a person: see `firmware/README.md`, "The round board", for what has been checked on a real one.
+The same firmware as the 1.8, laid out on a round screen. Type `waveshare-amoled-1.75`; it counts its own firmware versions (0.1.0 is the first). **Status: new**, not yet tested in everyday use; see `firmware/README.md`, "The round board", for what has been checked on a real one.
 
 | | |
 | --- | --- |

@@ -1,6 +1,6 @@
 # Client parity: how the clients differ in how they work
 
-Written 2026-10-20 from the code at Axis 0.47.1, board firmware 0.18.2, Windows desktop app 0.10.5, Mac desktop app 0.3.2, protocol 1; rows marked with a later version were updated since (last 2026-10-26: Axis 0.51.0, Windows 0.13.0, Mac 0.6.0, boards 0.19.1 and 0.2.2). It is an analysis, not a plan that was agreed to: each row says which side would change to make the clients behave alike, and roughly how big that change is (S: under a day, M: a few days, L: a week or more).
+Written 2026-10-20 from the code at Axis 0.47.1, board firmware 0.18.2, Windows desktop app 0.10.5, Mac desktop app 0.3.2, protocol 1; rows marked with a later version were updated since (last 2026-10-26: Axis 0.51.0, Windows 0.13.0, Mac 0.6.0, boards 0.19.1 and 0.2.2). It is an analysis, not a plan: each row says which side would change to make the clients behave alike, and roughly how big that change is (S: under a day, M: a few days, L: a week or more).
 
 **[code]** means read in the code (file named); **[inferred]** means worked out from names, comments or docs, not followed through.
 
