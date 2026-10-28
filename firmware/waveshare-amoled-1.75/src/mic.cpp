@@ -6,6 +6,7 @@
 #include "codec.h"
 #include "detector.h"
 #include "speaker.h"
+#include "wake_level.h"
 
 namespace mic {
 
@@ -190,8 +191,8 @@ void measureRoom(const int16_t *block, float average, float roomLevel) {
     soundBlocks = loudBlocks = 0;
 }
 
-// Loudness around the wake word, used to pick between devices that heard it at once.
-float recent = 0;
+// How loud the wake word was over the room, used to pick between devices that heard it at once.
+axis::WakeLevel wakeLevel;
 // The room's own loudness, so the face moves with a voice and not with a fan.
 float room = 0;
 uint32_t lastNearMiss = 0, duckedAt = 0;
@@ -205,14 +206,13 @@ void handle(const int16_t *block) {
     }
     uint32_t sum = 0;
     for (size_t i = 0; i < BLOCK; i++) sum += abs((int)block[i]);
-    const float now = min(1.0f, (sum / (float)BLOCK) / 3000.0f);
     const float average = sum / (float)BLOCK;
     room += average < room ? (average - room) / 16.0f : (average - room) / 1024.0f;
     // Square root: ordinary speech should fill most of the range, not the bottom of it.
     const float voice = sqrtf(constrain((average - room * 1.3f - 20.0f) / 1500.0f, 0.0f, 1.0f));
     // Rise at once, fall over about a tenth of a second, so the face follows syllables.
     currentLevel = voice > currentLevel ? voice : currentLevel * 0.9f + voice * 0.1f;
-    recent = recent * 0.95f + now * 0.05f;
+    wakeLevel.feed(average, room);
     measureRoom(block, average, room);
 
     client->feedAudio(block, BLOCK);
@@ -243,8 +243,12 @@ void handle(const int16_t *block) {
         if (logOut) logOut->printf("[wake] heard it over speech but bargeIn is off (score %.2f)\n", score);
         return;
     }
-    if (logOut) logOut->printf("[wake] heard it (score %.2f, level %.2f%s)\n", score, recent, speaker::playing() ? ", over speech" : "");
-    client->wakeHeard(score, min(1.0f, recent * 4.0f));
+    // The level is how far the wake word stood out over this board's own room noise, so it reads
+    // the same whatever the microphone's gain: see wake_level.h.
+    const float level = wakeLevel.level();
+    if (logOut) logOut->printf("[wake] heard it (score %.2f, level %.2f: %.1f dB over the room, speech %.0f, room %.1f%s)\n", score, level,
+                               wakeLevel.decibels(), wakeLevel.speech(), wakeLevel.room(), speaker::playing() ? ", over speech" : "");
+    client->wakeHeard(score, level);
 }
 
 void task(void *) {

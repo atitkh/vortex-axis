@@ -48,7 +48,10 @@ export const Wake = message("wake", {
   wakeId: Id,
   /** Detection confidence, 0 to 1. */
   score: Type.Number({ minimum: 0, maximum: 1 }),
-  /** Loudness of the wake word, 0 to 1. Breaks ties between clients. */
+  /**
+   * How loud the wake word was over the device's own room noise, 0 to 1 (decibels over the room / 40;
+   * docs/client-guide.md). Among clients scoring close to the best, the loudest answers.
+   */
   level: Type.Number({ minimum: 0, maximum: 1 }),
 });
 

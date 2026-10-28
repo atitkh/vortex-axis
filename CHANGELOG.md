@@ -4,6 +4,26 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.59.0 (2026-10-27)
+
+When several devices hear the wake word, the nearest one answers, not the one with the marginally best score.
+
+- Wake arbitration (`server/src/wake.ts`): every device scoring within the wake margin of the best score is a candidate, and the loudest candidate answers (ties go to the better score). A device further below the best never answers, however loud. A farther device can score a little higher on the wake word yet hear what follows worse: in a real log three boards scored 95 %, 92 % and 93 % at loudness 2 %, 4 % and 6 %, and the quietest answered.
+- The margin is a hub setting, `wakeMargin` (0 to 0.5, default 0.10; `AXIS_WAKE_MARGIN` sets the starting value, a saved one wins), edited on the admin page's **Wake words** page under "When several devices hear it" (in points, 0 to 50) with Save and Undo. 0 is the old rule exactly. It applies to the next wake word, without a restart.
+- The activity line of a contested wake word says when loudness decided it: "... answered (chosen by loudness among 3 within 10 points of the best score); stood down: ...". A wake word heard while another device speaks in the same location is still ignored, as before.
+- Loudness now means the same on every board (firmware 0.20.1 and 0.4.2 below): decibels over the device's own room noise, divided by 40. The protocol is unchanged (`level` is still 0 to 1), so older firmware keeps working, its loudness only less comparable. `docs/client-guide.md` says what a client with a wake word should send.
+- Tests: `server/test/wake.test.ts` (margin 0 is the old rule, close scores go to the louder, a far worse score loses however loud, a score exactly at the margin, one report, ties, the margin read at each decision) and two in `turns.test.ts` (the real three-board case and its log line; the setting saved through `PATCH /admin/integrations`, 0.6 refused); `browser-check` saves the margin on the Wake words page.
+
+## Board firmware 0.20.1 (Waveshare 1.8) (2026-10-27)
+
+- The wake word's loudness (`level` in `wake`) is how far it stood out over the board's own room noise: `clamp(20 × log10(speech / room) / 40, 0, 1)`, with `speech` the loudest ~100 ms running average of the mean absolute sample over the last ~1.3 s and `room` the board's room level as it was before the wake word (the lowest of the last ~2.6 s). A ratio of two figures from the same microphone, so it does not depend on the gain and reads the same on a round board. It was the raw loudness, so a board with more gain (the 1.75 since 0.2.1) or a quieter microphone looked nearer or farther than it was. Shared with the round board in `common/src/wake_level.h`. The log shows it: `[wake] heard it (score 0.98, level 0.97: 38.7 dB over the room, speech 1136, room 13.2)`.
+- Built; NOT flashed (no 1.8 attached), not pushed over Wi-Fi.
+
+## Round board firmware 0.4.2 (Waveshare 1.75) (2026-10-27)
+
+- The same wake word loudness as the 1.8's 0.20.1 (`common/src/wake_level.h`): decibels over the board's own room noise / 40, independent of the microphone gain raised in 0.2.1.
+- Flashed by USB on 2026-10-27 to the round board on the bench (VorteX-Axis-D460), which reconnected to Axis (room level 16). "Hey Vortex" played through its own speaker with `pcm` at full volume, −6 dB and −12 dB: score 0.98, 0.94, 0.88; 38.7, 34.1 and 28.2 dB over the room, level 0.97, 0.85, 0.70; full volume again 38.6 dB. Nobody said it at two distances; not pushed over Wi-Fi.
+
 ## Axis 0.58.0 (2026-10-27)
 
 The classic admin page is removed, and firmware releases are checked like the rest.
