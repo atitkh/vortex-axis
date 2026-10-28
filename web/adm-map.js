@@ -142,28 +142,30 @@ function ServiceNode({ p }) {
 }
 
 const WAKE_WORDS = { answered: "answered", stood_down: "stood down", ignored: "ignored" };
-const PANEL_W = 92, PANEL_H = 58;
+const PANEL_W = 100, PANEL_H = 58, INSIDE_H = 40;
 
 /**
  * One device's part in a wake contest, beside its card (inside it, at the right, when there is no room beside it): two bars, how sure it
  * was and how loud, and what came of it; the one that answered says by how much it won.
  */
 function WakePanel({ p, w, contest, inside }) {
-  const x = inside ? p.x + p.w - PANEL_W - 8 : p.x + p.w + 8;
-  const y = inside ? p.y + p.h - PANEL_H - 4 : p.y + (p.h - PANEL_H) / 2;
+  // Inside the card it sits low at the right, clear of the attention badge.
+  const h = inside ? INSIDE_H : PANEL_H;
+  const x = inside ? p.x + p.w - PANEL_W - 6 : p.x + p.w + 8;
+  const y = inside ? p.y + p.h - h - 5 : p.y + (p.h - h) / 2;
   const bar = (i, value, cls) => {
-    const full = PANEL_H - 16;
+    const full = h - 14;
     const hgt = Math.max(1.5, full * Math.min(1, Math.max(0, value)));
-    return html`<g class=${cls}><rect x=${x + 8 + i * 11} y=${y + 8} width="7" height=${full} rx="2" class="track" /><rect x=${x + 8 + i * 11} y=${y + 8 + full - hgt} width="7" height=${hgt} rx="2" class="fill" /></g>`;
+    return html`<g class=${cls}><rect x=${x + 8 + i * 11} y=${y + 7} width="7" height=${full} rx="2" class="track" /><rect x=${x + 8 + i * 11} y=${y + 7 + full - hgt} width="7" height=${hgt} rx="2" class="fill" /></g>`;
   };
   const winner = contest.winner === w;
   const note = winner && contest.wakes.length > 1 ? (contest.by >= 0 ? `won by ${contest.by.toFixed(2)}` : "won on loudness") : `sure ${w.score.toFixed(2)}`;
   return html`<g class=${`wake ${w.outcome}`} data-wake=${w.clientId}>
     <title>${w.client}: ${WAKE_WORDS[w.outcome]}; sure ${Math.round(w.score * 100)}%, loudness ${Math.round(w.level * 100)}%</title>
-    <rect x=${x} y=${y} width=${PANEL_W} height=${PANEL_H} rx="8" class="panel" />
+    <rect x=${x} y=${y} width=${PANEL_W} height=${h} rx="8" class="panel" />
     ${bar(0, w.score, "b-score")}${bar(1, w.level, "b-level")}
-    <text x=${x + 32} y=${y + 24} class="t-xs w-out">${WAKE_WORDS[w.outcome]}</text>
-    <text x=${x + 32} y=${y + 40} class="t-xs dim">${note}</text>
+    <text x=${x + 32} y=${y + h / 2 - 3} class="t-xs w-out">${WAKE_WORDS[w.outcome]}</text>
+    <text x=${x + 32} y=${y + h / 2 + 11} class="t-xs dim">${note}</text>
   </g>`;
 }
 

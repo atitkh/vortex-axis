@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.62.0 (2026-10-28)
+
+Wake contests on the map, and the device's live view as the Overview of its device page.
+
+- **Wake words on the map:** `GET /admin/map/stream` sends `wake` (`{contest, at, clientId, client, score, level, outcome}`, never the word) for each device that reported the wake word; reports within the wake window (`AXIS_WAKE_WINDOW_MS`) plus 300 ms of the first share a `contest`. The map draws the latest contest beside each device that heard it: a score bar and a loudness bar with the outcome; the one that answered outlined with its margin ("won by 0.12", or "won on loudness"), the others dimmed as stood down or ignored; a line above the drawing says it in words. It stays 6 s after the last report, then fades (no fade under reduced motion). One device hearing it shows one pair, answered.
+- **Device page Overview:** the live view of the device that was its map page (sketch with the face, gauges, attention, settings in effect, last turns, capabilities) now heads the device page's Overview, above About, Actions, the last 24 hours and Readings, which are unchanged; read-only. The shared drawing and the stream live in `web/adm-twin.js`, used by the map and the device page.
+- `#map/<client id>` opens the device page. A device on the map opens its device page. The device page's **Map** button became **On the map**, opening the map with that device picked out (`#map?device=<client id>`).
+- `npm run browser-check` stages a two-device contest (a pretend second device) and a single wake, checks the fade, the device page's Overview, **On the map** and the old `#map/<id>` address; a server test covers the stream's `wake` event and its grouping.
+
 ## Axis 0.61.0 (2026-10-28)
 
 The system map on the admin page, read-only.
