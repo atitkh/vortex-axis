@@ -1,4 +1,4 @@
-// Screenshots of the new admin page (/admin-next) against a throwaway Axis with pretend devices: two boards that
+// Screenshots of the admin page (/admin) against a throwaway Axis with pretend devices: two boards that
 // describe themselves with the real boards' setting tables (read from their main.cpp), a Windows computer, a Mac and
 // a browser. Writes PNGs to the folder given (default: /tmp/admin-next-shots).
 //   npm run build && node docs/admin-revamp/shots.mjs [folder] [name-filter]
@@ -117,7 +117,7 @@ await call("Runtime.enable", {}, s);
 await call("Page.enable", {}, s);
 const run = async (expression) => (await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, s)).result.result?.value;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-await call("Page.navigate", { url: `${base}/admin-next` }, s);
+await call("Page.navigate", { url: `${base}/admin` }, s);
 await sleep(600);
 await run(`localStorage.setItem('axis-admin-token', ${JSON.stringify(TOKEN)})`);
 
@@ -130,7 +130,7 @@ async function shot(name, hash, { width = 1440, height = 900, theme = "dark", be
   // Through a blank page, so every shot is a fresh load (a new hash alone would not reload the page).
   await call("Page.navigate", { url: "about:blank" }, s);
   await sleep(100);
-  await call("Page.navigate", { url: `${base}/admin-next${hash}` }, s);
+  await call("Page.navigate", { url: `${base}/admin${hash}` }, s);
   for (let i = 0; i < 40 && !(await run(`!!document.querySelector('main') && !document.querySelector('.loading')`)); i++) await sleep(150);
   await sleep(700);
   if (before) await run(before);

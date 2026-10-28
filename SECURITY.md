@@ -14,7 +14,7 @@ Report a problem privately rather than in a public issue: on GitHub, the reposit
 
 ## Under a public name
 
-Axis can be reached from outside through a tunnel or reverse proxy. List those names in `AXIS_PUBLIC_HOSTS`: under them `/admin`, the admin API, the Home Assistant blueprint and (unless `AXIS_MCP_PUBLIC` is set) `/mcp` answer 404, so only devices see Axis from outside. Set `AXIS_TRUSTED_PROXIES` to the proxy's address so the lockouts count the real caller and not the proxy.
+Axis can be reached from outside through a tunnel or reverse proxy. List those names in `AXIS_PUBLIC_HOSTS`: under them `/admin` (and, for Axis 0.57.0 only, `/admin-classic` and the `/admin-next` redirect), the admin API, the Home Assistant blueprint and (unless `AXIS_MCP_PUBLIC` is set) `/mcp` answer 404, so only devices see Axis from outside. Set `AXIS_TRUSTED_PROXIES` to the proxy's address so the lockouts count the real caller and not the proxy.
 
 Two things to get right:
 - The proxy must pass the public name as the `Host` header (most do). A proxy that rewrites it to `localhost` makes every outside request look local, and the admin side answers it (it still needs the token).

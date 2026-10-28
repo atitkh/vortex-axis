@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.57.0 (2026-10-27)
+
+The new admin page, stage 6 of `docs/admin-revamp/ia.md` section 4.1: the switch.
+
+- `/admin` serves the new admin page. Every old address still works there (`#clients/<id>`, `#device/<id>`, `#type/...`, `#settings`, `#live`, ...), and the sign-in is the same stored token, so nobody signs in again.
+- The classic admin page moves to `/admin-classic` for this release only (local network only, as `/admin`); its sidebar link now reads **Back to the new admin**, and the new page's sidebar foot has **Open the classic admin**. Its files (`web/admin.html`, `admin.js`, `admin.css`) go in the next release.
+- `/admin-next` redirects to `/admin`, keeping the `#route`, so bookmarks of the page while it was built still work.
+- `browser-check` signs in and makes the pairing code on `/admin` and drives every area there; of the classic page it only checks that it loads, signs in and links back. The server tests cover the three addresses, inside and under a public name.
+- No cache to bump: the service worker caches nothing and the pages are served `no-cache` with stamped script addresses.
+
 ## Axis 0.56.0 (2026-10-27)
 
 The new admin page, stage 5 of `docs/admin-revamp/ia.md` section 4.1: the rest of the pages at `/admin-next` (`web/adm-hardware.js`, `web/adm-system.js`). Every page of the classic `/admin` now has its new one; the classic page is unchanged and stays until stage 6.

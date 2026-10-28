@@ -68,7 +68,7 @@ grep AXIS_ADMIN_TOKEN .env      # you sign in with this
 docker compose up -d
 ```
 
-Open `http://<this machine>:8440/admin`, sign in with the token, and follow **Getting started** on the Overview:
+Open `http://<this machine>:8440/admin`, sign in with the token, and follow **Getting started** on the Overview (Axis 0.57.0 also keeps the previous admin page at `/admin-classic`, for that release only):
 
 1. **Speech is working.** It is, once the models have been fetched.
 2. **An agent answers.** Pair with an OpenClaw gateway (paste a setup code), or give Axis the address of any OpenAI-style chat endpoint, such as a local model.

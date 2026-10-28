@@ -1,6 +1,6 @@
 # Admin revamp: progress
 
-The new page is at `/admin-next` (local network only, as `/admin`). Built in stages from `ia.md` section 4.1.
+The admin page is at `/admin` (local network only) since stage 6; the classic one stays at `/admin-classic` for one release and `/admin-next` redirects to `/admin`. Built in stages from `ia.md` section 4.1.
 
 | Stage | State | Axis | Commit |
 |---|---|---|---|
@@ -10,14 +10,17 @@ The new page is at `/admin-next` (local network only, as `/admin`). Built in sta
 | 3. Overview and Activity: dashboard, Live (stream), History (charts) | done | 0.54.0 | the commit after 692ba35 |
 | 4. Agent and voice: Who answers, OpenClaw gateway, Tools and MCP, Speech, Voices | done | 0.55.0 | the commit after 44a6cdc |
 | 5. The rest: Face and screen, Firmware, Wake words, Apps, Integrations, System | done | 0.56.0 | 312e3c3 and the commit after it |
-| 6. Switch `/admin` to the new page | | | |
+| 6. Switch `/admin` to the new page, classic at `/admin-classic` | done | 0.57.0 | 03d896b and the commit after it |
 
-**Next (stage 6):** the switch. `/admin` serves the new page, the classic one moves to `/admin-classic` for one
-release (its sign-in keys stay shared), `browser-check` runs only the new page (drop the classic steps once their new
-twins are the only ones), the "Try the new admin" link in the classic sidebar goes; the release after, `web/admin.html`,
-`admin.js` and `admin.css` go. Axis minor version bump and CHANGELOG. Worth a look first: the owner trying 0.56.0 on the
-hub (Face, Firmware upload, Wake words, System backup and download), since stage 5 is checked by browser-check and
-screenshots only.
+**Done (stage 6, Axis 0.57.0):** `/admin` serves the new page; the classic one is at `/admin-classic` (local network
+only, sign-in keys shared, its link now "Back to the new admin"); `/admin-next` answers 302 to `/admin` and the browser
+keeps the `#route`; the sidebar foot has "Open the classic admin". `browser-check` signs in on `/admin`, makes the
+pairing code there, and drives every area; of the classic page it only checks that it loads, signs in with a typed
+token and links back.
+
+**Next (the release after 0.57.0):** remove `web/admin.html`, `admin.js`, `admin.css` and the `/admin-classic` route
+with its test and browser-check step, the sidebar's "Open the classic admin" link, and the classic wording left in
+comments; then consider renaming `admin-next.*` to `admin.*`.
 
 ## How it is built
 
@@ -282,6 +285,18 @@ Ids are lettered here, since 3.12 above is already "around the Agent and voice p
 | s5-3 | Command bar: Download a copy of the database, Upload a firmware build, Add a wake word | done (new) | `commandItems` |
 | s5-4 | Leave without saving asks on Face, Wake words, Integrations and System | done | `FORM_PAGES` |
 | s5-5 | Phone width: the six pages fit in 390 px | done | browser-check "phone width" (25 pages) |
+
+### Stage 6: the switch (ia.md 4.1 step 6)
+
+| # | What | State | Where |
+|---|---|---|---|
+| s6-1 | `/admin` serves `admin-next.html`; `/admin-classic` serves `admin.html`; both 404 under a public name | done | `http.ts`, `admin-config.test.ts` |
+| s6-2 | `/admin-next` answers 302 to `/admin` (query kept, the browser keeps the `#route`); 404 under a public name | done | test and browser-check "/admin-next bookmark" |
+| s6-3 | Old hash routes (`#clients/<id>`, `#device/<id>`, `#type/...`, `#settings`, ...) land on the new page | done | browser-check "old addresses" |
+| s6-4 | One link to the classic page ("Open the classic admin", sidebar foot); the classic page says "Back to the new admin" | done | browser-check "no classic links", "classic admin" |
+| s6-5 | Sign-in key `axis-admin-token` shared: signed in on one, signed in on the other | done | browser-check "one sign-in for both" |
+| s6-6 | Caching: `sw.js` caches nothing (push only) and the HTML pages are `no-cache`, scripts stamped `?v=`; nothing to bump | checked | `sw.js`, `http.ts` |
+| s6-7 | `browser-check` drives only the new page; the classic page: loads, typed sign-in, link back | done | `scripts/browser-check.mjs` |
 
 ### 5. Storage, polling, keyboard, phone
 

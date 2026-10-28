@@ -1,6 +1,6 @@
 # Admin page revamp
 
-Planning (2026-10-27): audit and mockups. Building: stages 0 to 3 are done (the page at `/admin-next`, its shell, the Devices area, the Overview and Activity); `progress.md` has the checklist and what is next.
+Planning (2026-10-27): audit and mockups. Built: stages 0 to 6 are done (Axis 0.57.0): the new page is the admin page at `/admin`, the classic one stays at `/admin-classic` for one release and `/admin-next` redirects to `/admin`. `progress.md` has the checklist and what is next (removing the classic files).
 
 - `audit.md`: every view, control, API call, route and behaviour of today's admin page, the UX problems with
   evidence, and where each feature goes in the new layout.

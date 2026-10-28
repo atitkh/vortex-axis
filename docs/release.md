@@ -16,7 +16,7 @@ Do the steps in order. Each says what the check will look for.
    - `CHANGELOG.md`: a `## Axis X (date)`, `## Desktop app X (date)` or `## Mac desktop app X (date)` entry, newest first.
    - `CLAUDE.md`: the **Versions** line (and what is built, what is not, what the owner has tried).
    - Anything a client does differently: `docs/client-parity.md`.
-3. **Test.** `npm test` and `npm run typecheck` for Axis. Windows: the Docker build in `scripts/build-desktop.sh` compiles it; `Axis.Desktop.Smoke check` for clicks. Mac: `swift build && swift test` on a Mac only (the owner runs them; paste errors back).
+3. **Test.** `npm test` and `npm run typecheck` for Axis; `npm run browser-check` when the admin page (`/admin`, `web/admin-next.*` and `web/adm-*.js`) or the web client changed (until the classic page goes, it also checks `/admin-classic` loads and signs in). Windows: the Docker build in `scripts/build-desktop.sh` compiles it; `Axis.Desktop.Smoke check` for clicks. Mac: `swift build && swift test` on a Mac only (the owner runs them; paste errors back).
 4. **Commit and push.** The message says what changed and what version each part is now at.
 5. **Ship what changed.**
    - Axis: `npm run deploy`, then `scripts/release-check.mjs` (it reads the commit the running container was built from).
