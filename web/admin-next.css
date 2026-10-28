@@ -770,6 +770,8 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .map-svg .edge.lit .base { opacity: 0.2; }
 .map-svg .edge .glow { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; opacity: 1; transition: opacity 2s; }
 .map-svg .edge.now .glow { stroke-dasharray: 6 6; animation: map-dash 0.9s linear infinite; }
+/* Data flowing against the drawn direction (speech coming down to the device). */
+.map-svg .edge.now.back .glow { animation-direction: reverse; }
 .map-svg .edge.ended .glow { opacity: 0; }
 .map-svg .lit-t { fill: var(--accent-text); font-weight: 600; }
 @keyframes map-dash { to { stroke-dashoffset: -12; } }

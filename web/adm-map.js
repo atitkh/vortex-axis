@@ -199,7 +199,7 @@ function AxisNode({ a, map }) {
 function Edge({ g, lit, deviceColour }) {
   const colour = g.e.kind === "link" ? deviceColour : serviceColour(g.s);
   const label = lit?.ms !== undefined ? ms(lit.ms) : g.s?.lastMs !== undefined && !lit ? ms(g.s.lastMs) : "";
-  return html`<g class=${`edge ${g.e.kind}${lit ? " lit" : ""}${lit?.now ? " now" : ""}${lit?.ended ? " ended" : ""}`} data-edge=${g.id} style=${`--c: var(${colour})`}>
+  return html`<g class=${`edge ${g.e.kind}${lit ? " lit" : ""}${lit?.now ? " now" : ""}${lit?.back ? " back" : ""}${lit?.ended ? " ended" : ""}`} data-edge=${g.id} style=${`--c: var(${colour})`}>
     <path d=${g.d} class="base" />
     ${lit ? html`<path d=${g.d} class="glow" />` : null}
     ${label ? html`<text x=${g.label[0]} y=${g.label[1]} text-anchor=${g.anchor} class=${`t-xs ${lit ? "lit-t" : "dim"}`}>${label}</text>` : null}

@@ -204,7 +204,7 @@ function turnEvent(t) {
   }
 }
 
-/** Lit lines, newest turn winning: id → { ms, now (the current stage), ended }. */
+/** Lit lines, newest turn winning: id → { ms, now (the current stage), back (data flows against the drawn direction), ended }. */
 export function litEdges() {
   const lit = new Map();
   const now = Date.now();
@@ -215,7 +215,9 @@ export function litEdges() {
     for (const [hop, ms] of Object.entries(hops)) {
       const id = hop === "link" ? `${run.clientId}>axis` : `axis>${hop}`;
       const current = !ended && (HOP[run.stage] === hop || (run.stage === "speaking" && hop === "link"));
-      lit.set(id, { ms, now: current, ended });
+      // The lines are drawn device -> Axis -> service; speech comes the other way (service -> Axis -> device).
+      const back = run.stage === "speaking" && (hop === "link" || hop === "tts");
+      lit.set(id, { ms, now: current, back, ended });
     }
   }
   return lit;
