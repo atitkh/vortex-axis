@@ -1,5 +1,7 @@
 #include "battery_cue.h"
 
+#include <esp_heap_caps.h>
+
 #include "display.h"
 
 // Pixels left under the mark: the 1.75 sets more, to keep it inside the round glass and clear of the edge glow.
@@ -44,8 +46,9 @@ volatile uint32_t previewRequests = 0;
 uint32_t previewSeen = 0, previewUntil = 0;
 Preview previewShown = Preview::Off;
 
-// What is on the panel.
-uint16_t block[W * H];
+// What is on the panel. The block is in PSRAM (made on first use): internal memory is short on these boards.
+uint16_t *block = nullptr;
+const size_t BLOCK_BYTES = W * H * sizeof(uint16_t);
 bool markDrawn = false;
 uint32_t drawnKey = 0, drawnAt = 0, drawnClears = 0;
 int drawnX = 0, drawnY = 0;
@@ -144,13 +147,15 @@ float chargeCue(uint32_t now) {
 
 void draw(uint32_t now, bool markOn) {
     const bool cue = chargeCue(now) >= 0;
+    if (!block) block = (uint16_t *)heap_caps_malloc(BLOCK_BYTES, MALLOC_CAP_SPIRAM);
+    if (!block) return;
     const bool show = fresh && percent >= 0 && (cue || (markOn && (low || charging)));
     const int x = ((display::width() - W) / 2) & ~1, y = (display::height() - H - BATTERY_GLYPH_BOTTOM) & ~1;
     const bool wiped = display::clears() != drawnClears;
     drawnClears = display::clears();
     if (!show) {
         if (markDrawn && !wiped) {
-            memset(block, 0, sizeof block);
+            memset(block, 0, BLOCK_BYTES);
             display::blitRect(drawnX, drawnY, W, H, block);
         }
         markDrawn = false;
@@ -167,10 +172,10 @@ void draw(uint32_t now, bool markOn) {
                      now - drawnAt >= (moving ? 80u : REDRAW_MS);
     if (!due) return;
     if (markDrawn && !wiped && (x != drawnX || y != drawnY)) {
-        memset(block, 0, sizeof block);
+        memset(block, 0, BLOCK_BYTES);
         display::blitRect(drawnX, drawnY, W, H, block);
     }
-    memset(block, 0, sizeof block);
+    memset(block, 0, BLOCK_BYTES);
     // Laid out in cells: [bolt] battery percent, centred in the block.
     const bool bolt = charging;
     const bool full = markOn || !cue;  // the cue alone, with the mark off, is just the bolt
