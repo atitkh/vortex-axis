@@ -54,8 +54,15 @@ for (const [name, heading, version, mention] of [
   check(changelog.includes(`## ${heading} ${version} (`), `CHANGELOG has ${name} ${version}`, `CHANGELOG has no "## ${heading} ${version} (date)" entry`);
   check(versionsLine.includes(mention), `CLAUDE.md Versions line names ${name} ${version}`, `CLAUDE.md Versions line does not say "${mention}"`);
 }
+// Per board: "Board firmware 0.20.0 (Waveshare 1.8)", "Round board firmware 0.4.1 (Waveshare 1.75)", also inside a combined heading.
+const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const boardLabel = (type) => `Waveshare ${type.split("-").pop()}`;
 for (const [type, version] of boards) {
-  check(versionsLine.includes(`firmware ${version}`), `CLAUDE.md names ${type} firmware ${version}`, `CLAUDE.md Versions line does not say "firmware ${version}" (${type})`);
+  const said = `board firmware ${escape(version)} \\(${escape(boardLabel(type))}[;)]`;
+  check(new RegExp(`^## .*${said}`, "im").test(changelog), `CHANGELOG has ${type} firmware ${version}`,
+    `CHANGELOG has no "## Board firmware ${version} (${boardLabel(type)}) (date)" entry (${type}; "Round board firmware" for the round one)`);
+  check(new RegExp(said, "i").test(versionsLine), `CLAUDE.md Versions line names ${type} firmware ${version}`,
+    `CLAUDE.md Versions line does not say "board firmware ${version} (${boardLabel(type)}" (${type})`);
 }
 
 // --- git -----------------------------------------------------------------------------------------------
@@ -69,6 +76,13 @@ const tagAt = (t) => sh(`git rev-parse ${t}^{commit}`);
 for (const [tag, what] of [[`v${axis}`, "Axis"], [`desktop-v${desktop}`, "Windows app"]]) {
   if (!tags.has(tag)) warn(`no tag ${tag} for ${what} yet (tag it on the commit that changed it, once released)`);
   else if (tagAt(tag) !== head && !sh(`git merge-base --is-ancestor ${tag} HEAD && echo y`)) bad(`tag ${tag} is not in this branch's history`);
+  else ok(`tag ${tag} exists`);
+}
+// Firmware is tagged fw-<board>-v<version> on the commit that changed that board to that version.
+for (const [type, version] of boards) {
+  const tag = `fw-${type}-v${version}`;
+  if (!tags.has(tag)) warn(`no tag ${tag} yet (tag the commit that set ${type} to ${version}: git tag ${tag} <commit>; git push origin ${tag})`);
+  else if (!sh(`git merge-base --is-ancestor ${tag} HEAD && echo y`)) bad(`tag ${tag} is not in this branch's history`);
   else ok(`tag ${tag} exists`);
 }
 
@@ -86,6 +100,17 @@ else if (!last) warn("could not find the last commit that changed Axis");
 else check(built === last || sh(`git merge-base --is-ancestor ${last} ${built} && echo y`) === "y",
   `deployed Axis is at ${built} (has ${last}, the last change to the server)`,
   `deployed Axis is at ${built} but the server last changed in ${last} (npm run deploy)`);
+// The firmware the running hub offers to the web flasher and to boards updating over Wi-Fi (public, no token).
+const hub = process.env.AXIS_URL ?? "http://localhost:8440";
+const offered = await fetch(`${hub}/flash/types.json`, { signal: AbortSignal.timeout(5000) })
+  .then((r) => (r.ok ? r.json() : undefined))
+  .catch(() => undefined);
+if (!Array.isArray(offered)) warn(`could not read ${hub}/flash/types.json to check the firmware the hub offers (is Axis running?)`);
+else for (const [type, version] of boards) {
+  const there = offered.find((t) => t.type === type)?.version;
+  check(there === version, `the hub offers ${type} firmware ${version}`,
+    `the hub offers ${type} firmware ${there ?? "none"}, the code says ${version} (build it, then node scripts/push-firmware.mjs ${type})`);
+}
 let data = process.env.AXIS_DATA_PATH;
 if (!data && existsSync(join(root, ".env"))) data = /^AXIS_DATA_PATH=(.*)$/m.exec(read(".env"))?.[1];
 const shelf = data && join(data, "desktop", "version.json");
