@@ -154,6 +154,8 @@ A device that can update itself over the network implements `update`: answer `ok
 | Reading | Unit | Meaning |
 | --- | --- | --- |
 | `rssi` | dBm | Wi-Fi signal. Strong at -60 and above, ok to -70, weak to -80, poor below; weak and poor are listed under attention. |
+| `wifi` | text | The name of the Wi-Fi network the device is on. |
+| `wifiNetworks` | count | How many Wi-Fi networks the device has saved (the Waveshare boards keep up to five). |
 | `heap` | bytes | Free memory. |
 | `uptimeS` | seconds | Time since the device started. |
 | `lastStart` | text | Why it last started (a reset reason on a board, such as `power on`). |

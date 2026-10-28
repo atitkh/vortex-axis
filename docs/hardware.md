@@ -40,7 +40,7 @@ esptool.py --chip esp32s3 write_flash --flash_size 16MB 0x0 firmware-waveshare-a
 3. On the Axis admin page open **Add a device**, make a pairing code and copy the **setup string** (it looks like `axis://192.168.1.20:8440/483-221`) into the same form.
 4. The board joins, pairs and shows its face. Say "Hey Vortex", or tap the screen.
 
-If it cannot join the saved network, the setup network comes back by itself. The admin page can also reset a board, move it to another address for Axis, and update its firmware.
+A board remembers up to five Wi-Fi networks and joins whichever is in range. Add another from the setup page at the board's own address (or its serial console); the same page lists the saved ones and forgets them (`firmware/README.md`, "Saved networks"). If it cannot join any saved network after it starts, the setup network comes back by itself. The admin page can also reset a board, move it to another address for Axis, and update its firmware.
 
 ### Using it
 

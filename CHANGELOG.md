@@ -4,6 +4,19 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Round board firmware 0.6.0 (Waveshare 1.75) (2026-10-28)
+
+- **Several saved Wi-Fi networks** (`firmware/README.md`, "Saved networks"): up to five, most recently joined first, in a Preferences namespace of their own. At start, and when a dropped connection has not come back within 45 s, the board scans and tries the saved networks in range, strongest first, 12 s each; with none in sight it tries the most recent one. A board that was online looks again every minute and never opens its setup network by itself.
+- The one network an older firmware had is kept: at the first start it becomes the list's first entry (`network list started with 1 network`).
+- The setup page lists the saved names (never the passwords) with a Forget button; a saved name with an empty password keeps its password. Console `wifi`, `wifi scan`, `wifi add <name> <password>`, `wifi forget <name>`. Axis cannot add a network.
+- Readings `wifi` (the network in use) and `wifiNetworks` (how many are saved).
+- Flashed by USB on 2026-10-28 to the round board on the bench: the hub showed 0.6.0, `wifi` and `wifiNetworks` 1; a network added from the console that is not in range was listed second, the board rejoined the real network after a reboot, and forgetting it brought the count back to 1. NOT verified: a real second access point, moving between networks, the setup page on a phone in setup mode.
+
+## Board firmware 0.22.0 (Waveshare 1.8) (2026-10-28)
+
+- **Several saved Wi-Fi networks**, the same client core as the round board's 0.6.0.
+- Built; NOT flashed (no 1.8 attached), not run on a 1.8.
+
 ## Desktop app 0.14.0 (2026-10-28)
 
 - **Power and use as readings** (`sense`, client guide section 11): `battery` (0 to 100 %), `charging` (1/0), `onPower` (1/0), `turnsToday` (turns started on this computer since local midnight: a hold or a press of the talk key, or typed text) and `uptimeS`. Each is left out when Windows does not say; a computer with no battery sends `onPower` only, and only when Windows reports mains power.

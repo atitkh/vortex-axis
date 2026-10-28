@@ -53,9 +53,19 @@ Without `--update` it only puts the build on Axis, where the admin page and the 
 3. On the Axis admin page press **New pairing code** and copy the **setup string**. It looks like `axis://192.168.1.20:8440/483-221`: the address the device should reach Axis at, and a one-time pairing code. Paste it into the same form.
 4. The device joins Wi-Fi, pairs, stores its token and fetches its settings.
 
-The same page stays available at the device's own address afterwards, to change Wi-Fi or pair with a different Axis. If the device cannot join the saved network at boot (three failed tries or 45 seconds), the setup network comes back; with nobody on it for five minutes, the device tries the saved network again.
+The same page stays available at the device's own address afterwards, to add or forget a Wi-Fi network or pair with a different Axis. If the device cannot join any saved network at boot (three failed tries or 45 seconds), the setup network comes back; with nobody on it for five minutes, the device tries the saved networks again.
 
-The serial port takes the same things as typed commands: `status`, `wifi <name> <password>`, `setup <axis://...>`, `text <words>` (a typed turn), `stop` (stop speaking), `forget`, `forget wifi`, `reboot`.
+### Saved networks
+
+A device remembers up to five Wi-Fi networks (since 1.75 0.6.0 and 1.8 0.22.0) and joins whichever is in range, so it can move between places without being set up again.
+
+- **Joining order.** At start, and when the connection is lost and the Wi-Fi driver's own reconnecting has not brought it back within 45 seconds, the device scans and tries the saved networks it can see, strongest first, 12 seconds each. When it sees none of them (a hidden network, or a failed scan) it tries the most recently joined one anyway. A device that was online looks again every minute and never opens its setup network by itself; one that has not joined since it started opens the setup network when every try fails.
+- **The list** is kept most recently joined first: a network that is joined moves to the top. Joining a sixth network drops the oldest; adding a sixth without joining is refused. Saving a known name again replaces its password.
+- **The setup page** lists the saved names (never their passwords), each with a **Forget** button. A saved name entered with the password left empty keeps the saved password. Forgetting the network in use keeps the device on it until the connection drops or the device restarts.
+- **Adding** a network takes the setup page or the serial console. Axis cannot add one: a Wi-Fi password never goes over the link to Axis. The readings `wifi` (the network in use) and `wifiNetworks` (how many are saved) tell Axis where a device is.
+- **Updating** from an older firmware keeps the one network the device had: at the first start it becomes the list's first entry, and the log says `network list started with 1 network`.
+
+The serial port takes the same things as typed commands: `status`, `wifi` (the saved networks and the one in use), `wifi scan` (what is around, saved ones marked), `wifi add <name> <password>` (save without joining), `wifi forget <name>`, `wifi <name> <password>` (join now; saved once joined), `setup <axis://...>`, `text <words>` (a typed turn), `stop` (stop speaking), `forget` (the pairing), `forget wifi` (every saved network; the setup network starts), `reboot`. In a name with spaces, the password is the part after the last space.
 
 A setup string that starts `axis+tls://` (the admin page makes one when the device address is typed with `https://`) makes the device talk to Axis over TLS, on port 443 unless another is given. Axis must then present a certificate from a public authority. Type `tlscheck https://that-address/` on the serial console first: it says whether the device can reach and trust it. Since 0.8.2; checked against public sites, not yet against a real Axis address.
 

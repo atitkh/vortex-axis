@@ -243,6 +243,7 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 - `firmware/common/` holds the client core. A new device type should mostly describe its hardware.
 - Releases are git tags. Each build knows its type and version. Firmware versions (for example `0.11.4`) are counted per device type, separately from Axis's own version, and Axis compares them when it offers an update.
 - The first flash is over USB. After that, updates go through Axis over Wi-Fi (section 8.1): Axis holds the builds per type, devices can be updated one at a time, and a device that cannot reconnect after an update rolls back.
+- A board keeps up to five Wi-Fi networks, most recently joined first, and joins the strongest saved one in range (`firmware/README.md`, "Saved networks"). Networks are added on the device only (its setup page or serial console); Axis never receives or sends a Wi-Fi password, and sees the network in use and the count as the readings `wifi` and `wifiNetworks`.
 - Tagged releases can be built by a Gitea Actions runner.
 
 ## 11. Testing
