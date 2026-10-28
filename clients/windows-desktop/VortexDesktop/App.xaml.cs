@@ -262,6 +262,11 @@ public partial class App : System.Windows.Application
             voice = new Voice(link, voiceIo);
             voice.UseCapabilitiesOff(capsOff);
             voice.Failed += why => Diag.Log($"voice: {why}");
+            voice.Timing.Measured += line =>
+            {
+                Diag.Log(line);
+                Dispatcher.BeginInvoke(() => NoteTiming(line));
+            };
             if (pill == null)
             {
                 pill = new VoicePill { Below = () => (controlPill?.Room ?? 0) + (taskPill?.Room ?? 0), Chose = choice => voice?.Answer(choice) };
@@ -273,6 +278,7 @@ public partial class App : System.Windows.Application
                 // While typing, the typing pill has the place; the voice pill comes back when it closes.
                 if (voice != null && typing?.IsOpen != true && !ScreenOff) pill.Show(voice);
                 ShowFace();
+                if (voice?.Mode == VoiceMode.Listening) voice.Timing.Shown(voice.Clock(), "listening");
             });
         }
         else voice = null;
@@ -441,6 +447,15 @@ public partial class App : System.Windows.Application
         Changed?.Invoke();
     }
 
+    /** A talk key timing line: in the list, keeping only the last five of them. */
+    void NoteTiming(string line)
+    {
+        Note(line);
+        var seen = 0;
+        for (var i = 0; i < Recently.Count; i++)
+            if (TalkTiming.IsLine(Recently[i].Text) && ++seen > 5) Recently.RemoveAt(i--);
+    }
+
     // --- tray and hotkey ------------------------------------------------------------------------
 
     void BuildTray()
@@ -562,6 +577,7 @@ public partial class App : System.Windows.Application
         typingFrom = Native.GetForegroundWindow();
         pill?.Away();
         typing.Open(voice.Question, voice.Choices);
+        voice.Timing.Shown(voice.Clock(), "typing");
     }
 
     void SendTyped(string text)
@@ -734,7 +750,13 @@ public partial class App : System.Windows.Application
             if (msg == Native.WM_HOTKEY && w.ToInt32() == TalkKeyId)
             {
                 handled = true;
+                if (voice != null && !Paused && State != LinkState.Online)
+                    Note($"Talk key: not connected to Axis ({(State == LinkState.Connecting ? "connecting" : "offline")}), so nothing was heard");
                 if (voice == null || Paused || State != LinkState.Online) return IntPtr.Zero;
+                // How long the key's message waited for this thread, for the timing line.
+                var waited = Math.Clamp(unchecked(Environment.TickCount - Native.GetMessageTime()), 0, 60000);
+                var now = voice.Clock();
+                voice.Timing.Begin(now - waited, now);
                 // The talk key while typing: the typing is put away, and the key does what it always does.
                 if (typing?.IsOpen == true) CloseTyping(true);
                 // With no typing key, a tap types and a hold talks; the microphone opens at once either way.

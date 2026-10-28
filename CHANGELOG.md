@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Desktop app 0.13.1 (2026-10-27)
+
+- **The talk key no longer waits for the microphone.** The key's handler opened the microphone on the UI thread (`WaveInEvent.StartRecording`, and the listening cue's `waveOutOpen` at the hold), so a slow device (a Bluetooth headset switching to its call profile, a microphone waking up) froze the app, the 220 ms tap/hold timer and the pills for as long as it took, seconds at worst. Now every open and close runs in order on a worker (`WarmMic`, `Axis.Desktop.Core/TalkMic.cs`); a hold shows listening at 220 ms whatever the device is doing, the pre-roll still keeps what was said from key-down once the device is on, and a microphone that fails is said at the hold as before (a tap types and says nothing). The listening cue plays on the same worker.
+- **Warm for 3 s.** Let go, the microphone stays on 3 s so a quick second press is instant, then closes; it closes at once when the agent's speech starts (no echo canceller, and a headset leaves its call profile), when talking is stopped, on sleep, when the link drops and when the microphone is switched off on the admin page.
+- **Timing lines.** Each press of the talk key adds a line to Recently and the log: `Talk key: handler +3 ms, mic open +412 ms, first audio +450 ms, listening shown +460 ms` (from the key's message: the handler running, the microphone on, or `mic warm` when it already was, its first audio, the listening or typing pill shown); the last five are kept. A press while the link is not online says so (`Talk key: not connected to Axis (connecting)`) instead of doing nothing silently.
+- The connection's ping and watchdog are not on the key's path and are unchanged. Smoke checks 211 (the warm microphone, a slow microphone on the real worker, failure at a tap and a hold, the timing line); the WPF app compiled in the SDK container, not run on Windows.
+
 ## Axis 0.59.0 (2026-10-27)
 
 When several devices hear the wake word, the nearest one answers, not the one with the marginally best score.

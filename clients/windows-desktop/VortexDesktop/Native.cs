@@ -34,6 +34,8 @@ static class Native
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
+    /** When the message being handled was posted, in GetTickCount's milliseconds. */
+    [DllImport("user32.dll")] public static extern int GetMessageTime();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);

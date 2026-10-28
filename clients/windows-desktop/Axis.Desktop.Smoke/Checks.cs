@@ -22,6 +22,7 @@ static class Checks
         await AfterScrollAsync();
         FaceSettings();
         TapOrHold();
+        WarmMicChecks();
         Typing();
         Progress();
         Timers();
@@ -220,8 +221,15 @@ static class Checks
     sealed class FakeIo : IVoiceIo
     {
         public Action<short[]>? Frame;
-        public int Starts, Stops, Sounds;
-        public void StartCapture(Action<short[]> frame) { Frame = frame; Starts++; }
+        public int Starts, Stops, Sounds, OpenMs;
+        public Exception? Refuse;
+        public void StartCapture(Action<short[]> frame)
+        {
+            if (OpenMs > 0) Thread.Sleep(OpenMs);
+            if (Refuse != null) throw Refuse;
+            Frame = frame;
+            Starts++;
+        }
         public void StopCapture() { Frame = null; Stops++; }
         public void PlayBegin(int sampleRate) { }
         public void PlayWrite(byte[] pcm) { }
@@ -238,6 +246,9 @@ static class Checks
         var link = new AxisLink(new Pairing("http://127.0.0.1:9", "c1", "t", "PC"), DesktopIdentity.Create("0.0.0", true));
         var io = new FakeIo();
         var voice = new Voice(link, io);
+        // The microphone's worker inline, and its grace kept to run by hand.
+        voice.Mic.Run = work => work();
+        voice.Mic.After = (_, work) => Graces.Add(work);
         // Quiet hours never, and every sound allowed, whatever the time of day the checks run.
         voice.Sounds.UseSettings(Values("""{"quietFrom":"","quietTo":""}"""));
         var sent = new List<JsonObject>();
@@ -245,6 +256,15 @@ static class Checks
         voice.Sent += m => sent.Add(m);
         voice.SentAudio += a => audio.Add(a);
         return (voice, io, sent, audio);
+    }
+
+    static readonly List<Action> Graces = [];
+
+    static void RunGraces()
+    {
+        var due = Graces.ToList();
+        Graces.Clear();
+        foreach (var work in due) work();
     }
 
     static string Kinds(List<JsonObject> sent) => string.Join(",", sent.Select(m => m["t"]!.GetValue<string>()));
@@ -262,8 +282,10 @@ static class Checks
         io.Frame!(new short[320]);
         Is(voice.Mode, VoiceMode.Idle, "not listening yet while it could be a tap");
         Is(voice.Disarm(), true, "key up early: a tap");
-        Is((io.Stops, sent.Count, audio.Count), (1, 0, 0), "a tap: microphone closed, nothing sent");
+        Is((io.Stops, sent.Count, audio.Count), (0, 0, 0), "a tap: nothing sent, the microphone kept warm a moment");
         Is(voice.Disarm(), false, "a second tap is nothing");
+        RunGraces();
+        Is(io.Stops, 1, "then closed");
 
         // A hold: audio.start, then the pre-roll in order, then live audio; the listening cue sounds.
         (voice, io, sent, audio) = NewVoice();
@@ -298,6 +320,79 @@ static class Checks
         sent.Clear();
         Is(voice.Arm(), false, "key down while thinking is not a tap or hold");
         Is(Kinds(sent), "interrupt", "it stops the agent");
+    }
+
+    /** The microphone opens off the key's thread, stays warm a moment, and closes at once before speech. */
+    static void WarmMicChecks()
+    {
+        // A second press within the grace: the same microphone, no second open; the first grace does nothing.
+        var (voice, io, sent, _) = NewVoice();
+        var lines = new List<string>();
+        voice.Timing.Measured += lines.Add;
+        voice.Arm();
+        voice.Disarm();
+        voice.Timing.Begin(1000, 1003);
+        voice.Arm();
+        RunGraces();
+        Is((io.Starts, io.Stops), (1, 0), "pressed again while warm: not opened again, not closed");
+        voice.Commit();
+        voice.Timing.Shown(voice.Clock(), "listening");
+        io.Frame!(new short[320]);
+        Is(lines.Count, 1, "one timing line for the press");
+        Is(lines.Count == 1 && lines[0].Contains("mic warm +"), true, $"it says the microphone was warm ({string.Join("", lines)})");
+        voice.Release();
+        // Speech closes it at once (no echo canceller; a headset leaves its call profile).
+        var id = sent[0]["turnId"]!.ToJsonString();
+        voice.Receive("speak.start", Json($"{{\"turnId\":{id},\"format\":{{\"sampleRate\":24000}}}}"));
+        Is(io.Stops, 1, "speech: the microphone closed at once");
+        RunGraces();
+        Is(io.Stops, 1, "and the grace after it does nothing");
+
+        // Failing while armed: a tap types and says nothing; a hold says why.
+        (voice, io, sent, _) = NewVoice();
+        io.Refuse = new InvalidOperationException("no microphone");
+        Is(voice.Arm(), true, "armed even when the microphone will fail");
+        voice.Disarm();
+        Is(voice.Mode, VoiceMode.Idle, "a tap: no error");
+        voice.Arm();
+        voice.Commit();
+        Is((voice.Mode, sent.Count), (VoiceMode.Error, 0), "a hold: the error, nothing sent");
+        Is(voice.Reply.Contains("no microphone"), true, "with why");
+
+        // A slow microphone (on the real worker): the key's call returns at once, the device opens behind it.
+        var link = new AxisLink(new Pairing("http://127.0.0.1:9", "c1", "t", "PC"), DesktopIdentity.Create("0.0.0", true));
+        var slow = new FakeIo { OpenMs = 600 };
+        var real = new Voice(link, slow);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        real.Arm();
+        var took = clock.ElapsedMilliseconds;
+        Is(took < 100, true, $"Arm returns before the microphone is open ({took} ms)");
+        real.Commit();
+        Is(real.Mode, VoiceMode.Listening, "a hold shows listening before the microphone is open");
+        for (var i = 0; i < 100 && slow.Starts == 0; i++) Thread.Sleep(20);
+        Is(slow.Starts, 1, "the microphone opened behind it");
+        real.Interrupt();
+        for (var i = 0; i < 100 && slow.Stops == 0; i++) Thread.Sleep(20);
+        Is(slow.Stops, 1, "and closed at once when stopped");
+
+        // The line itself.
+        var timing = new TalkTiming();
+        string? line = null;
+        timing.Measured += l => line = l;
+        timing.Begin(1000, 1003);
+        timing.Mic(1412, false);
+        timing.Shown(1460, "listening");
+        Is(line, null, "not done before the first audio");
+        timing.Audio(1450);
+        Is(line, "Talk key: handler +3 ms, mic open +412 ms, first audio +450 ms, listening shown +460 ms", "the line");
+        timing.Shown(2000, "typing");
+        Is(line!.Contains("typing"), false, "marks after it is done are ignored");
+        timing.Begin(3000, 3001);
+        timing.Failed(3050, "busy");
+        line = null;
+        timing.Begin(4000, 4000);
+        Is(line, "Talk key: handler +1 ms, mic failed +50 ms (busy), first audio never, pill shown never", "a press left open is reported at the next");
+        Is(TalkTiming.IsLine(line!), true, "and recognised as a timing line");
     }
 
     /** What an admin switched off on the Axis admin page (`capabilitiesOff`): read, refused, and back on again. */

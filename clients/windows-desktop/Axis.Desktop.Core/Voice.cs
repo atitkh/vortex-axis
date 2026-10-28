@@ -108,7 +108,15 @@ public sealed class Voice
     int ids;
     // The talk key is down and it is not yet known whether it is a tap or a hold: the microphone is on, nothing sent.
     bool armed;
+    Exception? armError;    // the microphone failed while armed: said if it becomes a hold (a tap types, and needs none)
+    string recordTrigger = "";
     readonly List<short[]> preRoll = [];
+    readonly WarmMic mic;
+
+    /** The microphone, opened off the caller's thread (the checks run it inline). */
+    public WarmMic Mic => mic;
+    /** How long the talk key took, press by press (the app starts each with `Begin` and marks what it showed). */
+    public TalkTiming Timing { get; } = new();
 
     public VoiceMode Mode { get; private set; }
     /** What was heard, then the reply as it comes; cleared on the next turn. */
@@ -148,6 +156,9 @@ public sealed class Voice
     {
         this.link = link;
         this.io = io;
+        mic = new WarmMic(io, OnFrame);
+        mic.Opened += warm => Timing.Mic(Clock(), warm);
+        mic.Failed += MicFailed;
         link.Message += Receive;
         link.Audio += pcm => { if (playing != null) io.PlayWrite(pcm); };
         link.StateChanged += (state, _) => { if (state != LinkState.Online) Dropped(); };
@@ -162,6 +173,7 @@ public sealed class Voice
             if (playing != null) { io.StopPlayback(); playing = null; }
             if (askId != null) { askId = null; Question = null; Choices = []; }
             if (armed) Disarm();
+            if (recording == null) mic.Release(now: true);
             if (was is VoiceMode.Transcribing or VoiceMode.Thinking or VoiceMode.Speaking) { Doing = null; Set(VoiceMode.Idle); }
             else Changed?.Invoke();
         }
@@ -193,6 +205,7 @@ public sealed class Voice
             {
                 if (armed) Disarm();
                 if (recording != null) Finish("cancel");
+                mic.Release(now: true);
             }
             if (SpeakerOff && playing != null)
             {
@@ -304,14 +317,9 @@ public sealed class Voice
             }
             preRoll.Clear();
             armed = true;
-            try { io.StartCapture(OnFrame); }
-            catch (Exception e)
-            {
-                armed = false;
-                Reply = $"The microphone could not start: {e.Message}";
-                Set(VoiceMode.Error);
-                return false;
-            }
+            armError = null;
+            // Opened on the worker: the key's handler (the UI thread) never waits for the device.
+            mic.Want();
             return true;
         }
     }
@@ -323,6 +331,14 @@ public sealed class Voice
         {
             if (!armed) return;
             armed = false;
+            if (armError != null)
+            {
+                Reply = $"The microphone could not start: {armError.Message}";
+                armError = null;
+                preRoll.Clear();
+                Set(VoiceMode.Error);
+                return;
+            }
             Start(askId != null ? "question" : "hold", capturing: true);
             holding = true;
             var kept = preRoll.ToList();
@@ -346,7 +362,7 @@ public sealed class Voice
             if (!armed) return false;
             armed = false;
             preRoll.Clear();
-            try { io.StopCapture(); } catch { }
+            mic.Release();
             return true;
         }
     }
@@ -406,15 +422,28 @@ public sealed class Voice
             ["trigger"] = trigger,
         });
         // A follow-up has no cue: the pill turning green is enough when the computer was just talking (as on the boards).
-        if (trigger != "follow_up") Play(SoundKind.Listen);
+        // Off the caller's thread: opening a speaker can take as long as opening the microphone.
+        if (trigger != "follow_up") mic.Run(() => Play(SoundKind.Listen));
+        recordTrigger = trigger;
         if (capturing) return;
-        try { io.StartCapture(OnFrame); }
-        catch (Exception e)
+        mic.Want();
+    }
+
+    /** The microphone could not open for what still wants it (on the mic's worker). */
+    void MicFailed(Exception e)
+    {
+        lock (gate)
         {
+            Timing.Failed(Clock(), e.Message);
+            if (armed) { armError = e; return; }
+            var id = recording;
+            if (id == null) return;
             recording = null;
+            holding = false;
+            mic.Release(now: true);
             _ = Send(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = "cancel" });
             // A follow-up nobody asked for fails quietly.
-            if (trigger == "follow_up") { Set(VoiceMode.Idle); return; }
+            if (recordTrigger == "follow_up") { Set(VoiceMode.Idle); return; }
             Reply = $"The microphone could not start: {e.Message}";
             Set(VoiceMode.Error);
         }
@@ -434,6 +463,7 @@ public sealed class Voice
     void OnFrame(short[] samples)
     {
         byte[] bytes;
+        Timing.Audio(Clock());
         lock (gate)
         {
             if (armed)
@@ -476,7 +506,7 @@ public sealed class Voice
         recording = null;
         holding = false;
         Level = 0;
-        try { io.StopCapture(); } catch { }
+        mic.Release();
         _ = Send(new JsonObject { ["t"] = "audio.end", ["turnId"] = id, ["reason"] = reason });
         Set(reason == "cancel" ? VoiceMode.Idle : VoiceMode.Transcribing);
     }
@@ -487,6 +517,7 @@ public sealed class Voice
         lock (gate)
         {
             if (recording != null) Finish("cancel");
+            if (!armed) mic.Release(now: true);
             var was = playing;
             playing = null;
             if (io.StopPlayback() && was != null) _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = was, ["state"] = "stopped" });
@@ -573,6 +604,8 @@ public sealed class Voice
                     // Speech that comes while the person is talking to it waits its turn: theirs comes first.
                     if (recording != null) Finish("silence");
                     if (playing != null) io.StopPlayback();
+                    // No echo canceller: the microphone is off before the agent speaks (and a headset leaves its call profile).
+                    if (!armed) mic.Release(now: true);
                     playing = id;
                     io.PlayBegin(rate);
                     _ = Send(new JsonObject { ["t"] = "playback", ["turnId"] = id, ["state"] = "started" });
