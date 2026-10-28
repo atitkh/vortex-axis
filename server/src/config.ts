@@ -33,6 +33,11 @@ export interface Config {
   activityDays: number;
   /** How long wake arbitration waits for other clients to report. */
   wakeWindowMs: number;
+  /**
+   * How far below the best wake score (0 to 0.5) a device may be and still answer by hearing it
+   * louder. 0 picks the best score. Editable on the admin page's Wake words page.
+   */
+  wakeMargin: number;
   /** Longest utterance accepted from a client. */
   maxUtteranceMs: number;
   /** How often upstream services are checked. 0 turns the checks off. */
@@ -116,6 +121,15 @@ function integer(name: string, raw: string | undefined, fallback: number): numbe
   return value;
 }
 
+function fraction(name: string, raw: string | undefined, fallback: number, max: number): number {
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > max) {
+    throw new Error(`${name} must be a number from 0 to ${max}, got "${raw}"`);
+  }
+  return value;
+}
+
 function list(value: string | undefined): string[] {
   return (value ?? "")
     .split(",")
@@ -142,6 +156,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pingIntervalMs: integer("AXIS_PING_INTERVAL_MS", env.AXIS_PING_INTERVAL_MS, 15 * 1000),
     activityDays: Math.max(1, integer("AXIS_ACTIVITY_DAYS", env.AXIS_ACTIVITY_DAYS, 7)),
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
+    wakeMargin: fraction("AXIS_WAKE_MARGIN", env.AXIS_WAKE_MARGIN, 0.1, 0.5),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
     voiceprintUrl: env.AXIS_VOICEPRINT_URL || undefined,

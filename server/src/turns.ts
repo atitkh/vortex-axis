@@ -39,6 +39,8 @@ export interface TurnOptions {
   services: Services;
   /** How long wake arbitration waits for other clients. */
   wakeWindowMs: number;
+  /** How far below the best wake score a louder device may be and still answer, 0 to 0.5; read at each wake. */
+  wakeMargin?: () => number;
   /** Longest utterance accepted. Audio past this is dropped. */
   maxUtteranceMs: number;
   /** Extra time allowed for a client to report that playback finished. */
@@ -461,18 +463,22 @@ export class TurnManager {
     this.playbackGraceMs = options.playbackGraceMs ?? 5000;
     this.wake = new WakeArbiter({
       windowMs: options.wakeWindowMs,
+      ...(options.wakeMargin ? { margin: options.wakeMargin } : {}),
       listeners: () => [...port.sessions()].filter((s) => s.client.capabilities.includes("mic")).length,
       decide: (report, granted) => {
         const session = port.session(report.clientId);
         if (session) port.send(session, { t: "wake.result", wakeId: report.wakeId, granted });
         options.wakeSeen?.({ clientId: report.clientId, score: report.score, level: report.level, outcome: granted ? "answered" : "stood_down" });
       },
-      contested: (reports, winner) => {
+      contested: (reports, winner, decision) => {
         const percent = (n: number) => `${Math.round(n * 100)}%`;
         const say = (r: (typeof reports)[number]) =>
           `${port.session(r.clientId)?.client.name ?? r.clientId} (score ${percent(r.score)}, loudness ${percent(r.level)})`;
         const rest = reports.filter((r) => r !== winner).map(say).join(", ");
-        options.contested?.(winner.clientId, `Wake word heard by ${reports.length} devices: ${say(winner)} answered; stood down: ${rest}`);
+        const how = decision.byLoudness
+          ? ` (chosen by loudness among ${decision.candidates} within ${Math.round(decision.margin * 100)} points of the best score)`
+          : "";
+        options.contested?.(winner.clientId, `Wake word heard by ${reports.length} devices: ${say(winner)} answered${how}; stood down: ${rest}`);
       },
     });
   }

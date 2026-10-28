@@ -457,22 +457,36 @@ function AddWakeWord({ done }) {
 export function WakeWordsPage() {
   const entity = "page:wakewords";
   const [data, load, error] = useLoad("/admin/wakewords", 5000);
+  const [hub, loadHub] = useLoad("/admin/integrations", 10_000);
   const saved = {};
+  // The margin is a hub setting (0 to 0.5), shown here in points of score.
+  if (hub?.settings) saved["hub.wakeMargin"] = Math.round((hub.settings.wakeMargin ?? 0.1) * 100);
   for (const w of data?.wakeWords ?? []) {
     saved[`${w.id}.cutoff`] = w.cutoff;
     saved[`${w.id}.window`] = w.window;
   }
   const form = useForm(entity, saved);
   const apply = async (v, keys) => {
+    if (keys.has("hub.wakeMargin")) {
+      await api("PATCH", "/admin/integrations", { wakeMargin: Number(v["hub.wakeMargin"]) / 100 });
+      await loadHub();
+    }
     const byWord = new Map();
     for (const k of keys) {
+      if (k.startsWith("hub.")) continue;
       const [id, field] = [k.slice(0, k.lastIndexOf(".")), k.slice(k.lastIndexOf(".") + 1)];
       byWord.set(id, { ...byWord.get(id), [field]: Number(v[k]) });
     }
     for (const [id, body] of byWord) await api("PATCH", `/admin/wakewords/${enc(id)}`, body);
     await load();
   };
-  const save = () => saveForm(entity, saved, apply, { words: (s) => `${plural(Object.keys(s).length, "change")} saved. Devices listening with it restart to take it.` });
+  const save = () => saveForm(entity, saved, apply, {
+    words: (s) => {
+      const words = Object.keys(s).filter((k) => !k.startsWith("hub.")).length;
+      const margin = "hub.wakeMargin" in s ? " The margin applies to the next wake word." : "";
+      return words ? `${plural(words, "change")} saved. Devices listening with it restart to take it.${margin}` : `Saved.${margin}`;
+    },
+  });
   const remove = async (w) => {
     if (!(await ask({ title: `Remove "${w.name}"?`, body: "Devices listening with it go back to their built-in wake word.", confirm: "Remove", danger: true }))) return;
     await api("DELETE", `/admin/wakewords/${enc(w.id)}`);
@@ -501,6 +515,16 @@ export function WakeWordsPage() {
             </tr>`)}
           </tbody></table></div>
           <div class="card-b"><p class="help">To put a device on one of these, set <b>Wake word</b> for <a href="#settings?key=wakeWord">every device</a>, for a type, or on a device's own Settings tab.</p></div>`}
+    </section>
+    <section class="card" id="wake-choice">
+      <div class="card-h"><h3>When several devices hear it</h3></div>
+      <div class="card-b">
+        <${F} label="Margin, points of score" id="wake-margin" dirty=${form.dirty("hub.wakeMargin")}
+          help="The device nearest the speaker should answer: it hears what follows best. Every device scoring within this many points of the best score is a candidate, and the one that heard the wake word loudest over its own room noise answers. Devices further below never answer. 0 lets the best score answer, as before. 0 to 50, 10 by default.">
+          <input class="field num" type="number" min="0" max="50" step="1" id="wake-margin" data-f="hub.wakeMargin" disabled=${!hub?.settings}
+            value=${form.value("hub.wakeMargin") ?? ""} onInput=${(e) => form.put("hub.wakeMargin", e.currentTarget.value === "" ? "" : Number(e.currentTarget.value))} />
+        </${F}>
+      </div>
     </section>
     <${WakeScores} words=${data} />
     <${AddWakeWord} done=${load} />

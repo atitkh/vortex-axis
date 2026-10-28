@@ -381,6 +381,34 @@ describe("wake arbitration", () => {
     );
   });
 
+  it("lets the louder device answer when the scores are close, and says so", async () => {
+    const names = ["Hall", "Desk", "Shelf"];
+    const [hall, desk, shelf] = await Promise.all(names.map((name) => ready(["mic", "speaker"], { name })));
+    // The real case: the best score was the farthest board, heard quietest.
+    hall!.client.send({ t: "wake", wakeId: "wh", score: 0.95, level: 0.02 });
+    desk!.client.send({ t: "wake", wakeId: "wd", score: 0.92, level: 0.04 });
+    shelf!.client.send({ t: "wake", wakeId: "ws", score: 0.93, level: 0.06 });
+    expect(await shelf!.client.next("wake.result")).toMatchObject({ wakeId: "ws", granted: true });
+    expect(await hall!.client.next("wake.result")).toMatchObject({ granted: false });
+    expect(await desk!.client.next("wake.result")).toMatchObject({ granted: false });
+    const events = (await admin("GET", "/admin/activity")).body.events as { kind: string; text: string }[];
+    expect(events.find((e) => e.kind === "wake")?.text).toBe(
+      "Wake word heard by 3 devices: Shelf (score 93%, loudness 6%) answered (chosen by loudness among 3 within 10 points of the best score); " +
+        "stood down: Hall (score 95%, loudness 2%), Desk (score 92%, loudness 4%)",
+    );
+  });
+
+  it("takes the wake margin from the hub settings, 0 meaning the best score", async () => {
+    expect((await admin("PATCH", "/admin/integrations", { wakeMargin: 0.6 })).status).toBe(400);
+    expect((await admin("PATCH", "/admin/integrations", { wakeMargin: 0 })).body.settings.wakeMargin).toBe(0);
+    const a = await ready(["mic"], { name: "A" });
+    const b = await ready(["mic"], { name: "B" });
+    a.client.send({ t: "wake", wakeId: "wa", score: 0.95, level: 0.02 });
+    b.client.send({ t: "wake", wakeId: "wb", score: 0.93, level: 0.6 });
+    expect((await a.client.next("wake.result")).granted).toBe(true);
+    expect((await b.client.next("wake.result")).granted).toBe(false);
+  });
+
   it("breaks a tie on loudness", async () => {
     const a = await ready(["mic"], { name: "A" });
     const b = await ready(["mic"], { name: "B" });

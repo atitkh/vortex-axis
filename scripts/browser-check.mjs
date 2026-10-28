@@ -709,6 +709,15 @@ try {
     await next.until(`!${saveBar}`, "the cutoff to save");
     const tuned91 = (await adminGet("/admin/wakewords")).wakeWords.find((w) => w.id === word.id).cutoff;
     if (tuned91 !== 91) throw new Error(`the cutoff was saved as ${tuned91}`);
+    // The hub's wake margin, in points of score on the page, a fraction on the hub.
+    await next.until(`document.querySelector('[data-f="hub.wakeMargin"]')?.value === '10'`, "the wake margin field at 10");
+    await next.run(fill(`[data-f="hub.wakeMargin"]`, "15"));
+    await next.until(`/1 unsaved change/.test(${saveBar}?.textContent ?? '')`, "the margin staged");
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "the margin to save");
+    const margin = (await adminGet("/admin/integrations")).settings.wakeMargin;
+    if (margin !== 0.15) throw new Error(`the wake margin was saved as ${margin}`);
+    step("admin: wake margin saved", "15 points");
     await next.run(`${catchBlobs}; [...document.querySelectorAll('#wakewords-list tr')].find(r => r.textContent.includes(${JSON.stringify(word.id)})).querySelector('button').click()`);
     const wordBlob = await next.until(`window.blobs[0]?.size`, "the wake word download");
     await next.run(`[...[...document.querySelectorAll('#wakewords-list tr')].find(r => r.textContent.includes(${JSON.stringify(word.id)})).querySelectorAll('button')].find(b => b.textContent === 'Remove').click()`);

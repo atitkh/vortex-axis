@@ -3,8 +3,18 @@ export interface WakeReport {
   wakeId: string;
   /** Detection confidence, 0 to 1. */
   score: number;
-  /** Loudness, 0 to 1. Breaks ties. */
+  /** Loudness over the device's own room noise, 0 to 1. Among scores close to the best, the loudest wins. */
   level: number;
+}
+
+/** How a contested wake word was settled. */
+export interface WakeDecision {
+  /** Reports whose score was within the margin of the best. */
+  candidates: number;
+  /** The margin used, 0 to 0.5. */
+  margin: number;
+  /** True when loudness chose a device other than the best-scoring one. */
+  byLoudness: boolean;
 }
 
 export interface WakeArbiterOptions {
@@ -14,13 +24,38 @@ export interface WakeArbiterOptions {
   listeners: () => number;
   /** Called once per report with the outcome. */
   decide: (report: WakeReport, granted: boolean) => void;
+  /**
+   * How far below the best score (0 to 0.5) a report may be and still win by being louder.
+   * Read at each decision. 0, or none given, picks the best score with loudness breaking ties.
+   */
+  margin?: () => number;
   /** Called once when more than one client reported the same wake word, with all of them and the one chosen. */
-  contested?: (reports: WakeReport[], winner: WakeReport) => void;
+  contested?: (reports: WakeReport[], winner: WakeReport, decision: WakeDecision) => void;
+}
+
+/** Best score first, then louder. */
+const better = (a: WakeReport, b: WakeReport) => a.score > b.score || (a.score === b.score && a.level > b.level);
+/** Louder first, then better score. */
+const louder = (a: WakeReport, b: WakeReport) => a.level > b.level || (a.level === b.level && a.score > b.score);
+
+/**
+ * The one to answer: every report scoring within `margin` of the best is a
+ * candidate, and the loudest candidate wins (ties by score). A device farther
+ * away can score a little higher on the wake word yet hear what follows worse;
+ * the nearest one hears it loudest. Reports further below can never win.
+ */
+export function chooseWake(reports: WakeReport[], margin: number): { winner: WakeReport; decision: WakeDecision } {
+  const best = reports.reduce((b, r) => (better(r, b) ? r : b));
+  const m = Math.min(0.5, Math.max(0, Number.isFinite(margin) ? margin : 0));
+  // A little slack so a margin of 0.10 keeps a score exactly 10 points down despite floating point.
+  const candidates = reports.filter((r) => r.score >= best.score - m - 1e-9);
+  const winner = m > 0 ? candidates.reduce((w, r) => (louder(r, w) ? r : w)) : best;
+  return { winner, decision: { candidates: candidates.length, margin: m, byLoudness: winner.score < best.score } };
 }
 
 /**
  * Picks one client when several hear the wake word at once. The first report
- * opens a short window; when it closes, the best-scoring client is granted
+ * opens a short window; when it closes, one client is granted (`chooseWake`)
  * and the rest are told to stand down.
  */
 export class WakeArbiter {
@@ -74,11 +109,9 @@ export class WakeArbiter {
 
   private settle(reports: WakeReport[]): void {
     if (reports.length === 0) return;
-    const winner = reports.reduce((best, r) =>
-      r.score > best.score || (r.score === best.score && r.level > best.level) ? r : best,
-    );
+    const { winner, decision } = chooseWake(reports, this.options.margin?.() ?? 0);
     this.granted.set(winner.clientId, winner.wakeId);
     for (const report of reports) this.options.decide(report, report === winner);
-    if (reports.length > 1) this.options.contested?.(reports, winner);
+    if (reports.length > 1) this.options.contested?.(reports, winner, decision);
   }
 }

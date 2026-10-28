@@ -179,6 +179,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     pingIntervalMs: config.pingIntervalMs,
     services,
     wakeWindowMs: config.wakeWindowMs,
+    // Read at each wake, so a margin saved on the Wake words page applies at once.
+    wakeMargin: () => config.wakeMargin,
     maxUtteranceMs: config.maxUtteranceMs,
     outputHoldMs: config.outputHoldMs,
     timeZone: config.timeZone,

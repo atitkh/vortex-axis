@@ -73,6 +73,8 @@ export interface HubOptions {
   voices?: Voiceprints;
   services?: Services;
   wakeWindowMs?: number;
+  /** See TurnOptions.wakeMargin. */
+  wakeMargin?: () => number;
   maxUtteranceMs?: number;
   playbackGraceMs?: number;
   /** How long the last client spoken to stays the default place to answer. */
@@ -118,6 +120,7 @@ export class Hub implements TurnPort {
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
       wakeWindowMs: options.wakeWindowMs ?? 200,
+      ...(options.wakeMargin ? { wakeMargin: options.wakeMargin } : {}),
       maxUtteranceMs: options.maxUtteranceMs ?? 30_000,
       ...(options.playbackGraceMs === undefined ? {} : { playbackGraceMs: options.playbackGraceMs }),
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
