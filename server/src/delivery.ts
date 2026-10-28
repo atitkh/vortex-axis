@@ -69,14 +69,33 @@ export class Delivery {
   constructor(private readonly options: DeliveryOptions) {
     this.now = options.now ?? Date.now;
     options.hub.onConnect((session) => void this.flush(session));
+    // What a device without a screen was kept while silent is said once it leaves silent.
+    options.hub.onProfileChange((session, _profile, before) => {
+      if (before === "silent") void this.flush(session);
+    });
   }
 
   /**
    * Says something on a connected client. In the client's quiet hours it is shown without sound,
-   * unless it is `urgent`; a client with no screen is then left alone.
+   * unless it is `urgent`; a client with no screen is then left alone. On the silent profile nothing is spoken, urgent
+   * or not: it is shown, or kept until the client leaves silent when it has no screen.
    */
   async sayOn(session: Session, text: string, urgent = false, share?: SpeechShare): Promise<Delivered> {
     const shown = session.client.capabilities.includes("screen");
+    if (this.options.hub.profile(session.client).profile === "silent") {
+      if (!shown) {
+        const minutes = this.keep(session.client, text, urgent);
+        return {
+          client: session.client.name,
+          heard: false,
+          shown: false,
+          held: true,
+          note: `It is on the silent profile and has no screen: this is kept and said when it leaves silent within ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+        };
+      }
+      await this.options.hub.say(session, text, { silent: true });
+      return { client: session.client.name, heard: false, shown: true, note: "It is on the silent profile: shown on its screen as text, not spoken." };
+    }
     if (!urgent && this.options.hub.quiet(session.client)) {
       if (!shown) {
         return { client: session.client.name, heard: false, shown: false, note: "It is in its quiet hours and has no screen, so nothing was said. Mark it urgent to speak anyway." };
@@ -114,10 +133,7 @@ export class Delivery {
       }
     }
 
-    const waiting = (this.held.get(client.id) ?? []).filter((h) => h.until > this.now());
-    waiting.push({ text, urgent, until: this.now() + this.options.holdMs });
-    this.held.set(client.id, waiting.slice(-MAX_HELD));
-    const minutes = Math.max(1, Math.round(this.options.holdMs / 60_000));
+    const minutes = this.keep(client, text, urgent);
     this.options.note?.(client.id, `${client.name} is offline: one message is kept for it for ${minutes} min`);
     return {
       client: client.name,
@@ -159,7 +175,15 @@ export class Delivery {
     return (this.notified.get(clientId) ?? []).filter((m) => m.until > this.now()).length;
   }
 
-  /** Says what was kept for a client that has just connected. */
+  /** Keeps a message for `client` for the hold time; returns that time in minutes. */
+  private keep(client: ClientRecord, text: string, urgent: boolean): number {
+    const waiting = (this.held.get(client.id) ?? []).filter((h) => h.until > this.now());
+    waiting.push({ text, urgent, until: this.now() + this.options.holdMs });
+    this.held.set(client.id, waiting.slice(-MAX_HELD));
+    return Math.max(1, Math.round(this.options.holdMs / 60_000));
+  }
+
+  /** Says what was kept for a client that has just connected (or has just left silent). */
   private async flush(session: Session): Promise<void> {
     const waiting = (this.held.get(session.client.id) ?? []).filter((h) => h.until > this.now());
     this.held.delete(session.client.id);

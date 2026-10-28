@@ -38,6 +38,11 @@ export interface Config {
    * louder. 0 picks the best score. Editable on the admin page's Wake words page.
    */
   wakeMargin: number;
+  /**
+   * Battery percent at or below which a device on the "auto" profile goes to power saver while not charging
+   * (0: never). Editable on the admin page's Integrations page.
+   */
+  powerSaverBelow: number;
   /** Longest utterance accepted from a client. */
   maxUtteranceMs: number;
   /** How often upstream services are checked. 0 turns the checks off. */
@@ -157,6 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     activityDays: Math.max(1, integer("AXIS_ACTIVITY_DAYS", env.AXIS_ACTIVITY_DAYS, 7)),
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
     wakeMargin: fraction("AXIS_WAKE_MARGIN", env.AXIS_WAKE_MARGIN, 0.1, 0.5),
+    powerSaverBelow: Math.min(90, integer("AXIS_POWER_SAVER_BELOW", env.AXIS_POWER_SAVER_BELOW, 20)),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
     voiceprintUrl: env.AXIS_VOICEPRINT_URL || undefined,

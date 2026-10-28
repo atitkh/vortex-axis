@@ -20,7 +20,9 @@ import {
 import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
-import { declaredDefaults, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
+import { declaredDefaults, declaredValues, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
+import { activeProfile, batterySaver, withProfile, type ProfileName, type ProfileReason } from "./profiles.js";
+import { fresh } from "./deviceinfo.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
 import type { SpeechShare } from "./speech.js";
@@ -85,6 +87,8 @@ export interface HubOptions {
   outputHoldMs?: number;
   /** The time zone quiet hours are told in. */
   timeZone?: string;
+  /** The battery percent at or below which a device on "auto" goes to power saver (0: never). Read at each check. */
+  powerSaverBelow?: () => number;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -96,6 +100,12 @@ export class Hub implements TurnPort {
   private readonly outputHoldMs: number;
   private timeZone: string;
   private readonly wasQuiet = new Map<string, boolean>();
+  /** Devices the battery rule has on power saver. Memory only: worked out again from the next readings. */
+  private readonly saver = new Map<string, boolean>();
+  /** The profile each connected client was last sent settings under. */
+  private readonly sentProfile = new Map<string, ProfileName>();
+  private readonly profileListeners: Array<(session: Session, profile: ProfileName, before: ProfileName) => void> = [];
+  private readonly powerSaverBelow: () => number;
   private readonly screens = new Map<string, { heard: string; said: string; at: number }>();
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
@@ -125,6 +135,7 @@ export class Hub implements TurnPort {
     this.log = options.log ?? (() => {});
     this.outputHoldMs = options.outputHoldMs ?? 10 * 60_000;
     this.timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    this.powerSaverBelow = options.powerSaverBelow ?? (() => 20);
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
       wakeWindowMs: this.wakeWindowMs,
@@ -347,6 +358,7 @@ export class Hub implements TurnPort {
       clearInterval(pingTimer);
       if (session && this.online.get(session.client.id) === session) {
         this.online.delete(session.client.id);
+        this.sentProfile.delete(session.client.id);
         this.turns.drop(session);
         this.abandonCommands(session);
         this.store.touch(session.client.id);
@@ -432,6 +444,7 @@ export class Hub implements TurnPort {
         session.readings = { ...session.readings, ...message.readings };
         for (const key of Object.keys(message.readings)) session.readAt[key] = this.now();
         this.changed(session.client.id, "readings");
+        this.checkProfile(session);
         return;
       case "gesture":
         for (const listener of this.gestureListeners) listener(session, message.gesture);
@@ -506,11 +519,55 @@ export class Hub implements TurnPort {
   }
 
   private sendSettings(session: Session): void {
+    const schema = this.store.getSchema(session.client.type);
+    const { profile } = this.profile(session.client);
+    const before = this.sentProfile.get(session.client.id);
+    this.sentProfile.set(session.client.id, profile);
+    // Device setting, then the profile, then quiet hours: quiet hours stay the hard cap.
+    const values = withProfile(this.sentSettings(session.client), profile, declaredValues(schema));
     this.send(session, {
       t: "settings",
       version: this.store.settingsVersion(),
-      values: withQuiet(this.sentSettings(session.client), Date.now(), this.timeZone, declaredDefaults(this.store.getSchema(session.client.type), ["volume", "brightness"])),
+      values: withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"])),
     });
+    if (before !== undefined && before !== profile) {
+      this.log(`${session.client.name}: profile ${before} -> ${profile}`);
+      for (const listener of this.profileListeners) listener(session, profile, before);
+    }
+  }
+
+  /** The profile a client is on and why (profiles.ts): its `profile` setting, else the battery rule. */
+  profile(client: Pick<ClientRecord, "id" | "type">): { profile: ProfileName; reason: ProfileReason } {
+    return activeProfile(this.store.resolveSettings(client).profile, this.saver.get(client.id) ?? false);
+  }
+
+  /** Calls `listener` after a connected client was sent settings under a different profile than before. */
+  onProfileChange(listener: (session: Session, profile: ProfileName, before: ProfileName) => void): void {
+    this.profileListeners.push(listener);
+  }
+
+  /** Applies the battery rule to one client from its fresh readings; sends its settings again when that changes its profile. */
+  private checkProfile(session: Session): void {
+    const readings = fresh(session, this.now());
+    const battery = typeof readings.battery === "number" ? readings.battery : undefined;
+    const charging = readings.charging === undefined || readings.charging === null ? undefined : Boolean(Number(readings.charging));
+    const id = session.client.id;
+    const was = this.saver.get(id) ?? false;
+    const now = batterySaver(was, battery, charging, this.powerSaverBelow());
+    if (now === was) return;
+    this.saver.set(id, now);
+    const note = `${session.client.name}: battery ${battery ?? "unknown"}%${charging ? ", charging" : ""}: power saver ${now ? "on" : "off"} by the battery rule`;
+    this.activity?.note("settings", id, note);
+    // A manual choice is not changed by the rule: nothing new to send then.
+    if (this.profile(session.client).reason !== "manual") {
+      this.store.touchSettings();
+      this.sendSettings(session);
+    }
+  }
+
+  /** The battery rule again for every connected client: readings go stale and the threshold can change. */
+  checkProfiles(): void {
+    for (const session of this.online.values()) this.checkProfile(session);
   }
 
   /**
@@ -551,6 +608,7 @@ export class Hub implements TurnPort {
       this.store.touchSettings();
       this.pushSettings();
     }
+    this.checkProfiles();
   }
 
   /**

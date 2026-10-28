@@ -197,7 +197,7 @@ export class Timers {
           ? `Your ${this.name(timer)} timer finished ${lateMin} minute${lateMin === 1 ? "" : "s"} ago.`
           : `Your ${this.name(timer)} timer is done.`;
       // A device with a chime plays it first, so the words are not the first thing heard.
-      if (this.store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) {
+      if (this.hub.profile(session.client).profile !== "silent" && this.store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) {
         const chimed = await this.hub.command(session, "chime", undefined, 3000).catch(() => undefined);
         // Speech that starts while the chime is still sounding cuts it off, and can be cut off by it.
         if (chimed?.ok) await new Promise((resolve) => setTimeout(resolve, this.chimeMs));

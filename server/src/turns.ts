@@ -33,6 +33,8 @@ export interface TurnPort {
   sessions(): Iterable<Session>;
   session(clientId: string): Session | undefined;
   settings(session: Session): ScalarMap;
+  /** The profile the client is on (profiles.ts). Silent: nothing is spoken there, replies are shown as text. */
+  profile?(client: Session["client"]): { profile: string };
 }
 
 export interface TurnOptions {
@@ -850,7 +852,9 @@ export class TurnManager {
     const { name, type, capabilities } = session.client;
     const voice = Voiceprints.label(identity);
     const held = busy ? `, busy: ${busy.sessionKey} is working on "${busy.title.replace(/"/g, "'")}"` : "";
-    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}${voice ? `, ${voice}` : ""}${held}]`;
+    const profile = this.port.profile?.(session.client).profile;
+    const mode = profile === "silent" ? ", profile: silent (nothing is spoken here: answer in short text, it is shown on the screen)" : profile && profile !== "normal" ? `, profile: ${profile}` : "";
+    return `[from: ${name}, type: ${type}, location: ${location}, can: ${capabilities.join("+") || "nothing"}${voice ? `, ${voice}` : ""}${held}${mode}]`;
   }
 
   /** Runs one turn. Resolves with a failure message, or undefined when it went through. */
@@ -893,6 +897,8 @@ export class TurnManager {
     const tts = "say" in input && input.share && this.services.tts ? input.share.for(this.services.tts) : this.services.tts;
     const caps = session.client.capabilities;
     const hasScreen = caps.includes("screen");
+    // A device on the silent profile speaks nothing: its answer is shown as text, never voiced.
+    const muted = this.port.profile?.(session.client).profile === "silent";
     const state = (s: "transcribing" | "thinking" | "idle", detail?: string) =>
       this.port.send(session, { t: "turn", turnId, state: s, ...(detail ? { detail } : {}) });
     const live = this.options.live;
@@ -913,7 +919,7 @@ export class TurnManager {
 
     try {
       let text = "";
-      let realtime = "pcm" in input && this.services.talk?.available() && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id);
+      let realtime = "pcm" in input && this.services.talk?.available() && this.port.settings(session).voiceMode === "realtime" && !this.asks.has(id) && !muted;
       if (realtime && checking) {
         await knowVoice();
         const elsewhere = voices!.routeFor(identity);
@@ -1092,8 +1098,8 @@ export class TurnManager {
       }
 
       const speaker =
-        // A message for quiet hours is shown and not spoken.
-        caps.includes("speaker") && tts && !("silent" in input && input.silent) ? new Speaker(this.port, session, turnId, tts.format, signal, () => Boolean(turn.silenced)) : undefined;
+        // A message for quiet hours is shown and not spoken, and so is everything on a silent device.
+        caps.includes("speaker") && tts && !muted && !("silent" in input && input.silent) ? new Speaker(this.port, session, turnId, tts.format, signal, () => Boolean(turn.silenced)) : undefined;
       const settings = this.port.settings(session);
       const voice = typeof settings.voice === "string" && settings.voice ? settings.voice : undefined;
       const pauseMs = typeof settings.sentencePauseMs === "number" ? Math.min(1500, Math.max(0, settings.sentencePauseMs)) : 300;

@@ -220,7 +220,7 @@ describe("through a running Axis", () => {
     client.send({ t: "sense", readings: { battery: 14, rssi: -50 } });
     await vi.waitFor(async () => expect((await invoke("vortex.axis.sense", { client: "Desk" })).readings[0].readings.battery).toBe(14));
     const one = await invoke("vortex.axis.sense", { client: "Desk" });
-    expect(one.readings[0]).toMatchObject({ client: "Desk", readings: { battery: 14, rssi: -50 }, summary: "Desk: online, battery 14%, low, strong Wi-Fi.", info: { attention: ["battery low (14%)"] } });
+    expect(one.readings[0]).toMatchObject({ client: "Desk", readings: { battery: 14, rssi: -50 }, summary: "Desk: online, battery 14%, low, strong Wi-Fi, on power saver for its low battery.", info: { attention: ["battery low (14%)"], profile: "power-saver", profileReason: "battery" } });
     expect(one.lowest).toBeUndefined();
     const all = await invoke("vortex.axis.sense");
     expect(all.readings.map((r: any) => r.client).sort()).toEqual(["Desk", "Hall"]);

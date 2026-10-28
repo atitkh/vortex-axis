@@ -5,6 +5,7 @@ import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import { Devices, lowest, spokenSummary } from "./deviceinfo.js";
 import { withBuiltIns } from "./schema.js";
+import { PROFILE_CHOICES } from "./profiles.js";
 import type { Store, TimerRecord } from "./store.js";
 import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
@@ -143,7 +144,10 @@ export const NODE_TOOLS: NodeTool[] = [
     command: "vortex.axis.config",
     description:
       "Read or change a setting on one VorteX Axis device, such as volume or location. Give only the client " +
-      "to read all its settings. Give key and value to change one.",
+      "to read all its settings. Give key and value to change one. Key `profile` switches its profile: \"silent\" " +
+      "(nothing spoken there, replies shown as text, tap to talk still works), \"power-saver\" (dimmer, fewer frames), " +
+      "\"normal\", or \"auto\" (normal, with power saver while its battery is low). A choice other than auto holds " +
+      "until set back to auto. Which profile a device is on, and why, is in vortex_axis_sense.",
     parameters: {
       type: "object",
       properties: {
@@ -160,7 +164,8 @@ export const NODE_TOOLS: NodeTool[] = [
     description:
       "How VorteX Axis devices are doing: online or offline, battery and charging, Wi-Fi signal, uptime and why they last " +
       "restarted, today's use (pickups, touches, turns), what they are doing now, and what needs attention (low battery, " +
-      "weak Wi-Fi, an update waiting, offline too long). Name a device in `client`, or leave it out for every device and " +
+      "weak Wi-Fi, an update waiting, offline too long), and its profile (`info.profile`: normal, power-saver or silent; " +
+      "`info.profileReason`: manual, battery or auto). Name a device in `client`, or leave it out for every device and " +
       "the one most in need (`lowest`). Each device comes with a `summary` sentence to say as it is, the details in `info`, " +
       "and its raw `readings`. Use it for questions such as \"how is the desk board\" or \"which device is low\".",
     parameters: { type: "object", properties: { client: TARGET_PROPERTIES.client } },
@@ -404,10 +409,13 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const key = text(params.key) === "room" ? "location" : text(params.key);
         if (key !== undefined && "value" in params) {
           if (!isScalar(params.value)) throw new Error("value must be text, a number, true/false or null");
+          if (key === "profile" && params.value !== null && !(PROFILE_CHOICES as readonly unknown[]).includes(params.value)) {
+            throw new Error(`profile must be one of ${PROFILE_CHOICES.join(", ")}`);
+          }
           store.patchLayer("device", client.id, { [key]: params.value });
           hub.pushSettings();
         }
-        return { client: client.name, settings: store.resolveSettings(client) };
+        return { client: client.name, settings: store.resolveSettings(client), ...(key === "profile" ? { profile: hub.profile(client) } : {}) };
       }
 
       case "vortex.axis.sense": {

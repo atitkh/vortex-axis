@@ -3,6 +3,7 @@ import type { Hub } from "./hub.js";
 import type { ClientRecord, Store } from "./store.js";
 import type { ClientNow } from "./turns.js";
 import { olderThanHeld } from "./versions.js";
+import type { ProfileName, ProfileReason } from "./profiles.js";
 
 /**
  * One device as a plain object: who it is, whether it is here, what it is doing, and its vitals from the readings it
@@ -94,6 +95,9 @@ export interface DeviceInfo {
   attention: string[];
   /** How long it may be offline before that is listed under attention; null for never. */
   offlineAfterMs: number | null;
+  /** The profile it is on (profiles.ts) and why: chosen by hand, the battery rule, or "auto" with no rule in force. */
+  profile: ProfileName;
+  profileReason: ProfileReason;
 }
 
 export interface DeviceInput {
@@ -106,6 +110,8 @@ export interface DeviceInput {
   now?: ClientNow | undefined;
   /** The version of the build Axis holds for its type, if any. */
   held?: string | undefined;
+  /** Its profile, from `Hub.profile`; normal when not given. */
+  profile?: { profile: ProfileName; reason: ProfileReason } | undefined;
 }
 
 /** Builds DeviceInfo for the clients Axis knows, from the store, the connected sessions and the builds it holds. */
@@ -126,6 +132,7 @@ export class Devices {
         session: this.hub.session(client.id),
         now: doing.find((d) => d.clientId === client.id),
         held: this.held(client.type),
+        profile: this.hub.profile(client),
       },
       this.now(),
     );
@@ -160,6 +167,8 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
     vitals: vitals(readings),
     attention: [],
     offlineAfterMs: offlineAfterMs(kind, settings.offlineAlert),
+    profile: input.profile?.profile ?? "normal",
+    profileReason: input.profile?.reason ?? "auto",
   };
   info.attention = attention(info, at);
   return info;
@@ -170,7 +179,7 @@ export const STALE_READING_MS = 5 * 60_000;
 const VITAL_KEYS = ["battery", "charging", "batteryMv", "chipTempC", "rssi", "heap", "soundDb", "soundActive"];
 
 /** The readings without the vitals that have not arrived for STALE_READING_MS. */
-function fresh(session: DeviceInput["session"], at: number): ScalarMap {
+export function fresh(session: DeviceInput["session"], at: number): ScalarMap {
   const readings = session?.readings ?? {};
   const readAt = session?.readAt;
   if (!readAt) return readings;
@@ -248,6 +257,7 @@ export function spokenSummary(info: DeviceInfo, at: number): string {
     if (signal) parts.push(`${signal.label} Wi-Fi`);
     if (uptime) parts.push(`up ${uptime.text}`);
   }
+  if (info.profile !== "normal") parts.push(`on ${info.profile === "power-saver" ? "power saver" : info.profile}${info.profileReason === "battery" ? " for its low battery" : ""}`);
   if (info.updateAvailable) parts.push("an update is waiting");
   return `${info.name}: ${parts.join(", ")}.`;
 }

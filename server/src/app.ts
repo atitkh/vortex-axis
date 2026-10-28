@@ -185,6 +185,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     maxUtteranceMs: config.maxUtteranceMs,
     outputHoldMs: config.outputHoldMs,
     timeZone: config.timeZone,
+    // Read at each check, so a level saved on the Integrations page applies with the next readings.
+    powerSaverBelow: () => config.powerSaverBelow,
     activity,
     log,
   });
@@ -429,6 +431,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {
     hub.setTimeZone(config.timeZone);
+    hub.checkProfiles();
     activity.setRetention(config.activityDays * 86_400_000);
     delivery.setHoldMs(config.messageHoldMs);
     if (changed.mqtt) startHomeAssistant();

@@ -47,6 +47,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     activityDays: 7,
     wakeWindowMs: 60,
     wakeMargin: 0.1,
+    powerSaverBelow: 20,
     maxUtteranceMs: 30_000,
     healthIntervalMs: 0,
     stt: undefined,

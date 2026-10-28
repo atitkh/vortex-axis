@@ -32,6 +32,8 @@ export interface HubSettings {
   desktopBlocked: string[];
   /** How far below the best wake score (0 to 0.5) a louder device may be and still answer. */
   wakeMargin: number;
+  /** Battery percent at or below which a device on the "auto" profile goes to power saver (0: never). */
+  powerSaverBelow: number;
 }
 
 const META_KEY = "hub_config";
@@ -66,6 +68,7 @@ function fromConfig(config: Config): HubSettings {
     mirrorApprovals: config.mirrorApprovals,
     desktopBlocked: config.desktopBlocked,
     wakeMargin: config.wakeMargin,
+    powerSaverBelow: config.powerSaverBelow,
   };
 }
 
@@ -108,6 +111,7 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.mirrorApprovals = settings.mirrorApprovals;
   config.desktopBlocked = settings.desktopBlocked ?? [];
   config.wakeMargin = settings.wakeMargin ?? config.wakeMargin;
+  config.powerSaverBelow = settings.powerSaverBelow ?? config.powerSaverBelow;
 }
 
 /** Most entries in the desktop block list: it travels to the computer with each command, in at most 500 characters. */
@@ -215,6 +219,7 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
     }
     patch.wakeMargin = Math.round(margin * 1000) / 1000;
   }
+  if (body.powerSaverBelow !== undefined) patch.powerSaverBelow = whole(body.powerSaverBelow, "the power saver battery level", 0, 90);
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 
   const earlier = store.getMeta(META_KEY);

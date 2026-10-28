@@ -183,6 +183,15 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     help: "What this device can do that an admin has switched off, separated by commas, such as mic,screen. Set with the switches on the device's page, for this one device only; Axis stops using what is listed and the device stops doing it.",
   },
   {
+    key: "profile",
+    label: "Profile",
+    kind: "choice",
+    group: "Axis",
+    options: ["auto", "normal", "power-saver", "silent"],
+    default: "auto",
+    help: "A set of overrides on this device's own settings, beneath quiet hours. \"power-saver\": brightness at most 100, at most 15 frames a second. \"silent\": volume 0, no listening cue or task chime, nothing spoken: replies and messages are shown as text, and tap to talk still works. \"auto\" is normal, and power saver while a battery is low and not charging (the level is a hub setting). A choice other than auto holds until it is set back to auto.",
+  },
+  {
     key: "offlineAlert",
     label: "Offline alert",
     kind: "choice",
@@ -194,7 +203,7 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
 ];
 
 /** Built-in settings only Axis and its admin page read. They are kept out of what devices are sent. */
-export const SERVER_ONLY_KEYS = ["offlineAlert"] as const;
+export const SERVER_ONLY_KEYS = ["offlineAlert", "profile"] as const;
 
 export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: [] };
 
@@ -224,6 +233,13 @@ export function declaredDefaults(schema: ClientSchema | undefined, keys: string[
     const value = typeof def.default === "number" ? def.default : Number(def.default);
     if (def.default !== undefined && def.default !== null && def.default !== "" && Number.isFinite(value)) out[def.key] = value;
   }
+  return out;
+}
+
+/** Every default a client type declared, as declared: what a profile may override when nothing is saved (profiles.ts). */
+export function declaredValues(schema: ClientSchema | undefined): ScalarMap {
+  const out: ScalarMap = {};
+  for (const def of schema?.settings ?? []) if (def.default !== undefined) out[def.key] = def.default;
   return out;
 }
 
