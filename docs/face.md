@@ -188,6 +188,7 @@ These may differ between devices; everything else above should not.
 - **How overlaps mix.** The board paints dots over each other; the web adds their light (`lighter`), closer to how the panel glows. Either is fine.
 - **Frame rate.** Anything from about 30 fps up. Sparkle fades per frame (`× 0.86`), so it fades a little faster at higher rates; acceptable.
 - **Reduced motion.** A client that knows the person asked for less motion may turn the face at 30 % speed and drop sparkle, as the web client does.
+- **The battery.** Only the boards show it (section 10); a client that cannot know its battery shows nothing of it.
 - **A small or limited screen** (for example a watch with few colours) may use fewer dots per arm and the nearest colours it has, keeping the looks, the easing and the rules.
 
 ## 6a. Seeing the looks
@@ -287,4 +288,24 @@ While the face is `thinking`, `doing` may also name why the agent's run is not g
 | retrying | -2.20 | 0.70 | 1.00 | 0.10 | 1.60 | 0 | 0 | 1.0 | 1.00 | 0.70 | 0.25 | amber, turning backwards: its provider failed and it is trying again |
 
 `doing: "none"`, or any name the face has neither a look nor an icon for, is plain thinking.
+
+## 10. The battery (boards only)
+
+The boards (1.8 since 0.23.0, 1.75 since 0.7.0) show their battery on the face. This is a device-only state: a web page has no battery state it can rely on, so `web/vortex.js` and the two computer copies intentionally have no equivalent, and nothing in sections 1 to 9 changes. The code is `firmware/waveshare-amoled-1.8/src/battery_cue.cpp` (the 1.75 links to it), the sleepy idle in `vortex.cpp` (`vortex::setSleepy`) and the charging glow in `glow.cpp`.
+
+It only follows a fresh reading with a battery: the power chip is read every 30 s, and a reading older than 90 s, or no battery connected, shows nothing. So a change can show up to 30 s late. Never a sound.
+
+**Low battery.** At or below `lowBatteryBelow` (default 15 %; 0 off; 1 to 4 count as 5; at most 30) while not charging, and until the charge is back above that plus 3 (hysteresis):
+
+- The idle face turns sleepy: it runs at 60 % speed and draws at 75 % brightness. Only in idle; every other mode looks as usual. It eases in at rate 1.5 and out at rate 8.0 (the same easing as section 3), so it settles in slowly and leaves quickly.
+- A small battery mark stays at the bottom middle of the screen (a 140 by 22 block; on the 1.75 26 pixels up from the bottom edge, inside the round glass): a battery of ten cells and the percent, in grey (0.80, 0.82, 0.85 at 85 %). The filled cells are amber (1.00, 0.60, 0.08). Below 5 % they turn red (1.00, 0.16, 0.10) and the mark pulses slowly (once every 2.5 s, between 35 % and 100 %).
+
+**Charging.** When charging begins while the board is running (not for a board started on the charger):
+
+- One swell of the idle face's cyan (0.10, 0.78, 0.95) in the edge glow over 3 s (strength `sin(π t)` for t from 0 to 1), unless a turn is under way. It stops early if charging stops.
+- A bolt in the same cyan beside the mark, at 45 % to 100 % brightness with the swell, then 80 %.
+
+While charging the mark stays, with the bolt and the filled cells green (0.34, 1.00, 0.40). The face is never sleepy while charging.
+
+`batteryGlyph` (default on) turns the lasting mark off; the sleepy face, the swell and the mark with its bolt during the 3 s cue stay. The board's console shows each without a battery for a minute: `preview lowbattery` (12 %), `preview charging` (64 %, with the cue), `preview battery N` (N %), `preview off`.
 
