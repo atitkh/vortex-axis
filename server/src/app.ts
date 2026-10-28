@@ -1,8 +1,9 @@
 import { sentDefaults } from "./schema.js";
 import { DesktopApp } from "./desktopapp.js";
-import { QuestApp } from "./questapp.js";
+import { QUEST_TYPE, QuestApp } from "./questapp.js";
 import { titleFrom } from "./background.js";
 import { FirmwareStore } from "./firmware.js";
+import { Devices } from "./deviceinfo.js";
 import { importBundledFirmware } from "./bundled.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -190,7 +191,10 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const desktopApp = new DesktopApp(config.dataDir, hub, log, config.bundledDir);
   const questApp = new QuestApp(config.dataDir, hub, log, config.bundledDir);
   // Firmware a release image came with, onto the shelves (only when newer than what is there).
-  importBundledFirmware(config.bundledDir, new FirmwareStore(config.dataDir), log);
+  const firmwareStore = new FirmwareStore(config.dataDir);
+  importBundledFirmware(config.bundledDir, firmwareStore, log);
+  // The same builds the admin page's attention list compares against: the shelf's current one, or the Quest app.
+  const devices = new Devices(store, hub, (type) => (type === QUEST_TYPE ? questApp.build()?.version : firmwareStore.info(type)?.version));
   const desktops = new Desktops(hub, store, Date.now, {}, () => config.desktopBlocked);
   const timers = new Timers({
     store,
@@ -368,7 +372,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
-      createInvokeHandler({ hub, store, timers, delivery, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+      createInvokeHandler({ hub, store, devices, timers, delivery, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
     ),
     (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );
@@ -458,7 +462,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ desktopApp, questApp, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ desktopApp, questApp, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 

@@ -3,6 +3,7 @@ import type { InvokeHandler, NodeTool } from "./gateway/client.js";
 import type { Activity } from "./activity.js";
 import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
+import { Devices, lowest, spokenSummary } from "./deviceinfo.js";
 import { withBuiltIns } from "./schema.js";
 import type { Store, TimerRecord } from "./store.js";
 import type { Attachment } from "./attach.js";
@@ -156,7 +157,12 @@ export const NODE_TOOLS: NodeTool[] = [
   {
     name: "vortex_axis_sense",
     command: "vortex.axis.sense",
-    description: "Read the latest sensor readings a VorteX Axis device has reported, such as battery level.",
+    description:
+      "How VorteX Axis devices are doing: online or offline, battery and charging, Wi-Fi signal, uptime and why they last " +
+      "restarted, today's use (pickups, touches, turns), what they are doing now, and what needs attention (low battery, " +
+      "weak Wi-Fi, an update waiting, offline too long). Name a device in `client`, or leave it out for every device and " +
+      "the one most in need (`lowest`). Each device comes with a `summary` sentence to say as it is, the details in `info`, " +
+      "and its raw `readings`. Use it for questions such as \"how is the desk board\" or \"which device is low\".",
     parameters: { type: "object", properties: { client: TARGET_PROPERTIES.client } },
   },
   {
@@ -310,6 +316,8 @@ function isScalar(value: unknown): value is Scalar {
 export interface CommandDeps {
   hub: Hub;
   store: Store;
+  /** Devices as plain objects with their vitals; one without held builds is made when absent. */
+  devices?: Devices | undefined;
   timers: Timers;
   delivery: Delivery;
   /** Long work agents are doing, shown on the screens. */
@@ -330,6 +338,7 @@ export interface CommandDeps {
 export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
   const { hub, store, timers, delivery } = deps;
   const now = deps.now ?? Date.now;
+  const devices = deps.devices ?? new Devices(store, hub, undefined, now);
 
   const timerView = (timer: TimerRecord) => ({
     id: timer.id,
@@ -403,11 +412,17 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
 
       case "vortex.axis.sense": {
         const name = text(params.client);
-        const sessions = name ? [hub.session(clientNamed(name).id)] : [...hub.sessions()];
+        const infos = name ? [devices.info(clientNamed(name))] : devices.all();
+        const at = now();
+        const most = name ? undefined : lowest(infos);
         return {
-          readings: sessions
-            .filter((s): s is Session => Boolean(s))
-            .map((s) => ({ client: s.client.name, readings: s.readings })),
+          readings: infos.map((info) => ({
+            client: info.name,
+            readings: hub.session(info.id)?.readings ?? {},
+            summary: spokenSummary(info, at),
+            info,
+          })),
+          ...(most ? { lowest: most } : {}),
         };
       }
 

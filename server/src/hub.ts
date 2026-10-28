@@ -46,6 +46,8 @@ export interface Session {
   links: LinkDef[];
 }
 
+export type ClientChange = "online" | "offline" | "readings";
+
 /** What a client answered to a `command`. */
 export interface CommandOutcome {
   ok: boolean;
@@ -104,6 +106,7 @@ export class Hub implements TurnPort {
   /** Commands that timed out recently (key → name and when sent), so an answer that comes too late is logged, not lost silently. */
   private readonly late = new Map<string, { name: string; sentAt: number }>();
   private readonly connectListeners: Array<(session: Session) => void> = [];
+  private readonly changeListeners = new Set<(clientId: string, change: ClientChange) => void>();
   private readonly gestureListeners: Array<(session: Session, gesture: string) => void> = [];
   private readonly settingsListeners: Array<() => void> = [];
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
@@ -213,6 +216,16 @@ export class Hub implements TurnPort {
 
   onConnect(listener: (session: Session) => void): void {
     this.connectListeners.push(listener);
+  }
+
+  /** Calls `listener` when a client comes online, goes offline or reports readings. Returns how to stop. */
+  onClientChange(listener: (clientId: string, change: ClientChange) => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
+  }
+
+  private changed(clientId: string, change: ClientChange): void {
+    for (const listener of this.changeListeners) listener(clientId, change);
   }
 
   /**
@@ -341,6 +354,7 @@ export class Hub implements TurnPort {
           silent ? `${name} stopped answering (lost power or network?)` : `${name} disconnected`,
           silent ? "warn" : "info",
         );
+        this.changed(session.client.id, "offline");
       }
     });
 
@@ -393,6 +407,7 @@ export class Hub implements TurnPort {
     if (hello.settingsVersion !== settingsVersion) this.sendSettings(session);
     this.send(session, { t: "status", upstream: this.upstream });
     for (const listener of this.connectListeners) listener(session);
+    this.changed(session.client.id, "online");
     return session;
   }
 
@@ -409,6 +424,7 @@ export class Hub implements TurnPort {
         return;
       case "sense":
         session.readings = { ...session.readings, ...message.readings };
+        this.changed(session.client.id, "readings");
         return;
       case "gesture":
         for (const listener of this.gestureListeners) listener(session, message.gesture);
@@ -590,6 +606,7 @@ export class Hub implements TurnPort {
     this.turns.drop(session);
     this.abandonCommands(session);
     this.fail(session.socket, "unauthorized", "client was removed", CLOSE_REMOVED);
+    this.changed(clientId, "offline");
   }
 
   closeAll(): void {

@@ -32,6 +32,8 @@ import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
 import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
 import type { MediaStore } from "./media.js";
+import { Devices, offlineAfterMs } from "./deviceinfo.js";
+import { buildMap, startMapFeed } from "./mapfeed.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -157,6 +159,8 @@ function stampWebFiles(files: Map<string, { type: string; body: Buffer }>): void
 }
 
 export interface HttpDeps {
+  /** Devices with their vitals and attention, for the client list and the map. One without held builds is made when absent. */
+  devices?: Devices;
   /** The desktop app build computers update to. */
   desktopApp?: DesktopApp;
   /** The Quest panel client build headsets update to. */
@@ -218,6 +222,7 @@ export function createHttpHandler(deps: HttpDeps) {
   const now = deps.now ?? Date.now;
   const pairAttempts = new Map<string, number[]>();
   const firmware = new FirmwareStore(config.dataDir);
+  const devices = deps.devices ?? new Devices(store, hub, (type) => firmware.info(type)?.version, now);
   const wakeIds = () => (deps.wakeWords?.list() ?? []).map((word) => word.id);
 
   function allowPairAttempt(address: string): boolean {
@@ -310,9 +315,14 @@ export function createHttpHandler(deps: HttpDeps) {
     const client = store.getClient(id);
     if (!client) throw new HttpError(404, "no such client");
     const session = hub.session(id);
+    const info = devices.info(client);
     return {
       ...client,
       online: Boolean(session),
+      // The kind and the offline alert time the attention list goes by (null: never), and what "auto" would be.
+      kind: info.kind,
+      offlineAfterMs: info.offlineAfterMs,
+      offlineAfterAutoMs: offlineAfterMs(info.kind, "auto"),
       settings: store.resolveSettings(client),
       // The three layers separately, so the editor can show which one a value comes from.
       layers: {
@@ -328,6 +338,22 @@ export function createHttpHandler(deps: HttpDeps) {
       // Sent to its closed page as notifications and not yet opened there.
       notified: deps.delivery?.notifiedFor(id) ?? 0,
     };
+  }
+
+  function systemMap() {
+    const usesGateway = services.agent === gateway;
+    const status = gateway.status();
+    return buildMap({
+      devices: devices.all(),
+      upstream: hub.upstreamStatus(),
+      usesGateway,
+      node: { state: status.node.state, error: status.node.error },
+      ...(deps.voices ? { voiceprint: deps.voices.active() } : {}),
+      homeAssistant: deps.homeAssistant?.()?.status() ?? null,
+      recentTurns: activity?.summary(24).recentTurns ?? [],
+      axis: { version: deps.version ?? "", startedAt },
+      at: now(),
+    });
   }
 
   /**
@@ -1128,6 +1154,36 @@ export function createHttpHandler(deps: HttpDeps) {
           ),
         );
         // A line now and then keeps proxies from closing a quiet stream.
+        const beat = setInterval(() => res.write(": still here\n\n"), 20_000);
+        beat.unref();
+        res.on("close", () => {
+          clearInterval(beat);
+          stop();
+        });
+        return;
+      }
+      // The system map: devices, the services behind Axis and how they connect. Read-only.
+      if (method === "GET" && parts.length === 2 && parts[1] === "map") return sendJson(res, 200, systemMap());
+      // What changes on the map, as it happens: devices (readings at most every 5 s each) and turn stages, never words.
+      if (method === "GET" && parts.length === 3 && parts[1] === "map" && parts[2] === "stream") {
+        res.writeHead(200, {
+          ...SECURITY_HEADERS,
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+          "x-accel-buffering": "no",
+        });
+        const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        write("snapshot", systemMap());
+        const stop = startMapFeed({
+          info: (clientId) => {
+            const client = store.getClient(clientId);
+            return client ? devices.info(client) : undefined;
+          },
+          onClientChange: (listener) => hub.onClientChange(listener),
+          subscribeLive: deps.live ? (listener) => deps.live!.subscribe(listener) : undefined,
+          send: write,
+          now,
+        });
         const beat = setInterval(() => res.write(": still here\n\n"), 20_000);
         beat.unref();
         res.on("close", () => {

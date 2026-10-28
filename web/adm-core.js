@@ -326,22 +326,14 @@ export function behind(client) {
   return Boolean(held && client.version && held.version !== client.version);
 }
 
-/** What kind of thing a device is, for its picture and for when being offline matters. */
+/** What kind of thing a device is, for its picture and for when being offline matters. Axis decides (server/src/deviceinfo.ts). */
 export function kindOf(client) {
-  if (client.type === "web") return "browser";
-  if (client.type === "meta-quest" || client.type === "quest-panels") return "headset";
-  if ((client.reported ?? client.capabilities).includes("desktop")) return "computer";
-  if (Number(client.readings?.screenRound) === 1) return "round";
-  return "board";
+  return client.kind ?? "board";
 }
 
-/** How long a device may be offline before it needs attention, by its Offline alert setting; Infinity for never. */
-export const AUTO_OFFLINE_MS = { board: 15 * 60_000, round: 15 * 60_000, computer: 12 * 3_600_000, headset: 12 * 3_600_000, browser: Infinity };
+/** How long a device may be offline before it needs attention, by its Offline alert setting; Infinity for never. Axis decides. */
 export function offlineAfter(client) {
-  const choice = client.settings?.offlineAlert ?? "auto";
-  if (choice === "never") return Infinity;
-  if (choice === "always") return 10 * 60_000;
-  return AUTO_OFFLINE_MS[kindOf(client)] ?? 15 * 60_000;
+  return typeof client.offlineAfterMs === "number" ? client.offlineAfterMs : Infinity;
 }
 
 /** Runs one of a device's actions and words the answer. */

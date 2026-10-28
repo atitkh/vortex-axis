@@ -5,7 +5,7 @@ import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import qrcode from "/web/qr.js";
 import { strip, stripAxis, percent, ms as fmtMs, clock } from "/web/charts.js";
 import {
-  AUTO_OFFLINE_MS, ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
+  ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
   plural, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
 import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
@@ -16,9 +16,9 @@ import {
 export const findAction = (client) => (store.types[client.type]?.actions ?? []).find((a) => a.name === "find");
 
 const KIND_WORDS = { board: "board", round: "round board", browser: "browser", computer: "computer", headset: "headset" };
-const autoWords = (kind) => {
-  const t = AUTO_OFFLINE_MS[kind];
-  return t === Infinity ? "never" : `after ${span(t)}`;
+const autoWords = (client) => {
+  const t = client.offlineAfterAutoMs;
+  return typeof t === "number" ? `after ${span(t)}` : "never";
 };
 
 function FindButton({ client, cls = "btn sm" }) {
@@ -269,7 +269,7 @@ function DeviceOverview({ client, schema }) {
           ${client.readings?.axis ? fact("Reaches Axis at", html`<span class="mono">${client.readings.axis}</span>`, " ", html`<button type="button" class="btn sm" disabled=${!client.online} onClick=${changeAddress}>Change…</button>`) : null}
           ${client.type === "web" ? fact("When its page is closed", client.notifications ? "gets a notification " : html`<span class="dim">not reachable (notifications are off in that browser) </span>`, client.notifications ? html`<button type="button" class="btn sm" onClick=${testNotify}>Send a test</button>` : null) : null}
           ${client.waiting ? fact("Waiting for it", `${plural(client.waiting, "message")}, said when it is back`) : null}
-          ${fact("Offline alert", `${client.settings.offlineAlert ?? "auto"}${(client.settings.offlineAlert ?? "auto") === "auto" ? ` (a ${KIND_WORDS[kindOf(client)]}: ${autoWords(kindOf(client))})` : ""}`)}
+          ${fact("Offline alert", `${client.settings.offlineAlert ?? "auto"}${(client.settings.offlineAlert ?? "auto") === "auto" ? ` (a ${KIND_WORDS[kindOf(client)]}: ${autoWords(client)})` : ""}`)}
           ${fact("Id", html`<span class="mono dim">${client.id}</span>`)}
         </dl>
         ${note[0] ? html`<p class=${`msg ${note[1]} card-b`} role="status">${note[0]}</p>` : null}
@@ -371,7 +371,7 @@ function DeviceSettings({ client, schema, focusKey }) {
     ${defs.length
       ? html`<${SettingsEditor} defs=${defs} layers=${client.layers} tab="device" entity=${entity} focusKey=${focusKey}
           head=${[identity, capabilityGroup(client, entity)]} extra=${shareWithType(client)} rail=${rail}
-          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(kind)}.` }} />`
+          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(client)}.` }} />`
       : html`<div class="edit-grid with-rail"><div class="edit-main"><p class="empty">This device has not described its settings yet. It does so each time it connects.</p></div><aside class="rail">${rail}</aside></div>`}
     <${SaveBar} entity=${entity} save=${save} floating=${true} />`;
 }
@@ -504,7 +504,7 @@ function TypeSettings({ type, members, schema, focusKey }) {
       layers=${[...(members.length === 1 ? [{ label: members[0].name, href: deviceHref(members[0], "settings") }] : []), { label: `Every ${typeName(type)}`, href: typeHref(type, "settings"), on: true }, { label: "Everything", href: "#settings" }]} />
     ${defs.length
       ? html`<${SettingsEditor} defs=${defs} layers=${typeLayers(members)} tab="type" entity=${entity} focusKey=${focusKey} extra=${(def) => differsOn(members, def)}
-          hints=${kinds.length === 1 ? { offlineAlert: `Auto for a ${KIND_WORDS[kinds[0]]}: ${autoWords(kinds[0])}.` } : {}} />`
+          hints=${kinds.length === 1 ? { offlineAlert: `Auto for a ${KIND_WORDS[kinds[0]]}: ${autoWords(members[0])}.` } : {}} />`
       : html`<p class="empty">No device of this type has described its settings yet. They do so each time they connect.</p>`}
     <${SaveBar} entity=${entity} save=${() => saveType(type, members)} floating=${true} />`;
 }
