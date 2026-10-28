@@ -44,7 +44,7 @@ Since 0.8.0 a device updates itself from Axis, so the cable is only for the firs
 AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 --update   # from the repository root
 ```
 
-That uploads the build to Axis and tells every online device of the type that is on another version to install it. The screen shows "Updating" with a percentage; the device restarts by itself after about 25 seconds. The same can be done on the admin page, on the client type's page. The new firmware is kept once it has reached Axis; if it cannot within three minutes the device goes back to the old one by itself. Done three times on the real board (0.8.0 to 0.8.3).
+Without `--update` it only puts the build on Axis, where the admin page and the web flasher at `/flash` offer it (the flasher lists only boards whose firmware was pushed); with `--update` it also tells every online device of the type that is on another version to install it. A release of a board's firmware is tagged `fw-<board>-v<version>` on the commit that set the version; the full list of steps is in `docs/release.md` (**Firmware**), and `node scripts/release-check.mjs` checks the version, the CHANGELOG, the tag and what the hub offers. The screen shows "Updating" with a percentage; the device restarts by itself after about 25 seconds. The same can be done on the admin page, on the client type's page. The new firmware is kept once it has reached Axis; if it cannot within three minutes the device goes back to the old one by itself. Done three times on the real board (0.8.0 to 0.8.3).
 
 ## Setting up a device
 
