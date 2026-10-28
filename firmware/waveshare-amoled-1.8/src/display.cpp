@@ -447,6 +447,29 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPe
 
     pushBand(y, h);
 }
+int textInto(uint16_t *pixels, int w, int h, int x, uint8_t size, uint16_t color, const String &text) {
+    if (!band) return 0;
+    const GFXfont *font = fontFor(size);
+    const String shown = plain(text);
+    w = min(w, bandWidth);
+    h = min(h, BAND_MAX_HEIGHT);
+    // Figures and capitals stand as tall as a '0': that is centred on the block's height.
+    const GFXglyph &zero = font->glyph['0' - font->first];
+    band->fillRect(0, 0, w, h, RGB565_BLACK);
+    band->setFont(font);
+    band->setTextSize(1);
+    band->setTextColor(color);
+    band->setTextWrap(false);
+    band->setCursor(x, (h - 2 * zero.yOffset - zero.height) / 2);
+    band->print(shown);
+    const uint16_t *drawn = band->getFramebuffer();
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            if (drawn[j * bandWidth + i]) pixels[j * w + i] = drawn[j * bandWidth + i];
+        }
+    }
+    return widthIn(font, shown);
+}
 void pillCells(int count, int cols, int &left, int &cell) {
     cell = width() / max(1, cols);
     // A row that is not full sits in the middle.

@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.23.1"
+#define AXIS_FIRMWARE_VERSION "0.23.2"
 #endif
 
 namespace axis {

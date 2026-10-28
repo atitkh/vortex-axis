@@ -87,6 +87,12 @@ void textLine(int y, uint8_t size, uint16_t color, const String &text, int barPe
  * at logical `y`. The chord the glass leaves the band is cut into `cols` equal
  * cells and `count` of them get a button; a row that is not full is centred.
  */
+/**
+ * Draws text of that kind into a block of pixels w by h (row by row, at most a band tall), in the same font and
+ * through the same canvas as textLine: its left edge at x, its figures centred on the block's height. Only the
+ * letters' pixels are written. Returns the text's width.
+ */
+int textInto(uint16_t *pixels, int w, int h, int x, uint8_t size, uint16_t color, const String &text);
 /** Where pillRow puts its cells: the first one's left edge and the width of each. Taps are matched with this. */
 void pillCells(int y, int h, int count, int cols, int &left, int &cell);
 void pillRow(int y, int h, const String *labels, int count, int cols, uint16_t outline, uint16_t textColor);
