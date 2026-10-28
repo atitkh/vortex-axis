@@ -31,22 +31,19 @@ describe("web pages", () => {
     expect((await page("/web/qr.js")).type).toMatch(/javascript/);
   });
 
-  it("keeps the classic admin page at /admin-classic and sends /admin-next on to /admin, on the local network only", async () => {
-    const classic = await page("/admin-classic");
-    expect(classic.status).toBe(200);
-    expect(classic.body).toContain("/web/admin.js");
-    expect(classic.body).toContain('href="/admin"');
-    expect((await page("/web/admin.js")).type).toMatch(/javascript/);
+  it("has no classic admin page any more, and sends /admin-next on to /admin, on the local network only", async () => {
+    expect((await page("/admin-classic")).status).toBe(404);
+    expect((await page("/web/admin.js")).status).toBe(404);
     const moved = await fetch(`${ctx.base}/admin-next`, { redirect: "manual" });
     expect(moved.status).toBe(302);
     expect(moved.headers.get("location")).toBe("/admin");
     // Under a public name no admin page exists, nor the old address of the new one.
     await admin("PATCH", "/admin/integrations", { publicHosts: "axis.example.org" });
-    for (const path of ["/admin", "/admin-classic", "/admin-next"]) {
+    for (const path of ["/admin", "/admin-next"]) {
       const outside = await fetch(`${ctx.base}${path}`, { headers: { "x-forwarded-host": "axis.example.org" }, redirect: "manual" });
       expect(outside.status).toBe(404);
     }
-    expect((await page("/admin-classic")).status).toBe(200);
+    expect((await page("/admin")).status).toBe(200);
     await admin("PATCH", "/admin/integrations", { publicHosts: "" });
   });
 

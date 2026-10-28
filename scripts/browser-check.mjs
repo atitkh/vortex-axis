@@ -1,4 +1,4 @@
-// Drives the admin page (/admin; the classic one at /admin-classic only loads and signs in) and the web client in headless Chrome against a real
+// Drives the admin page (/admin) and the web client in headless Chrome against a real
 // Axis server, with a stub standing in for the agent.
 //
 //   npm run build && TTS=http://host/v1/audio/speech STT=http://host/v1/audio/transcriptions node scripts/browser-check.mjs
@@ -189,17 +189,6 @@ try {
   await next.run(`document.querySelector('#code-new').click()`);
   const code = await next.until(`document.querySelector('#code-value')?.textContent`, "a pairing code");
   step("pairing code looks right", /^\d{3}-\d{3}$/.test(code));
-  // --- the classic admin page, kept at /admin-classic for one more release: it loads and signs in --------------------
-  {
-    const classic = await openPage(`${base}/admin-classic`);
-    await classic.until(`!${byId("app")}.classList.contains('hidden') && document.querySelectorAll('#summary .stat').length === 4`, "the classic admin page");
-    step("classic admin", await classic.run(`(a => a?.getAttribute('href') === '/admin' && 'signed in by the shared token; ' + a.textContent)(document.querySelector('a.try-next'))`));
-    await classic.run(`localStorage.removeItem('axis-admin-token'); location.reload()`);
-    await classic.until(`!${byId("signin-form")}.classList.contains('hidden')`, "the classic sign-in form");
-    await classic.run(`${byId("token")}.value = 'browser-check-admin-token-0123'; ${byId("remember")}.checked = true; ${byId("signin-form")}.requestSubmit()`);
-    await classic.until(`!${byId("app")}.classList.contains('hidden') && localStorage.getItem('axis-admin-token') === 'browser-check-admin-token-0123'`, "the classic page to sign in");
-    step("classic admin sign-in", "typed token accepted and kept under the shared key");
-  }
 
   // --- web client ---------------------------------------------------------
   const client = await openPage(`${base}/`);
@@ -310,6 +299,11 @@ try {
     // Long work an agent reports on shows as one quiet line, and on the admin page's Live view.
     app.progress.update({ title: "Backup", note: "copying", done: 2, steps: ["Stop", "Snapshot", "Copy", "Check", "Start"] });
     step("agent task on the client", await client.until(`!${byId("task")}.classList.contains('hidden') && ${byId("task")}.textContent.replace(/\\s+/g, ' ').trim() + ' / ' + Math.round(${byId("task")}.getBoundingClientRect().height) + ' px'`, "the task line"));
+    // The same task is listed under Now on the admin page's Live view while it runs.
+    await next.front();
+    await next.run(`location.hash = '#live/now'`);
+    step("agent task on the admin's Live view", await next.until(`(t => /Backup/.test(t) && /Agent task · step 2 of 5: copying/.test(t) && 'listed under Now')(document.querySelector('#now')?.textContent ?? '')`, "the task in Now"));
+    await client.front();
     // The bar is as far along as the steps, and a press on the line lists them with the one in hand marked.
     step("agent task bar and steps", await client.until(`(() => { const fill = ${byId("task-fill")}.style.width; if (fill !== '40%') return ''; ${byId("task-line")}.click(); const items = [...${byId("task-list")}.children]; return !${byId("task-list")}.classList.contains('hidden') && items.length === 5 && items[2].dataset.state === 'running' && 'bar ' + fill + ', ' + items.map(i => i.dataset.state[0] + ':' + i.textContent).join(' ') })()`, "the task's bar and steps"));
     // A second task that waits for the person takes the line; the first is counted and named in the list.
@@ -318,6 +312,14 @@ try {
     app.progress.clear("report");
     await client.until(`${byId("task-more")}.textContent === '' && ${byId("task-title")}.textContent === 'Backup'`, "the first task back on the line");
     app.progress.clear();
+    // Once over it leaves Now and is kept under Tasks finished.
+    await next.front();
+    await next.run(`location.hash = '#live/now'`);
+    await next.until(`!/Backup/.test(document.querySelector('#now')?.textContent ?? 'Backup')`, "the task to leave Now");
+    await next.run(`location.hash = '#live/tasks'`);
+    step("agent task once over", await next.until(`(t => /Backup/.test(t) && /step 2 of 5/.test(t) && 'gone from Now, kept under Tasks finished')(document.querySelector('#live-tasks')?.textContent ?? '')`, "the ended task under Tasks finished"));
+    await next.run(`location.hash = '#overview'`);
+    await client.front();
     await client.until(`${byId("task")}.classList.contains('hidden')`, "the task line to go");
 
     // A timer is one small chip under the words.
@@ -345,9 +347,9 @@ try {
   // --- the admin page again: every area -----------------------------------------------------------------
   {
     await next.front();
-    // The token the classic page kept, under the shared key, serves this page too.
+    // The token kept on this device signs the page in again after a reload.
     await next.run(`location.reload()`);
-    step("admin: one sign-in for both", await next.until(`document.querySelector('#main') && document.querySelectorAll('.health .dot').length >= 4 && 'signed in from the classic page\\'s token'`, "the page to sign in again"));
+    step("admin: sign-in kept", await next.until(`document.querySelector('#main') && document.querySelectorAll('.health .dot').length >= 4 && 'signed in from the kept token'`, "the page to sign in again"));
     // Every old address still lands somewhere; #device/<id> is an alias of #clients/<id>.
     const known = await fetch(`${base}/admin/clients`, { headers: { authorization: "Bearer browser-check-admin-token-0123" } }).then((r) => r.json());
     const dev = known.clients[0];
@@ -371,9 +373,10 @@ try {
       stray.push(...(await next.run(`[...${classicLinks}, ...[...document.querySelectorAll('.classic-card')].map(() => 'card')]`)).map((h) => `${page}: ${h}`));
     }
     if (stray.length) throw new Error(`classic links left on the new page: ${stray.join(", ")}`);
-    const toClassic = await next.run(`[...document.querySelectorAll('a[href="/admin-classic"]')].map(a => a.textContent)`);
-    if (toClassic.length !== 1 || toClassic[0] !== "Open the classic admin") throw new Error(`links to /admin-classic: ${JSON.stringify(toClassic)}`);
-    step("admin: no classic links", "none on seven pages but the sidebar's one 'Open the classic admin'");
+    const toClassic = await next.run(`[...document.querySelectorAll('a[href^="/admin-classic"]')].map(a => a.textContent)`);
+    if (toClassic.length) throw new Error(`links to /admin-classic: ${JSON.stringify(toClassic)}`);
+    if ((await fetch(`${base}/admin-classic`)).status !== 404) throw new Error("/admin-classic still answers");
+    step("admin: no classic links", "none on seven pages, and /admin-classic is gone (404)");
     // The command bar: Ctrl+K, type, Enter opens the device; Escape closes it.
     await next.run(`location.hash = '#overview'`);
     await next.run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))`);
@@ -503,7 +506,7 @@ try {
     await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Light').click()`);
     step("admin: theme", await next.until(`document.documentElement.dataset.theme === 'light' && localStorage.getItem('axis.theme') === 'light' && getComputedStyle(document.body).backgroundColor`, "the light theme"));
     await next.run(`[...document.querySelectorAll('.side .theme button')].find(b => b.textContent === 'Dark').click()`);
-    // Stage 3: the Overview dashboard, Say something, History and Live, as the classic page's steps above.
+    // Stage 3: the Overview dashboard, Say something, History and Live, as the classic page's steps did.
     await next.run(`location.hash = '#overview'`);
     step("admin: overview", await next.until(`(t => /Axis running for/.test(t) && /Turns, last 24 hours\\s*\\d/.test(t) && document.querySelector('#attention') && document.querySelector('#now') && document.querySelectorAll('.ov-devs [data-device]').length && t.replace(/\\s+/g, ' '))(document.querySelector('#kpis')?.innerText ?? '')`, "the overview's numbers"));
     await next.until(`document.querySelectorAll('#say-target option').length >= 2`, "the places to say something");

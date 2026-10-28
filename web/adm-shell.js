@@ -1,5 +1,5 @@
 // The admin page's frame: sign-in, the sidebar with its groups, the header's health strip, the command bar,
-// toasts, dialogs and the router that keeps every address of the classic page working (docs/admin-revamp/ia.md 1.1).
+// toasts, dialogs and the router that keeps every address of the old (classic) page working (docs/admin-revamp/ia.md 1.1).
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import {
@@ -329,7 +329,6 @@ function Sidebar({ route, attention }) {
         ${s?.commit ? html`<span class="mono" title="The commit this build was made from">${s.commit}</span>` : null}
         ${s ? html`<span title="How devices and Axis talk to each other; it has nothing to do with the release number">protocol ${s.protocol}</span>` : null}
       </div>
-      <a href="/admin-classic" class="classic" title="The old admin page, kept for this release only. The same sign-in serves both.">Open the classic admin</a>
     </div>
   </nav>`;
 }

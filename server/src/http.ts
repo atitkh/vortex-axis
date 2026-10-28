@@ -522,8 +522,6 @@ export function createHttpHandler(deps: HttpDeps) {
       const file =
         url.pathname === "/" ? web.get("index.html")
         : url.pathname === "/admin" ? (isPublic(req) ? undefined : web.get("admin-next.html"))
-        // The classic admin page, kept for one release after the switch (docs/admin-revamp): the same rule, local network only.
-        : url.pathname === "/admin-classic" ? (isPublic(req) ? undefined : web.get("admin.html"))
         : parts.length === 2 && parts[0] === "web" ? web.get(parts[1]!)
         // The service worker has to live at the top to be allowed to act for the whole web client.
         : url.pathname === "/sw.js" ? web.get("sw.js")

@@ -18,9 +18,11 @@ keeps the `#route`; the sidebar foot has "Open the classic admin". `browser-chec
 pairing code there, and drives every area; of the classic page it only checks that it loads, signs in with a typed
 token and links back.
 
-**Next (the release after 0.57.0):** remove `web/admin.html`, `admin.js`, `admin.css` and the `/admin-classic` route
-with its test and browser-check step, the sidebar's "Open the classic admin" link, and the classic wording left in
-comments; then consider renaming `admin-next.*` to `admin.*`.
+**Done (Axis 0.58.0): the classic page is removed.** `web/admin.html`, `admin.js`, `admin.css` and the `/admin-classic`
+route are gone (it answers 404; a server test says so), with the sidebar's "Open the classic admin" link and its CSS.
+`browser-check` lost its classic steps and got back the one they carried: a running agent task is listed under Live,
+Now, and once over moves to Tasks finished. The sign-in keys stay the same, so a token kept by the classic page still
+signs in. **Next (optional):** rename `admin-next.*` to `admin.*`.
 
 ## How it is built
 

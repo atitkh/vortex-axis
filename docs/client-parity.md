@@ -81,7 +81,7 @@ The four clients:
 - `server/src/http.ts` 764 (`PATCH /admin/clients/:id`) and `describeClient`.
 - `server/src/hub.ts`: nothing in `handleHello` beyond reading the effective record it already reads back (358-359); `pushSettings(filter)` after an edit.
 - `server/src/schema.ts`: the `capabilitiesOff` built-in; `server/test/device-admin.test.ts` 48 lists built-in keys and must gain it.
-- `web/admin.js`: switches per capability on the device page.
+- `web/adm-settings.js` (`capabilityGroup`): switches per capability on the device page.
 - Clients: `firmware/waveshare-amoled-1.8/src/main.cpp` (`applySettings` and the drawing loop), `web/client.js`, `clients/windows-desktop/VortexDesktop/App.xaml.cs` (and `DesktopCommands.Paused`-like refusal in the Core), `clients/macos-desktop/Sources/AxisMacUI/AppModel.swift`.
 - Size: M server and admin page, S to M per client.
 

@@ -129,8 +129,6 @@ section.card { margin-bottom: 14px; }
 .card-b > h2, .card-b > h3 { margin: 0 0 6px; font-size: var(--t-lg); }
 .empty-card { padding: 28px; text-align: center; }
 .empty-card p { color: var(--dim); }
-.classic-card { margin-top: 20px; border-style: dashed; }
-.classic-card h2 { font-size: var(--t-lg); }
 
 /* --- sign-in --------------------------------------------------------------------------------- */
 .signin { max-width: 380px; margin: 12vh auto 40px; padding: 0 20px; display: flex; flex-direction: column; gap: 6px; }
@@ -175,7 +173,6 @@ canvas.face { display: block; width: 100%; aspect-ratio: 1; }
 .side .foot { padding: 10px 6px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; color: var(--faint); }
 .side .foot .seg { align-self: flex-start; }
 .side .foot .about { display: flex; flex-wrap: wrap; gap: 0 10px; }
-.side .foot .classic { font-size: var(--t-sm); }
 
 .col { min-width: 0; display: flex; flex-direction: column; }
 .top { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 32px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--glass); backdrop-filter: blur(8px); z-index: 20; }

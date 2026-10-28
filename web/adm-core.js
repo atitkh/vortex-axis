@@ -57,7 +57,7 @@ export function useStore() {
 
 // --- the API and sign-in -------------------------------------------------------------------
 
-// The same keys as the classic page, so one sign-in serves both.
+// The keys the classic page used, so a token kept by it still signs in.
 const TOKEN_KEY = "axis-admin-token";
 let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
 
