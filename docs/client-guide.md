@@ -149,7 +149,7 @@ A device that can update itself over the network implements `update`: answer `ok
 - Answer WebSocket pings. Axis drops a client that misses them and shows it offline.
 - A client that cannot see those pings (a browser, .NET, URLSession) sends `ping` every 15 s; Axis answers `pong`. Treat 40 s without any frame from Axis as a dead connection: close it, and connect again straight away when the device wakes or the network returns, without the usual wait.
 - Send `sense` about once a minute with at least signal strength, free memory and uptime, so the admin page can show a device's health.
-- Use these names for what the readings say about the device's health and use. Each is optional: one a device does not send is shown as unknown, never guessed. Axis turns them into the `vitals` and `attention` of the device's info (`server/src/deviceinfo.ts`), which the agent's `vortex_axis_sense` and the admin page share.
+- Use these names for what the readings say about the device's health and use. Each is optional: one a device does not send is shown as unknown, never guessed. Axis turns them into the `vitals` and `attention` of the device's info (`server/src/deviceinfo.ts`), which the agent's `vortex_axis_sense` and the admin page share. A reading counts until the next one replaces it; the vitals (`battery`, `charging`, `batteryMv`, `chipTempC`, `rssi`, `heap`, `soundDb`, `soundActive`) count for five minutes after they last arrived and are then shown as unknown, so send them with every `sense` for as long as they hold, and stop sending one that no longer does (a battery taken out). A device's readings are cleared when it disconnects.
 
 | Reading | Unit | Meaning |
 | --- | --- | --- |

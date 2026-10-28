@@ -17,6 +17,13 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - Console `power` (the last reading and the counts) and `i2c` (what answers on the bus).
 - Flashed by USB on 2026-10-28 to the round board on the bench: boot says `power chip AXP2101 found`, `i2c` lists 0x18 0x20 0x34 0x40 0x50 0x51 0x5A 0x6B 0x7E, `power` says `USB yes, battery none; power chip 49.9 C, processor 54.4 C`, and Axis's `/admin/map` shows its `chipTempC` 50 and the three counts at 0 with no battery block. Pushed to the hub without `--update`. Not exercised: anything with a battery (none connected), a real pickup, tap or turn being counted.
 
+## Axis 0.63.0 (2026-10-28)
+
+Fixes for board vitals and firmware updates.
+
+- **Readings that stop arriving expire.** Axis keeps when each reading last arrived (`Session.readAt`). A vital (`battery`, `charging`, `batteryMv`, `chipTempC`, `rssi`, `heap`, `soundDb`, `soundActive`) not reported for five minutes (`STALE_READING_MS`) is left out of the device's vitals, attention and spoken summary, so a battery taken out of a running board stops being shown. Other readings, and clients that send only some readings in a message, are unchanged; readings are still cleared on disconnect.
+- **Only an older firmware is old.** A device is behind only when the build on the shelf is newer than its version, compared as dotted numbers (`server/src/versions.ts`, `olderThanHeld`); a version Axis cannot read is never flagged. A board ahead of the shelf is no longer listed as "old firmware" and is not offered an Update. The admin page (attention list, Update buttons, badges, type pages, Overview, map) reads `updateAvailable` from Axis instead of comparing versions itself.
+
 ## Axis 0.62.0 (2026-10-28)
 
 Wake contests on the map, and the device's live view as the Overview of its device page.
