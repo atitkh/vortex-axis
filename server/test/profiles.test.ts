@@ -115,6 +115,19 @@ describe("the battery rule", () => {
     expect(last().brightness).toBeUndefined();
   });
 
+  it("shows the admin page the profile, why, and the values sent", async () => {
+    const { identity, client } = await ready(["mic", "speaker", "screen"], { name: "Desk board" });
+    client.send({ t: "describe", settings: BOARD_SETTINGS as any, actions: [], links: [] });
+    client.send({ t: "sense", readings: { battery: 12, charging: 0 } });
+    await client.next("settings", 0, (m) => m.values.maxFps === "15");
+    const saving = (await admin("GET", `/admin/clients/${identity.clientId}`)).body;
+    expect(saving).toMatchObject({ profile: "power-saver", profileReason: "battery", effective: { brightness: 100, maxFps: "15" } });
+    expect(saving.settings.maxFps).not.toBe("15");
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { profile: "silent" } });
+    await client.next("settings", 0, (m) => m.values.volume === 0);
+    expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body).toMatchObject({ profile: "silent", profileReason: "manual", effective: { volume: 0, listenCue: 0 } });
+  });
+
   it("does not change a manual silent", async () => {
     const { identity, client } = await ready(["mic", "speaker", "screen"], { name: "Desk board" });
     client.send({ t: "describe", settings: BOARD_SETTINGS as any, actions: [], links: [] });

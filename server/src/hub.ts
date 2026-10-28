@@ -50,7 +50,8 @@ export interface Session {
   links: LinkDef[];
 }
 
-export type ClientChange = "online" | "offline" | "readings";
+/** "profile": it was sent its settings under a different profile than before. */
+export type ClientChange = "online" | "offline" | "readings" | "profile";
 
 /** What a client answered to a `command`. */
 export interface CommandOutcome {
@@ -519,21 +520,22 @@ export class Hub implements TurnPort {
   }
 
   private sendSettings(session: Session): void {
-    const schema = this.store.getSchema(session.client.type);
     const { profile } = this.profile(session.client);
     const before = this.sentProfile.get(session.client.id);
     this.sentProfile.set(session.client.id, profile);
-    // Device setting, then the profile, then quiet hours: quiet hours stay the hard cap.
-    const values = withProfile(this.sentSettings(session.client), profile, declaredValues(schema));
-    this.send(session, {
-      t: "settings",
-      version: this.store.settingsVersion(),
-      values: withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"])),
-    });
+    this.send(session, { t: "settings", version: this.store.settingsVersion(), values: this.effectiveSettings(session.client) });
     if (before !== undefined && before !== profile) {
       this.log(`${session.client.name}: profile ${before} -> ${profile}`);
+      this.changed(session.client.id, "profile");
       for (const listener of this.profileListeners) listener(session, profile, before);
     }
+  }
+
+  /** The values a client is sent now: device setting, then the profile, then quiet hours, which stay the hard cap. */
+  effectiveSettings(client: Pick<ClientRecord, "id" | "type">): ScalarMap {
+    const schema = this.store.getSchema(client.type);
+    const values = withProfile(this.sentSettings(client), this.profile(client).profile, declaredValues(schema));
+    return withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"]));
   }
 
   /** The profile a client is on and why (profiles.ts): its `profile` setting, else the battery rule. */

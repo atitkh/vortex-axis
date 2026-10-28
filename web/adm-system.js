@@ -100,7 +100,7 @@ export function IntegrationsPage() {
         : html`<p class="dim">None of ${plural(push.browsers, "browser client")} has turned them on.</p>`}
       <p class="help">A browser whose page is closed gets speech and questions as notifications, once somebody presses Turn on notifications in it. That is done in the browser itself.</p>
     </${Card}>
-    <p class="help">The OpenClaw gateway's address, links and pairing are on <a href="#openclaw">OpenClaw gateway</a>; MCP is on <a href="#tools">Tools and MCP</a>. Public address, clock, history kept and backup are on <a href="#system">System</a>.</p>
+    <p class="help">The OpenClaw gateway's address, links and pairing are on <a href="#openclaw">OpenClaw gateway</a>; MCP is on <a href="#tools">Tools and MCP</a>. Public address, clock, history kept, the battery level for power saver and backup are on <a href="#system">System</a>.</p>
     <${SaveBar} entity=${entity} save=${save} floating />`;
 }
 
@@ -124,7 +124,7 @@ export function SystemPage({ tab }) {
   const s = d?.settings;
   const saved = s && {
     publicHosts: s.publicHosts.join(", "), trustedProxies: s.trustedProxies.join(", "), timeZone: s.timeZone, activityDays: s.activityDays,
-    messageHoldMinutes: s.messageHoldMinutes, backupEveryHours: s.backupEveryHours, backupKeepDays: s.backupKeepDays,
+    messageHoldMinutes: s.messageHoldMinutes, powerSaverBelow: s.powerSaverBelow, backupEveryHours: s.backupEveryHours, backupKeepDays: s.backupKeepDays,
   };
   const form = useForm(entity, saved);
   useEffect(() => {
@@ -161,6 +161,9 @@ export function SystemPage({ tab }) {
         <datalist id="zone-list">${zones.map((z) => html`<option key=${z} value=${z} />`)}</datalist></${F}>
       <${F} label="History kept" id="sys-activityDays" dirty=${form.dirty("activityDays")} help="Days of turns, events and wake word scores. Shortening it deletes what is now too old.">${num("activityDays", 1, 365, "days")}</${F}>
       <${F} label="Messages kept" id="sys-messageHoldMinutes" dirty=${form.dirty("messageHoldMinutes")} help="Minutes a message waits for a device that is away and cannot be notified. 0 keeps none.">${num("messageHoldMinutes", 0, 1440, "minutes")}</${F}>
+    </${Card}>
+    <${Card} id="sys-power" title="Devices on battery" mark=${[s.powerSaverBelow ? `power saver at ${s.powerSaverBelow}%` : "off", ""]}>
+      <${F} label="Power saver below" id="sys-powerSaverBelow" dirty=${form.dirty("powerSaverBelow")} help="A device on the Auto profile that reports its battery goes to power saver at or below this level while not charging, and back to normal 10 points above it or as soon as it charges. A profile chosen by hand on a device always wins. 0 switches the rule off.">${num("powerSaverBelow", 0, 90, "%")}</${F}>
     </${Card}>
     <${Card} id="sys-backup" title="Backup" mark=${backupMark(b)}>
       ${b?.configured

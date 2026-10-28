@@ -6,7 +6,7 @@ import qrcode from "/web/qr.js";
 import { strip, stripAxis, percent, ms as fmtMs, clock } from "/web/charts.js";
 import {
   ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
-  plural, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
+  plural, PROFILE_WORDS, profileLine, refresh, runCommand, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
 import { DeviceSketch, GlowPreview, MicPanel, doingOf, glowDef } from "/web/adm-tools.js";
 import { DeviceTwin } from "/web/adm-twin.js";
@@ -71,12 +71,18 @@ function VersionBadge({ client }) {
   return html`<span class="badge" title=${held ? "The build Axis holds for it" : ""}>${client.version}${held ? " · current" : ""}</span>`;
 }
 
+/** A chip for a device on a profile other than normal, with why in its title. */
+export function ProfileBadge({ client }) {
+  if (!client.profile || client.profile === "normal") return null;
+  return html` <span class="badge" data-profile-chip=${client.profile} title=${profileLine(client.profile, client.profileReason, client.readings?.battery)}>${PROFILE_WORDS[client.profile]?.toLowerCase() ?? client.profile}</span>`;
+}
+
 /** One device as a card: picture, name, state, type and version, what it can do now. */
 export function DeviceCard({ client }) {
   return html`<a class=${`card dev${client.online ? "" : " off"}`} href=${deviceHref(client)} data-device=${client.id}>
     <div class="mini-wrap"><${DeviceSketch} client=${client} size="mini" /></div>
     <div class="dev-t">
-      <div class="nm"><span>${client.name}</span>${behind(client) ? html`<span class="badge warn">update</span>` : null}</div>
+      <div class="nm"><span>${client.name}</span><${ProfileBadge} client=${client} />${behind(client) ? html`<span class="badge warn">update</span>` : null}</div>
       <div class="mt"><${StateDot} client=${client} /></div>
       <div class="mt dim">${typeName(client.type)}${client.version ? ` · ${client.version}` : ""}${client.settings.location ? ` · ${client.settings.location}` : ""}</div>
     </div>
@@ -130,7 +136,7 @@ export function AllDevices() {
               <tbody>${shown.map((c) => {
                 const own = ownKeys(c);
                 return html`<tr key=${c.id} class=${c.online ? "" : "off"} onClick=${(e) => !e.target.closest("a, button") && (location.hash = deviceHref(c))}>
-                  <td><a href=${deviceHref(c)}>${c.name}</a></td>
+                  <td><a href=${deviceHref(c)}>${c.name}</a><${ProfileBadge} client=${c} /></td>
                   <td><${StateDot} client=${c} /></td>
                   <td><a class="plain" href=${typeHref(c.type)} title=${c.type}>${typeName(c.type)}</a></td>
                   <td class="hide-narrow">${c.settings.location || html`<span class="dim">none</span>`}</td>

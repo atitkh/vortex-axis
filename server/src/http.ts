@@ -325,7 +325,12 @@ export function createHttpHandler(deps: HttpDeps) {
       offlineAfterAutoMs: offlineAfterMs(info.kind, "auto"),
       // The newer build Axis holds for it, when it is behind; absent when it is on that build or ahead (server/src/versions.ts).
       ...(info.updateAvailable ? { updateAvailable: info.updateAvailable } : {}),
+      // The profile it is on and why (server/src/profiles.ts).
+      profile: info.profile,
+      profileReason: info.profileReason,
       settings: store.resolveSettings(client),
+      // What it is sent now: its settings with the profile and quiet hours applied.
+      effective: hub.effectiveSettings(client),
       // The three layers separately, so the editor can show which one a value comes from.
       layers: {
         global: store.getLayer("global", ""),

@@ -4,7 +4,8 @@
 // a setting. A turn is symbolic (where it is), never traffic or words; a wake word is how sure and how loud, never the word.
 
 import { html, useEffect, useState } from "/web/preact.js";
-import { ago, api, authHeader, deviceHref, plural, signOut, store } from "/web/adm-core.js";
+import { PROFILES, ago, api, authHeader, deviceHref, enc, plural, profileLine, refresh, signOut, store, toast } from "/web/adm-core.js";
+import { inherited } from "/web/adm-settings.js";
 import { DeviceSketch } from "/web/adm-tools.js";
 
 // --- the feed: one stream while the map or a device's overview is on screen ------------------------------------------------
@@ -313,7 +314,35 @@ function notReported(n) {
   return [["battery", "battery"], ["signal", "Wi-Fi signal"], ["uptime", "uptime"], ["memory", "memory"], ["chipTempC", "temperature"]].filter(([k]) => v[k] === undefined).map(([, w]) => w);
 }
 
-const SUMMARY_KEYS = ["volume", "brightness", "wakeWord", "voiceMode", "voice", "profile"];
+const SUMMARY_KEYS = ["volume", "brightness", "maxFps", "listenCue", "wakeWord", "voiceMode", "voice"];
+
+/**
+ * The profile switch on a device's overview. Unlike everything else there it applies at once: the choice is saved as
+ * the device's own `profile` setting, or removed when it is what the device would follow anyway.
+ */
+function ProfileSwitch({ client, battery }) {
+  const [busy, setBusy] = useState("");
+  const def = store.builtIns?.find?.((d) => d.key === "profile") ?? { key: "profile", kind: "choice", default: "auto" };
+  const choice = String(client.settings?.profile ?? "auto");
+  const pick = async (value) => {
+    if (value === choice || busy) return;
+    setBusy(value);
+    const below = inherited(def, client.layers, "device");
+    const saved = below.value !== undefined && String(below.value) === value ? null : value;
+    try {
+      await api("PATCH", `/admin/settings/device/${enc(client.id)}`, { values: { profile: saved } });
+      await refresh();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+    setBusy("");
+  };
+  const help = PROFILES.find(([v]) => v === choice)?.[2];
+  return html`<section class="card" id="profile-card"><div class="card-h"><h3>Profile</h3><span class="dim sm" id="profile-now">${profileLine(client.profile, client.profileReason, battery)}</span></div><div class="card-b">
+    <div class="seg" role="group" aria-label="Profile" id="profile-switch">${PROFILES.map(([v, l, h]) => html`<button key=${v} type="button" data-profile=${v} title=${h} class=${v === choice ? "on" : ""} aria-pressed=${v === choice} disabled=${Boolean(busy)} onClick=${() => pick(v)}>${l}</button>`)}</div>
+    <p class="help">${help ? `${help} ` : ""}Applies at once.</p>
+  </div></section>`;
+}
 function settingLabel(type, key) {
   const def = store.types[type]?.settings?.find((d) => d.key === key) ?? store.builtIns?.find?.((d) => d.key === key);
   return def?.label ?? key;
@@ -338,7 +367,8 @@ export function DeviceTwin({ client }) {
   const [colour, word] = stateOf(n);
   const shown = gauges(n);
   const missing = notReported(n);
-  const settings = SUMMARY_KEYS.filter((k) => client.settings?.[k] !== undefined && client.settings[k] !== "");
+  const values = client.effective ?? client.settings ?? {};
+  const settings = SUMMARY_KEYS.filter((k) => values[k] !== undefined && values[k] !== "");
   const turns = (store.activity?.recentTurns ?? []).filter((t) => t.clientId === id).slice(0, 6);
   const lit = [...feed.turns.values()].find((r) => r.clientId === id && r.endedAt === undefined);
   return html`<div class="map-dev" id="map-device" data-id=${id}>
@@ -350,12 +380,13 @@ export function DeviceTwin({ client }) {
         ${!shown.length ? html`<p class="dim" id="map-no-readings">Readings: not reported.</p>` : missing.length ? html`<p class="help">Not reported: ${missing.join(", ")}.</p>` : null}
       </section>
       <div class="map-side">
+        <${ProfileSwitch} client=${client} battery=${n.vitals?.battery?.percent} />
         <section class="card"><div class="card-h"><h3>Needs attention</h3></div><div class="card-b">
           ${n.attention.length ? html`<ul class="att-list">${n.attention.map((a) => html`<li key=${a}>${a}</li>`)}</ul>` : html`<p class="dim">Nothing.</p>`}
         </div></section>
         ${settings.length
-          ? html`<section class="card"><div class="card-h"><h3>Settings in effect</h3></div><dl class="facts card-b">${settings.map((k) => html`<div key=${k} class="fact"><dt>${settingLabel(n.type, k)}</dt><dd>${String(client.settings[k])}</dd></div>`)}</dl>
-              <p class="help card-b">Changed under <a href=${deviceHref(id, "settings")}>Settings</a>.</p></section>`
+          ? html`<section class="card"><div class="card-h"><h3>Settings in effect</h3></div><dl class="facts card-b">${settings.map((k) => html`<div key=${k} class="fact"><dt>${settingLabel(n.type, k)}</dt><dd>${String(values[k])}${client.settings?.[k] !== undefined && String(client.settings[k]) !== String(values[k]) ? html` <span class="dim">(set to ${String(client.settings[k])})</span>` : null}</dd></div>`)}</dl>
+              <p class="help card-b">As sent, with the profile and quiet hours applied. Changed under <a href=${deviceHref(id, "settings")}>Settings</a>.</p></section>`
           : null}
         ${turns.length
           ? html`<section class="card"><div class="card-h"><h3>Last turns</h3><a class="sm" href="#activity">History</a></div><div class="card-b"><table class="t"><tbody>

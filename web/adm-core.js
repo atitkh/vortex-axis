@@ -397,3 +397,18 @@ function applyTheme() {
 }
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => themeChoice() === "system" && (applyTheme(), set({})));
 applyTheme();
+
+/** The `profile` setting's choices (server/src/profiles.ts), as words, each with one line on what it does. */
+export const PROFILES = [
+  ["auto", "Auto", "Normal, and power saver while a battery is low and not charging (the level is a hub setting)."],
+  ["normal", "Normal", "The device's own settings, as set."],
+  ["power-saver", "Power saver", "Brightness at most 100, at most 15 frames a second."],
+  ["silent", "Silent", "Nothing spoken: replies and messages are shown as text; volume 0, no listening cue or task chime where the device has them."],
+];
+export const PROFILE_WORDS = Object.fromEntries(PROFILES.map(([v, l]) => [v, l]));
+
+/** The profile a device is on and why, in a few words: "on silent (manual)", "on power saver (battery 17%)". */
+export function profileLine(profile = "normal", reason = "auto", battery) {
+  const why = reason === "battery" ? `battery${battery === undefined ? " low" : ` ${battery}%`}` : reason;
+  return `on ${(PROFILE_WORDS[profile] ?? profile).toLowerCase()} (${why})`;
+}

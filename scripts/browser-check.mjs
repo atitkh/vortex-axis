@@ -410,6 +410,38 @@ try {
     await next.until(`document.querySelector('.cmdk input')`, "the command bar again");
     await next.run(`document.querySelector('.cmdk input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await next.until(`!document.querySelector('.cmdk')`, "Escape to close the command bar");
+    // Profiles: a pretend board on a socket reports a low battery and goes to power saver by the rule; its Overview says
+    // why, the map and the device list carry a chip. The Overview's switch applies at once: Silent, then back to Auto.
+    const boardCode = app.store.createPairingCode(60_000).code;
+    const board = app.store.pair({ code: boardCode, type: "waveshare-amoled-1.8", version: "0.0.0", capabilities: ["mic", "speaker", "screen"], name: "Battery board" });
+    const sock = new WebSocket(`ws://localhost:${app.port}/v1/client`);
+    const got = [];
+    sock.on("message", (d) => got.push(JSON.parse(String(d))));
+    await new Promise((r, j) => (sock.once("open", r), sock.once("error", j)));
+    sock.send(JSON.stringify({ t: "hello", protocol: 1, clientId: board.client.id, token: board.token, type: "waveshare-amoled-1.8", version: "0.0.0", capabilities: ["mic", "speaker", "screen"], settingsVersion: 0 }));
+    sock.send(JSON.stringify({ t: "describe", settings: [
+      { key: "brightness", label: "Brightness", kind: "number", group: "Screen", min: 10, max: 255, default: 200 },
+      { key: "volume", label: "Volume", kind: "number", group: "Sound", min: 0, max: 100, default: 60 },
+      { key: "listenCue", label: "Listening cue", kind: "toggle", group: "Sound", default: 1 },
+    ], actions: [], links: [] }));
+    sock.send(JSON.stringify({ t: "sense", readings: { battery: 17, charging: 0 } }));
+    const sentValues = () => got.filter((m) => m.t === "settings").at(-1)?.values ?? {};
+    await next.run(`location.hash = '#clients/${encodeURIComponent(board.client.id)}'`);
+    step("admin: profile by the battery rule", await next.until(`(t => t === 'on power saver (battery 17%)' && document.querySelector('#profile-switch [data-profile="auto"]')?.getAttribute('aria-pressed') === 'true' && t)(document.querySelector('#profile-now')?.textContent)`, "power saver (battery 17%) on the Overview", 15000));
+    await next.run(`document.querySelector('#profile-switch [data-profile="silent"]').click()`);
+    step("admin: Overview switch to silent", await next.until(`(t => t === 'on silent (manual)' && [...document.querySelectorAll('#map-device .fact')].some(f => f.querySelector('dt')?.textContent === 'Volume' && f.querySelector('dd')?.textContent.startsWith('0')) && t + ', volume 0 in effect')(document.querySelector('#profile-now')?.textContent)`, "silent (manual) and volume 0 in effect", 15000));
+    if (sentValues().volume !== 0 || sentValues().listenCue !== 0) throw new Error(`the board was not sent silent's values: ${JSON.stringify(sentValues())}`);
+    step("admin: profile chip on the map", (await next.run(`(location.hash = '#map', true)`)) && await next.until(`document.querySelector('#map-svg a.node[data-id="${board.client.id}"] [data-profile-chip="silent"]') && 'silent'`, "a silent chip on the map node"));
+    await next.run(`location.hash = '#clients'`);
+    step("admin: profile chip in the list", await next.until(`document.querySelector('[data-device="${board.client.id}"] [data-profile-chip="silent"]')?.textContent`, "a silent chip on the device card"));
+    await next.run(`location.hash = '#clients/${encodeURIComponent(board.client.id)}'`);
+    await next.until(`document.querySelector('#profile-switch [data-profile="auto"]')`, "the profile switch");
+    await next.run(`document.querySelector('#profile-switch [data-profile="auto"]').click()`);
+    step("admin: Overview switch back to auto", await next.until(`(t => t === 'on power saver (battery 17%)' && t)(document.querySelector('#profile-now')?.textContent)`, "back on auto, power saver by the battery", 15000));
+    if (app.store.getLayer("device", board.client.id).profile !== undefined) throw new Error("Auto left a profile saved on the device");
+    if (sentValues().volume === 0) throw new Error("the board kept silent's volume after Auto");
+    sock.close();
+    await fetch(`${base}/admin/clients/${board.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
     // All devices: a card per device, the filter, the list view.
     await next.run(`location.hash = '#clients'`);
     step("admin: all devices", await next.until(`document.querySelectorAll('#device-list [data-device]').length === ${known.clients.length} && [...document.querySelectorAll('#device-list .nm span:first-child')].map(e => e.textContent).join(', ')`, "the device cards"));

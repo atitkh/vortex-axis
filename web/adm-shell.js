@@ -36,7 +36,7 @@ export const PAGES = {
   wakewords: { title: "Wake words", group: "hardware", purpose: "Wake word models, their cutoffs, and what devices heard." },
   apps: { title: "Apps", group: "hardware", purpose: "The Windows desktop app and the Quest app this hub holds, and the Mac app." },
   integrations: { title: "Integrations", purpose: "Home Assistant, live activities on phones, notifications to browsers." },
-  system: { title: "System", purpose: "Public address and proxies, clock and history kept, backup, and about this hub." },
+  system: { title: "System", purpose: "Public address and proxies, clock and history kept, power saver on battery, backup, and about this hub." },
 };
 const GROUPS = [
   { key: "activity", title: "Activity", icon: "activity", pages: ["live", "activity"] },

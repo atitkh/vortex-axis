@@ -764,6 +764,7 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .map-svg .glyph-fill { fill: var(--muted); }
 .map-svg .warn .glyph-fill { fill: var(--warn); } .map-svg .warn text { fill: var(--warn-text); }
 .map-svg .bars .on, .bars-g .on { fill: var(--muted); } .map-svg .bars .off, .bars-g .off { fill: var(--line-strong); }
+.map-svg .prof rect { fill: var(--accent-soft); stroke: var(--accent-line); } .map-svg .prof text { fill: var(--accent-text); font-weight: 600; }
 .map-svg .att circle { fill: var(--warn); } .map-svg .att text { fill: var(--on-warn); font-size: 11px; font-weight: 700; }
 .map-svg .edge .base { fill: none; stroke: var(--c); stroke-width: 1.5; opacity: 0.45; }
 .map-svg .edge.lit .base { opacity: 0.2; }

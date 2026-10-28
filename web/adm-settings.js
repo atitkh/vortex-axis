@@ -5,8 +5,11 @@
 
 import { html, useEffect, useRef, useState } from "/web/preact.js";
 import {
-  api, ask, clearDraft, clientById, clientName, deviceHref, draftCount, draftOf, enc, kept, plural, refresh, setDraft, store, toast, typeHref, typeName,
+  PROFILES, api, ask, clearDraft, clientById, clientName, deviceHref, draftCount, draftOf, enc, kept, plural, refresh, setDraft, store, toast, typeHref, typeName,
 } from "/web/adm-core.js";
+
+/** Words and a line of help for each option of a choice that has them: [value, label, help]. */
+const OPTION_WORDS = { profile: PROFILES };
 
 /** Keys with their own place on a device page, never a row. */
 export const DEVICE_ONLY = new Set(["location", "capabilitiesOff"]);
@@ -202,7 +205,7 @@ function Editor({ def, value, onStage, label }) {
     return html`<label class="switch-l"><input type="checkbox" class="switch" data-edit=${def.key} aria-label=${label} checked=${on} onChange=${(e) => onStage(e.target.checked ? 1 : 0)} /><span>${on ? "on" : "off"}</span></label>`;
   }
   if (def.kind === "choice" || def.kind === "client") {
-    const options = def.kind === "client" ? store.clients.map((c) => [c.id, c.name]) : (def.options ?? []).map((o) => [o, String(o)]);
+    const options = def.kind === "client" ? store.clients.map((c) => [c.id, c.name]) : (def.options ?? []).map((o) => [o, OPTION_WORDS[def.key]?.find(([v]) => v === o)?.[1] ?? String(o)]);
     const current = def.kind === "client" ? store.clients.find((c) => c.id === value || c.name.toLowerCase() === String(value ?? "").toLowerCase())?.id ?? value : value;
     const numeric = def.kind === "choice" && (def.options ?? []).every((o) => typeof o === "number");
     const has = current !== undefined && current !== null && current !== "";
@@ -249,6 +252,7 @@ function Row({ def, layers, tab, entity, extra, flash, hint }) {
     <div class="lbl-col">
       <div class="lbl">${def.label}${changed ? html`<i class="chg" title="Changed from the default"></i>` : null}<span class="mono key">${def.key}</span></div>
       ${def.help || hint ? html`<div class="hlp">${def.help}${hint ? html` <b>${hint}</b>` : null}</div>` : null}
+      ${OPTION_WORDS[def.key] ? html`<div class="hlp" data-option-help>${OPTION_WORDS[def.key].map(([v, l, h]) => html`<div key=${v} class=${String(value) === v ? "" : "dim"}><b>${l}</b>: ${h}</div>`)}</div>` : null}
       ${problem ? html`<div class="msg bad">${problem}</div>` : null}
     </div>
     <div class="ctl"><${Editor} def=${def} value=${shown} onStage=${onStage} label=${def.label} /></div>

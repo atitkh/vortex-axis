@@ -3,7 +3,7 @@
 // path stage by stage, and a wake word heard by several devices shows who answered; both symbolic, never words.
 
 import { html, useEffect, useRef, useState } from "/web/preact.js";
-import { ago, deviceHref, plural, span, typeName, useStore } from "/web/adm-core.js";
+import { PROFILE_WORDS, ago, deviceHref, plural, profileLine, span, typeName, useStore } from "/web/adm-core.js";
 import { PageHead } from "/web/adm-shell.js";
 import { Bars, KIND_ICON, KIND_WORDS, LinkPill, STATE, SERVICE_WORDS, feed, fit, litEdges, ms, serviceColour, stateOf, useMap, wakeContest } from "/web/adm-twin.js";
 
@@ -113,7 +113,14 @@ function DeviceNode({ p, focus, wake }) {
     vitals.push(html`<g key="s"><${Bars} x=${vx} y=${y + 61} rssiLabel=${v.signal.label} /><title>Wi-Fi ${v.signal.rssi} dBm, ${v.signal.label}</title></g>`);
     vx += 24;
   }
-  if (n.version) vitals.push(html`<text key="v" x=${vx} y=${y + 60} class="t-sm dim">${fit(n.version, x + w - vx - 8, 11.5)}</text>`);
+  // A device on a profile other than normal carries it as a chip at the end of the vitals row.
+  const profile = n.profile && n.profile !== "normal" ? (PROFILE_WORDS[n.profile] ?? n.profile).toLowerCase() : "";
+  const chipW = profile ? profile.length * 6.4 + 12 : 0;
+  if (n.version) vitals.push(html`<text key="v" x=${vx} y=${y + 60} class="t-sm dim">${fit(n.version, x + w - vx - 8 - (chipW ? chipW + 6 : 0), 11.5)}</text>`);
+  if (profile) {
+    vitals.push(html`<g key="p" class="prof" data-profile-chip=${n.profile}><title>${profileLine(n.profile, n.profileReason, v.battery?.percent)}</title>
+      <rect x=${x + w - 8 - chipW} y=${y + 49} width=${chipW} height="15" rx="7.5" /><text x=${x + w - 8 - chipW / 2} y=${y + 60} text-anchor="middle" class="t-sm">${profile}</text></g>`);
+  }
   const since = n.online ? "" : n.lastSeen ? ` · ${ago(n.lastSeen)}` : " · never connected";
   const heard = wake ? ` heard-${wake.outcome}` : "";
   return html`<a href=${deviceHref(n.id)} class=${`node dev${busy ? " busy" : ""}${n.online ? "" : " off"}${focus ? " focus" : ""}${heard}`} data-id=${n.id} style=${`--c: var(${colour})`}>
