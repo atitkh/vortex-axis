@@ -34,7 +34,7 @@ For each board whose firmware changed (`waveshare-amoled-1.8`, `waveshare-amoled
 1. Bump its version (step 1 above) and write its CHANGELOG entry and the CLAUDE.md Versions line in the same commit.
 2. Build: `~/.platformio/penv/bin/pio run` in `firmware/<board>/`.
 3. If that board is on the bench and attached by USB, flash it: `pio run --target upload` in the same folder, and check it (`firmware/README.md`).
-4. Publish to the hub, from the repository root: `AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs <board> [--update]` (the token from `.env`, through the environment only). Without `--update` it only puts the build on the hub, where the admin page and the web flasher offer it; with `--update` every online board of that type also installs it over Wi-Fi.
+4. Publish to the hub, from the repository root: `AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs <board> [--update]` (the token from `.env`, through the environment only). Without `--update` it only puts the build on the hub, where the admin page and the web flasher offer it; with `--update` the hub starts a staged rollout over the boards of that type that are behind: one board first, the rest only once it is back on the new build (`docs/design.md`, section 8.1). Follow it on the admin page's Firmware page; a held rollout says why.
 5. Tag the commit that set the version: `git tag fw-<board>-v<version> <commit>` and `git push origin fw-<board>-v<version>`.
 
 The web flasher at `/flash` lists only the boards whose firmware was pushed to the hub, at the version pushed. `release-check` fails when the hub's `/flash/types.json` offers another version than the code (the fix is step 4) and warns when the `fw-` tag is missing.

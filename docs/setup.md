@@ -140,7 +140,10 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 
 | `POST /admin/clients/:id/reset` | Body `{ wifi? }`. Tells a device to forget its pairing and settings (and its Wi-Fi), then removes it. 409 when its firmware cannot. |
 | `POST /admin/clients/:id/address` | Body `{ address }`. Moves a device to another address for the same Axis, keeping its pairing. |
-| `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type. |
+| `POST /admin/clients/:id/update` | Tells a device to install the current firmware build for its type, on its own (no staged rollout). |
+| `POST /admin/updates/rollout` | Body `{ ids? }`. Starts a staged firmware rollout over these boards, or every board on an older build than the shelf's: one first, the rest two at a time once it is proven. Answers with the rollout (id, state, stage, each board's status). 409 while one runs. |
+| `GET /admin/updates/rollout` | The current or last rollout, or `null`. |
+| `POST /admin/updates/rollout/cancel` | Sends no more updates in the running rollout; boards already updating are still watched. 409 when none runs. |
 | `POST /admin/clients/:id/notify-test` | Sends a browser client a test notification, page open or closed. 409 when it has notifications off. |
 | `POST /v1/volume` | A client setting its own volume, with its own token: `{volume: 0-100}`. Nothing else can be changed this way. |
 | `POST /mcp` | The MCP server (streamable HTTP, JSON answers): `initialize`, `tools/list`, `tools/call`. Needs an agent token as a Bearer token. Hidden under a public name unless switched on. |

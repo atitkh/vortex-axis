@@ -1,5 +1,5 @@
-// Hands a firmware build to a running Axis, and with --update tells the
-// devices of that type to install it over Wi-Fi.
+// Hands a firmware build to a running Axis, and with --update starts a staged
+// rollout of it to the devices of that type over Wi-Fi.
 //
 //   AXIS_ADMIN_TOKEN=... node scripts/push-firmware.mjs waveshare-amoled-1.8 [--update]   (or waveshare-amoled-1.75)
 //
@@ -49,18 +49,15 @@ try {
   console.log(`no factory image uploaded: ${error.message}`);
 }
 
+// --update starts the hub's staged rollout over this type's boards that are behind: one first, the rest once it is
+// proven. It runs on the hub; this only starts it.
 if (flags.includes("--update")) {
   const { clients } = await call("GET", "/admin/clients");
-  for (const client of clients.filter((c) => c.type === type)) {
-    if (!client.online) console.log(`${client.name}: offline, skipped`);
-    else if (client.version === version) console.log(`${client.name}: already on ${version}`);
-    else {
-      try {
-        const told = await call("POST", `/admin/clients/${client.id}/update`);
-        console.log(`${told.client}: updating ${told.from} -> ${told.to}`);
-      } catch (error) {
-        console.log(`${client.name}: ${error.message}`);
-      }
-    }
+  const ids = clients.filter((c) => c.type === type && c.updateAvailable).map((c) => c.id);
+  if (!ids.length) console.log("no board of this type is behind");
+  else {
+    const { rollout } = await call("POST", "/admin/updates/rollout", JSON.stringify({ ids }));
+    for (const d of rollout.devices) console.log(`${d.name}: ${d.status}${d.detail ? ` (${d.detail})` : ""}${d.canary ? ", goes first" : ""}`);
+    console.log("rollout started on the hub; follow it on the admin page's Firmware page or GET /admin/updates/rollout");
   }
 }

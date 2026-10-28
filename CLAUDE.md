@@ -38,7 +38,7 @@ Last updated: 2026-10-28. Keep this section to what is true NOW, in a screen or 
 - Agents reach Axis through the general `nodes` tool unless the `vortex_axis_*` tools are in their tool policy; the desktop tool is on the node too since 0.46.1 (that added a node command, so the node had to be approved again).
 - Saying the wake word over the device's own speech does not interrupt it (no echo canceller unless `bargeIn` is on). A tap does. Do not build more here without being asked.
 - A screenshot an agent takes stays in that agent harness's own conversation history; Axis keeps none. The owner decided against cleaning other programs' folders from here.
-- Not built: staged rollout of updates, signed firmware or a signed desktop app, a wake word in the web client or on a computer, firmware built in CI on a tag, the Mac desktop app's voice, pointer polish, pause hotkey and updates (M3 to M5 of `internal/mac-port.md`).
+- Not built: signed firmware or a signed desktop app, a wake word in the web client or on a computer, firmware built in CI on a tag, the Mac desktop app's voice, pointer polish, pause hotkey and updates (M3 to M5 of `internal/mac-port.md`).
 
 **Things that have bitten, so that they do not again**
 
@@ -152,6 +152,7 @@ scripts/test-quest-client.sh          # the Quest client's JVM tests and its end
 - `server/src/commands.ts`: the node's command list, the tools agents see, and what each command does.
 - `server/src/ask.ts`: matches what a person said or typed to one of a question's choices. The question's life (speak it, send `ask`, take the answer from a tap, a recording or typed text, time out) is in `turns.ts`, because a spoken answer arrives as an ordinary recording and must be kept from the agent.
 - `server/src/firmware.ts`: the firmware builds kept per client type (the last five, one current) for updates over Wi-Fi. The routes are in `http.ts`; the admin page's Firmware section manages them.
+- `server/src/rollout.ts`: staged firmware rollout ("Update all" for boards): one board first, the rest at most two at a time once it is proven; held boards on the attention list (`Devices.useAttention`). Routes `/admin/updates/rollout` in `http.ts`; built in `app.ts`.
 - `server/src/wakewords.ts`: wake word models kept for devices, and the sync that tells each microphone client which one its `wakeWord` setting chooses.
 - `server/src/timers.ts`: timers agents set. Kept in the `timers` table, announced with `hub.say` when due, retried while nobody can be reached, and told to screens with the `timer.next` command.
 
