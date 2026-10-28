@@ -97,6 +97,9 @@ void setRotation(int degrees);
 /** Loudness of the voice being played, 0 to 1. Negative means "not known": the face pulses on its own. */
 void setLevel(float level);
 
+/** Low battery: the idle face slows down (60 %) and dims a little. Other modes are drawn as usual. */
+void setSleepy(bool on);
+
 /** Idle looks to leave out: their names separated by commas, as the `idleLooksOff` setting holds them. */
 void setIdleOff(const char *names);
 

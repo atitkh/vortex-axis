@@ -18,6 +18,7 @@
 #include "vortex.h"
 #include <JPEGDEC.h>
 #include "glow.h"
+#include "battery_cue.h"
 #include <esp_heap_caps.h>
 
 // This board's serial port is the chip's own USB, not a UART. Output on plain
@@ -52,6 +53,8 @@ static const axis::SettingDef SETTINGS[] = {
     {"timerGlow", "Timer countdown glow", "toggle", "Screen", "In a timer's last ten seconds, a red glow runs round the screen's edges and shrinks as the time runs out, beating once a second.", "1", 0, 0, nullptr, nullptr},
     {"handsGlow", "Computer in use glow", "toggle", "Screen", "A rose glow along the edges while an agent is using a computer near this device (looking, clicking, typing).", "1", 0, 0, nullptr, nullptr},
     {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, a blue one while a question waits for you on another device, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
+    {"lowBatteryBelow", "Low battery look", "number", "Screen", "Below this charge the idle face turns sleepy (slower, a little dimmer) and a small battery mark with the percent stays at the bottom of the screen. Never a sound. 0 turns it off; 1 to 4 count as 5.", "15", 0, 30, "%", nullptr},
+    {"batteryGlyph", "Battery mark", "toggle", "Screen", "The small battery mark at the bottom of the screen at low battery and while charging (with a bolt).", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
 };
@@ -1136,6 +1139,7 @@ void setup() {
     client.onConsole([](const String &word, const String &rest) {
         if (word == "power") {
             power::print(logOut);
+            batterycue::print(logOut);
             logOut.printf("[usage] since the start: %lu pickups, %lu taps, %lu turns\n", (unsigned long)imu::pickups(),
                           (unsigned long)touches, (unsigned long)client.turnsStarted());
             return true;
@@ -1192,12 +1196,25 @@ void setup() {
             return true;
         }
         if (word == "preview") {
+            // The battery's looks, with no battery: a made-up reading for a minute, beside the other previews.
+            if (rest == "lowbattery" || rest == "charging" || rest.startsWith("battery")) {
+                const int percent = rest.startsWith("battery") ? rest.substring(7).toInt() : 0;
+                if (rest.startsWith("battery") && (rest.length() < 9 || percent < 0 || percent > 100)) {
+                    logOut.println("[preview] battery PERCENT (0 to 100)");
+                    return true;
+                }
+                batterycue::preview(rest == "lowbattery" ? batterycue::Preview::LowBattery
+                                    : rest == "charging" ? batterycue::Preview::Charging
+                                    : batterycue::Preview::Battery, percent);
+                return true;
+            }
+            if (rest == "off") batterycue::preview(batterycue::Preview::Off);
             int found = -1;
             for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
             if (found < 0 && rest != "off") {
                 String names;
                 for (int i = 0; i < PREVIEW_COUNT; i++) names += String(" ") + PREVIEWS[i];
-                logOut.printf("[preview] one of:%s off\n", names.c_str());
+                logOut.printf("[preview] one of:%s lowbattery charging battery off\n", names.c_str());
                 return true;
             }
             previewWanted = found;
@@ -1408,7 +1425,12 @@ void loop() {
 
     // Turning the device over turns the picture, once it has stayed that way for a moment.
     imu::tick();
-    if (power::tick()) power::report(client);
+    static uint32_t powerReadAt = 0;
+    if (power::tick()) {
+        power::report(client);
+        powerReadAt = started;
+    }
+    batterycue::update(power::last(), powerReadAt, started, (int)client.settingInt("lowBatteryBelow", 15));
     static uint32_t seenI2c = 0;
     if (i2cRequests != seenI2c) {
         seenI2c = i2cRequests;
@@ -1458,6 +1480,7 @@ void loop() {
         else if (g != touch::Gesture::None) onGesture(g);
     }
     vortex::setLevel(speaker::playing() ? speaker::level() : client.listening() ? mic::level() : -1.0f);
+    vortex::setSleepy(batterycue::sleepy());
 
     if (drawFace) {
         if (faceY < 0) moveFace(faceTop(), TEXT_FACE);
@@ -1480,6 +1503,9 @@ void loop() {
         sentFaceY = faceY;
         sentFaceSide = faceSide;
     }
+
+    // The battery mark at the bottom, on its own small block, after the face and the words.
+    batterycue::draw(started, client.settingInt("batteryGlyph", 1) != 0);
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
     // a green flash when one finishes. It stays off the face, which draws itself.
@@ -1547,6 +1573,10 @@ void loop() {
             }
         } else if (findLeft > 0 && !talking) {
             notice = glow::State::Find;
+        } else if (!talking && batterycue::chargeCue(started) >= 0) {
+            // Charging has just begun: one swell of the idle face's cyan.
+            notice = glow::State::Charging;
+            level = batterycue::chargeCue(started);
         } else if (calm && timerLeft > 0 && timerLeft <= TIMER_GLOW_MS && client.settingInt("timerGlow", 1) != 0) {
             notice = glow::State::Timer;
             sweep = timerLeft / (float)TIMER_GLOW_MS;

@@ -85,7 +85,13 @@ float flash[ARMS * DOTS_PER_ARM];
 
 float randomUnit() { return (esp_random() & 0xFFFF) / 65535.0f; }
 
+// How sleepy the idle face looks (low battery), eased 0 to 1, and how bright that leaves it.
+bool sleepy = false;
+float sleepyShown = 0.0f;
+float dim = 1.0f;
+
 uint16_t color565(float r, float g, float b) {
+    r *= dim, g *= dim, b *= dim;
     const int ri = constrain((int)(r * 31.0f + 0.5f), 0, 31);
     const int gi = constrain((int)(g * 63.0f + 0.5f), 0, 63);
     const int bi = constrain((int)(b * 31.0f + 0.5f), 0, 31);
@@ -235,6 +241,8 @@ void setMode(Mode next) {
 
 void setLevel(float value) { level = value; }
 
+void setSleepy(bool on) { sleepy = on; }
+
 void setRotation(int degrees) {
     // How display.cpp turns a logical point onto the panel, for each rotation.
     switch (((degrees % 360) + 360) % 360) {
@@ -295,6 +303,12 @@ void setIdleOff(const char *names) {
 const char *idleName() { return IDLE[idleIndex].name; }
 
 const uint16_t *render(float dt) {
+    // Low battery: the idle face slows to 60 % and dims a little; any other mode leaves it at once.
+    const float wantSleepy = sleepy && mode == Mode::Idle ? 1.0f : 0.0f;
+    sleepyShown += (wantSleepy - sleepyShown) * (1.0f - expf(-dt * (wantSleepy > sleepyShown ? 1.5f : 8.0f)));
+    if (sleepyShown < 0.01f) sleepyShown = 0.0f;
+    dt *= 1.0f - 0.4f * sleepyShown;
+    dim = 1.0f - 0.25f * sleepyShown;
     if (mode == Mode::Idle) {
         idleRemaining -= dt;
         if (idleRemaining <= 0) pickIdle();

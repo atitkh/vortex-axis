@@ -9,7 +9,7 @@
 
 namespace glow {
 
-enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find, Hands };
+enum class State : uint8_t { None, Listening, Thinking, Speaking, Waiting, Done, Timer, Question, Find, Hands, Charging };
 
 /** A part of the panel the glow leaves alone (the face, which draws itself), in the panel's own coordinates. Empty when w is 0. */
 struct Rect {
@@ -23,7 +23,7 @@ struct Rect {
  * Draws about 20 times a second (10 over the face) while there is a state, and once more to take the glow
  * away. How much each pixel gets is looked up in a table made once (PSRAM), not worked out each time. Waiting is amber (something needs the person), Done is green (a task finished), Timer is red,
  * Question is blue (a question waits elsewhere), Find is a quick white pulse (somebody looking for the device)
- * and Hands is rose (an agent is using a computer nearby).
+ * and Hands is rose (an agent is using a computer nearby). Charging is the idle face's cyan (charging has just begun).
  * `sweep` is how much of the way round the screen is lit, 0 to 1, clockwise from the top middle: a
  * timer's last seconds, running out.
  */

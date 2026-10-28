@@ -29,6 +29,7 @@ const Tint TINTS[] = {
     {0.20f, 0.50f, 1.00f, 0.8f},  // Question: blue, a little quicker than waiting
     {1.00f, 1.00f, 1.00f, 2.5f},  // Find: white, quick
     {1.00f, 0.32f, 0.62f, 1.4f},  // Hands: rose, an agent at a computer nearby
+    {0.10f, 0.78f, 0.95f, 0.0f},  // Charging: the idle face's cyan, one swell (the caller's level)
 };
 
 State drawn = State::None;
