@@ -4,6 +4,15 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.66.0 (2026-10-28)
+
+The boards' battery look, previewed on the admin page and shown on a board from there.
+
+- **Battery preview** (`web/adm-tools.js`, `BatteryPreview`; `docs/setup.md`, "The battery preview"). Beside the edge glow on a board's Tools tab and in the side column of its Settings, for boards that offer `lowBatteryBelow`: the board's screen drawn at a made-up charge as the board draws it (`docs/face.md` section 10): the idle face sleepy (60 % speed, 75 % brightness, eased in and out), the battery mark with the percent at the bottom middle (inside the glass on a round board), amber cells, red and pulsing every 2.5 s below 5 %, green with the bolt while charging, and the 3 s cyan swell in the edge glow when charging begins. A Charge slider (with the threshold marked, staged values included), a Charging switch, and Low (12 %), Critical (4 %), Charging (64 %, with the cue) and Full/none. `web/vortex.js` still has no battery look.
+- **Show on the device** and **Off** call `POST /admin/clients/:id/battery` (`{ percent, charging }` or `{ off: true }`; the board shows it for 20 s, firmware 1.8 0.23.1 and 1.75 0.7.1); only on a button, never while the slider moves. Firmware without the command, or an Axis without the route, is reported as needing newer firmware.
+- The glow preview's blend is shared with the battery preview: the glow is mixed over what is underneath, as on the board (over black, as before, on the glow card).
+- Checked by browser-check (a pretend board that declares the battery look: the mark's amber cells at 12 %, the quick choices, the bodies sent, the refusals, the threshold mark) and three screenshots. NOT verified: Show on the device against a real board (needs the new firmware and this Axis deployed); the drawing was not compared pixel by pixel with a board's screen.
+
 ## Board firmware 0.23.0 (Waveshare 1.8) (2026-10-28)
 
 - **Low battery and charging on the face** (`battery_cue.*`, `docs/face.md` section 10, `firmware/README.md`, "Vitals"). At or below `lowBatteryBelow` (default 15 %, 0 off, clears 3 above) while not charging, the idle face turns sleepy (60 % speed, 75 % brightness) and a battery mark with the percent stays at the bottom of the screen, amber, red and slowly pulsing below 5 %. When charging begins while the board runs, the edge glow swells once in the idle face's cyan over 3 s and a bolt shows by the mark; while charging the mark stays with the bolt. Never a sound. Follows the power chip's 30 s readings; with no battery nothing shows.
