@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { FIT_TYPES } from "./fit.js";
 
 /**
  * Pictures that come with an agent's reply.
@@ -181,7 +182,7 @@ export class Pictures {
       port: PicturePort;
       fetch: () => ((media: { source: string; sessionKey?: string | undefined; agentId?: string | undefined }) => Promise<{ bytes: Buffer; mime: string }>) | undefined;
       /** Shrinks a picture for a small screen (fit.ts). Without it, boards are sent no pictures. */
-      fit?: (bytes: Buffer, mime: string, box: { width: number; height: number }) => Promise<{ jpeg: Buffer; width: number; height: number }>;
+      fit?: (bytes: Buffer, mime: string, box: { width: number; height: number; cover?: boolean }) => Promise<{ jpeg: Buffer; width: number; height: number }>;
       log?: (line: string) => void;
     },
   ) {}
@@ -233,13 +234,39 @@ export class Pictures {
     return sent;
   }
 
+  /**
+   * Puts one picture on one client's screen, with nobody having asked (the `show` tool, the admin page). Says how
+   * it went; never throws for a client that cannot show it. `store` keeps it for clients that fetch an address.
+   */
+  async put(
+    session: PictureSession,
+    picture: { bytes: Buffer; mime: string; url?: string | undefined },
+    to: { turnId: string; seconds?: number | undefined; alt?: string | undefined; cover?: boolean | undefined },
+  ): Promise<{ shown: boolean; how?: "address" | "frames"; note?: string }> {
+    const extra = { ...(to.alt ? { alt: to.alt.slice(0, 500) } : {}), ...(to.seconds ? { seconds: to.seconds } : {}) };
+    if (showsUrl(session)) {
+      const url = picture.url ?? this.options.store.add(picture.bytes, picture.mime);
+      this.options.port.send(session as never, { t: "reply.image", turnId: to.turnId, url, mime: picture.mime, ...extra });
+      return { shown: true, how: "address" };
+    }
+    if (!showsFrames(session) || !this.options.fit) return { shown: false, note: "no screen: it cannot show pictures" };
+    if (!FIT_TYPES.includes(picture.mime)) return { shown: false, note: `a ${picture.mime} picture cannot be shown on a board: PNG or JPEG only` };
+    try {
+      const fitted = await this.options.fit(picture.bytes, picture.mime, { ...screenOf(session), ...(to.cover ? { cover: true } : {}) });
+      this.sendFrames(session, to.turnId, fitted, to.seconds);
+      return { shown: true, how: "frames" };
+    } catch (error) {
+      return { shown: false, note: `the picture could not be made small enough: ${(error as Error).message}` };
+    }
+  }
+
   /** Sends a picture over a client's socket, in frames no larger than it takes. */
-  private sendFrames(session: PictureSession, turnId: string, picture: { jpeg: Buffer; width: number; height: number }): void {
+  private sendFrames(session: PictureSession, turnId: string, picture: { jpeg: Buffer; width: number; height: number }, seconds?: number): void {
     const imageId = `img-${(++this.count).toString(36)}`;
     // Room for the JSON around the data; base64 makes 4 characters of every 3 bytes.
     const chunk = Math.max(300, Math.floor(((session.maxFrameBytes ?? 4096) - 120) / 4) * 3);
     const send = (message: Record<string, unknown> & { t: string }) => this.options.port.send(session as never, message);
-    send({ t: "image.start", imageId, turnId, mime: "image/jpeg", size: picture.jpeg.length, width: picture.width, height: picture.height });
+    send({ t: "image.start", imageId, turnId, mime: "image/jpeg", size: picture.jpeg.length, width: picture.width, height: picture.height, ...(seconds ? { seconds } : {}) });
     for (let at = 0; at < picture.jpeg.length; at += chunk) {
       send({ t: "image.data", imageId, data: picture.jpeg.subarray(at, at + chunk).toString("base64") });
     }

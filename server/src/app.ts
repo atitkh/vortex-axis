@@ -38,8 +38,9 @@ import { Background } from "./background.js";
 import { LiveActivities } from "./liveactivity.js";
 import { MediaStore, Pictures, type PicturePort } from "./media.js";
 import { fitToJpeg } from "./fit.js";
+import { Shows, type SourceDeps } from "./show.js";
 import { PushService } from "./push.js";
-import { Hub } from "./hub.js";
+import { Hub, type Session } from "./hub.js";
 import { Store } from "./store.js";
 import { isSilent, type Services } from "./turns.js";
 import { applyRuntimeConfig, loadRuntimeConfig } from "./upstream.js";
@@ -63,6 +64,8 @@ export interface App {
   tools: ToolAccess;
   /** What is happening now, for the admin page's Live view: turns, wake words and tool calls. */
   live: Live;
+  /** Pictures put on screens by the show tool and the admin page. */
+  shows: Shows;
   server: Server;
   /** Port actually bound, useful when the configured port is 0. */
   port: number;
@@ -304,6 +307,29 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     log,
   });
   hub.usePictures(pictures);
+  // Pictures put on a screen by the show tool or the admin page, and where they may come from.
+  const shows = new Shows({
+    pictures,
+    media: mediaStore,
+    session: (id) => hub.session(id),
+    send: (session, message) => hub.send(session as Session, message),
+    thumb: async (bytes, mime) => (await fitToJpeg(bytes, mime, { width: 96, height: 96, quality: 70 })).jpeg,
+    note: (id, text) => activity.note("client", id, text),
+  });
+  const pictureSource: SourceDeps = {
+    gatewayHost: () => {
+      try {
+        const url = gateway.url();
+        return url ? new URL(url).hostname.replace(/^\[|\]$/g, "") : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    fromGateway: async (path, maxBytes) => {
+      const target = await gateway.target().catch(() => undefined);
+      return gateway.fetchMedia({ source: path, ...(target ? { sessionKey: target.sessionKey, agentId: target.agentId } : {}) }, maxBytes);
+    },
+  };
   // A run the device stopped waiting for is followed here, shown as a task, and its answer said when it comes.
   const background: Background = new Background({
     pictures: (clientId, media) => pictures.show(media, { clientId, turnId: `say-${Date.now().toString(36)}`, orAnywhere: true }),
@@ -395,7 +421,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
-      createInvokeHandler({ hub, store, devices, timers, delivery, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+      createInvokeHandler({ hub, store, devices, timers, delivery, shows, pictureSource, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
     ),
     (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );
@@ -493,7 +519,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ desktopApp, questApp, rollouts, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ shows, pictureSource, desktopApp, questApp, rollouts, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -534,6 +560,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     progress,
     tools,
     live,
+    shows,
     server,
     port,
     async close() {

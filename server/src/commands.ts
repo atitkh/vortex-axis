@@ -11,6 +11,7 @@ import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
 import { MAX_TASK_CHARS, MAX_TIMER_SECONDS, type Timers } from "./timers.js";
 import type { Desktops } from "./desktop.js";
+import { readPicture, type Shows, type SourceDeps } from "./show.js";
 
 /**
  * Every command the node declares. The gateway makes a person approve the node
@@ -30,6 +31,7 @@ export const NODE_COMMANDS = [
   "vortex.axis.progress",
   "vortex.axis.session",
   "vortex.axis.desktop",
+  "vortex.axis.show",
 ] as const;
 
 /** Commands only the admin page may send a device. An agent cannot, even if a device lists one as an action. */
@@ -60,6 +62,31 @@ export const NODE_TOOLS: NodeTool[] = [
         urgent: { type: "boolean", description: "Speak it even if the device is in its quiet hours. Without this, a device in quiet hours only shows it." },
       },
       required: ["text"],
+    },
+  },
+  {
+    name: "vortex_axis_show",
+    command: "vortex.axis.show",
+    description:
+      "Put a picture on the screen of one of the user's VorteX Axis devices for a few seconds, silently, with nothing " +
+      "said: a chart, a photo, a map, a card. Give the picture as exactly one of url (https), path (a file on the OpenClaw " +
+      "gateway's machine, as for MEDIA: lines) or base64 with mime (PNG or JPEG for boards; browsers also take WebP and GIF). " +
+      "With no client, it goes to the device the user last spoke to. Boards are small (about 368x448, the round one a circle " +
+      "466 across): keep text large and inside the middle. Allowed in quiet hours. The result says per device whether it was " +
+      "shown; screens do not confirm that anyone looked. clear: true takes the picture down early.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "An https address of the picture (5 MB at most)." },
+        path: { type: "string", description: "A file on the OpenClaw gateway's machine." },
+        base64: { type: "string", description: "The picture's bytes in base64 (5 MB at most), with mime." },
+        mime: { type: "string", description: "With base64: image/png, image/jpeg, image/webp or image/gif." },
+        client: TARGET_PROPERTIES.client,
+        seconds: { type: "number", description: "How long it stays up, 1-300. Default 10." },
+        alt: { type: "string", description: "A few words on what it shows." },
+        fit: { type: "string", enum: ["contain", "cover"], description: "contain (default) shows all of it; cover fills the screen, cutting the edges." },
+        clear: { type: "boolean", description: "Take down the picture shown on the device instead of showing one." },
+      },
     },
   },
   {
@@ -336,6 +363,9 @@ export interface CommandDeps {
   /** Computers with the desktop app (experimental). */
   desktops?: Desktops | undefined;
   activity?: Activity | undefined;
+  /** Pictures put on screens (the show tool), and where they may be read from. */
+  shows?: Shows | undefined;
+  pictureSource?: SourceDeps | undefined;
   /** How long a pairing code made for an agent stays good. */
   pairingCodeTtlMs: number;
   version: string;
@@ -398,6 +428,16 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         // A named client need not be connected: a closed browser gets a notification, anything else is kept for a while.
         if (named) return delivery.sayTo(clientNamed(named), words, urgent);
         return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words, urgent);
+      }
+
+      case "vortex.axis.show": {
+        if (!deps.shows) throw new Error("pictures cannot be shown by this Axis");
+        const named = text(params.client);
+        // Like say: a named client, else the device the user last spoke to.
+        const client = named ? clientNamed(named) : hub.pickOutput({}).client;
+        if (params.clear === true) return deps.shows.clear(client);
+        const picture = await readPicture(params, deps.pictureSource);
+        return deps.shows.show(client, picture, { seconds: params.seconds, alt: params.alt, fit: params.fit, by: "agent" });
       }
 
       case "vortex.axis.clients":

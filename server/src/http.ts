@@ -33,6 +33,7 @@ import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
 import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
 import type { MediaStore } from "./media.js";
+import { SHOW_MAX_BYTES, readPicture, type Shows, type SourceDeps } from "./show.js";
 import { Devices, offlineAfterMs } from "./deviceinfo.js";
 import { buildMap, startMapFeed } from "./mapfeed.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
@@ -65,12 +66,12 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, "request body too large");
+    if (size > maxBytes) throw new HttpError(413, "request body too large");
     chunks.push(chunk as Buffer);
   }
   if (size === 0) return {};
@@ -181,6 +182,9 @@ export interface HttpDeps {
   homeAssistant?: () => HomeAssistant | undefined;
   /** Pictures from agent replies, served at their unguessable addresses. */
   mediaStore?: MediaStore;
+  /** Pictures put on screens (the show tool, the device's Tools tab), and where they may be read from. */
+  shows?: Shows;
+  pictureSource?: SourceDeps;
   /** Tasks and timers as live activities on phones, through Home Assistant. */
   liveActivities?: LiveActivities;
   /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
@@ -666,7 +670,8 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       let body: unknown;
       try {
-        body = await readJson(req);
+        // Room for a picture in base64 (the show tool).
+        body = await readJson(req, Math.ceil((SHOW_MAX_BYTES * 4) / 3) + 65_536);
       } catch (error) {
         if (error instanceof HttpError && error.status === 413) throw error;
         return sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "the request body is not valid JSON" } });
@@ -848,6 +853,42 @@ export function createHttpHandler(deps: HttpDeps) {
           return sendJson(res, 200, await hub.command(session, "battery.show", args, 5000));
         } catch (error) {
           throw new HttpError(504, (error as Error).message);
+        }
+      }
+      // A picture put on a device's screen for a while, from its Tools tab: JSON with url, path or base64 and mime.
+      if (method === "POST" && parts[1] === "clients" && parts[3] === "show" && deps.shows && (parts.length === 4 || (parts.length === 5 && parts[4] === "clear"))) {
+        const client = store.getClient(parts[2]!);
+        if (!client) throw new HttpError(404, "no such client");
+        if (parts.length === 5) return sendJson(res, 200, deps.shows.clear(client));
+        // Base64 makes 4 characters of every 3 bytes, with room for the rest of the body.
+        const body = (await readJson(req, Math.ceil((SHOW_MAX_BYTES * 4) / 3) + 16_384)) as Record<string, unknown>;
+        let picture;
+        try {
+          picture = await readPicture(body, deps.pictureSource);
+        } catch (error) {
+          throw new HttpError(400, (error as Error).message);
+        }
+        try {
+          return sendJson(res, 200, await deps.shows.show(client, picture, { seconds: body.seconds, alt: body.alt, fit: body.fit, by: "admin" }));
+        } catch (error) {
+          throw new HttpError(400, (error as Error).message);
+        }
+      }
+      // Pictures shown lately (memory only) and Show again.
+      if (method === "GET" && parts.length === 2 && parts[1] === "pictures" && deps.shows) {
+        return sendJson(res, 200, { pictures: deps.shows.recent() });
+      }
+      if (method === "POST" && parts.length === 4 && parts[1] === "pictures" && parts[3] === "show" && deps.shows) {
+        const kept = deps.shows.again(parts[2]!);
+        if (!kept) throw new HttpError(410, "that picture is no longer kept");
+        const body = (await readJson(req)) as { client?: unknown; seconds?: unknown };
+        const client = store.getClient(typeof body.client === "string" && body.client ? body.client : kept.entry.clientId);
+        if (!client) throw new HttpError(404, "no such client");
+        try {
+          const seconds = body.seconds ?? kept.entry.seconds;
+          return sendJson(res, 200, await deps.shows.show(client, kept.picture, { seconds, alt: kept.entry.alt ?? undefined, fit: kept.entry.fit, by: "admin" }));
+        } catch (error) {
+          throw new HttpError(400, (error as Error).message);
         }
       }
       if (method === "POST" && parts.length === 4 && parts[1] === "clients" && parts[3] === "announce") {
