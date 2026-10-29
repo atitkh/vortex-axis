@@ -98,9 +98,11 @@ Axis is the source of truth. A client keeps a copy for when Axis is unreachable 
 | `rotation` | Screen rotation in degrees. | per board |
 | `autoRotate` | Turn the picture with the device. | 1 |
 | `brightness` | Screen brightness, 10 to 255. | per board |
+| `chargeLimit` | Charge the battery only to this percent while on USB, then hold; charge again 5 below. 50 to 100, 100 is no limit. Axis's (below). | 100 |
 
 - `location`, `voice`, `sentencePauseMs`, `wakeWord` and the four quiet-hours settings (`quietFrom`, `quietTo`, `quietVolume`, `quietBrightness`) belong to Axis. A client does not read or describe them. (`wakeWord` reaches a client as the `wake.model` command, not as a setting to interpret. Quiet hours need nothing from a client beyond reading `volume` and `brightness`: Axis sends them lower while they last, the saved value or else the client's declared default, capped.)
 - The four listening keys (`followUpMs`, `onsetMs`, `silenceMs`, `maxSpeechMs`) are Axis's built-in settings (group Listening). Axis always sends them, its defaults beneath whatever is saved, so a `mic` client reads them and needs no numbers of its own beyond a fallback for an older Axis; it need not describe them (a description of the same key is overridden by Axis's). Its own loudness threshold for speech stays its own.
+- `chargeLimit` is Axis's too (group Battery), always sent: 100 unless saved, the hub's Dock charge limit while the device is on the Dock profile. A device whose power chip can stop charging while it runs from USB holds its battery at the limit, starts charging again 5 points below it, and charges normally again at boot, when USB is removed or at 100. A client that cannot hold ignores it; do not describe it.
 - `toolIcons` is Axis's too: how a client with the vortex face shows the `doing` of a `turn` while thinking, `dots`, `line` or `off` (`docs/face.md`, section 8).
 - `idleLooksOff` is Axis's too, but a client with the vortex face reads it: the names of idle looks to leave out, separated by commas (`docs/face.md`, section 5).
 - `capabilitiesOff` is Axis's too, set by an admin for one device: the capabilities, of those the device reported, that it should stop using, separated by commas (`mic,screen`). Axis already stops using them; a client that reads it should also stop doing them at once and come back when they leave the list: `screen` shows nothing, `speaker` plays nothing (answer `playback` with `blocked`), `mic` never opens the microphone, `desktop` refuses every `desktop.*` command. Absent or empty means nothing is off. Keep sending the full list in `hello`.
@@ -163,6 +165,9 @@ A device that can update itself over the network implements `update`: answer `ok
 | `battery` | % (0 to 100) | Battery charge. Under 20 is low and listed under attention unless it is charging. |
 | `charging` | 1 or 0 | Whether the battery is charging. |
 | `batteryMv` | millivolts | Battery voltage. |
+| `usbMv` | millivolts | USB input voltage (a board with a power chip that measures it). Shown on the admin page, never spoken. |
+| `chargerState` | 0 to 5 | The charger's phase as the power chip says: 0 trickle, 1 pre-charge, 2 constant current, 3 constant voltage, 4 done, 5 stopped. |
+| `chargeHeld` | 1 or 0 | 1 while charging is held off by `chargeLimit`. Shown as "held at 80% by the charge limit". |
 | `onPower` | 1 or 0 | Whether a computer runs on mains power. |
 | `chipTempC` | °C | The device's chip temperature: the processor's, or on the Waveshare boards the power chip's own. |
 | `pickupsToday` | count | Times it was picked up today (devices with a motion sensor). A device with no clock counts from its last start instead and says so in its documentation (the Waveshare boards do). |
