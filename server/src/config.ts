@@ -45,6 +45,11 @@ export interface Config {
   powerSaverBelow: number;
   /** The charge limit (50 to 100 %) a device on the Dock profile is sent as `chargeLimit`. Editable on the admin page. */
   dockChargeLimit: number;
+  /**
+   * The most a board's charger draws, in mA (100 to 1000), sent to every client as `chargeCurrent`; the board tapers it
+   * as the battery nears its limit (firmware `charge_taper.h`). Editable on the admin page's System page.
+   */
+  chargeCurrent: number;
   /** Longest utterance accepted from a client. */
   maxUtteranceMs: number;
   /** How often upstream services are checked. 0 turns the checks off. */
@@ -166,6 +171,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     wakeMargin: fraction("AXIS_WAKE_MARGIN", env.AXIS_WAKE_MARGIN, 0.1, 0.5),
     powerSaverBelow: Math.min(90, integer("AXIS_POWER_SAVER_BELOW", env.AXIS_POWER_SAVER_BELOW, 20)),
     dockChargeLimit: Math.max(50, Math.min(100, integer("AXIS_DOCK_CHARGE_LIMIT", env.AXIS_DOCK_CHARGE_LIMIT, 80))),
+    chargeCurrent: Math.max(100, Math.min(1000, integer("AXIS_CHARGE_CURRENT", env.AXIS_CHARGE_CURRENT, 1000))),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
     voiceprintUrl: env.AXIS_VOICEPRINT_URL || undefined,

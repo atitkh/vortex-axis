@@ -4,6 +4,18 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.69.0 (2026-10-29)
+
+- **Charge current:** a hub setting `chargeCurrent` (System page, **Charge current** beside Dock charge limit, 100 to 1000 mA, 1000 by default = 1C for the boards' 1000 mAh cell, `AXIS_CHARGE_CURRENT`), put into every client's settings whatever its profile and sent to all at once when it changes. Profiles still only choose the limit. Additive: older firmware ignores it. Docs: client guide (`chargeCurrent`, reading `chargeCurrentMa`), setup, hardware (a smaller battery needs a lower value; no cold guard), design. Checked by server tests and typecheck.
+
+## Round board firmware 0.10.0 (Waveshare 1.75) (2026-10-29)
+
+- **Charge-current taper** (`common/src/charge_taper.h`, host test `common/test/charge_taper_test.cpp`): on USB with a battery and not held, the AXP2101's constant-current charge (register 0x62 bits 4..0, checked against the datasheet and XPowersLib) is set from the hub's `chargeCurrent` (1000 mA without one): full to 75 % of the limit in force (100 when none), half to 87.5 %, a quarter to 95 %, a tenth above; steps only fall while charging, are worked out afresh at the start, on unplug and on a new limit, and relax 2 below a step's start while not charging; one step less above 40 C on the power chip, two above 50 C, 3 C back. Rounded down to the chip's steps, never below 25 mA; nothing written without a battery or USB. Reading `chargeCurrentMa`; `power` prints it and what the chip held at the start; bench word `chargecurrent MA`. Built, NOT flashed, not pushed.
+
+## Board firmware 0.26.0 (Waveshare 1.8) (2026-10-29)
+
+- The round board's 0.10.0 charge-current taper, same code. Built, NOT flashed, not pushed.
+
 ## Axis 0.68.3 (2026-10-29)
 
 - **`show`'s tool text no longer names a screen size:** it said boards are about 368x448 and the round one 466 across, and agents used those numbers for every picture whatever the device. It now says to take the size from the device's own screenW and screenH. No behaviour change.

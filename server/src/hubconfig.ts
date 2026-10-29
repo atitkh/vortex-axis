@@ -36,6 +36,8 @@ export interface HubSettings {
   powerSaverBelow: number;
   /** The charge limit a device on the Dock profile is held at (50 to 100 %). */
   dockChargeLimit: number;
+  /** The most a board's charger draws in mA (100 to 1000), tapered on the board as the battery fills. */
+  chargeCurrent: number;
 }
 
 const META_KEY = "hub_config";
@@ -72,6 +74,7 @@ function fromConfig(config: Config): HubSettings {
     wakeMargin: config.wakeMargin,
     powerSaverBelow: config.powerSaverBelow,
     dockChargeLimit: config.dockChargeLimit,
+    chargeCurrent: config.chargeCurrent,
   };
 }
 
@@ -116,6 +119,7 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.wakeMargin = settings.wakeMargin ?? config.wakeMargin;
   config.powerSaverBelow = settings.powerSaverBelow ?? config.powerSaverBelow;
   config.dockChargeLimit = settings.dockChargeLimit ?? config.dockChargeLimit;
+  config.chargeCurrent = settings.chargeCurrent ?? config.chargeCurrent;
 }
 
 /** Most entries in the desktop block list: it travels to the computer with each command, in at most 500 characters. */
@@ -225,6 +229,7 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
   }
   if (body.powerSaverBelow !== undefined) patch.powerSaverBelow = whole(body.powerSaverBelow, "the power saver battery level", 0, 90);
   if (body.dockChargeLimit !== undefined) patch.dockChargeLimit = whole(body.dockChargeLimit, "the Dock charge limit", 50, 100);
+  if (body.chargeCurrent !== undefined) patch.chargeCurrent = whole(body.chargeCurrent, "the charge current", 100, 1000);
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 
   const earlier = store.getMeta(META_KEY);

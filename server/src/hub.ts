@@ -20,7 +20,7 @@ import {
 import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
-import { declaredDefaults, declaredValues, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
+import { DEFAULT_CHARGE_CURRENT, declaredDefaults, declaredValues, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
 import { activeProfile, batterySaver, DEFAULT_DOCK_CHARGE_LIMIT, withProfile, type ProfileName, type ProfileReason } from "./profiles.js";
 import { fresh } from "./deviceinfo.js";
 import type { ClientRecord, Store } from "./store.js";
@@ -92,6 +92,8 @@ export interface HubOptions {
   powerSaverBelow?: () => number;
   /** The charge limit a device on the Dock profile is sent (50 to 100). Read each time settings are made. */
   dockChargeLimit?: () => number;
+  /** The most a board's charger draws in mA, sent to every client as `chargeCurrent`. Read each time settings are made. */
+  chargeCurrent?: () => number;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -110,6 +112,7 @@ export class Hub implements TurnPort {
   private readonly profileListeners: Array<(session: Session, profile: ProfileName, before: ProfileName) => void> = [];
   private readonly powerSaverBelow: () => number;
   private readonly dockChargeLimit: () => number;
+  private readonly chargeCurrent: () => number;
   private readonly screens = new Map<string, { heard: string; said: string; at: number }>();
   private readonly store: Store;
   private readonly helloTimeoutMs: number;
@@ -141,6 +144,7 @@ export class Hub implements TurnPort {
     this.timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.powerSaverBelow = options.powerSaverBelow ?? (() => 20);
     this.dockChargeLimit = options.dockChargeLimit ?? (() => DEFAULT_DOCK_CHARGE_LIMIT);
+    this.chargeCurrent = options.chargeCurrent ?? (() => DEFAULT_CHARGE_CURRENT);
     this.turns = new TurnManager(this, {
       services: options.services ?? {},
       wakeWindowMs: this.wakeWindowMs,
@@ -535,12 +539,16 @@ export class Hub implements TurnPort {
     }
   }
 
-  /** The values a client is sent now: device setting, then the profile, then quiet hours, which stay the hard cap. */
+  /**
+   * The values a client is sent now: device setting, then the profile, then quiet hours, which stay the hard cap.
+   * The hub's `chargeCurrent` goes to every client as it is, whatever the profile.
+   */
   effectiveSettings(client: Pick<ClientRecord, "id" | "type">): ScalarMap {
     const schema = this.store.getSchema(client.type);
     const values = withProfile(this.sentSettings(client), this.profile(client).profile, declaredValues(schema), {
       dockChargeLimit: this.dockChargeLimit(),
     });
+    values.chargeCurrent = this.chargeCurrent();
     return withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"]));
   }
 

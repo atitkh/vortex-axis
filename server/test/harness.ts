@@ -49,6 +49,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     wakeMargin: 0.1,
     powerSaverBelow: 20,
     dockChargeLimit: 80,
+    chargeCurrent: 1000,
     maxUtteranceMs: 30_000,
     healthIntervalMs: 0,
     stt: undefined,

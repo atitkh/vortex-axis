@@ -10,6 +10,10 @@
 // limit and lets it go on again 5 % below it (charge_hold.h), with a 4.1 V charge target as a backstop
 // while a limit is set. Charging is switched on at the start, whenever USB goes away and whenever the
 // limit is lifted; the target is never set above 4.2 V; a failed read or write changes nothing.
+//
+// The charge current (register 0x62) follows charge_taper.h from the hub's `chargeCurrent` (1000 mA when not sent):
+// full to 75 % of the limit, then half, a quarter and a tenth, a step less again when the chip is hot. Written only
+// with a battery on USB while not held; read back every time for `chargeCurrentMa`.
 #include <Arduino.h>
 
 #include "axis_client.h"
@@ -27,6 +31,7 @@ struct Reading {
     int usbMv = 0;             // USB input millivolts; 0 without USB or when it could not be read
     bool held = false;         // charging held off by the charge limit
     int limit = 100;           // the charge limit in force, 100 = none
+    int chargeCurrentMa = -1;  // the constant-current charge the chip is set to (register 0x62); -1 when not read
     float chipTempC = NAN;     // the power chip's own temperature; NAN when its reading made no sense
 };
 
@@ -40,8 +45,11 @@ Reading last();
 /** The charge limit in percent (below 50 counts as 50, 100 and above as none). Only remembered here: a new
  *  value makes the next tick() read at once and apply it, so call it from the task that calls tick(). */
 void setChargeLimit(int percent);
+/** The most the charger may draw in mA (the hub's `chargeCurrent`; 25 to 1000), which the taper scales down. Only
+ *  remembered here, like setChargeLimit: a new value is applied by the next tick(). */
+void setChargeCurrent(int ma);
 /** Hands the last reading to Axis as `chipTempC`, and with a battery `battery`, `charging`, `batteryMv`,
- *  `chargerState`, `chargeHeld` and, with USB, `usbMv`. */
+ *  `chargerState`, `chargeHeld`, `chargeCurrentMa` and, with USB, `usbMv`. */
 void report(axis::Client &client);
 /** The last reading in one line, for the console's `power`. */
 void print(Print &out);
@@ -53,5 +61,7 @@ void dumpRegs(Print &out);
 bool setCharging(bool on);
 // Charge target in mV: 4000, 4100 or 4200 only (never higher; a lower target is the only direction offered).
 bool setTargetMv(uint16_t mv);
+// Constant-current charge in mA, rounded down to a step the chip has (25 mA to 200, then 100 mA to 1000).
+bool setChargeCurrentMa(int ma);
 
 }  // namespace power

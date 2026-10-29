@@ -329,6 +329,8 @@ static volatile uint32_t fpsRequests = 0;
 static volatile uint32_t i2cRequests = 0;
 // Bench: a charge limit typed on the console (`chargelimit N`) in place of the setting; -1 follows the setting.
 static volatile int benchChargeLimit = -1;
+// Bench: a most charge current typed on the console (`chargecurrent MA`) in place of the hub's; -1 follows the hub.
+static volatile int benchChargeCurrent = -1;
 // Taps the board acted on since it started, sent as touchesToday (it has no clock of its own to tell the day by).
 static uint32_t touches = 0;
 static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicros = 0;
@@ -1179,6 +1181,12 @@ void setup() {
             else logOut.println("[power] charge limit from the setting again");
             return true;
         }
+        if (word == "chargecurrent") {  // bench: chargecurrent 25..1000 (mA) in place of the hub's; alone, back to the hub's
+            benchChargeCurrent = rest.length() ? (int)rest.toInt() : -1;
+            if (benchChargeCurrent >= 0) logOut.printf("[power] most charge current %d mA from the console\n", benchChargeCurrent);
+            else logOut.println("[power] most charge current from the hub again");
+            return true;
+        }
         if (word == "i2c") {
             i2cRequests++;
             return true;
@@ -1478,6 +1486,7 @@ void loop() {
     imu::tick();
     static uint32_t powerReadAt = 0;
     power::setChargeLimit(benchChargeLimit >= 0 ? benchChargeLimit : (int)client.settingInt("chargeLimit", 100));
+    power::setChargeCurrent(benchChargeCurrent >= 0 ? benchChargeCurrent : (int)client.settingInt("chargeCurrent", 1000));
     if (power::tick()) {
         power::report(client);
         powerReadAt = started;

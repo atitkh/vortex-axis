@@ -192,6 +192,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     // Read at each check, so a level saved on the Integrations page applies with the next readings.
     powerSaverBelow: () => config.powerSaverBelow,
     dockChargeLimit: () => config.dockChargeLimit,
+    chargeCurrent: () => config.chargeCurrent,
     activity,
     log,
   });
@@ -476,6 +477,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
 
   let sentDockLimit = config.dockChargeLimit;
+  let sentChargeCurrent = config.chargeCurrent;
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {
     hub.setTimeZone(config.timeZone);
@@ -485,6 +487,12 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       sentDockLimit = config.dockChargeLimit;
       store.touchSettings();
       hub.pushSettings((client) => hub.profile(client).profile === "dock");
+    }
+    // A new charge current goes to every device at once.
+    if (config.chargeCurrent !== sentChargeCurrent) {
+      sentChargeCurrent = config.chargeCurrent;
+      store.touchSettings();
+      hub.pushSettings();
     }
     activity.setRetention(config.activityDays * 86_400_000);
     delivery.setHoldMs(config.messageHoldMs);

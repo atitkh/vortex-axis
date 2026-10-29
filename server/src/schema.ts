@@ -226,6 +226,12 @@ export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: []
  */
 export const SENT_DEFAULT_KEYS = ["followUpMs", "onsetMs", "silenceMs", "maxSpeechMs", "chargeLimit"] as const;
 
+/**
+ * The most a board's charger draws, in mA, when the hub has no `chargeCurrent` of its own (1C for the boards' 1000 mAh
+ * cell). Not a setting a device keeps: Axis puts the hub's value into every client's settings as `chargeCurrent`.
+ */
+export const DEFAULT_CHARGE_CURRENT = 1000;
+
 /** The defaults of `SENT_DEFAULT_KEYS`, as sent. */
 export function sentDefaults(): ScalarMap {
   const out: ScalarMap = {};

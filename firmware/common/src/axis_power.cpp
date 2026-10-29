@@ -3,6 +3,7 @@
 #include <Wire.h>
 
 #include "charge_hold.h"
+#include "charge_taper.h"
 
 namespace power {
 namespace {
@@ -15,6 +16,7 @@ const uint8_t REG_VBAT_H = 0x34;    // 0x34..0x35: battery millivolts, 13 bits
 const uint8_t REG_VBUS_H = 0x38;    // 0x38..0x39: USB input millivolts, 14 bits
 const uint8_t REG_TEMP_H = 0x3C;    // 0x3C..0x3D: temperature, 14 bits
 const uint8_t REG_CHARGER_CTRL = 0x18;  // bit 1: the battery charger on
+const uint8_t REG_CHARGE_CURRENT = 0x62;  // bits 4..0: constant-current charge, charge_taper.h's codes
 const uint8_t REG_TARGET_V = 0x64;      // bits 2..0: charge target, 1 = 4.0 V, 2 = 4.1 V, 3 = 4.2 V
 const uint8_t REG_PERCENT = 0xA4;   // the fuel gauge, in %
 const uint8_t CHIP_ID = 0x4A;
@@ -29,6 +31,10 @@ volatile int limitWanted = CHARGE_LIMIT_OFF;  // from setChargeLimit, any task
 int limitSeen = CHARGE_LIMIT_OFF;     // the value the last read was made for (a new one reads at once)
 int limitApplied = CHARGE_LIMIT_OFF;  // the value the charger was last set for
 bool held = false;
+volatile int currentWanted = CHARGE_CURRENT_MAX_MA;  // from setChargeCurrent, any task
+int currentSeen = CHARGE_CURRENT_MAX_MA;
+Taper taper;
+int startMa = -1;  // the charge current the chip held at the start, -1 when it could not be read
 portMUX_TYPE keptLock = portMUX_INITIALIZER_UNLOCKED;
 
 bool readRegs(uint8_t reg, uint8_t *out, uint8_t count) {
@@ -60,6 +66,10 @@ bool begin(uint8_t address) {
     setCharging(true);
     setTargetMv(4200);
     held = false;
+    // The charge current is left as it is until the first reading with a battery on USB; only read here.
+    uint8_t cc = 0;
+    startMa = readRegs(REG_CHARGE_CURRENT, &cc, 1) ? chargeCurrentMaOf(cc & 0x1F) : -1;
+    taper = Taper();
     lastRead = millis() - READ_EVERY_MS + FIRST_READ_MS;
     return true;
 }
@@ -68,9 +78,11 @@ bool tick() {
     if (!present) return false;
     const uint32_t now = millis();
     const int limit = limitWanted;
-    if (now - lastRead < READ_EVERY_MS && limit == limitSeen) return false;
+    const int maxMa = currentWanted;
+    if (now - lastRead < READ_EVERY_MS && limit == limitSeen && maxMa == currentSeen) return false;
     lastRead = now;
     limitSeen = limit;
+    currentSeen = maxMa;
     uint8_t st[2], v[2], t[2], u[2], pct = 0;
     if (!readRegs(REG_STATUS1, st, 2)) return false;
     bool good = true;  // every reading the hold rule needs came back
@@ -107,7 +119,12 @@ bool tick() {
             }
             limitApplied = limit;
         }
+        // The charge current's taper, written only with a battery on USB while not held (nothing otherwise).
+        taperUpdate(taper, r.battery, r.vbus, r.percent, limit, r.charging, r.chipTempC);
+        if (r.battery && r.vbus && !held) setChargeCurrentMa(taperMa(taper, maxMa));
     }
+    uint8_t cc = 0;
+    if (readRegs(REG_CHARGE_CURRENT, &cc, 1)) r.chargeCurrentMa = chargeCurrentMaOf(cc & 0x1F);
     r.held = held;
     r.limit = limitApplied;
     portENTER_CRITICAL(&keptLock);
@@ -127,6 +144,10 @@ void setChargeLimit(int percent) {
     limitWanted = percent >= CHARGE_LIMIT_OFF ? CHARGE_LIMIT_OFF : percent < CHARGE_LIMIT_MIN ? CHARGE_LIMIT_MIN : percent;
 }
 
+void setChargeCurrent(int ma) {
+    currentWanted = ma > CHARGE_CURRENT_MAX_MA ? CHARGE_CURRENT_MAX_MA : ma < CHARGE_CURRENT_MIN_MA ? CHARGE_CURRENT_MIN_MA : ma;
+}
+
 void report(axis::Client &client) {
     const Reading r = last();
     if (!r.taken) return;
@@ -141,6 +162,8 @@ void report(axis::Client &client) {
         else client.clearReading("batteryMv");
         client.setReading("chargerState", r.chargerState);
         client.setReading("chargeHeld", r.held ? 1 : 0);
+        if (r.chargeCurrentMa >= 0) client.setReading("chargeCurrentMa", r.chargeCurrentMa);
+        else client.clearReading("chargeCurrentMa");
         // Millivolts wander: with the regular readings, like batteryMv.
         if (r.vbus && r.usbMv > 0) client.setReading("usbMv", r.usbMv, false);
         else client.clearReading("usbMv");
@@ -149,6 +172,7 @@ void report(axis::Client &client) {
         client.clearReading("batteryMv");
         client.clearReading("chargerState");
         client.clearReading("chargeHeld");
+        client.clearReading("chargeCurrentMa");
         client.clearReading("usbMv");
     }
 }
@@ -169,6 +193,7 @@ void print(Print &out) {
     if (r.battery) out.printf(" %d%% %d mV, %s (charger state %u)", r.percent, r.batteryMv, r.charging ? "charging" : "not charging", (unsigned)r.chargerState);
     if (r.limit < CHARGE_LIMIT_OFF) out.printf(", limit %d%%, %s", r.limit, r.held ? "held" : "not held");
     else out.print(", no limit");
+    if (r.chargeCurrentMa >= 0) out.printf(", charge current %d mA (of %d, step %d, heat %d; %d mA at the start)", r.chargeCurrentMa, (int)currentWanted, taper.step, taper.hot, startMa);
     out.printf("; power chip %.1f C, processor %.1f C, read %lus ago\n", r.chipTempC, temperatureRead(), (unsigned long)((millis() - lastRead) / 1000));
 }
 
@@ -197,6 +222,16 @@ bool setCharging(bool on) {
     if (want == v) return true;
     if (!writeReg(REG_CHARGER_CTRL, want)) return false;
     return readRegs(REG_CHARGER_CTRL, &v, 1) && v == want;
+}
+
+bool setChargeCurrentMa(int ma) {
+    if (!present) return false;
+    uint8_t v = 0;
+    if (!readRegs(REG_CHARGE_CURRENT, &v, 1)) return false;
+    const uint8_t want = (v & 0xE0) | (uint8_t)chargeCurrentCode(ma);
+    if (want == v) return true;
+    if (!writeReg(REG_CHARGE_CURRENT, want)) return false;
+    return readRegs(REG_CHARGE_CURRENT, &v, 1) && v == want;
 }
 
 bool setTargetMv(uint16_t mv) {

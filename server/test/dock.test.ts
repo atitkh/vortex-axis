@@ -87,6 +87,30 @@ describe("the Dock charge limit", () => {
   });
 });
 
+describe("the charge current", () => {
+  it("is a hub setting from 100 to 1000 mA, 1000 by default", async () => {
+    expect((await admin("GET", "/admin/integrations")).body.settings.chargeCurrent).toBe(1000);
+    expect((await admin("PATCH", "/admin/integrations", { chargeCurrent: 500 })).body.settings.chargeCurrent).toBe(500);
+    expect((await admin("PATCH", "/admin/integrations", { chargeCurrent: 99 })).status).toBe(400);
+    expect((await admin("PATCH", "/admin/integrations", { chargeCurrent: 1001 })).status).toBe(400);
+    expect((await admin("PATCH", "/admin/integrations", { chargeCurrent: 250.5 })).status).toBe(400);
+  });
+
+  it("is sent to every device whatever its profile, and a new one at once", async () => {
+    const { identity, client: device } = await ready(["screen"], { name: "Desk board" });
+    const last = () => (device.received.filter((m) => m.t === "settings").at(-1) as any).values;
+    await expect.poll(() => last().chargeCurrent).toBe(1000);
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { profile: "dock" } });
+    await expect.poll(() => last().chargeLimit).toBe(80);
+    expect(last().chargeCurrent).toBe(1000);
+    expect((await admin("PATCH", "/admin/integrations", { chargeCurrent: 600 })).body.settings.chargeCurrent).toBe(600);
+    await expect.poll(() => last().chargeCurrent).toBe(600);
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { profile: "normal" } });
+    await expect.poll(() => last().chargeLimit).toBe(100);
+    expect(last().chargeCurrent).toBe(600);
+  });
+});
+
 describe("the charger line", () => {
   it("says the phase in plain words", () => {
     expect(chargerLine(0, false, 100)).toBe("charging (trickle)");
