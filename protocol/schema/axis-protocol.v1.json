@@ -939,6 +939,11 @@
         "alt": {
           "maxLength": 500,
           "type": "string"
+        },
+        "seconds": {
+          "minimum": 1,
+          "maximum": 300,
+          "type": "integer"
         }
       }
     },
@@ -988,6 +993,11 @@
           "minimum": 1,
           "maximum": 4096,
           "type": "integer"
+        },
+        "seconds": {
+          "minimum": 1,
+          "maximum": 300,
+          "type": "integer"
         }
       }
     },
@@ -1031,6 +1041,25 @@
           "type": "string"
         },
         "imageId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "image.clear": {
+      "$id": "image.clear",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t"
+      ],
+      "properties": {
+        "t": {
+          "const": "image.clear",
+          "type": "string"
+        },
+        "turnId": {
           "minLength": 1,
           "maxLength": 64,
           "type": "string"

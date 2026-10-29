@@ -82,6 +82,7 @@ Either way the client stops playback, drops buffered audio and reports `playback
 
 - **Speech:** Axis sends `speak.start`, audio and `speak.end` with a fresh `turnId` and no preceding client input.
 - **Questions:** Axis speaks the question as agent-initiated speech, then sends `ask` with up to six choices. A client with a screen offers the choices and replies with `answer` when one is picked. A client with a microphone also listens straight away: what is said goes up as an ordinary recording (`audio.start`, audio, `audio.end`) and Axis matches it to a choice, so the client does not need to. Typed `text` is taken the same way. With no choices the question is open and whatever is said or typed is the answer. Axis sends `ask.end` when the question is over, answered or not; the client then takes the choices away and drops a recording nobody has spoken into. A client also gives up on its own after `timeoutMs`.
+- **Pictures:** a picture with nobody having asked (an agent's `show` tool, or the admin page) comes as `reply.image` or `image.start` with a `turnId` starting `say-` and `seconds`, how long to keep it up (1 to 300; without it the client keeps its own default, 30 s on boards). `image.clear` takes it down early: with `turnId` only that turn's picture, without any picture showing. Clients that do not know `image.clear` or `seconds` ignore them.
 - **Updates:** the `command` `update` carries `version`, `size`, `md5` and `path`. The client answers `ok: true`, then fetches `path` from the same Axis address over HTTP with `Authorization: Bearer <its token>` and `X-Axis-Client: <its id>`, installs it and restarts. A client that cannot update itself answers `ok: false`.
 - **Address:** the `command` `address` carries `url`, a new base address for the same Axis. The client checks that it answers, connects through it with its existing token, and returns to the old address by itself if that does not work.
 - **Wake word:** the `command` `wake.model` tells a client with a microphone which wake word to listen with: `id` (empty for the one built into its firmware), `name`, `md5`, `size`, `cutoff` (percent), `window` and `path`. A client already on it answers and does nothing. Otherwise it fetches `path` like a firmware file, with its own token, keeps the model and starts using it, restarting if it has to. A client with no wake word of its own answers `ok: false`.
@@ -116,7 +117,7 @@ Command names and their parameters are not fixed in version 1. They are defined 
 
 Client to Axis: `hello`, `wake`, `audio.start`, `audio.end`, `text`, `interrupt`, `answer`, `playback`, `sense`, `ping`, `settings.get`, `command.result`, `describe`.
 
-Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `speak.start`, `speak.end`, `ask`, `ask.end`, `stop`, `status`, `command`, `error`.
+Axis to client: `welcome`, `settings`, `wake.result`, `turn`, `transcript`, `reply.text`, `reply.image`, `image.start`, `image.data`, `image.end`, `image.clear`, `speak.start`, `speak.end`, `ask`, `ask.end`, `stop`, `status`, `command`, `error`.
 
 Field-level detail is in `src/messages.ts`.
 

@@ -271,16 +271,21 @@ export const ReplyText = message("reply.text", {
 });
 
 /** Opens the downstream audio stream. Binary frames that follow belong to it. */
+/** How long a picture is kept on the screen, in whole seconds. */
+const PictureSeconds = Type.Integer({ minimum: 1, maximum: 300 });
+
 /**
  * A picture that goes with a reply, sent only to clients with the `images` capability. `url` is a path on
  * Axis that needs no other credentials (it is unguessable and expires); `turnId` is the reply's, or starts
- * with "say-" for something said with nobody having asked. `alt` says what it shows, when known.
+ * with "say-" for something said or shown with nobody having asked (the `show` tool). `alt` says what it
+ * shows, when known. `seconds` is how long to keep it up; without it the client keeps its own default.
  */
 export const ReplyImage = message("reply.image", {
   turnId: Id,
   url: Type.String({ minLength: 1, maxLength: 512 }),
   mime: Type.Optional(Type.String({ maxLength: 64 })),
   alt: Type.Optional(Type.String({ maxLength: 500 })),
+  seconds: Type.Optional(PictureSeconds),
 });
 
 /**
@@ -288,6 +293,7 @@ export const ReplyImage = message("reply.image", {
  * cannot fetch an address while their socket is open). Axis shrinks it to the client's screen (its
  * `screenW` and `screenH` readings) as a baseline JPEG and sends `image.start`, then the bytes in order
  * as base64 in `image.data` frames that fit the client's frame size, then `image.end`. Binary frames stay audio.
+ * `seconds` is how long to keep it up, as on `reply.image`.
  */
 export const ImageStart = message("image.start", {
   imageId: Id,
@@ -296,6 +302,7 @@ export const ImageStart = message("image.start", {
   size: Type.Integer({ minimum: 1, maximum: 1_000_000 }),
   width: Type.Integer({ minimum: 1, maximum: 4096 }),
   height: Type.Integer({ minimum: 1, maximum: 4096 }),
+  seconds: Type.Optional(PictureSeconds),
 });
 export const ImageData = message("image.data", {
   imageId: Id,
@@ -303,6 +310,14 @@ export const ImageData = message("image.data", {
 });
 export const ImageEnd = message("image.end", {
   imageId: Id,
+});
+
+/**
+ * Takes a picture off the screen before its time is up. With `turnId`, only a picture of that turn; without,
+ * whatever picture is showing. Clients that do not know it ignore it, and the picture stays its time.
+ */
+export const ImageClear = message("image.clear", {
+  turnId: Type.Optional(Id),
 });
 
 export const SpeakStart = message("speak.start", {
@@ -398,6 +413,7 @@ export const SERVER_MESSAGE_SCHEMAS = [
   ImageStart,
   ImageData,
   ImageEnd,
+  ImageClear,
   SpeakStart,
   SpeakEnd,
   Ask,
@@ -439,6 +455,7 @@ export type ReplyImage = Static<typeof ReplyImage>;
 export type ImageStart = Static<typeof ImageStart>;
 export type ImageData = Static<typeof ImageData>;
 export type ImageEnd = Static<typeof ImageEnd>;
+export type ImageClear = Static<typeof ImageClear>;
 export type SpeakEnd = Static<typeof SpeakEnd>;
 export type Ask = Static<typeof Ask>;
 export type AskEnd = Static<typeof AskEnd>;
