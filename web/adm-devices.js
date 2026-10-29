@@ -74,7 +74,7 @@ function VersionBadge({ client }) {
 /** A chip for a device on a profile other than normal, with why in its title. */
 export function ProfileBadge({ client }) {
   if (!client.profile || client.profile === "normal") return null;
-  return html` <span class="badge" data-profile-chip=${client.profile} title=${profileLine(client.profile, client.profileReason, client.readings?.battery)}>${PROFILE_WORDS[client.profile]?.toLowerCase() ?? client.profile}</span>`;
+  return html` <span class="badge" data-profile-chip=${client.profile} title=${profileLine(client.profile, client.profileReason, client.readings?.battery, client.effective?.chargeLimit)}>${PROFILE_WORDS[client.profile]?.toLowerCase() ?? client.profile}</span>`;
 }
 
 /** One device as a card: picture, name, state, type and version, what it can do now. */
@@ -339,7 +339,7 @@ function Actions({ client, actions }) {
 
 function DeviceSettings({ client, schema, focusKey }) {
   const entity = `device:${client.id}`;
-  const defs = schema.settings.filter((d) => !DEVICE_ONLY.has(d.key));
+  const defs = batteryGroup(client, schema.settings.filter((d) => !DEVICE_ONLY.has(d.key)));
   const d = draftOf(entity);
   const locations = [...new Set(store.clients.map((c) => c.settings.location).filter(Boolean))].sort();
   const locDef = store.builtIns.find((x) => x.key === "location") ?? { key: "location", label: "Location", kind: "text" };
@@ -367,9 +367,23 @@ function DeviceSettings({ client, schema, focusKey }) {
     ${defs.length
       ? html`<${SettingsEditor} defs=${defs} layers=${client.layers} tab="device" entity=${entity} focusKey=${focusKey}
           head=${[identity, capabilityGroup(client, entity)]} extra=${shareWithType(client)} rail=${rail}
-          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(client)}.`, glowCorner: tools, lowBatteryBelow: tools, batteryGlyph: tools }} />`
+          hints=${{ offlineAlert: `Auto for this ${KIND_WORDS[kind]}: ${autoWords(client)}.`, glowCorner: tools, lowBatteryBelow: tools, batteryGlyph: tools, chargeLimit: chargeHint(client) }} />`
       : html`<div class="edit-grid with-rail"><div class="edit-main"><p class="empty">This device has not described its settings yet. It does so each time it connects.</p></div><aside class="rail">${rail}</aside></div>`}
     <${SaveBar} entity=${entity} save=${save} floating=${true} />`;
+}
+
+/** Under the charge limit on a device on Dock: the profile's limit wins while it is on. */
+function chargeHint(client) {
+  return client.profile === "dock" ? `On Dock now: held at ${client.effective?.chargeLimit ?? 80}% from the System page.` : undefined;
+}
+
+/** Settings about the battery, in one Battery group on a device's page: Axis's charge limit beside the board's own. */
+const BATTERY_KEYS = new Set(["chargeLimit", "lowBatteryBelow", "batteryGlyph"]);
+
+/** The device's settings with the battery ones grouped together, and the charge limit left out for a device with no battery. */
+function batteryGroup(client, defs) {
+  const battery = Boolean(batteryDef(client)) || client.readings?.battery !== undefined || client.readings?.chargerState !== undefined;
+  return defs.filter((x) => x.key !== "chargeLimit" || battery).map((x) => (BATTERY_KEYS.has(x.key) && battery ? { ...x, group: "Battery" } : x));
 }
 
 /** What the battery preview draws with: the staged or saved low-battery threshold and battery mark, and the glow's curve. */

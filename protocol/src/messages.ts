@@ -156,6 +156,8 @@ export const SettingDef = Type.Object(
     min: Type.Optional(Type.Number()),
     max: Type.Optional(Type.Number()),
     unit: Type.Optional(Type.String({ maxLength: 16 })),
+    /** The steps a `number` moves by in an editor, for example 5. A whole step means whole numbers only. */
+    step: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
     /** The allowed values of a `choice`. */
     options: Type.Optional(Type.Array(Type.Union([Type.String({ maxLength: 64 }), Type.Number()]), { maxItems: 16 })),
   },

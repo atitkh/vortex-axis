@@ -12,8 +12,10 @@ import type { ProfileName, ProfileReason } from "./profiles.js";
  *
  * The readings it understands (all optional): battery (0 to 100 %), charging (1/0), batteryMv, rssi (dBm), heap
  * (free bytes), uptimeS, chipTempC, pickupsToday, touchesToday, turnsToday, onPower (1/0), lastStart (why it last
- * started), soundDb and soundActive (1/0). Boards send all of them every minute; a vital (battery, charging,
- * batteryMv, chipTempC, rssi, heap, soundDb, soundActive) that has not arrived for STALE_READING_MS is left out as
+ * started), soundDb and soundActive (1/0), and from a board's charger usbMv (USB input millivolts), chargerState (the
+ * power chip's charge phase, CHARGER_PHASES) and chargeHeld (1 while the charge limit holds charging off). Boards send
+ * them every minute; a vital (battery, charging, batteryMv, usbMv, chargerState, chargeHeld, chipTempC, rssi, heap,
+ * soundDb, soundActive) that has not arrived for STALE_READING_MS is left out as
  * unknown, so a battery taken out of a running board stops being shown once the board stops reporting it.
  */
 
@@ -68,6 +70,31 @@ export interface Vitals {
   /** Why it last started, as the device words it (a reset reason on a board). */
   lastRestart?: string;
   sound?: { db?: number; active?: boolean };
+  /** A board's charger: its phase, whether the charge limit holds it, USB volts, and all of it as one plain line. */
+  charger?: {
+    state?: number;
+    held?: boolean;
+    /** The charge limit in force when it is held (`chargeLimit` as sent, after the profile). */
+    limit?: number;
+    usbMv?: number;
+    /** For the admin page's detail only, never spoken: "USB 4.98 V". */
+    usbText?: string;
+    /** "charging (constant current)", "charging, tapering", "full", "held at 80% by the charge limit", "not charging". */
+    line?: string;
+  };
+}
+
+/** The power chip's charge phases by `chargerState` (AXP2101 register 0x01, low three bits). */
+export const CHARGER_PHASES = ["trickle", "pre-charge", "constant current", "constant voltage", "done", "stopped"] as const;
+
+/** The charger in plain words, from the readings and the charge limit in force. Undefined when nothing was reported. */
+export function chargerLine(state: number | undefined, held: boolean | undefined, limit: number | undefined): string | undefined {
+  if (held) return limit !== undefined && limit < 100 ? `held at ${limit}% by the charge limit` : "held by the charge limit";
+  if (state === undefined) return undefined;
+  if (state === 0 || state === 1 || state === 2) return `charging (${CHARGER_PHASES[state]})`;
+  if (state === 3) return "charging, tapering";
+  if (state === 4) return "full";
+  return "not charging";
 }
 
 export type DeviceState = "offline" | "idle" | ClientNow["state"];
@@ -98,6 +125,8 @@ export interface DeviceInfo {
   /** The profile it is on (profiles.ts) and why: chosen by hand, the battery rule, or "auto" with no rule in force. */
   profile: ProfileName;
   profileReason: ProfileReason;
+  /** The charge limit it is sent (its own `chargeLimit`, or Dock's); absent when not known. */
+  chargeLimit?: number;
 }
 
 export interface DeviceInput {
@@ -112,6 +141,8 @@ export interface DeviceInput {
   held?: string | undefined;
   /** Its profile, from `Hub.profile`; normal when not given. */
   profile?: { profile: ProfileName; reason: ProfileReason } | undefined;
+  /** The `chargeLimit` it is sent (its own, or Dock's), for the charger line. */
+  chargeLimit?: number | undefined;
 }
 
 /** Builds DeviceInfo for the clients Axis knows, from the store, the connected sessions and the builds it holds. */
@@ -140,6 +171,7 @@ export class Devices {
         now: doing.find((d) => d.clientId === client.id),
         held: this.held(client.type),
         profile: this.hub.profile(client),
+        chargeLimit: number(this.hub.effectiveSettings(client).chargeLimit),
       },
       this.now(),
     );
@@ -173,11 +205,12 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
     capabilities: { reported: client.reported, off: client.off, effective: client.capabilities },
     state: !online ? "offline" : input.now?.state ?? "idle",
     ...(online && input.now ? { stateSince: input.now.since } : {}),
-    vitals: vitals(readings),
+    vitals: vitals(readings, input.chargeLimit),
     attention: [],
     offlineAfterMs: offlineAfterMs(kind, settings.offlineAlert),
     profile: input.profile?.profile ?? "normal",
     profileReason: input.profile?.reason ?? "auto",
+    ...(input.chargeLimit !== undefined ? { chargeLimit: input.chargeLimit } : {}),
   };
   info.attention = attention(info, at);
   return info;
@@ -185,7 +218,7 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
 
 /** How long a vital reading counts after it last arrived: five of a board's minutely reports. */
 export const STALE_READING_MS = 5 * 60_000;
-const VITAL_KEYS = ["battery", "charging", "batteryMv", "chipTempC", "rssi", "heap", "soundDb", "soundActive"];
+const VITAL_KEYS = ["battery", "charging", "batteryMv", "usbMv", "chargerState", "chargeHeld", "chipTempC", "rssi", "heap", "soundDb", "soundActive"];
 
 /** The readings without the vitals that have not arrived for STALE_READING_MS. */
 export function fresh(session: DeviceInput["session"], at: number): ScalarMap {
@@ -199,7 +232,7 @@ export function fresh(session: DeviceInput["session"], at: number): ScalarMap {
   return out;
 }
 
-function vitals(readings: ScalarMap): Vitals {
+function vitals(readings: ScalarMap, chargeLimit?: number): Vitals {
   const out: Vitals = {};
   const percent = number(readings.battery);
   const charging = flag(readings.charging);
@@ -232,6 +265,20 @@ function vitals(readings: ScalarMap): Vitals {
   const db = number(readings.soundDb);
   const active = flag(readings.soundActive);
   if (db !== undefined || active !== undefined) out.sound = { ...(db !== undefined ? { db } : {}), ...(active !== undefined ? { active } : {}) };
+  const rawState = number(readings.chargerState);
+  const state = rawState !== undefined && Number.isInteger(rawState) && rawState >= 0 && rawState < CHARGER_PHASES.length ? rawState : undefined;
+  const held = flag(readings.chargeHeld);
+  const usbMv = number(readings.usbMv);
+  if (state !== undefined || held !== undefined || usbMv !== undefined) {
+    const line = chargerLine(state, held, chargeLimit);
+    out.charger = {
+      ...(state !== undefined ? { state } : {}),
+      ...(held !== undefined ? { held } : {}),
+      ...(held && chargeLimit !== undefined ? { limit: chargeLimit } : {}),
+      ...(usbMv !== undefined ? { usbMv, usbText: `USB ${(usbMv / 1000).toFixed(2)} V` } : {}),
+      ...(line ? { line } : {}),
+    };
+  }
   return out;
 }
 
@@ -261,19 +308,29 @@ export function spokenSummary(info: DeviceInfo, at: number): string {
     if (battery?.percent !== undefined) {
       parts.push(`battery ${battery.percent}%${battery.charging ? " and charging" : battery.label === "low" ? ", low" : ""}`);
     } else if (battery?.charging) parts.push("charging");
+    // The charger only when it explains the battery: held by the limit, or full. USB volts are never spoken.
+    const charger = info.vitals.charger;
+    if (charger?.held || charger?.line === "full") parts.push(charger.line!);
     if (onPower === true) parts.push("on power");
     else if (onPower === false && battery?.percent === undefined) parts.push("on battery");
     if (signal) parts.push(`${signal.label} Wi-Fi`);
     if (uptime) parts.push(`up ${uptime.text}`);
   }
-  if (info.profile !== "normal") parts.push(`on ${info.profile === "power-saver" ? "power saver" : info.profile}${info.profileReason === "battery" ? " for its low battery" : ""}`);
+  if (info.profile === "dock") parts.push(dockLine(info.chargeLimit));
+  else if (info.profile !== "normal") parts.push(`on ${info.profile === "power-saver" ? "power saver" : info.profile}${info.profileReason === "battery" ? " for its low battery" : ""}`);
   if (info.updateAvailable) parts.push("an update is waiting");
   return `${info.name}: ${parts.join(", ")}.`;
 }
 
-/** The device needing attention most: the lowest battery not charging, else the weakest signal; undefined when none. */
+/** What Dock does, in a few words: "Dock: charging held at 80%". */
+export function dockLine(limit: number | undefined): string {
+  return limit !== undefined && limit < 100 ? `Dock: charging held at ${limit}%` : "Dock: no charge limit";
+}
+
+/** The device needing attention most: the lowest battery not charging (nor held by the charge limit), else the weakest signal; undefined when none. */
 export function lowest(infos: DeviceInfo[]): { client: string; reason: string } | undefined {
-  const batteries = infos.filter((i) => i.vitals.battery?.percent !== undefined && !i.vitals.battery.charging);
+  // A battery held by the charge limit is on USB, not running down.
+  const batteries = infos.filter((i) => i.vitals.battery?.percent !== undefined && !i.vitals.battery.charging && !i.vitals.charger?.held);
   const low = batteries.sort((a, b) => a.vitals.battery!.percent! - b.vitals.battery!.percent!)[0];
   if (low) return { client: low.name, reason: `battery ${low.vitals.battery!.percent}%` };
   const weak = infos.filter((i) => i.vitals.signal).sort((a, b) => a.vitals.signal!.rssi - b.vitals.signal!.rssi)[0];

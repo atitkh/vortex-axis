@@ -188,6 +188,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     timeZone: config.timeZone,
     // Read at each check, so a level saved on the Integrations page applies with the next readings.
     powerSaverBelow: () => config.powerSaverBelow,
+    dockChargeLimit: () => config.dockChargeLimit,
     activity,
     log,
   });
@@ -448,10 +449,17 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     if (gone) activity.note("task", session.client.id, `${gone} finished task${gone === 1 ? "" : "s"} put away with a swipe on ${session.client.name}`);
   });
 
+  let sentDockLimit = config.dockChargeLimit;
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {
     hub.setTimeZone(config.timeZone);
     hub.checkProfiles();
+    // A new Dock charge limit goes to the devices on Dock at once.
+    if (config.dockChargeLimit !== sentDockLimit) {
+      sentDockLimit = config.dockChargeLimit;
+      store.touchSettings();
+      hub.pushSettings((client) => hub.profile(client).profile === "dock");
+    }
     activity.setRetention(config.activityDays * 86_400_000);
     delivery.setHoldMs(config.messageHoldMs);
     if (changed.mqtt) startHomeAssistant();

@@ -124,7 +124,7 @@ export function SystemPage({ tab }) {
   const s = d?.settings;
   const saved = s && {
     publicHosts: s.publicHosts.join(", "), trustedProxies: s.trustedProxies.join(", "), timeZone: s.timeZone, activityDays: s.activityDays,
-    messageHoldMinutes: s.messageHoldMinutes, powerSaverBelow: s.powerSaverBelow, backupEveryHours: s.backupEveryHours, backupKeepDays: s.backupKeepDays,
+    messageHoldMinutes: s.messageHoldMinutes, powerSaverBelow: s.powerSaverBelow, dockChargeLimit: s.dockChargeLimit, backupEveryHours: s.backupEveryHours, backupKeepDays: s.backupKeepDays,
   };
   const form = useForm(entity, saved);
   useEffect(() => {
@@ -162,8 +162,9 @@ export function SystemPage({ tab }) {
       <${F} label="History kept" id="sys-activityDays" dirty=${form.dirty("activityDays")} help="Days of turns, events and wake word scores. Shortening it deletes what is now too old.">${num("activityDays", 1, 365, "days")}</${F}>
       <${F} label="Messages kept" id="sys-messageHoldMinutes" dirty=${form.dirty("messageHoldMinutes")} help="Minutes a message waits for a device that is away and cannot be notified. 0 keeps none.">${num("messageHoldMinutes", 0, 1440, "minutes")}</${F}>
     </${Card}>
-    <${Card} id="sys-power" title="Devices on battery" mark=${[s.powerSaverBelow ? `power saver at ${s.powerSaverBelow}%` : "off", ""]}>
+    <${Card} id="sys-power" title="Devices on battery" mark=${[`${s.powerSaverBelow ? `power saver at ${s.powerSaverBelow}%` : "power saver off"} · Dock ${s.dockChargeLimit}%`, ""]}>
       <${F} label="Power saver below" id="sys-powerSaverBelow" dirty=${form.dirty("powerSaverBelow")} help="A device on the Auto profile that reports its battery goes to power saver at or below this level while not charging, and back to normal 10 points above it or as soon as it charges. A profile chosen by hand on a device always wins. 0 switches the rule off.">${num("powerSaverBelow", 0, 90, "%")}</${F}>
+      <${F} label="Dock charge limit" id="sys-dockChargeLimit" dirty=${form.dirty("dockChargeLimit")} help="A device on the Dock profile, chosen by hand on its page, charges its battery only to this level while on USB and holds it there, charging again 5 points below. 100 is no limit. Auto never picks Dock.">${num("dockChargeLimit", 50, 100, "%")}</${F}>
     </${Card}>
     <${Card} id="sys-backup" title="Backup" mark=${backupMark(b)}>
       ${b?.configured

@@ -43,6 +43,8 @@ export interface Config {
    * (0: never). Editable on the admin page's Integrations page.
    */
   powerSaverBelow: number;
+  /** The charge limit (50 to 100 %) a device on the Dock profile is sent as `chargeLimit`. Editable on the admin page. */
+  dockChargeLimit: number;
   /** Longest utterance accepted from a client. */
   maxUtteranceMs: number;
   /** How often upstream services are checked. 0 turns the checks off. */
@@ -163,6 +165,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     wakeWindowMs: integer("AXIS_WAKE_WINDOW_MS", env.AXIS_WAKE_WINDOW_MS, 200),
     wakeMargin: fraction("AXIS_WAKE_MARGIN", env.AXIS_WAKE_MARGIN, 0.1, 0.5),
     powerSaverBelow: Math.min(90, integer("AXIS_POWER_SAVER_BELOW", env.AXIS_POWER_SAVER_BELOW, 20)),
+    dockChargeLimit: Math.max(50, Math.min(100, integer("AXIS_DOCK_CHARGE_LIMIT", env.AXIS_DOCK_CHARGE_LIMIT, 80))),
     maxUtteranceMs: integer("AXIS_MAX_UTTERANCE_MS", env.AXIS_MAX_UTTERANCE_MS, 30 * 1000),
     healthIntervalMs: integer("AXIS_HEALTH_INTERVAL_MS", env.AXIS_HEALTH_INTERVAL_MS, 30 * 1000),
     voiceprintUrl: env.AXIS_VOICEPRINT_URL || undefined,

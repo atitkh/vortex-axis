@@ -454,11 +454,16 @@ export const PROFILES = [
   ["normal", "Normal", "The device's own settings, as set."],
   ["power-saver", "Power saver", "Brightness at most 100, at most 15 frames a second."],
   ["silent", "Silent", "Nothing spoken: replies and messages are shown as text; volume 0, no listening cue or task chime where the device has them."],
+  ["dock", "Dock", "Normal, but on USB the battery charges only to the Dock charge limit (a hub setting, 80% unless changed), then holds. Never chosen by Auto."],
 ];
 export const PROFILE_WORDS = Object.fromEntries(PROFILES.map(([v, l]) => [v, l]));
 
-/** The profile a device is on and why, in a few words: "on silent (manual)", "on power saver (battery 17%)". */
-export function profileLine(profile = "normal", reason = "auto", battery) {
+/**
+ * The profile a device is on and why, in a few words: "on silent (manual)", "on power saver (battery 17%)";
+ * Dock says what it holds: "Dock: charging held at 80%" (`limit`, the charge limit it is sent).
+ */
+export function profileLine(profile = "normal", reason = "auto", battery, limit) {
+  if (profile === "dock") return Number(limit) < 100 ? `Dock: charging held at ${Number(limit)}%` : "Dock: no charge limit";
   const why = reason === "battery" ? `battery${battery === undefined ? " low" : ` ${battery}%`}` : reason;
   return `on ${(PROFILE_WORDS[profile] ?? profile).toLowerCase()} (${why})`;
 }

@@ -34,6 +34,8 @@ export interface HubSettings {
   wakeMargin: number;
   /** Battery percent at or below which a device on the "auto" profile goes to power saver (0: never). */
   powerSaverBelow: number;
+  /** The charge limit a device on the Dock profile is held at (50 to 100 %). */
+  dockChargeLimit: number;
 }
 
 const META_KEY = "hub_config";
@@ -69,6 +71,7 @@ function fromConfig(config: Config): HubSettings {
     desktopBlocked: config.desktopBlocked,
     wakeMargin: config.wakeMargin,
     powerSaverBelow: config.powerSaverBelow,
+    dockChargeLimit: config.dockChargeLimit,
   };
 }
 
@@ -112,6 +115,7 @@ function intoConfig(config: Config, settings: HubSettings): void {
   config.desktopBlocked = settings.desktopBlocked ?? [];
   config.wakeMargin = settings.wakeMargin ?? config.wakeMargin;
   config.powerSaverBelow = settings.powerSaverBelow ?? config.powerSaverBelow;
+  config.dockChargeLimit = settings.dockChargeLimit ?? config.dockChargeLimit;
 }
 
 /** Most entries in the desktop block list: it travels to the computer with each command, in at most 500 characters. */
@@ -220,6 +224,7 @@ export function saveHubSettings(store: Store, config: Config, input: unknown, re
     patch.wakeMargin = Math.round(margin * 1000) / 1000;
   }
   if (body.powerSaverBelow !== undefined) patch.powerSaverBelow = whole(body.powerSaverBelow, "the power saver battery level", 0, 90);
+  if (body.dockChargeLimit !== undefined) patch.dockChargeLimit = whole(body.dockChargeLimit, "the Dock charge limit", 50, 100);
   if (body.messageHoldMinutes !== undefined) patch.messageHoldMinutes = whole(body.messageHoldMinutes, "minutes a message is kept", 0, 1440);
 
   const earlier = store.getMeta(META_KEY);

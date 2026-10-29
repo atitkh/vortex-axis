@@ -440,6 +440,15 @@ try {
     step("admin: Overview switch back to auto", await next.until(`(t => t === 'on power saver (battery 17%)' && t)(document.querySelector('#profile-now')?.textContent)`, "back on auto, power saver by the battery", 15000));
     if (app.store.getLayer("device", board.client.id).profile !== undefined) throw new Error("Auto left a profile saved on the device");
     if (sentValues().volume === 0) throw new Error("the board kept silent's volume after Auto");
+    // Dock: chosen by hand, the hub's charge limit (80 %) sent as chargeLimit; the charger line and USB volts on the Overview.
+    await next.run(`document.querySelector('#profile-switch [data-profile="dock"]').click()`);
+    step("admin: Overview switch to dock", await next.until(`(t => t === 'Dock: charging held at 80%' && t)(document.querySelector('#profile-now')?.textContent)`, "Dock on the Overview", 15000));
+    if (sentValues().chargeLimit !== 80) throw new Error(`the board was not sent Dock's charge limit: ${JSON.stringify(sentValues())}`);
+    sock.send(JSON.stringify({ t: "sense", readings: { battery: 80, charging: 0, chargerState: 5, chargeHeld: 1, usbMv: 4980 } }));
+    step("admin: charger gauge", await next.until(`(g => g && /held at 80% by the charge limit/.test(g.textContent) && /USB 4\.98 V/.test(g.textContent) && g.textContent)(document.querySelector('[data-gauge=charger]'))`, "the charger line and USB volts", 15000));
+    await next.run(`document.querySelector('#profile-switch [data-profile="auto"]').click()`);
+    await next.until(`/^on (normal|power saver)/.test(document.querySelector('#profile-now')?.textContent ?? '')`, "back on auto after dock", 15000);
+    if (sentValues().chargeLimit !== 100) throw new Error(`the board kept Dock's charge limit after Auto: ${JSON.stringify(sentValues())}`);
     sock.close();
     await fetch(`${base}/admin/clients/${board.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
     // The battery preview, on a board that declares the battery look; the route is answered in the page, so the
@@ -481,6 +490,14 @@ try {
     step("admin: battery threshold tick", await next.until(`(t => t && getComputedStyle(t.parentElement).getPropertyValue('--low').trim() === '15%' && 'tick at 15 %')(document.querySelector('.battick'))`, "the tick at lowBatteryBelow"));
     // The Settings tab's side column holds the device sketch only; the previews are on the Tools tab, linked from the rows.
     await next.run(`(location.hash = '#clients/${encodeURIComponent(bat.client.id)}/settings', true)`);
+    // The charge limit in the Battery group beside the board's low battery look: a list by fives, 100 named No limit, staged and saved.
+    step("admin: charge limit control", await next.until(`(r => r && r.closest('details') === document.querySelector('[data-key=lowBatteryBelow]')?.closest('details') && r.closest('details').id === 'group-battery' && [...r.querySelectorAll('option')].map(o => o.textContent).join(',') === '50 %,55 %,60 %,65 %,70 %,75 %,80 %,85 %,90 %,95 %,No limit' && 'Battery group, 50 % to No limit')(document.querySelector('[data-key=chargeLimit]'))`, "the charge limit beside the low battery look"));
+    await next.run(`(s => { s.value = '85'; s.dispatchEvent(new Event('change', { bubbles: true })); })(document.querySelector('[data-edit=chargeLimit]'))`);
+    await next.until(`/1 unsaved change/.test(document.querySelector('.banner .savebar')?.textContent ?? '')`, "the charge limit staged");
+    await next.run(`document.querySelector('.banner [data-save]').click()`);
+    await next.until(`!document.querySelector('.banner .savebar') && document.querySelector('[data-key=chargeLimit] .src-chip')?.textContent === 'this device'`, "the charge limit saved");
+    if (app.store.getLayer("device", bat.client.id).chargeLimit !== 85) throw new Error(`chargeLimit saved as ${app.store.getLayer("device", bat.client.id).chargeLimit}`);
+    step("admin: charge limit saved", "85 % on the device layer");
     step("admin: settings rail sketch only", await next.until(`(r => r && r.querySelectorAll('.card').length === 1 && !r.querySelector('.glow, [data-battery-canvas], #mic-go') && document.querySelector('[data-key=lowBatteryBelow] .hlp a[href$="/tools"]') && 'sketch, Tools link on the battery row')(document.querySelector('aside.rail'))`, "the settings rail"));
     batSock.close();
     await fetch(`${base}/admin/clients/${bat.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
@@ -887,6 +904,14 @@ try {
     await next.until(`!${saveBar}`, "the system settings to save");
     const daysSaved = (await adminGet("/admin/integrations")).settings.activityDays;
     if (daysSaved !== 6) throw new Error(`activityDays was saved as ${daysSaved}`);
+    // The Dock charge limit beside Power saver below.
+    await next.until(`document.querySelector('#sys-power #sys-dockChargeLimit') && document.querySelector('#sys-power #sys-powerSaverBelow')`, "the Dock charge limit on System");
+    await next.run(fill("#sys-dockChargeLimit", "75"));
+    await next.run(`${saveBar}.querySelector('[data-save]').click()`);
+    await next.until(`!${saveBar}`, "the Dock charge limit to save");
+    const dockSaved = (await adminGet("/admin/integrations")).settings.dockChargeLimit;
+    if (dockSaved !== 75) throw new Error(`dockChargeLimit was saved as ${dockSaved}`);
+    step("admin: Dock charge limit", "75 % saved on System");
     await next.run(`location.hash = '#system/backup'`);
     await next.until(`(window.scrollY > 0 || Math.abs(document.querySelector('#sys-backup').getBoundingClientRect().top) < 120)`, "the backup card to scroll into view");
     await next.run(`document.querySelector('#backup-now').click()`);

@@ -187,9 +187,21 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     label: "Profile",
     kind: "choice",
     group: "Axis",
-    options: ["auto", "normal", "power-saver", "silent"],
+    options: ["auto", "normal", "power-saver", "silent", "dock"],
     default: "auto",
-    help: "A set of overrides on this device's own settings, beneath quiet hours. \"power-saver\": brightness at most 100, at most 15 frames a second. \"silent\": volume 0, no listening cue or task chime, nothing spoken: replies and messages are shown as text, and tap to talk still works. \"auto\" is normal, and power saver while a battery is low and not charging (the level is a hub setting). A choice other than auto holds until it is set back to auto.",
+    help: "A set of overrides on this device's own settings, beneath quiet hours. \"power-saver\": brightness at most 100, at most 15 frames a second. \"silent\": volume 0, no listening cue or task chime, nothing spoken: replies and messages are shown as text, and tap to talk still works. \"auto\" is normal, and power saver while a battery is low and not charging (the level is a hub setting). \"dock\": normal, but the battery is charged only to the Dock charge limit (a hub setting). Auto never picks dock. A choice other than auto holds until it is set back to auto.",
+  },
+  {
+    key: "chargeLimit",
+    label: "Charge limit",
+    kind: "number",
+    group: "Battery",
+    min: 50,
+    max: 100,
+    step: 5,
+    unit: "%",
+    default: 100,
+    help: "On USB a device with a battery charges it only to this level, then holds it (charging again 5 below). 100 is no limit. The Dock profile uses the hub's Dock charge limit instead. Devices that cannot hold ignore it.",
   },
   {
     key: "offlineAlert",
@@ -210,8 +222,9 @@ export const EMPTY_SCHEMA: ClientSchema = { settings: [], actions: [], links: []
 /**
  * Built-in settings whose defaults Axis sends every client beneath the stored layers, so that every client listens
  * by the same numbers and none needs its own: a value saved for everything, a type or a device still wins.
+ * `chargeLimit` is among them so a device always holds a value and leaving Dock sends its own (100 unless saved).
  */
-export const SENT_DEFAULT_KEYS = ["followUpMs", "onsetMs", "silenceMs", "maxSpeechMs"] as const;
+export const SENT_DEFAULT_KEYS = ["followUpMs", "onsetMs", "silenceMs", "maxSpeechMs", "chargeLimit"] as const;
 
 /** The defaults of `SENT_DEFAULT_KEYS`, as sent. */
 export function sentDefaults(): ScalarMap {
@@ -290,6 +303,7 @@ export function settingProblem(def: SettingDef, value: Scalar): string | undefin
       if (typeof value !== "number" || !Number.isFinite(value)) return `${def.label} must be a number`;
       if (def.min !== undefined && value < def.min) return `${def.label} must be at least ${def.min}`;
       if (def.max !== undefined && value > def.max) return `${def.label} must be at most ${def.max}`;
+      if (def.step !== undefined && Number.isInteger(def.step) && !Number.isInteger(value)) return `${def.label} must be a whole number`;
       return undefined;
     }
   }

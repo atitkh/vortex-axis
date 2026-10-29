@@ -118,7 +118,7 @@ function DeviceNode({ p, focus, wake }) {
   const chipW = profile ? profile.length * 6.4 + 12 : 0;
   if (n.version) vitals.push(html`<text key="v" x=${vx} y=${y + 60} class="t-sm dim">${fit(n.version, x + w - vx - 8 - (chipW ? chipW + 6 : 0), 11.5)}</text>`);
   if (profile) {
-    vitals.push(html`<g key="p" class="prof" data-profile-chip=${n.profile}><title>${profileLine(n.profile, n.profileReason, v.battery?.percent)}</title>
+    vitals.push(html`<g key="p" class="prof" data-profile-chip=${n.profile}><title>${profileLine(n.profile, n.profileReason, v.battery?.percent, n.chargeLimit)}</title>
       <rect x=${x + w - 8 - chipW} y=${y + 49} width=${chipW} height="15" rx="7.5" /><text x=${x + w - 8 - chipW / 2} y=${y + 60} text-anchor="middle" class="t-sm">${profile}</text></g>`);
   }
   const since = n.online ? "" : n.lastSeen ? ` · ${ago(n.lastSeen)}` : " · never connected";

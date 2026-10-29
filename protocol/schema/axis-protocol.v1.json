@@ -610,6 +610,10 @@
                 "maxLength": 16,
                 "type": "string"
               },
+              "step": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
               "options": {
                 "maxItems": 16,
                 "type": "array",

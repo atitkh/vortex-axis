@@ -10,6 +10,8 @@ import {
 
 /** Words and a line of help for each option of a choice that has them: [value, label, help]. */
 const OPTION_WORDS = { profile: PROFILES };
+/** Words for some values of a number setting, shown in place of the number. */
+export const NUMBER_WORDS = { chargeLimit: { 100: "No limit" } };
 
 /** Keys with their own place on a device page, never a row. */
 export const DEVICE_ONLY = new Set(["location", "capabilitiesOff"]);
@@ -32,6 +34,8 @@ export function showValue(def, value) {
   if (value === undefined || value === null || value === "") return "not set";
   if (def.kind === "toggle") return Number(value) ? "on" : "off";
   if (def.kind === "client") return clientName(value) ?? String(value);
+  const word = def.kind === "number" ? NUMBER_WORDS[def.key]?.[Number(value)] : undefined;
+  if (word) return word;
   return `${value}${def.unit && def.kind === "number" ? ` ${def.unit}` : ""}`;
 }
 
@@ -62,6 +66,7 @@ export function problemOf(def, value) {
       if (typeof value !== "number" || !Number.isFinite(value)) return `${def.label} must be a number`;
       if (def.min !== undefined && value < def.min) return `${def.label} must be at least ${def.min}`;
       if (def.max !== undefined && value > def.max) return `${def.label} must be at most ${def.max}`;
+      if (Number.isInteger(def.step) && !Number.isInteger(value)) return `${def.label} must be a whole number`;
       return "";
     case "choice":
       return (def.options ?? []).some((o) => String(o) === String(value)) ? "" : `${def.label} must be one of ${(def.options ?? []).join(", ")}`;
@@ -214,8 +219,19 @@ function Editor({ def, value, onStage, label }) {
       ${options.map(([v, l]) => html`<option key=${String(v)} value=${String(v)}>${l}</option>`)}
     </select>`;
   }
+  // A number with a few steps between its bounds (a charge limit by fives) is a list of them, named where it has words.
+  const steps = def.kind === "number" && def.step > 0 && def.min !== undefined && def.max !== undefined ? Math.floor((def.max - def.min) / def.step) + 1 : 0;
+  if (steps > 1 && steps <= 21) {
+    const values = Array.from({ length: steps }, (_, i) => def.min + i * def.step);
+    const has = value !== undefined && value !== null && value !== "";
+    if (has && !values.includes(Number(value))) values.push(Number(value));
+    return html`<select class="field" data-edit=${def.key} aria-label=${label} value=${has ? String(Number(value)) : ""} onChange=${(e) => onStage(e.target.value === "" ? null : Number(e.target.value))}>
+      ${!has ? html`<option value="">choose</option>` : null}
+      ${values.sort((a, b) => a - b).map((v) => html`<option key=${v} value=${String(v)}>${NUMBER_WORDS[def.key]?.[v] ?? `${v}${def.unit ? ` ${def.unit}` : ""}`}</option>`)}
+    </select>`;
+  }
   const input = html`<input class=${`field${def.kind === "number" ? " num" : ""}`} type=${def.kind === "number" ? "number" : "text"} data-edit=${def.key} aria-label=${label}
-    value=${value ?? ""} placeholder=${def.placeholder ?? "not set"} spellcheck="false" min=${def.min} max=${def.max}
+    value=${value ?? ""} placeholder=${def.placeholder ?? "not set"} spellcheck="false" min=${def.min} max=${def.max} step=${def.step}
     onInput=${(e) => onStage(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} />`;
   return def.kind === "number" && def.unit ? html`<span class="unit">${input}<span>${def.unit}</span></span>` : input;
 }

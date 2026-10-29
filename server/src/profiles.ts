@@ -12,14 +12,25 @@ import type { ScalarMap } from "@vortex-axis/protocol";
  *
  * Silent also changes how Axis delivers to the device (turns.ts, delivery.ts): nothing is spoken there, replies and
  * messages are shown as text, and a device without a screen keeps messages until it leaves silent.
+ *
+ * Dock is normal in every respect but one: the device's `chargeLimit` is the hub's `dockChargeLimit`, so a board left
+ * on USB holds its battery there (the firmware does the holding). It is a manual choice only: no rule picks it.
  */
 
-export const PROFILE_NAMES = ["normal", "power-saver", "silent"] as const;
+export const PROFILE_NAMES = ["normal", "power-saver", "silent", "dock"] as const;
 export type ProfileName = (typeof PROFILE_NAMES)[number];
 /** What the `profile` setting may hold. */
 export const PROFILE_CHOICES = ["auto", ...PROFILE_NAMES] as const;
 /** Why a device is on its profile: chosen by hand, put there by the battery rule, or "auto" with no rule in force. */
 export type ProfileReason = "manual" | "battery" | "auto";
+
+/** The hub's settings a profile's overrides are made from. */
+export interface ProfileHubSettings {
+  /** The charge limit Dock holds a device's battery at (50 to 100). */
+  dockChargeLimit: number;
+}
+
+export const DEFAULT_DOCK_CHARGE_LIMIT = 80;
 
 /** Points above `powerSaverBelow` the battery must reach before power saver ends by itself. */
 export const POWER_SAVER_HYSTERESIS = 10;
@@ -40,7 +51,15 @@ export const PROFILES: Record<ProfileName, Overrides> = {
   normal: {},
   "power-saver": { cap: { brightness: 100, maxFps: 15 } },
   silent: { set: { volume: 0, listenCue: 0, taskChime: 0 } },
+  // Made from the hub's dockChargeLimit by overridesOf.
+  dock: {},
 };
+
+/** The overrides of `profile`, with the hub's values filled in. */
+export function overridesOf(profile: ProfileName, hub: ProfileHubSettings): Overrides {
+  if (profile === "dock") return { set: { chargeLimit: hub.dockChargeLimit } };
+  return PROFILES[profile];
+}
 
 /** The profile name a `profile` setting holds, or undefined for "auto" and anything unknown. */
 export function chosenProfile(value: unknown): ProfileName | undefined {
@@ -52,8 +71,13 @@ export function chosenProfile(value: unknown): ProfileName | undefined {
  * default its own description gives (`declared`), so a board is handed `maxFps` and a browser without one is not.
  * A capped value keeps its type (a choice sent as "30" goes out as "20").
  */
-export function withProfile(settings: ScalarMap, profile: ProfileName, declared: ScalarMap = {}): ScalarMap {
-  const { cap = {}, set = {} } = PROFILES[profile];
+export function withProfile(
+  settings: ScalarMap,
+  profile: ProfileName,
+  declared: ScalarMap = {},
+  hub: ProfileHubSettings = { dockChargeLimit: DEFAULT_DOCK_CHARGE_LIMIT },
+): ScalarMap {
+  const { cap = {}, set = {} } = overridesOf(profile, hub);
   const out: ScalarMap = { ...settings };
   for (const [key, limit] of Object.entries(cap)) {
     const value = key in settings ? settings[key] : declared[key];
@@ -78,7 +102,7 @@ export function batterySaver(was: boolean, battery: number | undefined, charging
   return was;
 }
 
-/** The profile in force: a manual choice beats the rule. */
+/** The profile in force: a manual choice beats the rule. The rule only ever picks power saver: never silent or dock. */
 export function activeProfile(choice: unknown, saver: boolean): { profile: ProfileName; reason: ProfileReason } {
   const chosen = chosenProfile(choice);
   if (chosen) return { profile: chosen, reason: "manual" };

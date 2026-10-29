@@ -295,6 +295,8 @@ function gauges(n) {
     const note = [b.charging ? "charging" : "", b.millivolts ? `${(b.millivolts / 1000).toFixed(2)} V` : ""].filter(Boolean).join(" · ");
     out.push(html`<${Gauge} id="battery" label="Battery" pic=${b.percent !== undefined ? html`<${Ring} percent=${b.percent} low=${b.label === "low"} />` : null} value=${b.percent !== undefined ? `${b.percent}%` : b.label ?? "reported"} note=${note} />`);
   }
+  // The charger in plain words (server/src/deviceinfo.ts, chargerLine) with the USB volts beneath, for the admin only.
+  if (v.charger) out.push(html`<${Gauge} id="charger" label="Charger" value=${v.charger.line ?? "reported"} note=${v.charger.usbText ?? ""} />`);
   if (v.onPower !== undefined && !v.battery) out.push(html`<${Gauge} id="power" label="Power" value=${v.onPower ? "on power" : "on battery"} />`);
   if (v.signal) out.push(html`<${Gauge} id="signal" label="Wi-Fi" pic=${html`<svg viewBox="0 0 26 22" width="40" height="34" class="bars-g" aria-hidden="true"><${Bars} x=${1} y=${21} rssiLabel=${v.signal.label} size=${5} /></svg>`} value=${v.signal.label} note=${`${v.signal.rssi} dBm`} />`);
   if (v.uptime) out.push(html`<${Gauge} id="uptime" label="Up" value=${v.uptime.text} note=${v.lastRestart ? `last restart: ${v.lastRestart}` : ""} />`);
@@ -340,7 +342,7 @@ function ProfileSwitch({ client, battery }) {
     setBusy("");
   };
   const help = PROFILES.find(([v]) => v === choice)?.[2];
-  return html`<section class="card" id="profile-card"><div class="card-h"><h3>Profile</h3><span class="dim sm" id="profile-now">${profileLine(client.profile, client.profileReason, battery)}</span></div><div class="card-b">
+  return html`<section class="card" id="profile-card"><div class="card-h"><h3>Profile</h3><span class="dim sm" id="profile-now">${profileLine(client.profile, client.profileReason, battery, client.effective?.chargeLimit)}</span></div><div class="card-b">
     <div class="seg" role="group" aria-label="Profile" id="profile-switch">${PROFILES.map(([v, l, h]) => html`<button key=${v} type="button" data-profile=${v} title=${h} class=${v === choice ? "on" : ""} aria-pressed=${v === choice} disabled=${Boolean(busy)} onClick=${() => pick(v)}>${l}</button>`)}</div>
     <p class="help">${help ? `${help} ` : ""}Applies at once.</p>
   </div></section>`;

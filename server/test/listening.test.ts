@@ -13,7 +13,7 @@ describe("the shared listening settings", () => {
       ["silenceMs", 900, 300, 5000, "ms"],
       ["maxSpeechMs", 20000, 3000, 60000, "ms"],
     ]);
-    expect(sentDefaults()).toEqual({ followUpMs: 6000, onsetMs: 6000, silenceMs: 900, maxSpeechMs: 20000 });
+    expect(sentDefaults()).toEqual({ followUpMs: 6000, onsetMs: 6000, silenceMs: 900, maxSpeechMs: 20000, chargeLimit: 100 });
     // A board that still declares them gets Axis's: one definition for every client.
     const board = withBuiltIns({ settings: [{ key: "silenceMs", label: "Mine", kind: "number", default: 1 }], actions: [], links: [] });
     expect(board.settings.filter((s) => s.key === "silenceMs")).toEqual([BUILT_IN_SETTINGS.find((s) => s.key === "silenceMs")]);
