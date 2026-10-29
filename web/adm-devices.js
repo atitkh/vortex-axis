@@ -8,7 +8,7 @@ import {
   ago, api, ask, behind, clientById, deviceHref, download, draftOf, enc, heldBuild, kept, kindOf, offlineAfter,
   plural, PROFILE_WORDS, profileLine, refresh, RolloutCard, rolloutRunning, runCommand, startRollout, setDraft, span, store, toast, typeHref, typeName, typesInUse, updateDevice, useStore, Dom,
 } from "/web/adm-core.js";
-import { BatteryPreview, DeviceSketch, GlowPreview, MicPanel, batteryDef, doingOf, glowDef } from "/web/adm-tools.js";
+import { BatteryPreview, DeviceSketch, GlowPreview, MicPanel, RecentPictures, ShowPicture, batteryDef, doingOf, glowDef, showsPictures } from "/web/adm-tools.js";
 import { DeviceTwin } from "/web/adm-twin.js";
 import {
   DEVICE_ONLY, LayerBanner, SaveBar, SettingsEditor, capabilityGroup, differsOn, inherited, saveDraft, shareWithType, showValue, stage,
@@ -161,7 +161,7 @@ export function DevicePage({ id, tab, focusKey }) {
   }
   const entity = `device:${client.id}`;
   const schema = store.types[client.type] ?? { settings: [], actions: [], links: [] };
-  const hasTools = Boolean(glowDef(client)) || Boolean(batteryDef(client)) || schema.actions.some((a) => a.name === "mic");
+  const hasTools = Boolean(glowDef(client)) || Boolean(batteryDef(client)) || schema.actions.some((a) => a.name === "mic") || showsPictures(client);
   const tabs = ["overview", "settings", ...(hasTools ? ["tools"] : []), "danger"];
   const current = tabs.includes(tab) ? tab : "overview";
   const own = ownKeys(client).length;
@@ -399,11 +399,16 @@ function DeviceTools({ client, schema }) {
   const d = draftOf(entity);
   const saved = Number(client.settings.glowCorner ?? glow?.def.default ?? 56);
   const radius = Object.hasOwn(d.values, "glowCorner") && d.values.glowCorner !== null ? Number(d.values.glowCorner) : saved;
+  const [shown, setShown] = useState(0);
   return html`<div class="tools-grid">
     ${glow ? html`<section class="card"><div class="card-h"><h3>Edge glow</h3><span class="dim sm">Drawn the way the device draws it</span></div><div class="card-b">
       <${GlowPreview} client=${client} radius=${radius} saved=${saved} onRadius=${(r) => stage(entity, glow.def, r, client.layers.device.glowCorner, inherited(glow.def, client.layers, "device"))} /></div></section>` : null}
     ${batteryDef(client) ? html`<section class="card"><div class="card-h"><h3>Battery</h3><span class="dim sm">Drawn the way the device draws it</span></div><div class="card-b">
       <${BatteryPreview} client=${client} ...${batteryLook(client, d, radius)} /></div></section>` : null}
+    ${showsPictures(client) ? html`<section class="card"><div class="card-h"><h3>Show a picture</h3><span class="dim sm">As the show tool does</span></div><div class="card-b">
+      <${ShowPicture} client=${client} onShown=${() => setShown((n) => n + 1)} /></div></section>
+    <section class="card"><div class="card-h"><h3>Recent pictures</h3><span class="dim sm">Any device, a day at most</span></div><div class="card-b">
+      <${RecentPictures} client=${client} stamp=${shown} /></div></section>` : null}
     ${schema.actions.some((a) => a.name === "mic") ? html`<section class="card"><div class="card-h"><h3>Microphone levels</h3></div><div class="card-b"><${MicPanel} client=${client} /></div></section>` : null}
   </div>`;
 }

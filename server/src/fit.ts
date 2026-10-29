@@ -26,6 +26,8 @@ export interface FitOptions {
   height: number;
   /** Fill the box, cutting off what sticks out (the middle kept), instead of fitting the whole picture inside it. */
   cover?: boolean;
+  /** The screen is a circle filling the box: a whole picture is fitted inside the circle, not the box's corners. */
+  round?: boolean;
   quality?: number;
   maxPixels?: number;
   timeoutMs?: number;
@@ -60,7 +62,10 @@ try {
     else { ch = Math.max(1, Math.round(cw / want)); oy = Math.floor((src.height - ch) / 2); }
   }
   // Fit enlarges at most twice; cover fills the box whatever it takes.
-  const scale = Math.min(job.width / cw, job.height / ch, job.cover ? Infinity : 2);
+  // On a round screen the largest box of the picture's shape inside the circle.
+  const across = Math.min(job.width, job.height), slant = Math.sqrt(1 + (cw / ch) ** 2);
+  const boxW = job.round && !job.cover ? (across * (cw / ch)) / slant : job.width, boxH = job.round && !job.cover ? across / slant : job.height;
+  const scale = Math.min(boxW / cw, boxH / ch, job.cover ? Infinity : 2);
   const w = job.cover ? job.width : Math.max(1, Math.round(cw * scale)), h = job.cover ? job.height : Math.max(1, Math.round(ch * scale));
   // Cover makes exactly the box; the cut may leave the two scales a hair apart.
   const sx = job.cover ? w / cw : scale, sy = job.cover ? h / ch : scale;
@@ -97,6 +102,7 @@ export function fitToJpeg(bytes: Buffer, mime: string, options: FitOptions): Pro
     width: options.width,
     height: options.height,
     cover: options.cover === true,
+    round: options.round === true,
     quality: options.quality ?? 80,
     maxPixels: options.maxPixels ?? 16_000_000,
   };

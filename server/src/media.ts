@@ -182,7 +182,7 @@ export class Pictures {
       port: PicturePort;
       fetch: () => ((media: { source: string; sessionKey?: string | undefined; agentId?: string | undefined }) => Promise<{ bytes: Buffer; mime: string }>) | undefined;
       /** Shrinks a picture for a small screen (fit.ts). Without it, boards are sent no pictures. */
-      fit?: (bytes: Buffer, mime: string, box: { width: number; height: number; cover?: boolean }) => Promise<{ jpeg: Buffer; width: number; height: number }>;
+      fit?: (bytes: Buffer, mime: string, box: { width: number; height: number; cover?: boolean; round?: boolean }) => Promise<{ jpeg: Buffer; width: number; height: number }>;
       log?: (line: string) => void;
     },
   ) {}
@@ -252,7 +252,7 @@ export class Pictures {
     if (!showsFrames(session) || !this.options.fit) return { shown: false, note: "no screen: it cannot show pictures" };
     if (!FIT_TYPES.includes(picture.mime)) return { shown: false, note: `a ${picture.mime} picture cannot be shown on a board: PNG or JPEG only` };
     try {
-      const fitted = await this.options.fit(picture.bytes, picture.mime, { ...screenOf(session), ...(to.cover ? { cover: true } : {}) });
+      const fitted = await this.options.fit(picture.bytes, picture.mime, { ...screenOf(session), ...(to.cover ? { cover: true } : {}), ...(Number(session.readings?.screenRound) === 1 ? { round: true } : {}) });
       this.sendFrames(session, to.turnId, fitted, to.seconds);
       return { shown: true, how: "frames" };
     } catch (error) {

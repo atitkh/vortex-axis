@@ -488,6 +488,40 @@ try {
     await batRefusal(404, { error: "not found" }, /newer firmware/);
     step("admin: battery refusals", `${old} / ${none}`);
     step("admin: battery threshold tick", await next.until(`(t => t && getComputedStyle(t.parentElement).getPropertyValue('--low').trim() === '15%' && 'tick at 15 %')(document.querySelector('.battick'))`, "the tick at lowBatteryBelow"));
+    // Show a picture, on a pretend board that takes pictures over its socket: a file chosen on its Tools tab goes out as
+    // image.start with the seconds asked for, Recent pictures lists it with a thumbnail, Show again sends it again, Clear
+    // sends image.clear. The real routes, not answered in the page.
+    const picCode = app.store.createPairingCode(60_000).code;
+    const pic = app.store.pair({ code: picCode, type: "picture-board", version: "0.0.0", capabilities: ["screen", "image-frames"], name: "Picture board" });
+    const picSock = new WebSocket(`ws://localhost:${app.port}/v1/client`);
+    await new Promise((r, j) => (picSock.once("open", r), picSock.once("error", j)));
+    const picGot = [];
+    picSock.on("message", (data, binary) => { if (!binary) picGot.push(JSON.parse(String(data))); });
+    picSock.send(JSON.stringify({ t: "hello", protocol: 1, clientId: pic.client.id, token: pic.token, type: "picture-board", version: "0.0.0", capabilities: ["screen", "image-frames"], settingsVersion: 0 }));
+    picSock.send(JSON.stringify({ t: "sense", readings: { screenW: 368, screenH: 448 } }));
+    await next.run(`location.hash = '#clients/${encodeURIComponent(pic.client.id)}/tools'`);
+    await next.until(`document.querySelector('[data-show-picture] [data-edit=show-file]') && document.querySelector('[data-recent-empty], [data-recent-pictures]')`, "the Show a picture card");
+    await next.run(`(() => { const c = document.createElement('canvas'); c.width = 40; c.height = 20; const g = c.getContext('2d'); g.fillStyle = '#f00'; g.fillRect(0, 0, 40, 20); c.toBlob((b) => { const input = document.querySelector('[data-edit=show-file]'); const dt = new DataTransfer(); dt.items.add(new File([b], 'red.png', { type: 'image/png' })); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); }, 'image/png'); return true; })()`);
+    await next.until(`document.querySelector('[data-show-preview]')?.complete && !document.querySelector('[data-show-send]').disabled`, "the chosen picture in the preview");
+    await next.run(`(s => { s.value = '25'; s.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('[data-edit=show-seconds]'))`);
+    await next.run(`(s => { s.value = 'a red box'; s.dispatchEvent(new Event('input', { bubbles: true })); })(document.querySelector('[data-edit=show-alt]'))`);
+    await next.run(`document.querySelector('[data-show-send]').click()`);
+    await next.until(`(n => n && /good/.test(n.className) && n.textContent)(document.querySelector('[data-show-note]'))`, "the picture shown");
+    // 40 by 20, enlarged at most twice.
+    const picStart = picGot.find((m) => m.t === "image.start");
+    if (!picStart || picStart.seconds !== 25 || !/^say-/.test(picStart.turnId) || picStart.width !== 80) throw new Error(`image.start: ${JSON.stringify(picStart)}`);
+    step("admin: Show a picture", `image.start ${picStart.width}x${picStart.height}, ${picStart.seconds} s, ${picStart.turnId}`);
+    step("admin: Recent pictures", await next.until(`(li => li && li.querySelector('img')?.naturalWidth > 0 && /Picture board/.test(li.textContent) && /a red box/.test(li.textContent) && li.querySelector('b').textContent + ': ' + li.querySelector('.sm:last-child').textContent)(document.querySelector('[data-recent-picture]'))`, "the picture in Recent pictures"));
+    await next.run(`document.querySelector('[data-show-again]').click()`);
+    await next.until(`document.querySelectorAll('[data-recent-picture]').length === 2`, "Show again listed");
+    if (picGot.filter((m) => m.t === "image.start").length !== 2) throw new Error("Show again sent no second picture");
+    await next.run(`document.querySelector('[data-show-clear]').click()`);
+    await next.until(`/Taken off/.test(document.querySelector('[data-show-note]')?.textContent ?? '')`, "the picture cleared");
+    const picClear = picGot.find((m) => m.t === "image.clear");
+    if (!picClear || picClear.turnId !== picGot.filter((m) => m.t === "image.start")[1].turnId) throw new Error(`image.clear: ${JSON.stringify(picClear)}`);
+    step("admin: Show again and Clear", `image.clear ${picClear.turnId}`);
+    picSock.close();
+    await fetch(`${base}/admin/clients/${pic.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
     // The Settings tab's side column holds the device sketch only; the previews are on the Tools tab, linked from the rows.
     await next.run(`(location.hash = '#clients/${encodeURIComponent(bat.client.id)}/settings', true)`);
     // The charge limit in the Battery group beside the board's low battery look: a list by fives, 100 named No limit, staged and saved.
@@ -694,7 +728,7 @@ try {
     if (cardsAfter === cardsBefore || (await adminGet("/admin/mcp")).mirrorCards !== cardsBefore) throw new Error("the progress cards switch did not save or undo");
     step("admin: progress cards switch", `${cardsBefore} → ${cardsAfter} saved, undone`);
     await next.run(`location.hash = '#tools'`);
-    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 11 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
+    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 12 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
     await next.run(`${fill("#mcp-token-name", "Browser check next")}; document.querySelector('#mcp-token-new').click()`);
     const nextToken = await next.until(`document.querySelector('#mcp-token-value')?.value`, "the new token on the new page");
     await next.until(`/Browser check next/.test(document.querySelector('#mcp-tokens').textContent)`, "the token in the new list");

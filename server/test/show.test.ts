@@ -117,10 +117,17 @@ describe("showing a picture", () => {
     await client.next("image.end", 0, (m: any) => m.imageId === covered.imageId);
     const pieces = client.received.filter((m: any) => m.t === "image.data" && m.imageId === covered.imageId) as { data: string }[];
     expect(jpeg.decode(Buffer.concat(pieces.map((p) => Buffer.from(p.data, "base64")))).height).toBe(448);
+    // A round board: the whole picture inside the circle (200x100 in a circle 466 across has room for 417x208; enlarged at most twice).
+    client.send({ t: "sense", readings: { screenW: 466, screenH: 466, screenRound: 1 } });
+    await new Promise((r) => setTimeout(r, 50));
+    await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64") });
+    const inCircle = await client.next("image.start", 0, (m: any) => m.width !== 368);
+    expect([inCircle.width, inCircle.height]).toEqual([400, 200]);
+    await client.next("image.end", 0, (m: any) => m.imageId === inCircle.imageId);
     // A board cannot decode a GIF: said so.
     expect(await invoke("vortex.axis.show", { client: "Desk", base64: GIF_BYTES.toString("base64") })).toMatchObject({ shown: false, note: expect.stringMatching(/PNG or JPEG/) });
     expect((await admin("POST", `/admin/clients/${identity.clientId}/show/clear`)).body).toEqual({ client: "Desk", cleared: true });
-    expect(await client.next("image.clear")).toEqual({ t: "image.clear", turnId: covered.turnId });
+    expect(await client.next("image.clear")).toEqual({ t: "image.clear", turnId: inCircle.turnId });
   });
 
   it("sends a browser the picture's address with the seconds, from the admin page", async () => {

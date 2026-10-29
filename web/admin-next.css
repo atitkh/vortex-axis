@@ -408,6 +408,12 @@ details.raw { padding-top: 0; }
 .glow-frame.round { border-radius: 50%; }
 .glow-frame canvas { display: block; background: #000; border-radius: 10px; }
 .glow-frame.round canvas { border-radius: 50%; }
+.showpic-screen { display: grid; place-items: center; background: #000; border-radius: 10px; overflow: hidden; }
+.glow-frame.round .showpic-screen { border-radius: 50%; }
+.showpic-screen img { width: 100%; height: 100%; display: block; }
+.recentpics { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.recentpics li { display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center; }
+.recentpics img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; background: #000; }
 .glowkinds { display: flex; flex-wrap: wrap; gap: 6px; }
 .glowkinds button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); color: var(--muted); background: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; min-height: 28px; }
 .glowkinds button i { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }

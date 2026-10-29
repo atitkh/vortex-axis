@@ -4,7 +4,7 @@
 
 import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import { Vortex } from "/web/vortex.js";
-import { api, enc, kept, set, store } from "/web/adm-core.js";
+import { ago, api, enc, kept, set, store } from "/web/adm-core.js";
 
 // --- the face -----------------------------------------------------------------------------------
 
@@ -543,5 +543,108 @@ export function MicPanel({ client }) {
       <button type="button" class="btn sm" id="mic-go" disabled=${!client.online && !mine?.running} onClick=${() => (mine?.running ? stopMic() : start())}>${mine?.running ? "Stop" : "Start"}</button>
       ${mine?.note ? html`<span class=${`msg ${mine.kind ?? ""}`} id="mic-note">${mine.note}</span>` : html`<span class="msg" id="mic-note"></span>`}
     </div>
+  </div>`;
+}
+
+// --- pictures shown on a screen (the show tool) ---------------------------------------------------
+
+/** Whether a device can show pictures at all: what it reported, before anything was switched off. */
+export const showsPictures = (client) => (client.reported ?? client.capabilities ?? []).some((c) => c === "images" || c === "image-frames");
+
+/** Puts a picture on the device's screen for a while, from a file or an https address; Clear takes it down. */
+export function ShowPicture({ client, onShown }) {
+  const [file, setFile] = useState(null);
+  const [url, setUrl] = useState("");
+  const [seconds, setSeconds] = useState(10);
+  const [alt, setAlt] = useState("");
+  const [fit, setFit] = useState("contain");
+  const [note, setNote] = useState(["", ""]);
+  const round = Number(client.readings?.screenRound) === 1;
+  const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;
+  const scale = Math.min(1, 200 / Math.max(w, hgt));
+  const off = (client.off ?? []).some((c) => c === "screen" || c === "images" || c === "image-frames");
+  const src = file?.data || (/^https:\/\//i.test(url.trim()) ? url.trim() : "");
+  const pickFile = (e) => {
+    const chosen = e.currentTarget.files?.[0];
+    if (!chosen) return setFile(null);
+    if (chosen.size > 5 * 1024 * 1024) return (setFile(null), setNote(["That file is larger than 5 MB.", "bad"]));
+    const reader = new FileReader();
+    reader.onload = () => (setFile({ name: chosen.name, mime: chosen.type, data: String(reader.result) }), setUrl(""), setNote(["", ""]));
+    reader.readAsDataURL(chosen);
+  };
+  const show = async () => {
+    setNote(["Sending…", ""]);
+    try {
+      const source = file ? { base64: file.data, ...(file.mime ? { mime: file.mime } : {}) } : { url: url.trim() };
+      const result = await api("POST", `/admin/clients/${enc(client.id)}/show`, { ...source, seconds: Number(seconds) || 10, fit, ...(alt.trim() ? { alt: alt.trim() } : {}) });
+      setNote([result.shown ? `On ${client.name} for ${result.seconds} s.` : result.note, result.shown ? "good" : "bad"]);
+      onShown?.();
+    } catch (error) {
+      setNote([error.status === 404 || error.status === 405 ? "This Axis cannot show pictures yet." : error.message, "bad"]);
+    }
+  };
+  const clear = async () => {
+    try {
+      const result = await api("POST", `/admin/clients/${enc(client.id)}/show/clear`);
+      setNote([result.cleared ? `Taken off ${client.name}'s screen.` : result.note, result.cleared ? "good" : "bad"]);
+    } catch (error) {
+      setNote([error.message, "bad"]);
+    }
+  };
+  return html`<div class="glow showpic" data-show-picture>
+    <div class=${`glow-frame${round ? " round" : ""}`}>
+      <div class="showpic-screen" style=${`width:${Math.round(w * scale)}px;height:${Math.round(hgt * scale)}px`}>
+        ${src ? html`<img src=${src} alt=${alt || "The picture to show"} style=${`object-fit:${fit}`} data-show-preview />` : html`<span class="dim sm">No picture chosen</span>`}
+      </div>
+    </div>
+    <div class="glow-controls">
+      <label class="slider">Picture file (PNG or JPEG${(client.capabilities ?? []).includes("images") ? ", WebP, GIF" : ""}; 5 MB at most)
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-edit="show-file" onChange=${pickFile} /></label>
+      <label class="slider">Or an https address
+        <input class="field" type="url" placeholder="https://…" value=${url} data-edit="show-url" onInput=${(e) => (setUrl(e.currentTarget.value), setFile(null))} /></label>
+      <label class="slider">Seconds on the screen
+        <input class="field" type="number" min="1" max="300" value=${seconds} data-edit="show-seconds" onInput=${(e) => setSeconds(e.currentTarget.value)} /></label>
+      <label class="slider">What it shows (optional)
+        <input class="field" maxlength="200" value=${alt} data-edit="show-alt" onInput=${(e) => setAlt(e.currentTarget.value)} /></label>
+      <div class="glowkinds" role="group" aria-label="Fit">
+        ${[["contain", "Whole picture"], ["cover", "Fill the screen"]].map(([key, label]) => html`<button type="button" key=${key} class=${fit === key ? "on" : ""} aria-pressed=${fit === key} data-show-fit=${key} onClick=${() => setFit(key)}>${label}</button>`)}
+      </div>
+      <p class="help">${off ? "Its screen is switched off on the Capabilities card, so nothing will show." : round ? "A round screen: keep what matters inside the middle; a whole picture is fitted inside the circle." : "Shown over the face, silently, also in quiet hours."}</p>
+      <div class="row-acts">
+        <button type="button" class="btn sm" disabled=${!client.online || !src} onClick=${show} data-show-send>Show</button>
+        <button type="button" class="btn sm" disabled=${!client.online} onClick=${clear} data-show-clear>Clear</button>
+      </div>
+      ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status" data-show-note>${note[0]}</p>` : null}
+    </div>
+  </div>`;
+}
+
+/** The pictures shown lately on any device (kept in memory by Axis, a day at most), each one to show here again. */
+export function RecentPictures({ client, stamp }) {
+  const [list, setList] = useState(null);
+  const [note, setNote] = useState(["", ""]);
+  const load = () => api("GET", "/admin/pictures").then((r) => setList(r.pictures ?? []), () => setList([]));
+  useEffect(() => void load(), [stamp]);
+  const again = async (picture) => {
+    try {
+      const result = await api("POST", `/admin/pictures/${enc(picture.id)}/show`, { client: client.id });
+      setNote([result.shown ? `On ${client.name} again for ${result.seconds} s.` : result.note, result.shown ? "good" : "bad"]);
+      load();
+    } catch (error) {
+      setNote([error.status === 410 ? "That picture is no longer kept." : error.message, "bad"]);
+    }
+  };
+  if (list === null) return html`<p class="dim sm">Loading…</p>`;
+  if (!list.length) return html`<p class="dim sm" data-recent-empty>No pictures shown since Axis started.</p>`;
+  return html`<div data-recent-pictures>
+    <ul class="recentpics">
+      ${list.map((p) => html`<li key=${p.id} data-recent-picture>
+        <img src=${p.thumb} alt=${p.alt || "A picture shown"} loading="lazy" />
+        <div><b>${p.device}</b> <span class="dim sm">${ago(p.at)}, ${p.seconds} s, by ${p.by === "agent" ? "an agent" : "the admin page"}${p.shown ? "" : ", not shown"}</span>
+          <div class="sm">${p.alt || html`<span class="dim">No description</span>`}</div></div>
+        <button type="button" class="btn sm" disabled=${!client.online || !p.available} title=${p.available ? "" : "No longer kept"} onClick=${() => again(p)} data-show-again>Show again</button>
+      </li>`)}
+    </ul>
+    ${note[0] ? html`<p class=${`msg ${note[1]}`} role="status" data-recent-note>${note[0]}</p>` : null}
   </div>`;
 }
