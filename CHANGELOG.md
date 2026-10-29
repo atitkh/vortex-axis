@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Round board firmware 0.9.0 (Waveshare 1.75) (2026-10-29)
+
+- **Pictures for the `show` tool (Axis 0.68.0):** a picture stays up for `image.start`'s `seconds` (1 to 300) when given, otherwise 30 s as before, and the time counted from the end of the speech uses the same length; `image.clear` closes the picture on screen as its time running out would (with a `turnId` only that turn's picture) and drops one still arriving or not yet shown. The client core (`axis_client.*`): `takePicture(..., seconds)` beside the old call, `pictureCleared(turnId)`. Serial log `[picture] N bytes, shown with S s` and `[picture] closed by time|tap|clear|question|edges`.
+- **Console:** `pcm picture [SECONDS]` (turn `say-console`) and `pictureclear [TURN]`.
+- Flashed by USB to the bench round board (D460), back on Axis at 0.9.0; checked on the console: 5 s closed by time after 5.0 s, a newer picture replaced the one up, `pictureclear` and `pictureclear say-console` closed it, `pictureclear say-other` left it, 30 s without seconds, 60 s with 60. NOT verified: `seconds` and `image.clear` from Axis (the hub runs 0.67.0, without the show routes), a tap closing it (nobody at the bench; that code is unchanged).
+
+## Board firmware 0.25.0 (Waveshare 1.8) (2026-10-29)
+
+- The round board's 0.9.0 picture handling (`seconds`, `image.clear`), same code. Built, NOT flashed (no 1.8 attached), not pushed.
+
 ## Axis 0.68.0 (2026-10-29)
 
 - **The `show` tool** (`vortex_axis_show`, node command `vortex.axis.show`, and over MCP; `server/src/show.ts`): a picture on a device's screen for `seconds` (1 to 300, 10 by default), silently, with no turn behind it. The picture is exactly one of `url` (https only, fetched once: 5 MB, 10 s, no redirects, refused when the host is on this machine or a private or link-local network unless it is the OpenClaw gateway's host), `path` (a file on the gateway's machine, only through its media route) or `base64` with `mime`; the type is read from the bytes. `client` (default the device last spoken to), `alt`, `fit` (`contain` or `cover`), `clear: true`. The result says per device `shown` and why not: no screen, its screen switched off on the admin page, offline, a WebP or GIF to a board. Allowed in quiet hours and on the silent profile. Screens do not confirm a picture.

@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.24.0"
+#define AXIS_FIRMWARE_VERSION "0.25.0"
 #endif
 
 namespace axis {
@@ -236,6 +236,14 @@ class Client {
      * Safe to call from any task.
      */
     bool takePicture(uint8_t *&data, size_t &size, String &turnId);
+    /** The same, with how long to keep it up in `seconds` (from `image.start`, 1 to 300; 0 when Axis gave none). */
+    bool takePicture(uint8_t *&data, size_t &size, String &turnId, uint32_t &seconds);
+
+    /**
+     * True once after Axis sent `image.clear`: take the picture down now. `turnId` is the turn whose picture to take
+     * down, empty for any. A picture ready but not yet taken is dropped by the client itself. Safe from any task.
+     */
+    bool pictureCleared(String &turnId);
 
     // --- microphone ------------------------------------------------------
     // For boards with the `mic` capability. These may be called from the

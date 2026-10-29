@@ -339,6 +339,11 @@ static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicr
 // or the edge frame. Listening for a follow-up, thinking and speaking show as a glow along the edges.
 static const uint32_t PICTURE_MS = 30000;
 static uint32_t pictureUntil = 0;
+// How long the picture on screen stays up (its `seconds`, or PICTURE_MS), and the turn it came with.
+static uint32_t pictureHoldMs = PICTURE_MS;
+static String pictureTurn;
+// A clear for the picture on screen, acted on by the screen loop as the time running out would be.
+static bool pictureClear = false;
 static uint16_t *pictureFrame = nullptr;
 static int pictureW = 0, pictureH = 0, pictureX = 0, pictureY = 0, jpegW = 0, jpegH = 0;
 
@@ -353,8 +358,10 @@ static int pictureBlock(JPEGDRAW *d) {
     return 1;
 }
 
-/** Decodes a JPEG and puts it on the screen. False when it could not be read. */
-static bool showPicture(const uint8_t *data, size_t size) {
+/**
+ * Decodes a JPEG and puts it on the screen for `seconds` (0: PICTURE_MS). False when it could not be read.
+ */
+static bool showPicture(const uint8_t *data, size_t size, uint32_t seconds = 0) {
     static JPEGDEC jpeg;
     pictureW = display::width();
     pictureH = display::height();
@@ -372,7 +379,8 @@ static bool showPicture(const uint8_t *data, size_t size) {
     if (!ok) return false;
     display::blitScreen(pictureFrame);
     glow::reset();
-    pictureUntil = millis() + PICTURE_MS;
+    pictureHoldMs = seconds ? seconds * 1000 : PICTURE_MS;
+    pictureUntil = millis() + pictureHoldMs;
     if (!pictureUntil) pictureUntil = 1;
     return true;
 }
@@ -1370,13 +1378,25 @@ void loop() {
     }
     // A picture from an agent's reply. A newer one replaces it.
     {
+        // image.clear: the picture of that turn (or any) closes below, as when its time runs out. Seen before a
+        // newer picture is taken, so a clear never closes a picture that came after it.
+        String clearTurn;
+        if (client.pictureCleared(clearTurn) && pictureUntil && (!clearTurn.length() || clearTurn == pictureTurn))
+            pictureClear = true;
         uint8_t *jpg = nullptr;
         size_t size = 0;
+        uint32_t seconds = 0;
         String turnId;
-        if (client.takePicture(jpg, size, turnId)) {
-            const bool shown = !edgesUntil && !screenOff && showPicture(jpg, size);
+        if (client.takePicture(jpg, size, turnId, seconds)) {
+            const bool shown = !edgesUntil && !screenOff && showPicture(jpg, size, seconds);
             heap_caps_free(jpg);
-            logOut.printf("[picture] %u bytes, %s\n", (unsigned)size, shown ? "shown" : "could not be shown");
+            if (shown) {
+                pictureTurn = turnId;
+                pictureClear = false;
+                logOut.printf("[picture] %u bytes, shown with %u s\n", (unsigned)size, (unsigned)(pictureHoldMs / 1000));
+            } else {
+                logOut.printf("[picture] %u bytes, could not be shown\n", (unsigned)size);
+            }
         }
     }
     // The screen switched off on the admin page: the panel is blank and nothing is drawn, the connection stays and
@@ -1410,12 +1430,13 @@ void loop() {
         if (g != touch::Gesture::None && g != touch::Gesture::Tap) onGesture(g);
         const bool speaking = speaker::playing() || state.turn == axis::Turn::Speaking;
         // The time on show runs from the end of the speech, so a long answer does not use it up.
-        if (speaking) pictureUntil = max(pictureUntil, millis() + PICTURE_MS);
+        if (speaking) pictureUntil = max(pictureUntil, millis() + pictureHoldMs);
         // A follow-up keeps the picture: listening, working out the words and thinking all show as the glow
         // around it (before 0.17.3 the picture closed once the words were being worked out). A newer picture
         // replaces it; a tap, a question with choices or the time running out closes it.
         const bool asked = state.link == axis::Link::Online && state.choiceCount > 0;
-        if ((int32_t)(millis() - pictureUntil) < 0 && g != touch::Gesture::Tap && !asked && !edgesUntil) {
+        const bool timeLeft = (int32_t)(millis() - pictureUntil) < 0;
+        if (timeLeft && g != touch::Gesture::Tap && !asked && !edgesUntil && !pictureClear) {
             const bool working = state.turn == axis::Turn::Transcribing || state.turn == axis::Turn::Thinking;
             const glow::State doing = client.listening() ? glow::State::Listening
                                       : speaking ? glow::State::Speaking
@@ -1425,6 +1446,9 @@ void loop() {
             glow::update(pictureFrame, doing, level);
             return;
         }
+        logOut.printf("[picture] closed by %s\n", pictureClear ? "clear" : g == touch::Gesture::Tap ? "tap" : asked ? "question"
+                                                   : edgesUntil ? "edges" : "time");
+        pictureClear = false;
         pictureUntil = 0;
         glow::reset();
         display::clear();

@@ -235,9 +235,14 @@ struct Client::Impl {
     uint8_t *picBuf = nullptr;
     size_t picSize = 0, picGot = 0;
     String picId, picTurn;
+    uint32_t picSeconds = 0;
     uint8_t *readyPic = nullptr;
     size_t readyPicSize = 0;
     String readyPicTurn;
+    uint32_t readyPicSeconds = 0;
+    // image.clear waiting for the board to see it, and its turn (empty: any picture).
+    bool cleared = false;
+    String clearedTurn;
 
     WebServer web{80};
     DNSServer dns;
@@ -1040,6 +1045,21 @@ struct Client::Impl {
             picGot = 0;
             picId = doc["imageId"] | "";
             picTurn = doc["turnId"] | "";
+            const int seconds = doc["seconds"] | 0;
+            picSeconds = seconds >= 1 && seconds <= 300 ? (uint32_t)seconds : 0;
+        } else if (!strcmp(t, "image.clear")) {
+            const String turn = doc["turnId"] | "";
+            logf("picture cleared%s%s", turn.length() ? " for " : "", turn.c_str());
+            if (picBuf && (!turn.length() || turn == picTurn)) dropPicture();
+            xSemaphoreTake(lock, portMAX_DELAY);
+            if (readyPic && (!turn.length() || turn == readyPicTurn)) {
+                heap_caps_free(readyPic);
+                readyPic = nullptr;
+                readyPicSize = 0;
+            }
+            cleared = true;
+            clearedTurn = turn;
+            xSemaphoreGive(lock);
         } else if (!strcmp(t, "image.data")) {
             if (!picBuf || picId != (doc["imageId"] | "")) return;
             const char *data = doc["data"] | "";
@@ -1063,6 +1083,7 @@ struct Client::Impl {
             readyPic = picBuf;
             readyPicSize = picSize;
             readyPicTurn = picTurn;
+            readyPicSeconds = picSeconds;
             xSemaphoreGive(lock);
             picBuf = nullptr;
             picSize = picGot = 0;
@@ -2296,17 +2317,34 @@ String Client::setting(const char *key, const char *fallback) {
 }
 
 bool Client::takePicture(uint8_t *&data, size_t &size, String &turnId) {
+    uint32_t seconds;
+    return takePicture(data, size, turnId, seconds);
+}
+
+bool Client::takePicture(uint8_t *&data, size_t &size, String &turnId, uint32_t &seconds) {
     xSemaphoreTake(impl_->lock, portMAX_DELAY);
     const bool have = impl_->readyPic != nullptr;
     if (have) {
         data = impl_->readyPic;
         size = impl_->readyPicSize;
         turnId = impl_->readyPicTurn;
+        seconds = impl_->readyPicSeconds;
         impl_->readyPic = nullptr;
         impl_->readyPicSize = 0;
     }
     xSemaphoreGive(impl_->lock);
     return have;
+}
+
+bool Client::pictureCleared(String &turnId) {
+    xSemaphoreTake(impl_->lock, portMAX_DELAY);
+    const bool was = impl_->cleared;
+    if (was) {
+        turnId = impl_->clearedTurn;
+        impl_->cleared = false;
+    }
+    xSemaphoreGive(impl_->lock);
+    return was;
 }
 
 void Client::setReading(const char *key, long value, bool soon) {

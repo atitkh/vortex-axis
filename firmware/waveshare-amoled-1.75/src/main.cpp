@@ -346,6 +346,10 @@ static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicr
 static const uint8_t *volatile testPicture = nullptr;
 static volatile size_t testPictureSize = 0;
 static volatile uint32_t testPictureRequests = 0;
+static volatile uint32_t testPictureSeconds = 0;
+// `pictureclear [TURN]` on the console: as if Axis had sent image.clear (console pictures have turn "say-console").
+static char testClearTurn[48] = "";
+static volatile uint32_t testClearRequests = 0;
 static bool edgesDrawn = false;
 
 // ---- pictures from agent replies ---------------------------------------------------------
@@ -354,6 +358,11 @@ static bool edgesDrawn = false;
 // or the edge frame. Listening for a follow-up, thinking and speaking show as a glow along the edges.
 static const uint32_t PICTURE_MS = 30000;
 static uint32_t pictureUntil = 0;
+// How long the picture on screen stays up (its `seconds`, or PICTURE_MS), and the turn it came with.
+static uint32_t pictureHoldMs = PICTURE_MS;
+static String pictureTurn;
+// A clear for the picture on screen, acted on by the screen loop as the time running out would be.
+static bool pictureClear = false;
 static uint16_t *pictureFrame = nullptr;
 static int pictureW = 0, pictureH = 0, pictureX = 0, pictureY = 0, jpegW = 0, jpegH = 0;
 
@@ -368,8 +377,10 @@ static int pictureBlock(JPEGDRAW *d) {
     return 1;
 }
 
-/** Decodes a JPEG and puts it on the screen. False when it could not be read. */
-static bool showPicture(const uint8_t *data, size_t size) {
+/**
+ * Decodes a JPEG and puts it on the screen for `seconds` (0: PICTURE_MS). False when it could not be read.
+ */
+static bool showPicture(const uint8_t *data, size_t size, uint32_t seconds = 0) {
     static JPEGDEC jpeg;
     pictureW = display::width();
     pictureH = display::height();
@@ -387,7 +398,8 @@ static bool showPicture(const uint8_t *data, size_t size) {
     if (!ok) return false;
     display::blitScreen(pictureFrame);
     glow::reset();
-    pictureUntil = millis() + PICTURE_MS;
+    pictureHoldMs = seconds ? seconds * 1000 : PICTURE_MS;
+    pictureUntil = millis() + pictureHoldMs;
     if (!pictureUntil) pictureUntil = 1;
     return true;
 }
@@ -1308,8 +1320,11 @@ void setup() {
             if (!pcm) return true;
             if (rest == "clear") {
                 pcmLength = 0;
-            } else if (rest == "picture") {
-                // The same bytes taken as a JPEG and shown as a picture from a reply would be, on the screen loop.
+            } else if (rest == "picture" || rest.startsWith("picture ")) {
+                // The same bytes taken as a JPEG and shown as a picture from a reply would be, on the screen loop;
+                // `pcm picture SECONDS` keeps it up that long (1 to 300) as image.start's `seconds` would.
+                const int seconds = rest.length() > 8 ? rest.substring(8).toInt() : 0;
+                testPictureSeconds = seconds >= 1 && seconds <= 300 ? seconds : 0;
                 testPicture = pcm;
                 testPictureSize = pcmLength;
                 testPictureRequests++;
@@ -1342,6 +1357,11 @@ void setup() {
         }
         if (word == "bench") {
             benchRequests++;
+            return true;
+        }
+        if (word == "pictureclear") {
+            snprintf(testClearTurn, sizeof(testClearTurn), "%s", rest.c_str());
+            testClearRequests++;
             return true;
         }
         if (word == "fps") {
@@ -1491,18 +1511,42 @@ void loop() {
     // A picture from an agent's reply. A newer one replaces it.
     {
         static uint32_t seenTestPicture = 0;
+        static uint32_t seenTestClear = 0;
+        if (testClearRequests != seenTestClear) {
+            seenTestClear = testClearRequests;
+            const String turn = testClearTurn;
+            logOut.printf("[picture] clear from the console%s%s\n", turn.length() ? " for " : "", turn.c_str());
+            if (pictureUntil && (!turn.length() || turn == pictureTurn)) pictureClear = true;
+        }
         if (testPictureRequests != seenTestPicture) {
             seenTestPicture = testPictureRequests;
-            logOut.printf("[picture] %u bytes from the console, %s\n", (unsigned)testPictureSize,
-                          showPicture(testPicture, testPictureSize) ? "shown" : "could not be shown");
+            const bool shown = showPicture(testPicture, testPictureSize, testPictureSeconds);
+            if (shown) {
+                pictureTurn = "say-console";
+                pictureClear = false;
+            }
+            logOut.printf("[picture] %u bytes from the console, %s %u s\n", (unsigned)testPictureSize,
+                          shown ? "shown with" : "could not be shown,", (unsigned)(pictureHoldMs / 1000));
         }
+        // image.clear: the picture of that turn (or any) closes below, as when its time runs out. Seen before a
+        // newer picture is taken, so a clear never closes a picture that came after it.
+        String clearTurn;
+        if (client.pictureCleared(clearTurn) && pictureUntil && (!clearTurn.length() || clearTurn == pictureTurn))
+            pictureClear = true;
         uint8_t *jpg = nullptr;
         size_t size = 0;
+        uint32_t seconds = 0;
         String turnId;
-        if (client.takePicture(jpg, size, turnId)) {
-            const bool shown = !edgesUntil && !screenOff && showPicture(jpg, size);
+        if (client.takePicture(jpg, size, turnId, seconds)) {
+            const bool shown = !edgesUntil && !screenOff && showPicture(jpg, size, seconds);
             heap_caps_free(jpg);
-            logOut.printf("[picture] %u bytes, %s\n", (unsigned)size, shown ? "shown" : "could not be shown");
+            if (shown) {
+                pictureTurn = turnId;
+                pictureClear = false;
+                logOut.printf("[picture] %u bytes, shown with %u s\n", (unsigned)size, (unsigned)(pictureHoldMs / 1000));
+            } else {
+                logOut.printf("[picture] %u bytes, could not be shown\n", (unsigned)size);
+            }
         }
     }
     // The screen switched off on the admin page: the panel is blank and nothing is drawn, the connection stays and
@@ -1536,12 +1580,13 @@ void loop() {
         if (g != touch::Gesture::None && g != touch::Gesture::Tap) onGesture(g);
         const bool speaking = speaker::playing() || state.turn == axis::Turn::Speaking;
         // The time on show runs from the end of the speech, so a long answer does not use it up.
-        if (speaking) pictureUntil = max(pictureUntil, millis() + PICTURE_MS);
+        if (speaking) pictureUntil = max(pictureUntil, millis() + pictureHoldMs);
         // A follow-up keeps the picture: listening, working out the words and thinking all show as the glow
         // around it (before 0.17.3 the picture closed once the words were being worked out). A newer picture
         // replaces it; a tap, a question with choices or the time running out closes it.
         const bool asked = state.link == axis::Link::Online && state.choiceCount > 0;
-        if ((int32_t)(millis() - pictureUntil) < 0 && g != touch::Gesture::Tap && !asked && !edgesUntil) {
+        const bool timeLeft = (int32_t)(millis() - pictureUntil) < 0;
+        if (timeLeft && g != touch::Gesture::Tap && !asked && !edgesUntil && !pictureClear) {
             const bool working = state.turn == axis::Turn::Transcribing || state.turn == axis::Turn::Thinking;
             const glow::State doing = client.listening() ? glow::State::Listening
                                       : speaking ? glow::State::Speaking
@@ -1560,6 +1605,9 @@ void loop() {
             }
             return;
         }
+        logOut.printf("[picture] closed by %s\n", pictureClear ? "clear" : g == touch::Gesture::Tap ? "tap" : asked ? "question"
+                                                   : edgesUntil ? "edges" : "time");
+        pictureClear = false;
         pictureUntil = 0;
         glow::reset();
         display::clear();
