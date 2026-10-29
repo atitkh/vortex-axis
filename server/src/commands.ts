@@ -84,7 +84,7 @@ export const NODE_TOOLS: NodeTool[] = [
         client: TARGET_PROPERTIES.client,
         seconds: { type: "number", description: "How long it stays up, 1-300. Default 10." },
         alt: { type: "string", description: "A few words on what it shows." },
-        fit: { type: "string", enum: ["contain", "cover"], description: "cover (default) fills the screen, cutting the edges; contain shows all of it." },
+        fit: { type: "string", enum: ["contain", "cover"], description: "Leave this out: the default is cover, which fills the screen (the middle kept, the edges cut) and is right for nearly everything. Pass contain only when the whole picture must stay visible, accepting empty bars (on a round screen it is also shrunk to fit inside the circle)." },
         clear: { type: "boolean", description: "Take down the picture shown on the device instead of showing one." },
       },
     },

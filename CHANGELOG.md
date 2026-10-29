@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.68.2 (2026-10-29)
+
+- **`show`'s `fit` description tells the agent to leave it out:** agents kept passing `fit: contain` on every picture (an agent session also kept the schema it first loaded, which said contain was the default), so pictures stayed shrunk, on a round board inside the circle. The tool text now says cover is the default and right for nearly everything, and contain is for when the whole picture must stay visible. No behaviour change. An agent session may need a new session to see the new text.
+
 ## Axis 0.68.1 (2026-10-29)
 
 - **`show` fills the screen by default:** `fit` is now `cover` unless `contain` is asked for (the tool, the node command, `POST /admin/clients/:id/show`, and the Show a picture form on the Tools tab, which starts on Fill the screen). A picture now fills a round board's whole circle rather than sitting inside it, so a card meant for that board should keep its content in the middle. `contain` still keeps the whole picture.
