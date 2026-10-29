@@ -2,7 +2,7 @@
 
 **A device gateway for AI agents: one agent, reachable from every device around you, in one continuous conversation.**
 
-You already have an agent (in [OpenClaw](https://docs.openclaw.ai), or any model behind a chat endpoint). Axis gives it ears, a voice, screens and hands: small boards with a microphone and a face, a web page on your phone, your computer. Say something to whichever is nearest; the same agent answers, and it can speak, ask you a question or show a picture on any of them.
+If you already have an agent (in [OpenClaw](https://docs.openclaw.ai), or any model behind a chat endpoint), VorteX Axis gives it ears, a voice, screens and hands: small boards with a microphone and a face, a web page on your phone, your computer. Say something to whichever is nearest; the same agent answers, and it can speak, ask you a question or show a picture on any of them.
 
 Axis is a bridge, not an agent. It does not think; it listens, routes and speaks.
 
