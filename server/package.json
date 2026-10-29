@@ -1,6 +1,6 @@
 {
   "name": "@vortex-axis/server",
-  "version": "0.68.2",
+  "version": "0.68.3",
   "private": true,
   "description": "VorteX Axis hub server",
   "type": "module",

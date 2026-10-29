@@ -71,8 +71,8 @@ export const NODE_TOOLS: NodeTool[] = [
       "Put a picture on the screen of one of the user's VorteX Axis devices for a few seconds, silently, with nothing " +
       "said: a chart, a photo, a map, a card. Give the picture as exactly one of url (https), path (a file on the OpenClaw " +
       "gateway's machine, as for MEDIA: lines) or base64 with mime (PNG or JPEG for boards; browsers also take WebP and GIF). " +
-      "With no client, it goes to the device the user last spoke to. Boards are small (about 368x448, the round one a circle " +
-      "466 across): keep text large and inside the middle. Allowed in quiet hours. The result says per device whether it was " +
+      "With no client, it goes to the device the user last spoke to. Boards have small screens, some round: keep text " +
+      "large and inside the middle, and take the size from the device (its screenW and screenH), not a fixed number. Allowed in quiet hours. The result says per device whether it was " +
       "shown; screens do not confirm that anyone looked. clear: true takes the picture down early.",
     parameters: {
       type: "object",

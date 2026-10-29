@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.68.3 (2026-10-29)
+
+- **`show`'s tool text no longer names a screen size:** it said boards are about 368x448 and the round one 466 across, and agents used those numbers for every picture whatever the device. It now says to take the size from the device's own screenW and screenH. No behaviour change.
+
 ## Axis 0.68.2 (2026-10-29)
 
 - **`show`'s `fit` description tells the agent to leave it out:** agents kept passing `fit: contain` on every picture (an agent session also kept the schema it first loaded, which said contain was the default), so pictures stayed shrunk, on a round board inside the circle. The tool text now says cover is the default and right for nearly everything, and contain is for when the whole picture must stay visible. No behaviour change. An agent session may need a new session to see the new text.
