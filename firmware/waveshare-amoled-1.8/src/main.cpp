@@ -53,8 +53,8 @@ static const axis::SettingDef SETTINGS[] = {
     {"timerGlow", "Timer countdown glow", "toggle", "Screen", "In a timer's last ten seconds, a red glow runs round the screen's edges and shrinks as the time runs out, beating once a second.", "1", 0, 0, nullptr, nullptr},
     {"handsGlow", "Computer in use glow", "toggle", "Screen", "A rose glow along the edges while an agent is using a computer near this device (looking, clicking, typing).", "1", 0, 0, nullptr, nullptr},
     {"notifyGlow", "Notification light", "toggle", "Screen", "While the device is idle: an amber glow along the edges while a task waits for you, a blue one while a question waits for you on another device, and a green flash when a task finishes.", "1", 0, 0, nullptr, nullptr},
-    {"lowBatteryBelow", "Low battery look", "number", "Screen", "Below this charge the idle face turns sleepy (slower, a little dimmer) and a small battery mark with the percent stays at the bottom of the screen. Never a sound. 0 turns it off; 1 to 4 count as 5.", "15", 0, 30, "%", nullptr},
-    {"batteryGlyph", "Battery mark", "toggle", "Screen", "The small battery mark at the bottom of the screen at low battery and while charging (with a bolt).", "1", 0, 0, nullptr, nullptr},
+    {"lowBatteryBelow", "Low battery look", "number", "Battery", "Below this charge the idle face turns sleepy (slower, a little dimmer) and a small battery mark with the percent stays at the bottom of the screen. Never a sound. 0 turns it off; 1 to 4 count as 5.", "15", 0, 30, "%", nullptr},
+    {"batteryGlyph", "Battery mark", "toggle", "Battery", "The small battery mark at the bottom of the screen at low battery and while charging (with a bolt).", "1", 0, 0, nullptr, nullptr},
     {"roomSound", "Room sound to Axis", "toggle", "Home Assistant", "How loud the room is, every few seconds, and whether there is sound in it, for Home Assistant. Levels only, never audio; the device's own speech is left out.", "1", 0, 0, nullptr, nullptr},
     {"gestures", "Gestures to Axis", "toggle", "Home Assistant", "A hold or a swipe on the screen goes to Axis, which hands it to Home Assistant as an event to automate. A tap still talks.", "1", 0, 0, nullptr, nullptr},
 };
@@ -327,6 +327,8 @@ static volatile uint32_t shotRequests = 0;
 static volatile uint32_t fpsRequests = 0;
 // The console's `i2c`: the screen loop lists what answers on the shared bus (it owns the bus).
 static volatile uint32_t i2cRequests = 0;
+// Bench: a charge limit typed on the console (`chargelimit N`) in place of the setting; -1 follows the setting.
+static volatile int benchChargeLimit = -1;
 // Taps the board acted on since it started, sent as touchesToday (it has no clock of its own to tell the day by).
 static uint32_t touches = 0;
 static uint32_t fpsFrames = 0, fpsDrawMicros = 0, fpsFaceMicros = 0, fpsGlowMicros = 0;
@@ -1154,6 +1156,21 @@ void setup() {
                           (unsigned long)touches, (unsigned long)client.turnsStarted());
             return true;
         }
+        if (word == "charge") {  // bench: charge on | off | 4000 | 4100 | 4200 (the charge limit sets it again on its next read)
+            if (rest == "on" || rest == "off") logOut.printf("[power] charging %s: %s\n", rest.c_str(), power::setCharging(rest == "on") ? "ok" : "failed");
+            else logOut.printf("[power] target %d mV: %s\n", rest.toInt(), power::setTargetMv(rest.toInt()) ? "ok" : "failed");
+            return true;
+        }
+        if (word == "powerregs") {
+            power::dumpRegs(logOut);
+            return true;
+        }
+        if (word == "chargelimit") {  // bench: chargelimit 50..100 in place of the setting; alone, back to the setting
+            benchChargeLimit = rest.length() ? (int)rest.toInt() : -1;
+            if (benchChargeLimit >= 0) logOut.printf("[power] charge limit %d%% from the console\n", benchChargeLimit);
+            else logOut.println("[power] charge limit from the setting again");
+            return true;
+        }
         if (word == "i2c") {
             i2cRequests++;
             return true;
@@ -1436,6 +1453,7 @@ void loop() {
     // Turning the device over turns the picture, once it has stayed that way for a moment.
     imu::tick();
     static uint32_t powerReadAt = 0;
+    power::setChargeLimit(benchChargeLimit >= 0 ? benchChargeLimit : (int)client.settingInt("chargeLimit", 100));
     if (power::tick()) {
         power::report(client);
         powerReadAt = started;
