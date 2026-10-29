@@ -4,6 +4,18 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.24.0 (Waveshare 1.8) (2026-10-28)
+
+- The charge limit, for Axis 0.67.0's `chargeLimit` (50 to 100, 100 = no limit) and the Dock profile. On USB with a battery, at or above the limit the AXP2101's charger is switched off (the board keeps running from USB) and switched on again 5 % below it; while a limit is set the charge target is 4.1 V as a backstop, 4.2 V again when it is lifted. Charging is switched on at 4.2 V at every start (a hold is never carried over a restart), whenever USB goes away and when the limit goes back to 100; the target is never set above 4.2 V; a failed read or write changes nothing. A new limit is applied at once. The rule is `common/src/charge_hold.h`, checked on a computer by `common/test/charge_hold_test.cpp`.
+- New readings with a battery: `chargerState` (the charger's state, 0 trickle to 5 stopped), `chargeHeld` (1 while the limit holds charging off) and, with USB, `usbMv`. The `charging` reading stays what the chip says, so a held board shows no charging bolt or cue. Console `power` shows the USB millivolts, the limit and whether it holds.
+- `lowBatteryBelow` and `batteryGlyph` moved to the Battery group, beside Charge limit.
+- Bench console words: `powerregs` (the chip's registers, read only), `charge on|off|4000|4100|4200` (the charger by hand, until the limit's next read), `chargelimit N` (a limit in place of the setting; alone, back to the setting).
+- Built, NOT flashed (no 1.8 attached); the same code as the round board's 0.8.0.
+
+## Round board firmware 0.8.0 (Waveshare 1.75) (2026-10-28)
+
+- The charge limit, its readings, the Battery group and the bench console words as in the 1.8's 0.24.0. Flashed by USB to the round board on the bench (94 % on USB): back on Axis at 0.8.0 with `usbMv` 4983, `chargerState` 2, `chargeHeld` 0. `chargeLimit` 80 set on the device through the admin API (the hub still on 0.66.2, which passes the key on): within 8 s `power` said `not charging (charger state 5), limit 80%, held` and the hub showed `charging` 0, `chargerState` 5, `chargeHeld` 1; registers 0x18 = 08 (charger off) and 0x64 = 02 (4.1 V). Back to 100: `charging ... no limit` at once, charger state 2 (constant current) at the next read, `chargeHeld` 0, registers 0A and 03 (4.2 V). `chargelimit 80` and `chargelimit` on the console did the same. NOT verified: the release at limit minus 5 on a real discharge, USB pulled while held, the Dock profile through Axis 0.67.0 (not deployed), the face while held (not looked at).
+
 ## Axis 0.67.0 (2026-10-28)
 
 - **Charge limit** (`chargeLimit`, an Axis built-in in a new **Battery** group): 50 to 100 in whole numbers, 100 (no limit) by default, always sent to every client beneath the saved layers. On USB a board that can hold its battery charges only to the limit and holds it, charging again 5 points below; on battery nothing changes. The holding is the firmware's (next board firmware); a client that does not know the key ignores it. Checked as a whole number in range by the admin API and `vortex_axis_config`.
