@@ -206,7 +206,7 @@ export class Shows {
     const seconds = pictureSeconds(how.seconds);
     const alt = typeof how.alt === "string" && how.alt.trim() ? how.alt.trim().slice(0, 200) : undefined;
     if (how.fit !== undefined && how.fit !== "contain" && how.fit !== "cover") throw new Error("fit must be contain or cover");
-    const fit = how.fit === "cover" ? "cover" : "contain";
+    const fit = how.fit === "contain" ? "contain" : "cover";
     const result = (shown: boolean, note: string): ShowResult => ({ client: client.name, shown, seconds, note });
     // Kept once in the media store (a day at most): the address clients fetch, and Show again.
     picture = { ...picture, url: picture.url ?? this.options.media.add(picture.bytes, picture.mime) };

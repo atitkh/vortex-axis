@@ -100,27 +100,27 @@ function invoke(command: string, params: Record<string, unknown>) {
 }
 
 describe("showing a picture", () => {
-  it("sends a board the picture shrunk to its screen with the seconds, and Clear takes it down", async () => {
+  it("sends a board the picture filling its screen (cover) with the seconds, and Clear takes it down", async () => {
     const { client, identity } = await ready(["screen", "image-frames"], { name: "Desk" });
     client.send({ t: "sense", readings: { screenW: 368, screenH: 448 } });
     await new Promise((r) => setTimeout(r, 50));
     const result = await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64"), seconds: 45, alt: "a grey box" });
     expect(result).toMatchObject({ client: "Desk", shown: true, seconds: 45 });
     const start = await client.next("image.start");
-    expect(start).toMatchObject({ mime: "image/jpeg", seconds: 45, width: 368, height: 184 });
+    expect(start).toMatchObject({ mime: "image/jpeg", seconds: 45, width: 368, height: 448 });
     expect(start.turnId).toMatch(/^say-/);
     await client.next("image.end");
-    // Cover fills the screen.
-    await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64"), fit: "cover" });
+    // Contain (asked for) keeps the whole picture.
+    await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64"), fit: "contain" });
     const covered = await client.next("image.start", 0, (m: any) => m.turnId !== start.turnId);
-    expect([covered.width, covered.height, covered.seconds]).toEqual([368, 448, 10]);
+    expect([covered.width, covered.height, covered.seconds]).toEqual([368, 184, 10]);
     await client.next("image.end", 0, (m: any) => m.imageId === covered.imageId);
     const pieces = client.received.filter((m: any) => m.t === "image.data" && m.imageId === covered.imageId) as { data: string }[];
-    expect(jpeg.decode(Buffer.concat(pieces.map((p) => Buffer.from(p.data, "base64")))).height).toBe(448);
-    // A round board: the whole picture inside the circle (200x100 in a circle 466 across has room for 417x208; enlarged at most twice).
+    expect(jpeg.decode(Buffer.concat(pieces.map((p) => Buffer.from(p.data, "base64")))).height).toBe(184);
+    // A round board, whole picture asked for: inside the circle (200x100 in a circle 466 across has room for 417x208; enlarged at most twice).
     client.send({ t: "sense", readings: { screenW: 466, screenH: 466, screenRound: 1 } });
     await new Promise((r) => setTimeout(r, 50));
-    await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64") });
+    await invoke("vortex.axis.show", { client: "Desk", base64: PNG_BYTES.toString("base64"), fit: "contain" });
     const inCircle = await client.next("image.start", 0, (m: any) => m.width !== 368);
     expect([inCircle.width, inCircle.height]).toEqual([400, 200]);
     await client.next("image.end", 0, (m: any) => m.imageId === inCircle.imageId);

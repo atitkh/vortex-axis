@@ -557,7 +557,7 @@ export function ShowPicture({ client, onShown }) {
   const [url, setUrl] = useState("");
   const [seconds, setSeconds] = useState(10);
   const [alt, setAlt] = useState("");
-  const [fit, setFit] = useState("contain");
+  const [fit, setFit] = useState("cover");
   const [note, setNote] = useState(["", ""]);
   const round = Number(client.readings?.screenRound) === 1;
   const w = Number(client.readings?.screenW) || 368, hgt = Number(client.readings?.screenH) || 448;

@@ -509,7 +509,7 @@ try {
     await next.until(`(n => n && /good/.test(n.className) && n.textContent)(document.querySelector('[data-show-note]'))`, "the picture shown");
     // 40 by 20, enlarged at most twice.
     const picStart = picGot.find((m) => m.t === "image.start");
-    if (!picStart || picStart.seconds !== 25 || !/^say-/.test(picStart.turnId) || picStart.width !== 80) throw new Error(`image.start: ${JSON.stringify(picStart)}`);
+    if (!picStart || picStart.seconds !== 25 || !/^say-/.test(picStart.turnId) || picStart.width !== 368 || picStart.height !== 448) throw new Error(`image.start: ${JSON.stringify(picStart)}`);
     step("admin: Show a picture", `image.start ${picStart.width}x${picStart.height}, ${picStart.seconds} s, ${picStart.turnId}`);
     step("admin: Recent pictures", await next.until(`(li => li && li.querySelector('img')?.naturalWidth > 0 && /Picture board/.test(li.textContent) && /a red box/.test(li.textContent) && li.querySelector('b').textContent + ': ' + li.querySelector('.sm:last-child').textContent)(document.querySelector('[data-recent-picture]'))`, "the picture in Recent pictures"));
     await next.run(`document.querySelector('[data-show-again]').click()`);

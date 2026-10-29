@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.68.1 (2026-10-29)
+
+- **`show` fills the screen by default:** `fit` is now `cover` unless `contain` is asked for (the tool, the node command, `POST /admin/clients/:id/show`, and the Show a picture form on the Tools tab, which starts on Fill the screen). A picture now fills a round board's whole circle rather than sitting inside it, so a card meant for that board should keep its content in the middle. `contain` still keeps the whole picture.
+
 ## Round board firmware 0.9.0 (Waveshare 1.75) (2026-10-29)
 
 - **Pictures for the `show` tool (Axis 0.68.0):** a picture stays up for `image.start`'s `seconds` (1 to 300) when given, otherwise 30 s as before, and the time counted from the end of the speech uses the same length; `image.clear` closes the picture on screen as its time running out would (with a `turnId` only that turn's picture) and drops one still arriving or not yet shown. The client core (`axis_client.*`): `takePicture(..., seconds)` beside the old call, `pictureCleared(turnId)`. Serial log `[picture] N bytes, shown with S s` and `[picture] closed by time|tap|clear|question|edges`.

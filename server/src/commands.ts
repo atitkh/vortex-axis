@@ -84,7 +84,7 @@ export const NODE_TOOLS: NodeTool[] = [
         client: TARGET_PROPERTIES.client,
         seconds: { type: "number", description: "How long it stays up, 1-300. Default 10." },
         alt: { type: "string", description: "A few words on what it shows." },
-        fit: { type: "string", enum: ["contain", "cover"], description: "contain (default) shows all of it; cover fills the screen, cutting the edges." },
+        fit: { type: "string", enum: ["contain", "cover"], description: "cover (default) fills the screen, cutting the edges; contain shows all of it." },
         clear: { type: "boolean", description: "Take down the picture shown on the device instead of showing one." },
       },
     },
