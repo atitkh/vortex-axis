@@ -497,7 +497,10 @@ try {
     await next.run(`document.querySelector('.banner [data-save]').click()`);
     await next.until(`!document.querySelector('.banner .savebar') && document.querySelector('[data-key=chargeLimit] .src-chip')?.textContent === 'this device'`, "the charge limit saved");
     if (app.store.getLayer("device", bat.client.id).chargeLimit !== 85) throw new Error(`chargeLimit saved as ${app.store.getLayer("device", bat.client.id).chargeLimit}`);
-    step("admin: charge limit saved", "85 % on the device layer");
+    // Its toast's Undo takes it back (and leaves no Undo behind for the later checks).
+    await next.run(`[...document.querySelectorAll('.toast')].find(t => /Charge limit/.test(t.textContent))?.querySelector('button')?.click()`);
+    await next.until(`document.querySelector('[data-key=chargeLimit] .src-chip')?.textContent !== 'this device' && ![...document.querySelectorAll('.toast')].some(t => /Charge limit/.test(t.textContent) && t.querySelector('button'))`, "the charge limit undone");
+    step("admin: charge limit saved", `85 % on the device layer, undone to ${JSON.stringify(app.store.getLayer("device", bat.client.id).chargeLimit ?? null)}`);
     step("admin: settings rail sketch only", await next.until(`(r => r && r.querySelectorAll('.card').length === 1 && !r.querySelector('.glow, [data-battery-canvas], #mic-go') && document.querySelector('[data-key=lowBatteryBelow] .hlp a[href$="/tools"]') && 'sketch, Tools link on the battery row')(document.querySelector('aside.rail'))`, "the settings rail"));
     batSock.close();
     await fetch(`${base}/admin/clients/${bat.client.id}`, { method: "DELETE", headers: { authorization: "Bearer browser-check-admin-token-0123" } });
