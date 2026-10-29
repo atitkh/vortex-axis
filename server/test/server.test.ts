@@ -85,7 +85,7 @@ describe("connecting", () => {
 
     const settings = await client.next("settings");
     expect(settings.version).toBe(welcome.settingsVersion);
-    expect(settings.values).toEqual({ ...sentDefaults(), wakeWord: "hey vortex", volume: 50 });
+    expect(settings.values).toEqual({ ...sentDefaults(), chargeCurrent: 1000, wakeWord: "hey vortex", volume: 50 });
 
     const status = await client.next("status");
     expect(status.upstream).toEqual({ openclaw: "unknown", stt: "unknown", tts: "unknown" });
@@ -171,7 +171,7 @@ describe("settings", () => {
 
     const client = await connect(identity);
     const settings = await client.next("settings");
-    expect(settings.values).toEqual({ ...sentDefaults(), volume: 90, voice: "echo", wakeWord: "hey vortex", location: "office" });
+    expect(settings.values).toEqual({ ...sentDefaults(), chargeCurrent: 1000, volume: 90, voice: "echo", wakeWord: "hey vortex", location: "office" });
   });
 
   it("pushes a change to connected clients", async () => {
@@ -184,7 +184,7 @@ describe("settings", () => {
     expect(patched.status).toBe(200);
 
     const settings = await client.next("settings", seen);
-    expect(settings.values).toEqual({ ...sentDefaults(), volume: 30 });
+    expect(settings.values).toEqual({ ...sentDefaults(), chargeCurrent: 1000, volume: 30 });
     expect(settings.version).toBe(patched.body.version);
   });
 
@@ -219,7 +219,7 @@ describe("settings", () => {
     await restart();
 
     const client = await connect(identity);
-    expect((await client.next("settings")).values).toEqual({ ...sentDefaults(), voice: "nova" });
+    expect((await client.next("settings")).values).toEqual({ ...sentDefaults(), chargeCurrent: 1000, voice: "nova" });
   });
 });
 

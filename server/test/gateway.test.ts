@@ -394,7 +394,7 @@ describe("commands from an agent", () => {
 
     const changed = await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: 80 });
     expect(changed.payload).toEqual({ client: "Desk", settings: { volume: 80 } });
-    expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ ...sentDefaults(), volume: 80 });
+    expect((await client.next("settings", seen, (m) => m.values.volume === 80)).values).toEqual({ ...sentDefaults(), chargeCurrent: 1000, volume: 80 });
 
     expect((await gateway.invoke("vortex.axis.config", { client: "Desk" })).payload.settings).toEqual({ volume: 80 });
     expect((await gateway.invoke("vortex.axis.config", { client: "Desk", key: "volume", value: [1] })).ok).toBe(false);
