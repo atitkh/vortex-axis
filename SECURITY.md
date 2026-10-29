@@ -26,6 +26,8 @@ The data folder holds the database: the gateway link's private key, the keys for
 
 Words people say are not stored: turns and the live page keep them in memory and drop them after minutes. The activity log keeps times and outcomes, not words.
 
+**Pictures an agent asks Axis to fetch** (the `show` tool, Axis 0.68.0): only https, 5 MB, 10 s, no redirects followed, and never a host any of whose addresses is on this machine, a private or link-local network or otherwise not public, unless it is the configured OpenClaw gateway's host. A file path goes only through the gateway's own media route, which decides what the conversation may read; Axis never reads its own files for it. Pictures shown are kept in memory for a day at most under unguessable addresses, as pictures in replies are; the activity log names the device and the description only.
+
 ## The desktop app
 
 The desktop app lets an agent read a computer's screen and, if allowed, click and type on it. It is EXPERIMENTAL.
@@ -65,5 +67,6 @@ Boards keep their Wi-Fi password and token in flash. They trust public certifica
 
 - No signed firmware, desktop app or Quest app.
 - The desktop tool's confirmation and block list go by names and titles (see above): an app that names nothing, or a title that does not say what it is, gets neither.
+- The `show` tool checks a host's addresses and then fetches it: a name that changes its address between the two (DNS rebinding) is not caught.
 - One admin token for everything; no separate users or roles.
 - The admin side is not rate-limited beyond the wrong-token lockout.

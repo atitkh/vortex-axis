@@ -36,7 +36,7 @@ Axis is one container with one data folder on the host (`./data` by default, or 
 
 ### Agents and tools
 
-An agent uses Axis through ten tools (say, ask, timer, clients, config, sense, progress, session, diag, admin). The OpenClaw gateway gets them through the node link. Any other harness gets them by MCP: on the admin page under **Agent tools**, make a token, then add Axis to the harness as a remote MCP server:
+An agent uses Axis through eleven tools (say, show, ask, timer, clients, config, sense, progress, session, diag, admin), and the experimental desktop tool when it is switched on. `show` puts a picture (an https address, a file on the OpenClaw gateway's machine, or base64) on a device's screen for 1 to 300 seconds; boards take PNG and JPEG, the web client also WebP and GIF. The OpenClaw gateway gets them through the node link. Any other harness gets them by MCP: on the admin page under **Agent tools**, make a token, then add Axis to the harness as a remote MCP server:
 
 ```json
 { "mcpServers": { "vortex-axis": { "type": "http", "url": "http://<axis host>:8440/mcp", "headers": { "Authorization": "Bearer <token>" } } } }
@@ -126,6 +126,10 @@ Every admin call needs `Authorization: Bearer $AXIS_ADMIN_TOKEN`. Keep these rou
 | `POST /admin/clients/:id/commands/:name` | Sends one of the actions the device offered and returns its answer (`{ok, payload, error}`). 409 when offline, 504 when it does not answer. |
 | `POST /admin/clients/:id/battery` | Body `{ percent?, charging?, ms?, off? }` (percent 0 to 100, 12 by default; ms 2000 to 60000, 20000 by default). Shows a made-up battery state on a board for that long; `off` ends it. 400 when the board has no battery look. |
 | `POST /admin/clients/:id/announce` | Body `{ text }`. Speaks or shows it on that device and returns `{heard}`. |
+| `POST /admin/clients/:id/show` | JSON body with exactly one of `url` (https), `path` (a file on the OpenClaw gateway's machine) or `base64` (with `mime`), and `seconds` (1 to 300, 10 by default), `alt`, `fit` (`contain` or `cover`). Puts the picture on that device's screen, as the `show` tool does, and returns `{client, shown, seconds, note}`. 5 MB at most. |
+| `POST /admin/clients/:id/show/clear` | Takes the picture down early (`image.clear`). Returns `{client, cleared}`. |
+| `GET /admin/pictures` | The last 30 pictures shown (memory only): `id`, `at`, `by` (agent or admin), `device`, `seconds`, `alt`, `fit`, `shown`, `note`, `url` and `thumb` (media addresses, a day at most), `available`. |
+| `POST /admin/pictures/:id/show` | Body `{ client?, seconds? }`. Shows a picture from that list again, on its device or the one given; 410 when it is no longer kept. |
 | `GET /admin/clients/:id` | One client. |
 | `PATCH /admin/clients/:id` | Body `{ name }`. Renames a client (1 to 60 characters). 409 when another client already has that name, ignoring case. |
 | `DELETE /admin/clients/:id` | Removes a client. Its token stops working and it is disconnected. |
