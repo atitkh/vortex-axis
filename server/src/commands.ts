@@ -152,9 +152,9 @@ export const NODE_TOOLS: NodeTool[] = [
       "Nothing counts down beforehand and nothing is shown until it is due. Where it is said is decided at due time: " +
       "the device the user is then talking to or near, or all of them with everywhere true, unless client or location pins it. " +
       "Quiet hours keep it silent (shown, or a notification) unless urgent is true. If it cannot be delivered it is retried once, " +
-      "then kept as missed until dismissed. action set needs text and at; at is a local time such as \"2026-11-02 07:00\", " +
-      "\"07:00\" (next time it is that) or with an offset, within 366 days; the reply gives next, the time it will fire in the hub's zone, so check it. " +
-      "repeat makes it repeat at that time of day: daily, weekdays, weekends, weekly, or days like mon,wed,fri. " +
+      "then kept as missed until dismissed. action set needs text and at; at is the full date and local time like \"2026-11-02 07:00\" (add Z or +hh:mm for another zone), in the future and within 366 days; " +
+      "the reply gives next, the time it will fire in the hub's zone, so check it. " +
+      "repeat makes it repeat at that time of day, starting at the first time: daily, weekdays, weekends, weekly, or days like mon,wed,fri. " +
       "Pass text as what to remind the user about (\"call the dentist\"), not as instructions to yourself or to the user: it is " +
       "handed back to you later only to be passed on, with no tools. To DO something later, use a timer with then. " +
       "action list shows them. action cancel takes an id, text to match, or all true. action dismiss clears missed ones (id or all true).",

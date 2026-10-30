@@ -316,6 +316,14 @@ try {
     await next.front();
     await next.run(`location.hash = '#live/now'`);
     await next.until(`!/Backup/.test(document.querySelector('#now')?.textContent ?? 'Backup')`, "the task to leave Now");
+    // Reminders in Now: one scheduled (the time as words, no countdown) and one missed (warn mark and Dismiss).
+    const later = app.reminders.set({ text: "Call the dentist", at: new Date(Date.now() + 36 * 3600_000).toISOString().slice(0, 16).replace("T", " ") });
+    const lost = app.store.addReminder({ text: "Water the plants", everywhere: false, urgent: false, attempts: 1, missedAt: Date.now() - 60_000, missedCount: 1, createdAt: Date.now() - 3600_000 });
+    await next.front();
+    await next.run(`location.hash = '#live/now'`);
+    step("reminders in Now", await next.until(`(t => /Call the dentist/.test(t) && /Water the plants/.test(t) && /missed/.test(t) && /Dismiss/.test(t) && /Cancel/.test(t) && !/Call the dentist[^]*\\d+:\\d\\d:\\d\\d/.test(t) && 'one scheduled, one missed')(document.querySelector('#now')?.textContent ?? '')`, "the reminders in Now"));
+    app.reminders.cancel({ id: later.id });
+    app.reminders.dismiss({ id: lost.id });
     await next.run(`location.hash = '#live/tasks'`);
     step("agent task once over", await next.until(`(t => /Backup/.test(t) && /step 2 of 5/.test(t) && 'gone from Now, kept under Tasks finished')(document.querySelector('#live-tasks')?.textContent ?? '')`, "the ended task under Tasks finished"));
     await next.run(`location.hash = '#overview'`);

@@ -11,6 +11,7 @@ describe("what kind of work a tool is", () => {
       mcp__HomeAssistant__GetLiveContext: "home",
       mcp__HomeAssistant__HassLightSet: "home",
       vortex_axis_timer: "timer",
+      vortex_axis_reminder: "timer",
       cron: "timer",
       mcp__LogsTrackerMCP__get_today_tasks: "list",
       image_generate: "image",

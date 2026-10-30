@@ -138,6 +138,7 @@ describe("tools switched on and off", () => {
     const names = (await rpc(token, "tools/list")).body.result.tools.map((t: any) => t.name);
     expect(names).not.toContain("vortex_axis_admin");
     expect(names).toContain("vortex_axis_timer");
+    expect(names).toContain("vortex_axis_reminder");
     expect((await rpc(token, "tools/call", { name: "vortex_axis_admin", arguments: { action: "pairing_code" } })).body.result).toMatchObject({
       isError: true,
       content: [{ text: expect.stringMatching(/switched off/) }],

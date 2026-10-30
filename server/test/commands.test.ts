@@ -10,8 +10,8 @@ useServer();
 
 /** The node's command handler, as the gateway link would call it. */
 function invoke(command: string, params: Record<string, unknown> = {}) {
-  const { hub, store, timers, delivery, activity } = ctx.app;
-  return createInvokeHandler({ hub, store, timers, delivery, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 })(
+  const { hub, store, timers, reminders, delivery, activity } = ctx.app;
+  return createInvokeHandler({ hub, store, timers, reminders, timeZone: () => "America/Chicago", delivery, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 })(
     command,
     params,
   ) as Promise<any>;
@@ -130,6 +130,38 @@ describe("vortex.axis.timer", () => {
     expect(spokenLength(300)).toBe("5 minute");
     expect(spokenLength(5400)).toBe("1 hour 30 minute");
     expect(spokenLength(45)).toBe("45 second");
+  });
+
+  it("sets, lists, cancels and dismisses reminders, and shows when the next one is", async () => {
+    await device("Desk");
+    const set = await invoke("vortex.axis.reminder", { action: "set", text: "call\nthe dentist", at: new Date(Date.now() + 36 * 3600_000).toISOString().slice(0, 16).replace("T", " "), client: "Desk" });
+    expect(set.set).toMatchObject({ text: "call the dentist", target: "Desk", repeat: null, urgent: false });
+    expect(set.set.next).toEqual(expect.any(String));
+    expect(set.timeZone).toBe("America/Chicago");
+    const daily = await invoke("vortex.axis.reminder", { action: "set", text: "stretch", at: new Date(Date.now() + 40 * 3600_000).toISOString().slice(0, 10) + " 09:00", repeat: "weekdays", everywhere: true, urgent: true });
+    expect(daily.set).toMatchObject({ target: "everywhere", urgent: true, repeat: { at: "09:00", days: "1,2,3,4,5" } });
+    expect((await invoke("vortex.axis.reminder", {})).reminders.map((r: any) => r.text)).toEqual(["call the dentist", "stretch"]);
+    // Nothing is a timer.
+    expect((await invoke("vortex.axis.timer", {})).timers).toEqual([]);
+
+    await expect(invoke("vortex.axis.reminder", { action: "set", at: "09:00" })).rejects.toThrow(/text/);
+    await expect(invoke("vortex.axis.reminder", { action: "set", text: "x" })).rejects.toThrow(/when/);
+    await expect(invoke("vortex.axis.reminder", { action: "set", text: "x", at: "not a time" })).rejects.toThrow();
+    await expect(invoke("vortex.axis.reminder", { action: "set", text: "x", at: "2030-01-01 09:00", client: "Nowhere" })).rejects.toThrow(/no client/);
+    await expect(invoke("vortex.axis.reminder", { action: "cancel" })).rejects.toThrow(/which reminder/);
+    await expect(invoke("vortex.axis.reminder", { action: "dismiss" })).rejects.toThrow(/which missed/);
+    await expect(invoke("vortex.axis.reminder", { action: "frob" })).rejects.toThrow(/must be set/);
+
+    // Dismiss only touches missed ones.
+    expect((await invoke("vortex.axis.reminder", { action: "dismiss", all: true })).dismissed).toEqual([]);
+    ctx.app.store.updateReminder(set.set.id, { missedAt: Date.now() });
+    expect((await invoke("vortex.axis.reminder", { action: "list" })).reminders[0].missedAt).toEqual(expect.any(String));
+    expect((await admin("GET", "/admin/now")).body.reminders.map((r: any) => [r.text, r.missedAt !== null])).toEqual([["call the dentist", true], ["stretch", false]]);
+    expect((await admin("POST", `/admin/reminders/${daily.set.id}/dismiss`)).status).toBe(404);
+    expect((await admin("POST", "/admin/reminders/dismiss")).body.dismissed).toEqual([set.set.id]);
+    expect((await invoke("vortex.axis.reminder", { action: "cancel", text: "STRETCH" })).cancelled).toHaveLength(1);
+    expect((await admin("DELETE", "/admin/reminders/999")).status).toBe(404);
+    expect((await invoke("vortex.axis.reminder", {})).reminders).toEqual([]);
   });
 
   it("sets, lists and cancels timers, and tells the client which is next", async () => {
