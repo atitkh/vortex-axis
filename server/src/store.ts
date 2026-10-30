@@ -197,6 +197,10 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE clients ADD COLUMN capabilities_off TEXT NOT NULL DEFAULT '[]';
   `,
+  // Wall-clock reminders, one-off (`due_at`) or repeating (`time_of_day` local HH:MM on `days`, 0 = Sunday). Apart from timers on purpose.
+  `
+  CREATE TABLE reminders (id INTEGER PRIMARY KEY, text TEXT NOT NULL, due_at INTEGER, time_of_day TEXT, days TEXT, client_id TEXT, location TEXT, everywhere INTEGER NOT NULL DEFAULT 0, urgent INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER, missed_at INTEGER, missed_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -217,6 +221,27 @@ export interface VoiceSample {
   /** recorded: on the admin page; turn: a turn a device heard. */
   source: string;
   at: number;
+}
+
+/** A reminder: words to pass on at a wall-clock time, once or on repeat. A repeating one keeps `timeOfDay` and `days` and moves `dueAt`; `dueAt` is absent once a one-off is missed. */
+export interface ReminderRecord {
+  id: number;
+  text: string;
+  dueAt?: number | undefined;
+  /** Local "HH:MM", repeating reminders only. */
+  timeOfDay?: string | undefined;
+  /** Weekdays as "1,2,3,4,5", 0 = Sunday, repeating reminders only. */
+  days?: string | undefined;
+  clientId?: string | undefined;
+  location?: string | undefined;
+  everywhere: boolean;
+  urgent: boolean;
+  /** Tries made for the current due time. */
+  attempts: number;
+  retryAt?: number | undefined;
+  missedAt?: number | undefined;
+  missedCount: number;
+  createdAt: number;
 }
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -587,6 +612,79 @@ export class Store {
 
   removeTimer(id: number): boolean {
     return this.db.prepare("DELETE FROM timers WHERE id = ?").run(id).changes === 1;
+  }
+
+  // --- reminders ------------------------------------------------------------
+
+  addReminder(reminder: Omit<ReminderRecord, "id">): ReminderRecord {
+    const result = this.db
+      .prepare(
+        "INSERT INTO reminders (text, due_at, time_of_day, days, client_id, location, everywhere, urgent, attempts, retry_at, missed_at, missed_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        reminder.text,
+        reminder.dueAt ?? null,
+        reminder.timeOfDay ?? null,
+        reminder.days ?? null,
+        reminder.clientId ?? null,
+        reminder.location ?? null,
+        reminder.everywhere ? 1 : 0,
+        reminder.urgent ? 1 : 0,
+        reminder.attempts,
+        reminder.retryAt ?? null,
+        reminder.missedAt ?? null,
+        reminder.missedCount,
+        reminder.createdAt,
+      );
+    return { ...reminder, id: Number(result.lastInsertRowid) };
+  }
+
+  /** Every reminder, soonest due first, those with no due time (missed one-offs) last. */
+  listReminders(): ReminderRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM reminders ORDER BY due_at IS NULL, due_at, id")
+      .all() as unknown as Array<Record<string, string | number | null>>;
+    return rows.map((r) => {
+      const opt = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
+      return {
+        id: r.id as number,
+        text: r.text as string,
+        dueAt: opt(r.due_at as number | null),
+        timeOfDay: opt(r.time_of_day as string | null),
+        days: opt(r.days as string | null),
+        clientId: opt(r.client_id as string | null),
+        location: opt(r.location as string | null),
+        everywhere: r.everywhere === 1,
+        urgent: r.urgent === 1,
+        attempts: r.attempts as number,
+        retryAt: opt(r.retry_at as number | null),
+        missedAt: opt(r.missed_at as number | null),
+        missedCount: r.missed_count as number,
+        createdAt: r.created_at as number,
+      };
+    });
+  }
+
+  /** Changes the named fields; a field set to `undefined` is cleared. Returns false when there is no such reminder. */
+  updateReminder(id: number, patch: Partial<Omit<ReminderRecord, "id" | "createdAt">>): boolean {
+    const columns: Record<string, string> = {
+      text: "text", dueAt: "due_at", timeOfDay: "time_of_day", days: "days", clientId: "client_id", location: "location",
+      everywhere: "everywhere", urgent: "urgent", attempts: "attempts", retryAt: "retry_at", missedAt: "missed_at", missedCount: "missed_count",
+    };
+    const sets: string[] = [];
+    const values: Array<string | number | null> = [];
+    for (const [key, column] of Object.entries(columns)) {
+      if (!(key in patch)) continue;
+      const value = (patch as Record<string, unknown>)[key];
+      sets.push(`${column} = ?`);
+      values.push(typeof value === "boolean" ? (value ? 1 : 0) : ((value as string | number | undefined) ?? null));
+    }
+    if (sets.length === 0) return this.db.prepare("SELECT 1 FROM reminders WHERE id = ?").get(id) !== undefined;
+    return this.db.prepare(`UPDATE reminders SET ${sets.join(", ")} WHERE id = ?`).run(...values, id).changes === 1;
+  }
+
+  removeReminder(id: number): boolean {
+    return this.db.prepare("DELETE FROM reminders WHERE id = ?").run(id).changes === 1;
   }
 
   // --- what each client type offers ----------------------------------------
