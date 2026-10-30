@@ -736,7 +736,7 @@ try {
     if (cardsAfter === cardsBefore || (await adminGet("/admin/mcp")).mirrorCards !== cardsBefore) throw new Error("the progress cards switch did not save or undo");
     step("admin: progress cards switch", `${cardsBefore} → ${cardsAfter} saved, undone`);
     await next.run(`location.hash = '#tools'`);
-    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 12 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
+    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 13 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
     await next.run(`${fill("#mcp-token-name", "Browser check next")}; document.querySelector('#mcp-token-new').click()`);
     const nextToken = await next.until(`document.querySelector('#mcp-token-value')?.value`, "the new token on the new page");
     await next.until(`/Browser check next/.test(document.querySelector('#mcp-tokens').textContent)`, "the token in the new list");
