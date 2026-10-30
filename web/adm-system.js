@@ -89,7 +89,7 @@ export function IntegrationsPage() {
               <${Row} label="Home Assistant passed one on">${heard ?? (live.sent ? `not yet; Axis sent ${plural(live.sent, "update")}. Is an automation made from the blueprint?` : "nothing sent yet")}</${Row}>
               <${Row} label=""><${Button} class="btn" id="live-test" run=${liveTest}>Send a test</${Button}></${Row}>`
             : null}
-          <p class="help">Tasks that run longer than 30 seconds, anything waiting for you, timers of a minute or more and reminders due within 8 hours (quietly, until they go off) show on the lock screen and in the Dynamic Island of a phone with the Home Assistant app (iOS 17.2+, app 2026.9+, Home Assistant 2026.7+), through an automation made from the blueprint.</p>
+          <p class="help">Tasks that run longer than 30 seconds, anything waiting for you, timers of a minute or more and reminders (only once they go off) show on the lock screen and in the Dynamic Island of a phone with the Home Assistant app (iOS 17.2+, app 2026.9+, Home Assistant 2026.7+), through an automation made from the blueprint.</p>
         </${Card}>`
       : null}
     <${Card} id="int-push" title="Notifications to browsers" mark=${push.clients.length ? [plural(push.clients.length, "browser"), "good"] : ["no browser has them on", ""]}>

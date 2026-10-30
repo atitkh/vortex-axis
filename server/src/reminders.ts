@@ -9,10 +9,6 @@ import type { ReminderRecord, Store } from "./store.js";
 const MAX_WAIT_MS = 2 ** 31 - 1;
 export const MAX_REMINDERS = 100;
 export const MAX_REMINDER_CHARS = 200;
-/** A Live Activity shows a reminder only this long before it is due (iOS ends activities at about that age). */
-const LIVE_AHEAD_MS = 8 * 3600_000;
-/** iOS limits how many activities may start; only the soonest few go. */
-const LIVE_MAX = 3;
 /** How long a reminder that fired stays "due" on the phone. */
 const LIVE_DUE_MS = 60_000;
 
@@ -201,17 +197,11 @@ export class Reminders {
     this.changed();
   }
 
-  /** What a phone shows: reminders due soon (scheduled) and ones that just fired (due). */
+  /** What a phone shows: only reminders that just fired (due). Scheduled ones stay off the phone until they go off. */
   live(): LiveReminder[] {
     const now = this.now();
     for (const [id, f] of this.fired) if (now - f.at > LIVE_DUE_MS) this.fired.delete(id);
-    const out: LiveReminder[] = [...this.fired].map(([id, f]) => ({ id, text: f.text, dueAt: f.dueAt, state: "due", quiet: f.quiet }));
-    const scheduled = this.list()
-      .filter((r) => r.dueAt !== undefined && r.dueAt > now && r.dueAt - now <= LIVE_AHEAD_MS && !this.fired.has(r.id) && !this.firing.has(r.id))
-      .sort((a, b) => a.dueAt! - b.dueAt!)
-      .slice(0, LIVE_MAX);
-    for (const r of scheduled) out.push({ id: r.id, text: r.text, dueAt: r.dueAt!, state: "scheduled", quiet: true });
-    return out;
+    return [...this.fired].map(([id, f]) => ({ id, text: f.text, dueAt: f.dueAt, state: "due", quiet: f.quiet }));
   }
 
   private changed(): void {

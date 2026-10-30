@@ -141,14 +141,10 @@ describe("reminders", () => {
     expect(ctx.app.store.listReminders()[0]!.missedAt).toBeUndefined();
   });
 
-  it("lists for a phone: the soonest three within eight hours, then due for a minute after it fires", async () => {
+  it("lists for a phone only once it has fired, for a minute: nothing while it is scheduled", async () => {
     const hour = 3600_000;
-    const far = add({ text: "Far", dueAt: Date.now() + 9 * hour });
-    for (const [i, h] of [1, 2, 3, 4].entries()) add({ text: `R${i}`, dueAt: Date.now() + h * hour });
-    const live = ctx.app.reminders.live();
-    expect(live.map((l) => l.text)).toEqual(["R0", "R1", "R2"]);
-    expect(live.every((l) => l.state === "scheduled" && l.quiet)).toBe(true);
-    expect(live.some((l) => l.id === far.id)).toBe(false);
+    for (const [i, h] of [1, 2].entries()) add({ text: `R${i}`, dueAt: Date.now() + h * hour });
+    expect(ctx.app.reminders.live()).toEqual([]);
     for (const r of ctx.app.store.listReminders()) ctx.app.reminders.cancel({ id: r.id });
     const desk = await device("Desk");
     const row = add();

@@ -25,9 +25,8 @@ import { spokenLength } from "./timers.js";
  *   and goes at full priority; a step within the same state goes quietly, at the
  *   low priority iOS may hold back;
  * - a timer shows "Done" the moment it is due;
- * - a reminder shows quietly (no sound, no countdown, only its time) when it is
- *   due within 8 hours, for the 3 soonest, and sounds when it goes off, unless
- *   it was said quietly.
+ * - a reminder shows only when it goes off (Reminders.live gives nothing while it
+ *   is scheduled), with a sound unless it was said quietly.
  * An activity ends when its task leaves the screens or its timer or reminder is
  * cancelled, or a minute after the timer or reminder went off.
  */
