@@ -21,7 +21,7 @@ const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 export const MCP_INSTRUCTIONS = [
   "VorteX Axis is the user's voice hub: a few small devices around them (desk boards with a screen, speaker and microphone; browsers; a phone). These tools act on those devices.",
   "A turn that came from one of the devices starts with a bracketed line naming it (from), where it is (location) and what it has (can). Pass that name as `client` to act on the device the user is at. With no client or location, a tool goes to the device the user last spoke to.",
-  "vortex_axis_say speaks a short message; its result says whether the device confirmed it was heard. vortex_axis_show puts a picture on a device whose can lists images or image-frames, for a few seconds, silently. vortex_axis_ask puts a question and waits for the answer. vortex_axis_timer sets, lists and cancels timers. vortex_axis_clients lists the devices.",
+  "vortex_axis_say speaks a short message; its result says whether the device confirmed it was heard. vortex_axis_show puts a picture on a device whose can lists images or image-frames, for a few seconds, silently. vortex_axis_ask puts a question and waits for the answer. vortex_axis_timer sets, lists and cancels timers; vortex_axis_reminder does the same for reminders at a clock time. vortex_axis_clients lists the devices.",
   "Anything spoken should sound spoken: one or two plain sentences, no markdown, lists or emoji.",
 ].join("\n");
 

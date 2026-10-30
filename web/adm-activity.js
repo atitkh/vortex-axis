@@ -164,6 +164,10 @@ export function NowList() {
     await api("DELETE", path);
     await refresh();
   };
+  const act = async (method, path) => {
+    await api(method, path);
+    await refresh();
+  };
   const kept = store.clients.filter((c) => c.waiting);
   const notified = store.clients.filter((c) => c.notified);
   const items = [];
@@ -196,7 +200,22 @@ export function NowList() {
       html`${t.task ? "Task for later" : "Timer"} on <${DevLink} id=${t.clientId} name=${t.client} />${t.task ? html` <${Stat} label=${t.mayAct ? "may act on a computer" : "look only"} kind=${t.mayAct ? "warn" : ""} />` : null}`,
       html`<span class="mono">${left}</span>`, html`<${Button} class="btn sm ghost" run=${() => gone(`/admin/timers/${enc(t.id)}`)}>Cancel</${Button}>`);
   }
-  if (!items.length) return html`<p class="dim now-empty" id="now">Nothing is running right now: no agent tasks, no timers, no questions, no conversations, no messages or notifications waiting.</p>`;
+  // Reminders have no countdown: the time they are set for, as words. Missed ones stay until dismissed.
+  const remindersAll = now?.reminders ?? [];
+  const missed = remindersAll.filter((r) => r.missedAt);
+  const repeatsWord = (r) => (r.repeat ? ` · repeats at ${r.repeat.at}` : "");
+  for (const r of remindersAll) {
+    const where = r.target ? ` · ${r.target}` : "";
+    if (r.missedAt)
+      item(`r:${r.id}`, r.text, html`Reminder${repeatsWord(r)}${where} <${Stat} label=${r.missedCount > 1 ? `missed ${r.missedCount} times` : "missed"} kind="warn" />`, "",
+        html`<${Button} class="btn sm" run=${() => act("POST", `/admin/reminders/${enc(r.id)}/dismiss`)}>Dismiss</${Button}>`);
+    if (r.when)
+      item(`rs:${r.id}`, r.text, `Reminder${repeatsWord(r)}${where}`, r.when,
+        html`<${Button} class="btn sm ghost" run=${() => gone(`/admin/reminders/${enc(r.id)}`)}>Cancel</${Button}>`);
+  }
+  if (missed.length > 1)
+    item("r:all", `${missed.length} missed reminders`, "", "", html`<${Button} class="btn sm" run=${() => act("POST", "/admin/reminders/dismiss")}>Dismiss all</${Button}>`);
+  if (!items.length) return html`<p class="dim now-empty" id="now">Nothing is running right now: no agent tasks, no timers, no reminders, no questions, no conversations, no messages or notifications waiting.</p>`;
   return html`<ul class="now" id="now">${items}</ul>`;
 }
 
@@ -521,7 +540,7 @@ export function Live({ tab }) {
   const l = useLive();
   const current = LIVE_TABS.includes(tab) ? tab : "turns";
   const running = l.turns.filter((t) => !t.outcome).length;
-  const nowCount = (store.now?.timers.length ?? 0) + (store.now?.clients.length ?? 0) + (store.now?.tasks?.length ?? 0) + (store.now?.attached ? 1 : 0) + (store.now?.computers?.length ?? 0);
+  const nowCount = (store.now?.timers.length ?? 0) + (store.now?.reminders ?? []).filter((r) => r.missedAt).length + (store.now?.clients.length ?? 0) + (store.now?.tasks?.length ?? 0) + (store.now?.attached ? 1 : 0) + (store.now?.computers?.length ?? 0);
   const counts = { turns: running ? `${running} running` : l.turns.length, now: nowCount, calls: l.calls.length, wakes: l.wakes.length, tasks: store.now?.tasksEnded?.length ?? 0 };
   return html`<${PageHead} title="Live" purpose="Turns, tool calls and wake words as they happen, and what is running now." crumb=${html`<span>Activity</span>`}>
       <span class=${`dot ${l.up ? "good" : "warn"}`} id="live-state">${l.up ? "watching" : "connecting"}</span>

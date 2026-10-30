@@ -9,8 +9,11 @@ import { PROFILE_CHOICES } from "./profiles.js";
 import type { Store, TimerRecord } from "./store.js";
 import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
+import type { ReminderRecord } from "./store.js";
 import { MAX_TASK_CHARS, MAX_TIMER_SECONDS, type Timers } from "./timers.js";
 import type { Desktops } from "./desktop.js";
+import type { Reminders } from "./reminders.js";
+import { describeWhen } from "./recurrence.js";
 import { readPicture, type Shows, type SourceDeps } from "./show.js";
 
 /**
@@ -27,6 +30,7 @@ export const NODE_COMMANDS = [
   "vortex.axis.sense",
   "vortex.axis.diag",
   "vortex.axis.timer",
+  "vortex.axis.reminder",
   "vortex.axis.admin",
   "vortex.axis.progress",
   "vortex.axis.session",
@@ -124,7 +128,8 @@ export const NODE_TOOLS: NodeTool[] = [
       "a full instruction to your later self, with everything needed to do it without this conversation. When due " +
       "you are given it as a new turn, and your answer is spoken on that device. It runs once; it does not repeat. " +
       "It may look at the user's computer but not click or type there, unless the user asked for that: then pass " +
-      "act true, and the device itself asks the user to allow it.",
+      "act true, and the device itself asks the user to allow it. " +
+      "For a clock time (\"at 7 tomorrow\", \"every weekday at 9\") use vortex_axis_reminder, not a timer.",
     parameters: {
       type: "object",
       properties: {
@@ -135,6 +140,35 @@ export const NODE_TOOLS: NodeTool[] = [
         all: { type: "boolean", description: "With cancel: cancel every timer, or every timer on the client given." },
         then: { type: "string", description: "With set: what you are to do when it is due, as an instruction to yourself (max 1000 characters)." },
         act: { type: "boolean", description: "With then: ask the user to let the task click and type on their computer." },
+        ...TARGET_PROPERTIES,
+      },
+    },
+  },
+  {
+    name: "vortex_axis_reminder",
+    command: "vortex.axis.reminder",
+    description:
+      "Set, list, cancel or dismiss reminders for a wall-clock time (\"at 7 tomorrow\", \"every weekday at 9\"), once or repeating. " +
+      "Nothing counts down beforehand and nothing is shown until it is due. Where it is said is decided at due time: " +
+      "the device the user is then talking to or near, or all of them with everywhere true, unless client or location pins it. " +
+      "Quiet hours keep it silent (shown, or a notification) unless urgent is true. If it cannot be delivered it is retried once, " +
+      "then kept as missed until dismissed. action set needs text and at; at is a local time such as \"2026-11-02 07:00\", " +
+      "\"07:00\" (next time it is that) or with an offset, within 366 days; the reply gives next, the time it will fire in the hub's zone, so check it. " +
+      "repeat makes it repeat at that time of day: daily, weekdays, weekends, weekly, or days like mon,wed,fri. " +
+      "Pass text as what to remind the user about (\"call the dentist\"), not as instructions to yourself or to the user: it is " +
+      "handed back to you later only to be passed on, with no tools. To DO something later, use a timer with then. " +
+      "action list shows them. action cancel takes an id, text to match, or all true. action dismiss clears missed ones (id or all true).",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["set", "list", "cancel", "dismiss"], description: "What to do. list when omitted." },
+        text: { type: "string", description: "With set: what to remind about, max 200 characters. With cancel: part of the words, to pick one." },
+        at: { type: "string", description: "With set: when, local time like 2026-11-02 07:00 or 07:00, or with an offset." },
+        repeat: { type: "string", enum: ["daily", "weekdays", "weekends", "weekly"], description: "With set: repeat at that time of day. Days like mon,wed,fri also work." },
+        id: { type: "number", description: "Id of the reminder, from list." },
+        all: { type: "boolean", description: "With cancel or dismiss: every reminder (cancel) or every missed one (dismiss)." },
+        everywhere: { type: "boolean", description: "With set: say it on every device, not only where the user is." },
+        urgent: { type: "boolean", description: "With set: speak even in quiet hours." },
         ...TARGET_PROPERTIES,
       },
     },
@@ -355,6 +389,9 @@ export interface CommandDeps {
   /** Devices as plain objects with their vitals; one without held builds is made when absent. */
   devices?: Devices | undefined;
   timers: Timers;
+  reminders?: Reminders | undefined;
+  /** The hub's time zone now, to show when a reminder will fire. */
+  timeZone?: (() => string) | undefined;
   delivery: Delivery;
   /** Long work agents are doing, shown on the screens. */
   progress?: Progress | undefined;
@@ -375,7 +412,7 @@ export interface CommandDeps {
 
 /** Builds the function that carries out a command an agent sent to the node. */
 export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
-  const { hub, store, timers, delivery } = deps;
+  const { hub, store, timers, delivery, reminders } = deps;
   const now = deps.now ?? Date.now;
   const devices = deps.devices ?? new Devices(store, hub, undefined, now);
 
@@ -607,6 +644,57 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           return { cancelled: gone.map(timerView), left: timers.list().length };
         }
         throw new Error(`timer action must be set, list or cancel, not "${action}"`);
+      }
+
+      case "vortex.axis.reminder": {
+        if (!reminders) throw new Error("reminders are not available");
+        const action = text(params.action) ?? "list";
+        const zone = () => deps.timeZone?.() ?? "UTC";
+        const view = (r: ReminderRecord) => ({
+          id: r.id,
+          text: r.text,
+          next: r.dueAt !== undefined ? describeWhen(r.dueAt, zone()) : null,
+          nextAt: r.dueAt !== undefined ? new Date(r.dueAt).toISOString() : null,
+          repeat: r.timeOfDay ? { at: r.timeOfDay, days: r.days } : null,
+          target: r.everywhere ? "everywhere" : (store.getClient(r.clientId ?? "")?.name ?? r.location ?? null),
+          urgent: r.urgent,
+          ...(r.missedAt !== undefined ? { missedAt: new Date(r.missedAt).toISOString(), missedCount: r.missedCount } : {}),
+        });
+        const id = typeof params.id === "number" ? params.id : undefined;
+        if (action === "set") {
+          const what = text(params.text);
+          const at = text(params.at);
+          if (!what) throw new Error("say what to remind them of: text");
+          if (!at) throw new Error("say when: at, such as 2026-11-02 07:00");
+          const name = text(params.client);
+          const location = placeNamed(params);
+          const repeat = text(params.repeat);
+          const set = reminders.set({
+            text: what,
+            at,
+            ...(repeat ? { repeat } : {}),
+            ...(name ? { clientId: clientNamed(name).id } : {}),
+            ...(location ? { location } : {}),
+            everywhere: params.everywhere === true,
+            urgent: params.urgent === true,
+          });
+          return { set: view(set), timeZone: zone() };
+        }
+        if (action === "list") return { reminders: reminders.list().map(view), timeZone: zone() };
+        if (action === "cancel") {
+          const label = text(params.text);
+          const all = params.all === true;
+          if (id === undefined && label === undefined && !all) throw new Error("say which reminder: give id, text, or all true");
+          const gone = reminders.cancel({ id, text: label, all });
+          return { cancelled: gone.map(view), left: reminders.list().length };
+        }
+        if (action === "dismiss") {
+          const all = params.all === true;
+          if (id === undefined && !all) throw new Error("say which missed reminder: give id, or all true");
+          const gone = reminders.dismiss({ id, all });
+          return { dismissed: gone.map(view) };
+        }
+        throw new Error(`reminder action must be set, list, cancel or dismiss, not "${action}"`);
       }
 
       case "vortex.axis.admin": {

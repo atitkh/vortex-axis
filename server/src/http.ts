@@ -1,4 +1,6 @@
 import type { Timers } from "./timers.js";
+import type { Reminders } from "./reminders.js";
+import { describeWhen } from "./recurrence.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -213,6 +215,8 @@ export interface HttpDeps {
   wakeWordSync?: WakeWordSync;
   /** Timers agents set, shown and cancelled on the admin page. */
   timers?: Timers;
+  /** Wall-clock reminders, shown on the admin Now list. */
+  reminders?: Reminders;
   /** Notifications to browser clients whose page is closed. */
   push?: PushService;
   delivery?: Delivery;
@@ -1438,6 +1442,17 @@ export function createHttpHandler(deps: HttpDeps) {
             // What the agent is to do when it is due, when the timer is one of those.
             ...(t.task ? { task: t.task, mayAct: t.mayAct === true } : {}),
           })),
+          // Reminders: scheduled (no countdown, the time as words) and missed ones waiting to be dismissed.
+          reminders: (deps.reminders?.list() ?? []).map((r) => ({
+            id: r.id,
+            text: r.text,
+            dueAt: r.dueAt ?? null,
+            when: r.dueAt !== undefined ? describeWhen(r.dueAt, deps.config.timeZone) : null,
+            repeat: r.timeOfDay ? { at: r.timeOfDay, days: r.days ?? "" } : null,
+            target: r.everywhere ? "everywhere" : r.clientId ? nameOf(r.clientId) : (r.location ?? null),
+            missedAt: r.missedAt ?? null,
+            missedCount: r.missedCount,
+          })),
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.
           tasks: (deps.progress?.list() ?? []).filter((t) => !t.notice),
@@ -1463,6 +1478,20 @@ export function createHttpHandler(deps: HttpDeps) {
       if (method === "DELETE" && parts.length === 3 && parts[1] === "timers") {
         const gone = deps.timers?.cancel({ id: Number(parts[2]) }) ?? [];
         if (!gone.length) throw new HttpError(404, "no such timer");
+        return sendJson(res, 200, { cancelled: gone[0]!.id });
+      }
+      if (method === "POST" && parts.length === 3 && parts[1] === "reminders" && parts[2] === "dismiss") {
+        const gone = deps.reminders?.dismiss({ all: true }) ?? [];
+        return sendJson(res, 200, { dismissed: gone.map((r) => r.id) });
+      }
+      if (method === "POST" && parts.length === 4 && parts[1] === "reminders" && parts[3] === "dismiss") {
+        const gone = deps.reminders?.dismiss({ id: Number(parts[2]) }) ?? [];
+        if (!gone.length) throw new HttpError(404, "no such missed reminder");
+        return sendJson(res, 200, { dismissed: gone[0]!.id });
+      }
+      if (method === "DELETE" && parts.length === 3 && parts[1] === "reminders") {
+        const gone = deps.reminders?.cancel({ id: Number(parts[2]) }) ?? [];
+        if (!gone.length) throw new HttpError(404, "no such reminder");
         return sendJson(res, 200, { cancelled: gone[0]!.id });
       }
       if (method === "GET" && parts.length === 2 && parts[1] === "status") {

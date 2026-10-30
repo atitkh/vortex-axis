@@ -390,6 +390,7 @@ const TOOL_READS = {
   vortex_axis_say: "Speak or show a message on a device. The gateway's own notify command is this tool too.",
   vortex_axis_ask: "Ask the person a question and wait for the answer.",
   vortex_axis_timer: "Set, list and cancel timers.",
+  vortex_axis_reminder: "Set, list, cancel and dismiss reminders at a clock time.",
   vortex_axis_admin: "Run a device's actions, rename a device, make a pairing code.",
   vortex_axis_clients: "List the devices: names, locations, what each can do.",
   vortex_axis_config: "Read and change device settings such as volume.",
