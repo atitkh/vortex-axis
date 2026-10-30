@@ -15,7 +15,7 @@ interface LocalParts {
   weekday: number;
 }
 
-function localParts(at: number, timeZone: string): LocalParts {
+export function localParts(at: number, timeZone: string): LocalParts {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(at);

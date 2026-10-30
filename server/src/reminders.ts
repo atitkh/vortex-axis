@@ -2,7 +2,7 @@ import type { Activity } from "./activity.js";
 import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import type { Progress } from "./progress.js";
-import { describeWhen, nextOccurrence, parseRepeat, parseWhen, timeOfDayOf, weekdayOf } from "./recurrence.js";
+import { describeWhen, localParts, localToUtc, nextOccurrence, parseRepeat, parseWhen, timeOfDayOf, weekdayOf } from "./recurrence.js";
 import type { ReminderRecord, Store } from "./store.js";
 
 /** setTimeout cannot wait longer than this; a longer wait is simply re-armed. */
@@ -43,8 +43,8 @@ export interface RemindersOptions {
 /** See `Reminders.route`. */
 export type ReminderRoute =
   | { kind: "speak"; session: Session; targeted: boolean; fellBack?: string }
-  | { kind: "hush"; session: Session }
-  | { kind: "push" }
+  | { kind: "hush"; session: Session; fellBack?: string }
+  | { kind: "push"; fellBack?: string }
   | { kind: "everywhere" };
 
 /** What `Reminders.set` is given. `at` is the first (or only) time; `repeat` makes it repeat at that time of day. */
@@ -70,6 +70,8 @@ export class Reminders {
   private readonly chimeMs: number;
   private readonly lateOkMs: number;
   private readonly cardMs: number;
+  /** The zone the stored dates were last worked out in. */
+  private zone: string;
 
   constructor(private readonly options: RemindersOptions) {
     this.now = options.now ?? Date.now;
@@ -78,6 +80,7 @@ export class Reminders {
     this.chimeMs = options.chimeMs ?? 900;
     this.lateOkMs = options.lateOkMs ?? 6 * 3600_000;
     this.cardMs = options.cardMs ?? 60_000;
+    this.zone = options.timeZone();
   }
 
   /** Called after every change to the reminders. */
@@ -102,9 +105,11 @@ export class Reminders {
     if (this.list().length >= MAX_REMINDERS) throw new Error(`there are ${MAX_REMINDERS} reminders already: cancel some first`);
     const zone = this.options.timeZone();
     const now = this.now();
-    const dueAt = parseWhen(input.at, zone, now);
+    let dueAt = parseWhen(input.at, zone, now);
     const repeating = input.repeat !== undefined && input.repeat.trim() !== "";
     const days = repeating ? parseRepeat(input.repeat!, weekdayOf(dueAt, zone)) : undefined;
+    // The first time is on one of the days it repeats on: Saturday 09:00 "weekdays" starts on Monday.
+    if (days && !days.split(",").includes(String(weekdayOf(dueAt, zone)))) dueAt = nextOccurrence({ timeOfDay: timeOfDayOf(dueAt, zone), days }, dueAt, zone);
     const reminder = this.options.store.addReminder({
       text,
       dueAt,
@@ -161,10 +166,17 @@ export class Reminders {
   /** The hub's time zone changed: repeating reminders not yet due are worked out again, so 09:00 stays 09:00 there. */
   rezone(): void {
     const zone = this.options.timeZone();
+    const old = this.zone;
+    if (zone === old) return;
+    this.zone = zone;
     const now = this.now();
     for (const r of this.list()) {
       if (!r.timeOfDay || !r.days || r.dueAt === undefined || r.dueAt <= now || r.attempts > 0) continue;
-      const dueAt = nextOccurrence({ timeOfDay: r.timeOfDay, days: r.days }, now, zone);
+      // Keep the date it was on, at the same time of day there; only a date that has already passed is worked out afresh.
+      const [hour, minute] = r.timeOfDay.split(":").map(Number) as [number, number];
+      const day = localParts(r.dueAt, old);
+      let dueAt = localToUtc(day.year, day.month, day.day, hour, minute, zone);
+      if (dueAt <= now) dueAt = nextOccurrence({ timeOfDay: r.timeOfDay, days: r.days }, now, zone);
       if (dueAt !== r.dueAt) this.options.store.updateReminder(r.id, { dueAt });
     }
     this.arm();
@@ -199,7 +211,7 @@ export class Reminders {
     for (const r of this.list()) {
       const at = this.timeOf(r);
       if (this.firing.has(r.id) || at === undefined || at > now) continue;
-      void this.fire(r);
+      void this.fire(r).catch((error: Error) => this.log(`reminder ${r.id} failed: ${error.message}`));
     }
     this.arm();
   }
@@ -219,6 +231,8 @@ export class Reminders {
         this.log(`reminder ${r.id} not delivered: ${error.message}`);
         return false;
       });
+      // Shutting down: the store may be closed. The row stays as it was and fires again after the restart.
+      if (this.stopped) return;
       if (ok) this.done(r);
       else if (r.attempts === 0) {
         this.options.store.updateReminder(r.id, { attempts: 1, retryAt: this.now() + this.retryMs });
@@ -254,7 +268,13 @@ export class Reminders {
         fellBack = (error as Error).message;
       }
     }
-    session ??= hub.pickOutput({});
+    try {
+      session ??= hub.pickOutput({});
+    } catch (error) {
+      // Nothing online. At boot clients have not reconnected yet, so the first try waits; the retry goes to the phones.
+      if (r.attempts === 0) throw error;
+      return { kind: "push", ...(fellBack ? { fellBack } : {}) };
+    }
     const hushed = hub.profile(session.client).profile === "silent" || (!r.urgent && hub.quiet(session.client));
     if (!hushed) return { kind: "speak", session, targeted: Boolean(explicit) && !fellBack, ...(fellBack ? { fellBack } : {}) };
     // Quiet: a screen shows it, the picked device's own if it has one, else an online screen, screen-only ones first.
@@ -262,7 +282,8 @@ export class Reminders {
     const screen = session.client.capabilities.includes("screen")
       ? session
       : screens.find((s) => !s.client.capabilities.includes("speaker")) ?? screens[0];
-    return screen ? { kind: "hush", session: screen } : { kind: "push" };
+    const note = fellBack ? { fellBack } : {};
+    return screen ? { kind: "hush", session: screen, ...note } : { kind: "push", ...note };
   }
 
   /** Carries out the route. True when delivered: heard, shown, handed over, or a push sent. */
@@ -277,15 +298,20 @@ export class Reminders {
       activity?.note("reminder", "", `Reminder said everywhere${delivered ? "" : " (not confirmed)"}: ${r.text}`);
       return delivered;
     }
+    if (route.kind !== "speak" && route.fellBack) {
+      activity?.note("reminder", r.clientId ?? "", `Reminder target unavailable (${route.fellBack}); sent elsewhere instead: ${r.text}`, "warn");
+    }
     if (route.kind === "push") {
       const sent = (await this.options.notifyAll?.("Reminder", staticLine, `reminder-${r.id}`).catch(() => 0)) ?? 0;
       activity?.note("reminder", "", `Reminder in quiet hours with no screen: ${sent > 0 ? "sent as a notification" : "no notification sent"}: ${r.text}`, sent > 0 ? "info" : "warn");
       return sent > 0;
     }
     if (route.kind === "hush") {
-      await hub.say(route.session, staticLine, { silent: true }).catch(() => undefined);
-      activity?.note("reminder", route.session.client.id, `Reminder shown quietly on ${route.session.client.name}: ${r.text}`);
-      return true;
+      // A silent line on a board does not reach a phone that is away; the push route has notifyAll for that.
+      this.options.tellPhones?.("Reminder", r.text, `reminder-${r.id}`);
+      const shown = await hub.say(route.session, staticLine, { silent: true }).then(() => true, () => false);
+      activity?.note("reminder", route.session.client.id, `Reminder ${shown ? "shown quietly" : "could not be shown"} on ${route.session.client.name}: ${r.text}`, shown ? "info" : "warn");
+      return shown;
     }
     const { session } = route;
     if (route.fellBack) activity?.note("reminder", r.clientId ?? "", `Reminder target unavailable (${route.fellBack}); said on ${session.client.name} instead: ${r.text}`, "warn");
@@ -304,10 +330,14 @@ export class Reminders {
     });
     let heard = Boolean(said?.heard);
     const handedOver = Boolean(said?.handedOver);
+    // The words reached a screen even when playback was not confirmed (a muted board, or a named one with no card).
+    let shown = Boolean(said && !said.silent);
     if (!said || (said.silent && !handedOver)) {
-      heard = (await hub.say(session, staticLine).catch(() => ({ heard: false }))).heard;
+      const result = await hub.say(session, staticLine).catch(() => undefined);
+      heard = Boolean(result?.heard);
+      shown = result !== undefined;
     }
-    const delivered = heard || handedOver || screens > 0;
+    const delivered = heard || handedOver || screens > 0 || (shown && session.client.capabilities.includes("screen"));
     activity?.note("reminder", session.client.id, `Reminder said on ${session.client.name}${delivered ? "" : " (not confirmed)"}: ${r.text}`);
     return delivered;
   }

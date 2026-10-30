@@ -325,7 +325,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     runLine: async (session, reminder, late) => {
       const words =
         `[reminder: the user asked to be reminded of this now and is not asking anything. Say it to them in one short natural sentence and nothing else. ` +
-        `Do not use tools. Never answer NO_REPLY.${late ? ` It is ${late} past its time; say so.` : ""}] ${reminder.text}`;
+        `Do not use tools. Never answer NO_REPLY.${late ? ` It is ${late} past its time; say so.` : ""}] ${reminder.text.replace(/[\[\]]/g, "")}`;
       const release = desktops.holdLookOnly("a reminder was being said");
       let later = false;
       try {

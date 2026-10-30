@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Capability } from "@vortex-axis/protocol";
 import type { Agent } from "../src/agent.js";
+import { timeOfDayOf, weekdayOf } from "../src/recurrence.js";
 import { Reminders } from "../src/reminders.js";
 import type { TextToSpeech } from "../src/speech.js";
 import { admin, connect, ctx, newPairedClient, restart, useServer } from "./harness.js";
@@ -298,6 +299,141 @@ describe("reminders", () => {
       await hearOut(desk);
       own.stop();
       expect(tellPhones).toHaveBeenCalledWith("Reminder", "Take the pills", expect.stringMatching(/^reminder-/));
+    });
+  });
+  describe("review fixes", () => {
+    const FIXED_NOW = Date.UTC(2026, 9, 30, 12);
+    let zone = "America/Chicago";
+    const engine = (extra: Record<string, unknown> = {}) => {
+      ctx.app.reminders.stop();
+      const options = { store: ctx.app.store, hub: ctx.app.hub, progress: ctx.app.progress, delivery: ctx.app.delivery, timeZone: () => zone, retryMs: 150, chimeMs: 10 };
+      return new Reminders({ ...options, ...extra } as ConstructorParameters<typeof Reminders>[0]);
+    };
+    const find = (id: number) => ctx.app.store.listReminders().find((x) => x.id === id);
+
+    it("with nothing online it waits for the retry, then sends a push and finishes", async () => {
+      const notifyAll = vi.fn(async () => 1);
+      const own = engine({ notifyAll });
+      const r = add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(120);
+      expect(notifyAll).not.toHaveBeenCalled();
+      expect(find(r.id)).toMatchObject({ attempts: 1 });
+      await sleep(400);
+      own.stop();
+      expect(notifyAll).toHaveBeenCalledOnce();
+      expect(find(r.id)).toBeUndefined();
+    });
+
+    it("with nothing online and no push it retries and then keeps it as missed", async () => {
+      const own = engine({ notifyAll: async () => 0 });
+      const r = add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(550);
+      own.stop();
+      expect(find(r.id)).toMatchObject({ missedCount: 1 });
+    });
+
+    it("keeps the reminder for a retry when the quiet line could not be shown", async () => {
+      await device("Desk");
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      vi.spyOn(ctx.app.hub, "say").mockRejectedValue(new Error("busy"));
+      const own = engine();
+      const r = add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(120);
+      own.stop();
+      expect(find(r.id)).toMatchObject({ attempts: 1 });
+      vi.restoreAllMocks();
+    });
+
+    it("tells away phones in quiet hours on a screen, but not on the push route", async () => {
+      await device("Desk");
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const tellPhones = vi.fn();
+      const own = engine({ tellPhones });
+      add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(300);
+      own.stop();
+      expect(tellPhones).toHaveBeenCalledWith("Reminder", "Take the pills", expect.stringMatching(/^reminder-/));
+      vi.restoreAllMocks();
+    });
+
+    it("does not tell phones separately on the push route", async () => {
+      await device("Box", ["speaker", "mic"]);
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const tellPhones = vi.fn();
+      const own = engine({ tellPhones, notifyAll: async () => 1 });
+      add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(300);
+      own.stop();
+      expect(tellPhones).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it("counts a named board with a screen as delivered when the words went out but playback was not confirmed", async () => {
+      const desk = await device("Desk");
+      const id = [...ctx.app.hub.sessions()].find((s) => s.client.name === "Desk")!.client.id;
+      const own = engine({ runLine: async () => ({ handedOver: false, heard: false, silent: false }) });
+      const r = add({ dueAt: Date.now() + 50, clientId: id });
+      own.start();
+      await sleep(150);
+      own.stop();
+      expect(find(r.id)).toBeUndefined();
+    });
+
+    it("starts a repeating reminder on a day it repeats on", () => {
+      const own = engine({ now: () => FIXED_NOW });
+      const r = own.set({ text: "Standup", at: "2026-10-31T09:00", repeat: "weekdays" });
+      expect(weekdayOf(r.dueAt!, zone)).toBe(1);
+      expect(timeOfDayOf(r.dueAt!, zone)).toBe("09:00");
+      expect(r.dueAt).toBe(Date.UTC(2026, 10, 2, 15));
+    });
+
+    it("rezone with the same zone changes nothing, and a far first date keeps its date", () => {
+      zone = "America/Chicago";
+      const own = engine({ now: () => FIXED_NOW });
+      const r = own.set({ text: "Daily", at: "2026-12-01T09:00", repeat: "daily" });
+      const before = r.dueAt;
+      own.rezone();
+      expect(find(r.id)!.dueAt).toBe(before);
+      zone = "Europe/London";
+      own.rezone();
+      expect(find(r.id)!.dueAt).toBe(Date.UTC(2026, 11, 1, 9));
+      zone = "America/Chicago";
+    });
+
+    it("rezone keeps 09:00 local in the new zone", () => {
+      zone = "America/Chicago";
+      const own = engine({ now: () => FIXED_NOW });
+      const r = own.set({ text: "Daily", at: "2026-11-05T09:00", repeat: "daily" });
+      zone = "Asia/Tokyo";
+      own.rezone();
+      expect(timeOfDayOf(find(r.id)!.dueAt!, "Asia/Tokyo")).toBe("09:00");
+      expect(find(r.id)!.dueAt).toBe(Date.UTC(2026, 10, 5, 0));
+      zone = "America/Chicago";
+    });
+
+    it("stopping mid-delivery neither burns the retry nor touches the store", async () => {
+      await device("Desk");
+      const own = engine({ runLine: async () => (await sleep(250), { handedOver: false, heard: false, silent: false }) });
+      const r = add({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(150);
+      own.stop();
+      await sleep(300);
+      expect(find(r.id)).toMatchObject({ attempts: 0 });
+      expect(find(r.id)!.retryAt).toBeUndefined();
+    });
+
+    it("a pending retry survives a restart and is said", async () => {
+      add({ dueAt: Date.now() - 1000, attempts: 1, retryAt: Date.now() + 1500 });
+      await restart();
+      const desk = await device("Desk");
+      await hearOut(desk);
+      expect(spoken.join(" ")).toBe("Time to take the pills.");
     });
   });
 });

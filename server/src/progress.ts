@@ -139,6 +139,8 @@ export class Progress {
 
   stop(): void {
     clearInterval(this.timer);
+    for (const timer of this.noticeTimers.values()) clearTimeout(timer);
+    this.noticeTimers.clear();
   }
 
   /** Tasks on show. One that waits for the person comes first, whatever else is going on; then the one reported on last. */
