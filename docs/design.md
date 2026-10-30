@@ -118,6 +118,7 @@ The commands:
 | `vortex.axis.diag` | Read diagnostics for Axis or a client. |
 | `vortex.axis.session` | Point every device at another of the agent's conversations, and back. |
 | `vortex.axis.timer` | Set and manage timers on a client. |
+| `vortex.axis.reminder` | Set, list, cancel or dismiss reminders at a wall-clock time, once or repeating (section "Reminders"). Added with Axis 0.70.0, so a gateway paired before needs `vortex.axis.reminder` in `gateway.nodes.commands.allow` and the node approved again. |
 | `vortex.axis.admin` | Reboot, re-pair and similar actions. |
 | `vortex.axis.show` | Put a picture on a client's screen for a number of seconds, silently, with no turn behind it. Added with Axis 0.68.0, so a gateway paired before needs `vortex.axis.show` in `gateway.nodes.commands.allow` and the node approved again; until then only MCP has the tool. |
 
@@ -158,7 +159,7 @@ Where agent-started output goes: a named client, else a named location, else the
 
 SQLite, one file in one data folder bind-mounted from the host, through Node's built-in `node:sqlite`. It uses a rollback journal instead of write-ahead logging so the folder can live on network storage.
 
-- Stored: clients (name, type, location, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, and the activity log described below.
+- Stored: clients (name, type, location, last seen), client types and capabilities, the three settings layers and their version, pairing codes, token hashes, Axis's own OpenClaw identity and tokens, the activity log described below, and reminders (table `reminders`, `server/src/store.ts`): the words to pass on, when they are due, the repeat rule as local time of day and weekdays, the retry time and the missed state. Reminders are not timers and the `timers` table is unchanged.
 - In memory only: who is online, the current output client, the active turn.
 - Not stored: audio and conversation history.
 
@@ -266,6 +267,7 @@ The web client is a normal client with the capabilities `speaker`, `screen`, `bu
 - **Wake word in the web client** is not available (section 8.3).
 - **Computer control** is experimental. There is no line about the computer on each spoken turn and no "hands on" glow; the Quest panel client is experimental and cannot use the desktop, clipboard or paste actions.
 - **Bangle.js 2:** it has Bluetooth only, so it would need a phone or a relay to reach Axis.
+- **Reminders** (Axis 0.70.0): at most 100 at once; a time at most 366 days ahead; text at most 200 characters with newlines removed. Not built: monthly or cron repeats, hourly or finer repeats, snooze, and reminders that carry out work (a timer with `then` does that). A repeating reminder fires at most once a day. The line on a screen is a 60-second progress line, not a full-screen card, and no firmware or client draws it differently. Windows and Mac parity is unverified (`docs/client-parity.md`).
 
 ## 13. Notes on the OpenClaw gateway
 
@@ -329,6 +331,24 @@ A profile (`server/src/profiles.ts`) is a named set of overrides on settings tha
 - **Silent by client type:** a board with a screen is sent volume 0 and no cues, and its replies and `say` arrive as text (`reply.text`, no speech), urgent or not; tap to talk still works. A client without a screen keeps messages and hears them once it leaves silent, within the message hold time. A web client or computer changes only what it declares (usually `volume`, if anything) and gets the same text path. Timers do not chime on a silent device. The agent's context line for a turn says the device is silent and to answer in short text.
 - **Auto never picks Dock** (nor silent): Dock is a manual choice only, on the Overview's Profile switch, in Settings or by `vortex_axis_config` key `profile`.
 - **Reported:** `deviceinfo.ts` carries `profile` and `profileReason` (`manual`, `battery`, `auto`) and the `chargeLimit` in force to `vortex_axis_sense`, the map and the admin page. Dock is worded "Dock: charging held at 80%" in the spoken summary and the admin page's profile line.
+
+## Reminders
+
+Reminders (`server/src/reminders.ts`, table `reminders`; the time arithmetic is pure, in `server/src/recurrence.ts`) are words an agent is asked to say at a wall-clock time, once or on repeat: "at 7 tomorrow", "every weekday at 9". They are not timers. Timers count down on every screen and feed `listTimers()`; a reminder is silent until due and never appears in that list. The tool is `vortex_axis_reminder` (command `vortex.axis.reminder`; set, list, cancel, dismiss).
+
+The decisions, and why:
+
+- **Their own table and class, not a kind of timer.** Timer rows need `client_id` and `seconds` NOT NULL, which SQLite cannot relax without rebuilding a live table, and a timer dies at its fire while a reminder stays on as scheduled, repeating or missed. The arm and tick shape is copied from `timers.ts`; delivery reuses `Turns.task`, `hub.pickOutput`, `Delivery` and `Progress`.
+- **Screen: a progress line, no firmware change.** `Progress.notice()` puts a line on every screen for 60 seconds: the text as its title and "Reminder" as its note. Web and board screens already draw progress lines. The line sits under the face, not a full-screen card.
+- **Where it is said is decided at due time.** The normal path is the device the person is then talking to or near (`pickOutput({})`): the line, the timer chime, one natural sentence written by the agent, and a phone notification when the person is away, as for "needs you". `everywhere` says it on every device through `delivery.sayToAll`. A `client` or `location` target gets its own words only, with no line on the other screens.
+- **Quiet hours, checked per device when it fires.** A picked device that is not quiet gets the normal path. If it is quiet, or on the silent profile, and the reminder is not `urgent`, it is shown silently (`hub.say` with `silent`) on the picked device if it has a screen, otherwise on an online screen, preferring one that has no speaker. A silent show cannot make noise, so boards count. If no screen is online, Axis sends a push notification and never a speaker: a speaker at 3 am wakes the room and cannot be undone, while a notification obeys the phone's own Focus. If no push is sent, the reminder is undelivered. Quiet and `everywhere` use the static line `Reminder: <text>.` because the agent's sentence would differ per device. `urgent: true` speaks through quiet hours. The silent profile never speaks, as in section "Profiles". Timers always sound; reminders do not.
+- **Targets that are not there.** An explicit `client` or `location` that cannot be had throws on the first try, so it is retried. On the retry Axis falls back to the usual pick and writes an Activity note saying so.
+- **Delivered means** heard, shown on a screen, handed over to the agent's turn, or a push sent. Anything else is retried once, after five minutes (`retry_at` is persisted), then kept as MISSED.
+- **Restart.** A reminder overdue by up to six hours fires when Axis starts, with its lateness in the words ("it is 12 minutes past its time; say so"). Older ones go straight to MISSED and are spoken nowhere.
+- **Missed.** A one-off keeps its row with `due_at` empty until dismissed. A repeating one moves `due_at` on, and `missed_at` and `missed_count` stay until dismissed. Nothing expires. The phone's Live Activity shows scheduled reminders due within eight hours (at most three) and ones that have just fired, quietly.
+- **Time zone.** A one-off is stored as an absolute instant; `at` without an offset reads as the hub's local time (`config.timeZone`, `AXIS_TIMEZONE`). A repeating one is stored as local `HH:MM` and weekdays and recomputed in the current zone each time, so it follows daylight saving and a zone change (`rezone()`, called beside `hub.setTimeZone`). In a gap the first valid instant after the gap is used; in an overlap, the first occurrence.
+- **Repeats.** `daily`, `weekdays`, `weekends`, `weekly` or days like `mon,wed,fri`. Stored as `days` = `"1,2,3,4,5"` (0 is Sunday). `weekly` takes the weekday of the first occurrence. At most once a day by construction.
+- **Safety.** The text comes back to the agent later, so the turn's prompt frames it as words to pass on in one short sentence, with no tools, and the turn runs under `desktops.holdLookOnly`, never with `mayAct`. The stored text is not a command. Limits are in section 12.
 
 ## Pictures in replies
 

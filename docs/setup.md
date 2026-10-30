@@ -88,7 +88,7 @@ Axis joins the gateway the way a device does: one identity, an operator link for
      -d '{"code": "<setup code>"}'
    ```
 3. Approve the device on the gateway (`openclaw devices list`, then `openclaw devices approve <id>`, or Settings, Devices in the Control UI). Axis retries every 10 seconds until then. Expect two requests one after the other: first the device itself, then its request to also act as a node.
-4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `vortex.axis.say`, `vortex.axis.ask`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.progress`, `vortex.axis.session`, `vortex.axis.diag`, `vortex.axis.timer`, `vortex.axis.reminder`, `vortex.axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`).
+4. Allow Axis's commands in the gateway config under `gateway.nodes.commands.allow`: `vortex.axis.say`, `vortex.axis.ask`, `vortex.axis.clients`, `vortex.axis.config`, `vortex.axis.sense`, `vortex.axis.progress`, `vortex.axis.session`, `vortex.axis.diag`, `vortex.axis.timer`, `vortex.axis.reminder`, `vortex.axis.admin`. Then approve the node's commands if the gateway asks (`openclaw nodes approve <id>`). `vortex.axis.reminder` was added with Axis 0.70.0: a gateway paired before needs it allowed, and the node approved again after the deploy, or the reminder tool stays off. Until then reminders are still reachable through MCP.
 5. Check: `GET /admin/gateway` should show both links `connected`.
 
 Pick the agent that answers with `AXIS_AGENT_ID`, or at runtime on the admin page (`PATCH /admin/gateway` with `{"agentId": "name"}`). With neither, the gateway's default agent answers.
