@@ -164,7 +164,7 @@ export const NODE_TOOLS: NodeTool[] = [
         action: { type: "string", enum: ["set", "list", "cancel", "dismiss"], description: "What to do. list when omitted." },
         text: { type: "string", description: "With set: what to remind about, max 200 characters. With cancel: part of the words, to pick one." },
         at: { type: "string", description: "With set: when, local time like 2026-11-02 07:00 or 07:00, or with an offset." },
-        repeat: { type: "string", enum: ["daily", "weekdays", "weekends", "weekly"], description: "With set: repeat at that time of day. Days like mon,wed,fri also work." },
+        repeat: { type: "string", description: "With set: repeat at that time of day: daily, weekdays, weekends, weekly, or days like mon,wed,fri." },
         id: { type: "number", description: "Id of the reminder, from list." },
         all: { type: "boolean", description: "With cancel or dismiss: every reminder (cancel) or every missed one (dismiss)." },
         everywhere: { type: "boolean", description: "With set: say it on every device, not only where the user is." },
