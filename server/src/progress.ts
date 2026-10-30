@@ -44,6 +44,8 @@ export interface Task {
   updatedAt: number;
   /** When whoever reports on it was last known to be at work, if that is later than its last word. */
   aliveAt?: number;
+  /** A line put up by Axis itself (a reminder), cleared by the clock; no agent reports on it and nothing is told when it ends. */
+  notice?: true;
 }
 
 /** A task nobody has reported on for this long is taken to be abandoned. */
@@ -109,6 +111,7 @@ export class Progress {
   private readonly tasks = new Map<string, Task>();
   private timer: NodeJS.Timeout | undefined;
   private chimedAt = 0;
+  private readonly noticeTimers = new Map<string, NodeJS.Timeout>();
 
   private readonly now: () => number;
   private readonly changeListeners: (() => void)[] = [];
@@ -143,7 +146,7 @@ export class Progress {
     // Whoever looks first may be the one to find a task gone (the live activities look every few seconds);
     // the screens are told either way, just not from inside the look.
     if (this.prune()) queueMicrotask(() => this.tell());
-    const waiting = (task: Task) => (task.state === "blocked" ? 1 : 0);
+    const waiting = (task: Task) => (task.notice ? 2 : task.state === "blocked" ? 1 : 0);
     return [...this.tasks.values()].sort((a, b) => waiting(b) - waiting(a) || b.updatedAt - a.updatedAt);
   }
 
@@ -194,7 +197,7 @@ export class Progress {
     while (this.tasks.size > MAX_TASKS) {
       const [oldest, dropped] = this.tasks.entries().next().value!;
       this.tasks.delete(oldest);
-      if (dropped.state !== "done") this.options.onEnd?.(dropped, "abandoned");
+      if (dropped.state !== "done" && !dropped.notice) this.options.onEnd?.(dropped, "abandoned");
     }
     const finished = state === "done" && before?.state !== "done";
     const screens = this.tell(undefined, finished);
@@ -203,13 +206,32 @@ export class Progress {
     return { task, screens };
   }
 
+  /** Puts a line on every screen for `ms`, then takes it off. Returns how many screens were told. */
+  notice(id: string, title: string, note: string, ms: number): number {
+    const key = `notice-${id}`.slice(0, 40);
+    clearTimeout(this.noticeTimers.get(key));
+    const task: Task = { id: key, title: title.trim().slice(0, 200), note: note.trim().slice(0, 80), state: "running", startedAt: this.now(), updatedAt: this.now(), notice: true };
+    this.tasks.delete(key);
+    this.tasks.set(key, task);
+    const timer = setTimeout(() => {
+      this.noticeTimers.delete(key);
+      if (this.tasks.get(key) === task) {
+        this.tasks.delete(key);
+        this.tell();
+      }
+    }, ms);
+    timer.unref();
+    this.noticeTimers.set(key, timer);
+    return this.tell();
+  }
+
   /** Takes a task, or every task, off the screens. */
   clear(id?: string): number {
     const gone = [...this.tasks.values()].filter((task) => id === undefined || task.id === id);
     for (const task of gone) {
       this.tasks.delete(task.id);
       // A finished task was told about when it finished.
-      if (task.state !== "done") this.options.onEnd?.(task, "cleared");
+      if (task.state !== "done" && !task.notice) this.options.onEnd?.(task, "cleared");
     }
     if (gone.length) this.tell();
     return gone.length;
@@ -229,7 +251,7 @@ export class Progress {
       const age = this.now() - Math.max(task.updatedAt, task.aliveAt ?? 0);
       if (age > STALE_MS || (task.state === "done" && age > DONE_SHOWN_MS)) {
         this.tasks.delete(id);
-        if (task.state !== "done") this.options.onEnd?.(task, "abandoned");
+        if (task.state !== "done" && !task.notice) this.options.onEnd?.(task, "abandoned");
         changed = true;
       }
     }

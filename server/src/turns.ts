@@ -783,16 +783,17 @@ export class TurnManager {
    * Waits for a conversation on that device to end first. Resolves when the turn has ended, saying whether
    * the agent's run was handed over to go on in the background.
    */
-  async task(session: Session, text: string, title: string, waitMs = 120_000): Promise<{ handedOver: boolean }> {
+  async task(session: Session, text: string, title: string, waitMs = 120_000, options: { plain?: boolean } = {}): Promise<{ handedOver: boolean; heard: boolean; silent: boolean }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session) || this.active.has(session.client.id)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
     const turnId = `task-${++this.sayCount}`;
-    const failure = await this.run(session, turnId, { text, title });
+    const outcome: { heard: boolean; silent?: boolean } = { heard: false };
+    const failure = await this.run(session, turnId, { text, title, ...(options.plain ? { plain: true } : {}) }, outcome);
     if (failure && failure !== "interrupted") throw new Error(failure);
-    return { handedOver: this.lastHandedOver === turnId };
+    return { handedOver: this.lastHandedOver === turnId, heard: outcome.heard, silent: Boolean(outcome.silent) };
   }
   /** The last turn whose run was handed over to the background. */
   private lastHandedOver: string | undefined;
@@ -864,9 +865,10 @@ export class TurnManager {
     input:
       | { pcm: Buffer; format: AudioFormat; startedBy?: TurnRecord["startedBy"] }
       // `title`: a turn Axis started for something asked earlier. Its answer opens with "About <title>:".
-      | { text: string; title?: string }
+      // `plain`: no "About <title>:" and no second chime; the title still names the handover.
+      | { text: string; title?: string; plain?: boolean }
       | { say: string; silent?: boolean; share?: SpeechShare },
-    outcome?: { heard: boolean },
+    outcome?: { heard: boolean; silent?: boolean },
   ): Promise<string | undefined> {
     const id = session.client.id;
     // Timings for the activity log, filled in as the turn goes.
@@ -1129,7 +1131,7 @@ export class TurnManager {
       };
       // An answer nobody is waiting for says first what it is about, the way a handed-over run's does,
       // so it does not come out of nowhere. Only once there is something to say: a silent reply stays silent.
-      const about = "text" in input && input.title ? `About ${input.title}: ` : "";
+      const about = "text" in input && input.title && !input.plain ? `About ${input.title}: ` : "";
       let introduced = !about;
       const emit = (piece: Piece) => {
         if (!introduced) {
@@ -1214,7 +1216,10 @@ export class TurnManager {
       const rest = splitter.flushPiece();
       if (rest) held.push(rest);
       const silent = fromAgent && isSilent(full);
-      if (silent) record.outcome = "silent";
+      if (silent) {
+        record.outcome = "silent";
+        if (outcome) outcome.silent = true;
+      }
       if (!silent) await release();
       // Everything queued has been spoken (or the turn was stopped) once this returns.
       await queue?.finish();

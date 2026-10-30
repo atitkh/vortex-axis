@@ -105,6 +105,12 @@ export function weekdayOf(at: number, timeZone: string): number {
   return localParts(at, timeZone).weekday;
 }
 
+/** The zone's wall-clock "HH:MM" at an instant. */
+export function timeOfDayOf(at: number, timeZone: string): string {
+  const p = localParts(at, timeZone);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
 /** The first occurrence strictly after `afterMs` of a repeating reminder, in the zone as it is now. */
 export function nextOccurrence(rule: { timeOfDay: string; days: string }, afterMs: number, timeZone: string): number {
   const m = /^(\d{2}):(\d{2})$/.exec(rule.timeOfDay);

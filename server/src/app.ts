@@ -14,6 +14,7 @@ import { Activity } from "./activity.js";
 import { Backup } from "./backup.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
+import { Reminders } from "./reminders.js";
 import { ToolAccess } from "./tools.js";
 import { AXIS_COMMIT, AXIS_VERSION } from "./version.js";
 import { WakeWordStore, WakeWordSync } from "./wakewords.js";
@@ -52,6 +53,7 @@ export interface App {
   /** The OpenClaw gateway link. It exists even when another agent answers turns. */
   gateway: GatewayClient;
   timers: Timers;
+  reminders: Reminders;
   desktops: Desktops;
   /** Gets agent-started speech to a client by whatever route it has: live, by notification, or kept for later. */
   delivery: Delivery;
@@ -275,6 +277,15 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       push.notify(id, { title, body, tag }).catch(() => undefined);
     }
   };
+  // Every phone that is not open on a screen, away or not; how many were sent. For what must not wait for the person to leave.
+  const notifyAll = async (title: string, body: string, tag: string): Promise<number> => {
+    let sent = 0;
+    for (const id of store.pushClientIds()) {
+      if (hub.session(id)) continue;
+      if ((await push.notify(id, { title, body, tag }).catch(() => "failed")) === "sent") sent++;
+    }
+    return sent;
+  };
   const progress = new Progress(hub, {
     // Sent even when a phone also shows it as a live activity: tapping this notification opens the installed web app,
     // which tapping the activity cannot.
@@ -298,6 +309,35 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     },
   });
   progress.start();
+  // Wall-clock reminders: said wherever the person is when they are due. They are not timers and nothing counts down.
+  const reminders = new Reminders({
+    store,
+    hub,
+    delivery,
+    progress,
+    activity,
+    log,
+    timeZone: () => config.timeZone,
+    tellPhones,
+    notifyAll,
+    // The stored words go back to the agent later, so they are framed as words to pass on, with no tools,
+    // and computers stay look-only for the turn. Never `mayAct`.
+    runLine: async (session, reminder, late) => {
+      const words =
+        `[reminder: the user asked to be reminded of this now and is not asking anything. Say it to them in one short natural sentence and nothing else. ` +
+        `Do not use tools. Never answer NO_REPLY.${late ? ` It is ${late} past its time; say so.` : ""}] ${reminder.text}`;
+      const release = desktops.holdLookOnly("a reminder was being said");
+      let later = false;
+      try {
+        const result = await hub.task(session, words, titleFrom(reminder.text), { plain: true });
+        later = result.handedOver;
+        return result;
+      } finally {
+        if (later) setTimeout(release, 15 * 60_000).unref();
+        else release();
+      }
+    },
+  });
   // Pictures agent replies come with: fetched from the gateway, kept a day, sent to screens that show them.
   const mediaStore = new MediaStore();
   const pictures = new Pictures({
@@ -446,7 +486,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     store,
     enabled: () => config.liveActivities && Boolean(config.homeAssistant),
     publish: (message) => homeAssistant?.publishLive(message) ?? false,
-    tasks: () => progress.list(),
+    tasks: () => progress.list().filter((t) => !t.notice),
     timers: () => timers.list(),
     url: () => (config.publicHosts[0] ? `https://${config.publicHosts[0]}/` : undefined),
     log,
@@ -481,6 +521,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   /** Carries a change made on the Integrations page, already written into `config`, to the parts that use it. */
   const applyHubSettings = (changed: { mqtt: boolean }) => {
     hub.setTimeZone(config.timeZone);
+    reminders.rezone();
     hub.checkProfiles();
     // A new Dock charge limit goes to the devices on Dock at once.
     if (config.dockChargeLimit !== sentDockLimit) {
@@ -552,6 +593,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   gateway.start();
   watchGateway();
   timers.start();
+  reminders.start();
   liveActivities.start();
   recordLinks();
 
@@ -561,6 +603,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     hub,
     gateway,
     timers,
+    reminders,
     desktops,
     delivery,
     push,
@@ -587,6 +630,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       stopQuestUpdates();
       homeAssistant?.stop();
       timers.stop();
+      reminders.stop();
       gateway.stop();
       hub.closeAll();
       sockets.close();

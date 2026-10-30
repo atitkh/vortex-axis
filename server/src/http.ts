@@ -1440,7 +1440,7 @@ export function createHttpHandler(deps: HttpDeps) {
           })),
           clients: hub.doing().map((c) => ({ ...c, client: nameOf(c.clientId) })),
           // Long work agents have reported on, as the screens show it.
-          tasks: deps.progress?.list() ?? [],
+          tasks: (deps.progress?.list() ?? []).filter((t) => !t.notice),
           // Computers an agent is using right now (looking, clicking, typing), with the last thing it did.
           computers: deps.desktops?.inUse() ?? [],
           // The conversation the devices are heard in, when a person pointed them away from the usual one.
