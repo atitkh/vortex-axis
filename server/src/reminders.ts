@@ -40,6 +40,13 @@ export interface RemindersOptions {
   cardMs?: number;
 }
 
+/** See `Reminders.route`. */
+export type ReminderRoute =
+  | { kind: "speak"; session: Session; targeted: boolean; fellBack?: string }
+  | { kind: "hush"; session: Session }
+  | { kind: "push" }
+  | { kind: "everywhere" };
+
 /** What `Reminders.set` is given. `at` is the first (or only) time; `repeat` makes it repeat at that time of day. */
 export interface ReminderInput {
   text: string;
@@ -224,16 +231,69 @@ export class Reminders {
     }
   }
 
-  /** The normal path: a line on every screen, a chime, the agent's one sentence (or the static line), phones. True when delivered. */
+  /**
+   * Where a reminder goes right now, decided at fire time and per device: `speak` on the picked device (chime, words),
+   * `hush` a silent line on a screen, `push` a notification because no screen is free, or `everywhere`.
+   * An explicit client or location that cannot be had throws on the first try (so it is retried) and falls back to the usual pick on the retry.
+   * The silent profile never speaks, urgent or not.
+   */
+  route(r: ReminderRecord): ReminderRoute {
+    const { hub, store } = this.options;
+    if (r.everywhere && this.options.delivery) return { kind: "everywhere" };
+    let session: Session | undefined;
+    let fellBack: string | undefined;
+    const explicit = r.clientId || r.location;
+    if (explicit) {
+      // A client that has been deleted will not come back, so it does not wait for the retry.
+      const gone = r.clientId ? !store.findClient(r.clientId) : false;
+      try {
+        if (gone) throw new Error(`there is no client "${r.clientId}"`);
+        session = hub.pickOutput({ client: r.clientId, location: r.location });
+      } catch (error) {
+        if (r.attempts === 0 && !gone) throw error;
+        fellBack = (error as Error).message;
+      }
+    }
+    session ??= hub.pickOutput({});
+    const hushed = hub.profile(session.client).profile === "silent" || (!r.urgent && hub.quiet(session.client));
+    if (!hushed) return { kind: "speak", session, targeted: Boolean(explicit) && !fellBack, ...(fellBack ? { fellBack } : {}) };
+    // Quiet: a screen shows it, the picked device's own if it has one, else an online screen, screen-only ones first.
+    const screens = [...hub.sessions()].filter((s) => s.client.capabilities.includes("screen"));
+    const screen = session.client.capabilities.includes("screen")
+      ? session
+      : screens.find((s) => !s.client.capabilities.includes("speaker")) ?? screens[0];
+    return screen ? { kind: "hush", session: screen } : { kind: "push" };
+  }
+
+  /** Carries out the route. True when delivered: heard, shown, handed over, or a push sent. */
   private async deliver(r: ReminderRecord, late: string | undefined): Promise<boolean> {
-    const { hub, progress, store } = this.options;
-    const session = hub.pickOutput({});
+    const { hub, progress, store, activity } = this.options;
     const plain = r.text.replace(/[.!?]+$/, "");
     const staticLine = `Reminder: ${plain}.${late ? ` It was due ${late} ago.` : ""}`;
-    const screens = progress.notice(`reminder-${r.id}`, r.text, "Reminder", this.cardMs);
+    const route = this.route(r);
+    if (route.kind === "everywhere") {
+      const result = await this.options.delivery!.sayToAll(r.location, staticLine, r.urgent);
+      const delivered = result.clients.some((c) => c.heard || c.shown);
+      activity?.note("reminder", "", `Reminder said everywhere${delivered ? "" : " (not confirmed)"}: ${r.text}`);
+      return delivered;
+    }
+    if (route.kind === "push") {
+      const sent = (await this.options.notifyAll?.("Reminder", staticLine, `reminder-${r.id}`).catch(() => 0)) ?? 0;
+      activity?.note("reminder", "", `Reminder in quiet hours with no screen: ${sent > 0 ? "sent as a notification" : "no notification sent"}: ${r.text}`, sent > 0 ? "info" : "warn");
+      return sent > 0;
+    }
+    if (route.kind === "hush") {
+      await hub.say(route.session, staticLine, { silent: true }).catch(() => undefined);
+      activity?.note("reminder", route.session.client.id, `Reminder shown quietly on ${route.session.client.name}: ${r.text}`);
+      return true;
+    }
+    const { session } = route;
+    if (route.fellBack) activity?.note("reminder", r.clientId ?? "", `Reminder target unavailable (${route.fellBack}); said on ${session.client.name} instead: ${r.text}`, "warn");
+    // A named client or location gets only its own words, not a line on every screen.
+    const screens = route.targeted ? 0 : progress.notice(`reminder-${r.id}`, r.text, "Reminder", this.cardMs);
     this.options.tellPhones?.("Reminder", r.text, `reminder-${r.id}`);
     // A device with a chime plays it first, so the words are not the first thing heard.
-    if (hub.profile(session.client).profile !== "silent" && store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) {
+    if (store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) {
       const chimed = await hub.command(session, "chime", undefined, 3000).catch(() => undefined);
       if (chimed?.ok) await new Promise((resolve) => setTimeout(resolve, this.chimeMs));
     }
@@ -248,7 +308,7 @@ export class Reminders {
       heard = (await hub.say(session, staticLine).catch(() => ({ heard: false }))).heard;
     }
     const delivered = heard || handedOver || screens > 0;
-    this.options.activity?.note("reminder", session.client.id, `Reminder said on ${session.client.name}${delivered ? "" : " (not confirmed)"}: ${r.text}`);
+    activity?.note("reminder", session.client.id, `Reminder said on ${session.client.name}${delivered ? "" : " (not confirmed)"}: ${r.text}`);
     return delivered;
   }
 

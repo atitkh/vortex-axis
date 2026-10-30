@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Capability } from "@vortex-axis/protocol";
 import type { Agent } from "../src/agent.js";
 import { Reminders } from "../src/reminders.js";
@@ -172,5 +172,132 @@ describe("reminders", () => {
     expect(() => r.set({ text: "", at })).toThrow();
     expect(() => r.set({ text: "x", at: "2020-01-01 09:00" })).toThrow(/past/);
     expect(r.cancel({ text: "stretch" })).toHaveLength(1);
+  });
+
+  describe("targeting and quiet hours", () => {
+    const idOf = (name: string) => [...ctx.app.hub.sessions()].find((s) => s.client.name === name)!.client.id;
+    const engine = (extra: Record<string, unknown> = {}) => {
+      ctx.app.reminders.stop();
+      const options = { store: ctx.app.store, hub: ctx.app.hub, progress: ctx.app.progress, delivery: ctx.app.delivery, timeZone: () => "America/Chicago", retryMs: 150, chimeMs: 10 };
+      return new Reminders({ ...options, ...extra } as ConstructorParameters<typeof Reminders>[0]);
+    };
+    const row = (extra: Record<string, unknown> = {}) => add(extra);
+    const spoke = (c: Awaited<ReturnType<typeof device>>) => c.received.some((m) => m.t === "speak.start");
+
+    it("last spoken-to wins over the default, and the default over any, decided at fire time", async () => {
+      const a = await device("A");
+      const b = await device("B");
+      ctx.app.store.patchLayer("global", "", { defaultClient: idOf("B") });
+      const recent = vi.spyOn((ctx.app.hub as any).turns, "recentInput").mockReturnValue(idOf("A"));
+      const own = engine();
+      const r = row({ dueAt: Date.now() + 50 });
+      expect(own.route(r)).toMatchObject({ kind: "speak", session: { client: { id: idOf("A") } } });
+      recent.mockReturnValue(undefined);
+      expect(own.route(r)).toMatchObject({ kind: "speak", session: { client: { id: idOf("B") } } });
+      ctx.app.store.patchLayer("global", "", { defaultClient: "" });
+      expect(own.route(r).kind).toBe("speak");
+      recent.mockRestore();
+      void a; void b;
+    });
+
+    it("in quiet hours with a screen shows it silently: no agent turn, no audio", async () => {
+      const desk = await device("Desk");
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const own = engine();
+      const r = row({ dueAt: Date.now() + 50 });
+      expect(own.route(r)).toMatchObject({ kind: "hush" });
+      own.start();
+      await sleep(400);
+      own.stop();
+      expect(asked).toHaveLength(0);
+      expect(spoke(desk)).toBe(false);
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toBeUndefined();
+      vi.restoreAllMocks();
+    });
+
+    it("in quiet hours with a speaker only sends a notification and no audio", async () => {
+      const box = await device("Box", ["speaker", "mic"]);
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const notifyAll = vi.fn(async () => 1);
+      const own = engine({ notifyAll });
+      const r = row({ dueAt: Date.now() + 50 });
+      expect(own.route(r)).toEqual({ kind: "push" });
+      own.start();
+      await sleep(400);
+      own.stop();
+      expect(notifyAll).toHaveBeenCalledOnce();
+      expect(spoke(box)).toBe(false);
+      expect(asked).toHaveLength(0);
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toBeUndefined();
+      vi.restoreAllMocks();
+    });
+
+    it("in quiet hours with no screen and no push retries once and then keeps it as missed", async () => {
+      const box = await device("Box", ["speaker", "mic"]);
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const own = engine({ notifyAll: async () => 0 });
+      const r = row({ dueAt: Date.now() + 50 });
+      own.start();
+      await sleep(120);
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toMatchObject({ attempts: 1 });
+      await sleep(400);
+      own.stop();
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toMatchObject({ missedCount: 1 });
+      expect(spoke(box)).toBe(false);
+      vi.restoreAllMocks();
+    });
+
+    it("urgent speaks through quiet hours, but the silent profile never speaks even when urgent", async () => {
+      const desk = await device("Desk");
+      vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+      const own = engine();
+      const urgent = row({ urgent: true });
+      expect(own.route(urgent).kind).toBe("speak");
+      own.start();
+      await hearOut(desk);
+      own.stop();
+      vi.spyOn(ctx.app.hub, "profile").mockReturnValue({ profile: "silent", reason: "setting" } as any);
+      expect(own.route(urgent).kind).toBe("hush");
+      vi.restoreAllMocks();
+    });
+
+    it("everywhere says the static line on every device", async () => {
+      const a = await device("A");
+      const b = await device("B");
+      const own = engine();
+      row({ everywhere: true, dueAt: Date.now() + 50 });
+      own.start();
+      await hearOut(a);
+      await hearOut(b);
+      own.stop();
+      expect(spoken).toContain("Reminder: Take the pills.");
+      expect(asked).toHaveLength(0);
+    });
+
+    it("an offline target is retried, then falls back to the usual pick", async () => {
+      const desk = await device("Desk");
+      const ghost = await newPairedClient({ capabilities: ["screen", "speaker", "mic"], type: "board", name: "Ghost" });
+      const own = engine();
+      const r = row({ clientId: ghost.clientId, dueAt: Date.now() + 50 });
+      expect(() => own.route(r)).toThrow(/offline/);
+      own.start();
+      await sleep(120);
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toMatchObject({ attempts: 1 });
+      await hearOut(desk);
+      await sleep(100);
+      own.stop();
+      expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toBeUndefined();
+    });
+
+    it("tells away phones on the normal path", async () => {
+      const desk = await device("Desk");
+      const tellPhones = vi.fn();
+      const own = engine({ tellPhones });
+      row({ dueAt: Date.now() + 50 });
+      own.start();
+      await hearOut(desk);
+      own.stop();
+      expect(tellPhones).toHaveBeenCalledWith("Reminder", "Take the pills", expect.stringMatching(/^reminder-/));
+    });
   });
 });
