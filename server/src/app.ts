@@ -488,6 +488,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     publish: (message) => homeAssistant?.publishLive(message) ?? false,
     tasks: () => progress.list().filter((t) => !t.notice),
     timers: () => timers.list(),
+    reminders: () => reminders.live(),
+    timeZone: () => config.timeZone,
     url: () => (config.publicHosts[0] ? `https://${config.publicHosts[0]}/` : undefined),
     log,
   });
@@ -500,6 +502,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   };
   progress.onChange(syncLive);
   timers.onChange(syncLive);
+  reminders.onChange(syncLive);
   const startHomeAssistant = () => {
     homeAssistant?.stop();
     homeAssistant = config.homeAssistant

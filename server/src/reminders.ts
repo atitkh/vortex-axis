@@ -9,6 +9,22 @@ import type { ReminderRecord, Store } from "./store.js";
 const MAX_WAIT_MS = 2 ** 31 - 1;
 export const MAX_REMINDERS = 100;
 export const MAX_REMINDER_CHARS = 200;
+/** A Live Activity shows a reminder only this long before it is due (iOS ends activities at about that age). */
+const LIVE_AHEAD_MS = 8 * 3600_000;
+/** iOS limits how many activities may start; only the soonest few go. */
+const LIVE_MAX = 3;
+/** How long a reminder that fired stays "due" on the phone. */
+const LIVE_DUE_MS = 60_000;
+
+/** A reminder as a phone's Live Activity sees it. */
+export interface LiveReminder {
+  id: number;
+  text: string;
+  dueAt: number;
+  state: "scheduled" | "due";
+  /** It fired by a silent line or a notification, so the activity does not sound either. */
+  quiet: boolean;
+}
 
 export interface RemindersOptions {
   store: Store;
@@ -63,6 +79,8 @@ export class Reminders {
   private wait: NodeJS.Timeout | undefined;
   private stopped = true;
   private readonly firing = new Set<number>();
+  /** Reminders that just fired, for the phone's "due" activity; in memory only. */
+  private readonly fired = new Map<number, { text: string; dueAt: number; at: number; quiet: boolean }>();
   private readonly changeListeners: (() => void)[] = [];
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -183,6 +201,19 @@ export class Reminders {
     this.changed();
   }
 
+  /** What a phone shows: reminders due soon (scheduled) and ones that just fired (due). */
+  live(): LiveReminder[] {
+    const now = this.now();
+    for (const [id, f] of this.fired) if (now - f.at > LIVE_DUE_MS) this.fired.delete(id);
+    const out: LiveReminder[] = [...this.fired].map(([id, f]) => ({ id, text: f.text, dueAt: f.dueAt, state: "due", quiet: f.quiet }));
+    const scheduled = this.list()
+      .filter((r) => r.dueAt !== undefined && r.dueAt > now && r.dueAt - now <= LIVE_AHEAD_MS && !this.fired.has(r.id) && !this.firing.has(r.id))
+      .sort((a, b) => a.dueAt! - b.dueAt!)
+      .slice(0, LIVE_MAX);
+    for (const r of scheduled) out.push({ id: r.id, text: r.text, dueAt: r.dueAt!, state: "scheduled", quiet: true });
+    return out;
+  }
+
   private changed(): void {
     for (const listener of this.changeListeners) listener();
   }
@@ -292,6 +323,9 @@ export class Reminders {
     const plain = r.text.replace(/[.!?]+$/, "");
     const staticLine = `Reminder: ${plain}.${late ? ` It was due ${late} ago.` : ""}`;
     const route = this.route(r);
+    // The phone's activity goes to "due" now, and sounds unless the reminder is being said quietly.
+    this.fired.set(r.id, { text: r.text, dueAt: r.dueAt ?? this.now(), at: this.now(), quiet: route.kind === "hush" || route.kind === "push" });
+    this.changed();
     if (route.kind === "everywhere") {
       const result = await this.options.delivery!.sayToAll(r.location, staticLine, r.urgent);
       const delivered = result.clients.some((c) => c.heard || c.shown);

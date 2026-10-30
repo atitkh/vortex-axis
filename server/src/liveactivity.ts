@@ -1,3 +1,5 @@
+import { describeWhen } from "./recurrence.js";
+import type { LiveReminder } from "./reminders.js";
 import type { Task } from "./progress.js";
 import type { Store, TimerRecord } from "./store.js";
 import { spokenLength } from "./timers.js";
@@ -22,9 +24,12 @@ import { spokenLength } from "./timers.js";
  * - a change of state (needs you, done, back to work, a timer going off) sounds
  *   and goes at full priority; a step within the same state goes quietly, at the
  *   low priority iOS may hold back;
- * - a timer shows "Done" the moment it is due.
- * An activity ends when its task leaves the screens or its timer is cancelled,
- * or a minute after the timer went off.
+ * - a timer shows "Done" the moment it is due;
+ * - a reminder shows quietly (no sound, no countdown, only its time) when it is
+ *   due within 8 hours, for the 3 soonest, and sounds when it goes off, unless
+ *   it was said quietly.
+ * An activity ends when its task leaves the screens or its timer or reminder is
+ * cancelled, or a minute after the timer or reminder went off.
  */
 
 export const LIVE_TOPIC = "vortex-axis/live";
@@ -47,6 +52,9 @@ export interface LiveActivitiesOptions {
   publish: (message: LiveMessage) => boolean;
   tasks: () => Task[];
   timers: () => TimerRecord[];
+  /** Reminders to show; with `timeZone`, the zone their times are written in. */
+  reminders?: () => LiveReminder[];
+  timeZone?: () => string;
   /** Where tapping an activity goes: the web client's address, when Axis has a public one. */
   url?: () => string | undefined;
   now?: () => number;
@@ -71,7 +79,7 @@ interface Shown {
 const COLORS = { running: "#03A9F4", blocked: "#FF9800", done: "#4CAF50", timer: "#AB47BC" };
 
 /** A tag the companion app takes: letters, digits, `-` and `_`, 64 at most. */
-function tagFor(kind: "task" | "timer", id: string | number): string {
+function tagFor(kind: "task" | "timer" | "reminder", id: string | number): string {
   return `axis-${kind}-${String(id).replace(/[^A-Za-z0-9_-]/g, "_")}`.slice(0, 64);
 }
 
@@ -116,6 +124,27 @@ export function timerMessage(timer: TimerRecord, done: boolean, url?: string): L
       notification_icon: done ? "mdi:timer-check" : "mdi:timer-outline",
       notification_icon_color: COLORS.timer,
       relevance_score: done ? 0.9 : 0.8,
+      silent: false,
+      ...(url ? { url } : {}),
+    },
+  };
+}
+
+/** A reminder: its time in words (never a countdown, which would resend), no chronometer. Sound is settled in show(). */
+export function reminderMessage(r: LiveReminder, url: string | undefined, zone: string): LiveMessage {
+  const tag = tagFor("reminder", r.id);
+  const due = r.state === "due";
+  return {
+    tag,
+    title: r.text,
+    message: due ? "Now" : describeWhen(r.dueAt, zone),
+    data: {
+      tag,
+      live_update: true,
+      critical_text: due ? "now" : "reminder",
+      notification_icon: due ? "mdi:bell-ring" : "mdi:bell-outline",
+      notification_icon_color: COLORS.timer,
+      relevance_score: due ? 0.9 : 0.4,
       silent: false,
       ...(url ? { url } : {}),
     },
@@ -225,7 +254,7 @@ export class LiveActivities {
     }
     const now = this.now();
     const url = this.options.url?.();
-    const wanted = new Map<string, { message: LiveMessage; state: string }>();
+    const wanted = new Map<string, { message: LiveMessage; state: string; silent?: boolean }>();
 
     for (const task of this.options.tasks()) {
       const tag = tagFor("task", task.id);
@@ -252,23 +281,28 @@ export class LiveActivities {
       nextDue = Math.min(nextDue, timer.dueAt);
       wanted.set(tag, { message: timerMessage(timer, false, url), state: "running" });
     }
+    const zone = this.options.timeZone?.() ?? "UTC";
+    for (const r of this.options.reminders?.() ?? []) {
+      const tag = tagFor("reminder", r.id);
+      wanted.set(tag, { message: reminderMessage(r, url, zone), state: r.state, ...(r.state === "scheduled" ? { silent: true } : { silent: r.quiet }) });
+    }
     for (const [tag, rang] of this.rang) {
       if (now - rang.at > TIMER_DONE_SHOWN_MS) this.rang.delete(tag);
       else wanted.set(tag, { message: timerMessage(rang.timer, true, url), state: "done" });
     }
 
-    for (const [tag, want] of wanted) this.show(tag, want.message, want.state);
+    for (const [tag, want] of wanted) this.show(tag, want.message, want.state, want.silent);
     for (const tag of [...this.shown.keys()]) if (!wanted.has(tag)) this.end(tag);
     // Looked at again the moment the next timer is due.
     clearTimeout(this.dueTimer);
     if (nextDue !== Infinity) this.dueTimer = setTimeout(() => this.sync(), Math.max(0, nextDue - now) + 50).unref();
   }
 
-  private show(tag: string, message: LiveMessage, state: string): void {
+  private show(tag: string, message: LiveMessage, state: string, silent?: boolean): void {
     const shown = this.shown.get(tag);
     // A change of state (needs you, done, a timer going off, back to work) sounds and goes at full priority;
     // a step within the same state goes quietly, which iOS may deliver late.
-    if (message.data) message.data.silent = Boolean(shown && shown.state === state);
+    if (message.data) message.data.silent = silent ?? Boolean(shown && shown.state === state);
     const body = JSON.stringify(message);
     if (shown && shown.sent === body) return;
     const now = this.now();

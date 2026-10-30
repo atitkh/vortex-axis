@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { BLUEPRINT, LiveActivities, type LiveMessage, taskMessage, timerMessage } from "../src/liveactivity.js";
 import type { Task } from "../src/progress.js";
+import type { LiveReminder } from "../src/reminders.js";
 import type { TimerRecord } from "../src/store.js";
 
 /** A world of tasks and timers on a clock that only moves when told. */
@@ -12,6 +13,7 @@ function world(options: { enabled?: boolean; linked?: boolean } = {}) {
     linked: options.linked ?? true,
     tasks: [] as Task[],
     timers: [] as TimerRecord[],
+    reminders: [] as LiveReminder[],
     sent: [] as LiveMessage[],
     meta,
   };
@@ -25,6 +27,8 @@ function world(options: { enabled?: boolean; linked?: boolean } = {}) {
     },
     tasks: () => w.tasks,
     timers: () => w.timers,
+    reminders: () => w.reminders,
+    timeZone: () => "UTC",
     now: () => w.now,
     startAfterMs: 30_000,
     gapMs: 10_000,
@@ -227,5 +231,64 @@ describe("what goes to the phone", () => {
     expect(BLUEPRINT).toContain("topic: vortex-axis/live\n");
     expect(BLUEPRINT).toContain("topic: vortex-axis/live/ack");
     expect(BLUEPRINT).toContain("message: clear_notification");
+  });
+});
+
+describe("reminders", () => {
+  const rem = (over: Partial<LiveReminder> = {}): LiveReminder => ({ id: 3, text: "Call mum", dueAt: 1_000_000 + 3600_000, state: "scheduled", quiet: true, ...over });
+
+  it("shows a scheduled one silently, with no countdown, and does not resend as time passes", () => {
+    const { w, live } = world();
+    w.reminders = [rem()];
+    live.sync();
+    expect(w.sent).toHaveLength(1);
+    expect(w.sent[0]).toMatchObject({ tag: "axis-reminder-3", title: "Call mum", data: { silent: true, notification_icon: "mdi:bell-outline" } });
+    expect(w.sent[0]!.data).not.toHaveProperty("chronometer");
+    expect(w.sent[0]!.data).not.toHaveProperty("when");
+    w.now += 30 * 60_000;
+    live.sync();
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it("sounds when it is due", () => {
+    const { w, live } = world();
+    w.reminders = [rem()];
+    live.sync();
+    w.reminders = [rem({ state: "due", quiet: false })];
+    live.sync();
+    expect(w.sent[1]).toMatchObject({ message: "Now", data: { silent: false, notification_icon: "mdi:bell-ring" } });
+  });
+
+  it("stays silent when it was said quietly", () => {
+    const { w, live } = world();
+    w.reminders = [rem({ state: "due", quiet: true })];
+    live.sync();
+    expect(w.sent[0]).toMatchObject({ message: "Now", data: { silent: true } });
+  });
+
+  it("ends when cancelled, and when the due minute is over", () => {
+    const { w, live } = world();
+    w.reminders = [rem()];
+    live.sync();
+    w.reminders = [];
+    live.sync();
+    expect(w.sent.at(-1)).toEqual({ tag: "axis-reminder-3", end: true });
+    w.reminders = [rem({ state: "due", quiet: false })];
+    live.sync();
+    w.reminders = [];
+    live.sync();
+    expect(w.sent.at(-1)).toEqual({ tag: "axis-reminder-3", end: true });
+  });
+
+  it("a repeating one ends after it is due and returns silently at the next window", () => {
+    const { w, live } = world();
+    w.reminders = [rem({ state: "due", quiet: false })];
+    live.sync();
+    w.reminders = [];
+    live.sync();
+    expect(w.sent.at(-1)).toEqual({ tag: "axis-reminder-3", end: true });
+    w.reminders = [rem({ dueAt: w.now + 7 * 3600_000 })];
+    live.sync();
+    expect(w.sent.at(-1)).toMatchObject({ title: "Call mum", data: { silent: true } });
   });
 });
