@@ -23,6 +23,8 @@ export interface ClientRecord {
   reported: Capability[];
   /** What an admin switched off for it (`capabilities_off`). Usually empty. */
   off: Capability[];
+  /** What the active profile switched off, of what was left on (hub.ts `withProfileCaps`); the store itself leaves it empty. */
+  profileOff?: Capability[];
   version: string;
   createdAt: number;
   lastSeenAt: number | null;

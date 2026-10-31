@@ -1,4 +1,4 @@
-import type { ScalarMap } from "@vortex-axis/protocol";
+import { CAPABILITIES, type ScalarMap } from "@vortex-axis/protocol";
 
 /**
  * Profiles: a named set of overrides on settings that already exist, applied in the settings a device is sent,
@@ -40,7 +40,7 @@ export interface Overrides {
   cap?: Record<string, number>;
   /** Values put in place of the device's own. */
   set?: ScalarMap;
-  /** Capabilities switched off while on the profile. Stored, not applied yet. */
+  /** Capabilities switched off while on the profile (hub.ts `withProfileCaps`); only what a device reports is taken away. */
   capabilitiesOff?: string[];
 }
 
@@ -57,15 +57,15 @@ export interface Profile {
  * The built-in profiles' defaults, on settings the boards declare (firmware `main.cpp` tables): `brightness` (10 to 255, default 200),
  * `maxFps` (a choice of 20, 30, 45, 60, default 30; the boards take 15 to 60), `volume` (0 to 100), `listenCue` and `taskChime` (toggles, 0 or 1).
  * The boards have no screen timeout, so power saver does not shorten one; the wake word stays on in both.
- * Pocket is silent's numbers plus a dim screen, for a device in a bag; manual only.
+ * Pocket is silent's numbers plus a dim screen, for a device in a bag; manual only. Both switch touch off (a bag presses the screen).
  */
 export const PROFILES: Record<string, Overrides & { label: string }> = {
   normal: { label: "Normal" },
   "power-saver": { label: "Power saver", cap: { brightness: 100, maxFps: 15 } },
-  silent: { label: "Silent", set: { volume: 0, listenCue: 0, taskChime: 0 } },
+  silent: { label: "Silent", set: { volume: 0, listenCue: 0, taskChime: 0 }, capabilitiesOff: ["touch"] },
   // Its chargeLimit is made from the hub's dockChargeLimit by overridesOf.
   dock: { label: "Dock" },
-  pocket: { label: "Pocket", set: { volume: 0, listenCue: 0, taskChime: 0 }, cap: { brightness: 30 } },
+  pocket: { label: "Pocket", set: { volume: 0, listenCue: 0, taskChime: 0 }, cap: { brightness: 30 }, capabilitiesOff: ["touch"] },
 };
 
 /** The profiles in force, by name: what `withProfile` and `activeProfile` look names up in. */
@@ -132,6 +132,7 @@ export function activeProfile(
 }
 
 const META_KEY = "profiles";
+const MIGRATED_KEY = "profiles.touchDefault";
 export const PROFILE_NAME = /^[a-z0-9-]{1,24}$/;
 
 const isBuiltIn = (name: string): boolean => Object.hasOwn(PROFILES, name);
@@ -148,7 +149,34 @@ const same = (a: Profile, b: Profile): boolean =>
 export class Profiles {
   constructor(private readonly store: { getMeta(key: string): string | undefined; setMeta(key: string, value: string | undefined): void }) {}
 
+  /**
+   * Once: a stored silent or pocket that is still the default from before they switched touch off (an admin saved it
+   * unchanged) is dropped, so it follows the code's default; later edits, even to an empty list, are kept as saved.
+   */
+  private migrated = false;
+  private migrate(): void {
+    if (this.migrated) return;
+    this.migrated = true;
+    if (this.store.getMeta(MIGRATED_KEY)) return;
+    this.store.setMeta(MIGRATED_KEY, "1");
+    const all = this.read();
+    let dropped = false;
+    for (const name of ["silent", "pocket"]) {
+      const p = all[name];
+      if (p && !p.capabilitiesOff.length && same({ ...p, capabilitiesOff: ["touch"] }, defaultProfile(name))) {
+        delete all[name];
+        dropped = true;
+      }
+    }
+    if (dropped) this.save(all);
+  }
+
   private stored(): Record<string, Profile> {
+    this.migrate();
+    return this.read();
+  }
+
+  private read(): Record<string, Profile> {
     try {
       const raw = JSON.parse(this.store.getMeta(META_KEY) ?? "{}") as Record<string, Partial<Profile>>;
       const out: Record<string, Profile> = {};
@@ -240,7 +268,12 @@ export function parseProfile(name: string, body: unknown, known: ReadonlySet<str
   }
   if (b.label !== undefined && (typeof b.label !== "string" || b.label.length > 40)) return "label must be text of at most 40 characters";
   const off = b.capabilitiesOff;
-  if (off !== undefined && (!Array.isArray(off) || off.some((x) => typeof x !== "string"))) return "capabilitiesOff must be a list of texts";
+  if (off !== undefined) {
+    if (!Array.isArray(off) || off.some((x) => typeof x !== "string")) return "capabilitiesOff must be a list of capability names, such as [\"touch\"]";
+    const bad = off.filter((x) => !(CAPABILITIES as readonly string[]).includes(x as string));
+    if (bad.length) return `capabilitiesOff: not a capability: ${bad.join(", ")} (known: ${CAPABILITIES.join(", ")})`;
+    if (new Set(off).size !== off.length) return "capabilitiesOff must not list a capability twice";
+  }
   const label = typeof b.label === "string" && b.label.trim() ? b.label.trim() : undefined;
   return { name, ...(label ? { label } : {}), set: outSet, cap: outCap, capabilitiesOff: (off as string[] | undefined) ?? [] };
 }

@@ -4,12 +4,14 @@ import type { Pictures } from "./media.js";
 import type { WebSocket } from "ws";
 import type { Activity } from "./activity.js";
 import {
+  CAPABILITIES,
   PROTOCOL_VERSION,
   DEFAULT_AUDIO_BUFFER_MS,
   DEFAULT_MAX_FRAME_BYTES,
   encodeServerMessage,
   isSupportedProtocolVersion,
   parseClientMessage,
+  type Capability,
   type ClientMessage,
   type ErrorCode,
   type LinkDef,
@@ -406,7 +408,7 @@ export class Hub implements TurnPort {
 
     // The stored record's type wins: a hello's type is not used (a device not yet updated may give an old name, clienttypes.ts).
     this.store.recordHello(known.id, { version: hello.version, capabilities: hello.capabilities });
-    const client = this.store.getClient(known.id)!;
+    const client = this.withProfileCaps(this.store.getClient(known.id)!);
 
     const previous = this.online.get(client.id);
     if (previous) {
@@ -534,6 +536,7 @@ export class Hub implements TurnPort {
   }
 
   private sendSettings(session: Session): void {
+    this.refreshCapabilities(session);
     const { profile } = this.profile(session.client);
     const before = this.sentProfile.get(session.client.id);
     this.sentProfile.set(session.client.id, profile);
@@ -555,6 +558,12 @@ export class Hub implements TurnPort {
       dockChargeLimit: this.dockChargeLimit(),
     }, this.profiles.table());
     values.chargeCurrent = this.chargeCurrent();
+    // The device learns what its profile switches off through the same setting as its own switches (never written to its layer).
+    const off = this.profileOff(client);
+    if (off.length) {
+      const own = String(values.capabilitiesOff ?? "").split(",").map((c) => c.trim());
+      values.capabilitiesOff = CAPABILITIES.filter((c) => own.includes(c) || off.includes(c)).join(",");
+    }
     return withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"]));
   }
 
@@ -640,14 +649,42 @@ export class Hub implements TurnPort {
    */
   capabilitiesChanged(client: ClientRecord): void {
     const session = this.online.get(client.id);
-    if (session) {
-      const lostScreen = session.client.capabilities.includes("screen") && !client.capabilities.includes("screen");
-      // Without touch a question waiting on a tap is moved too, unless a microphone can still answer it.
-      const lostTap = canTap(session.client.capabilities) && !canTap(client.capabilities) && !client.capabilities.includes("mic");
-      session.client = client;
-      if (lostScreen || lostTap) this.turns.moveAsk(session, (choices, silent) => this.answerableElsewhere(session, choices, silent));
-    }
+    if (session) this.adoptCapabilities(session, this.withProfileCaps(client));
     this.pushSettings((c) => c.id === client.id);
+  }
+
+  /** The capabilities the active profile switches off for `client` (its name list, whether or not the device reports them). */
+  private profileOff(client: Pick<ClientRecord, "id" | "type">): Capability[] {
+    const list = this.profiles.table()[this.profile(client).profile]?.capabilitiesOff ?? [];
+    return CAPABILITIES.filter((c) => list.includes(c));
+  }
+
+  /**
+   * The record with the active profile's switches applied: `capabilities` is what the device reports less its own
+   * switches less the profile's; `profileOff` is what the profile took away (only what was on); `reported` and `off` stay.
+   */
+  withProfileCaps(client: ClientRecord): ClientRecord {
+    const profileOff = this.profileOff(client).filter((c) => client.capabilities.includes(c));
+    return { ...client, capabilities: client.capabilities.filter((c) => !profileOff.includes(c)), profileOff };
+  }
+
+  /** Makes a live session go by `client`'s capabilities, moving a question it can no longer answer (see capabilitiesChanged). */
+  private adoptCapabilities(session: Session, client: ClientRecord): void {
+    const lostScreen = session.client.capabilities.includes("screen") && !client.capabilities.includes("screen");
+    // Without touch a question waiting on a tap is moved too, unless a microphone can still answer it.
+    const lostTap = canTap(session.client.capabilities) && !canTap(client.capabilities) && !client.capabilities.includes("mic");
+    session.client = client;
+    if (lostScreen || lostTap) this.turns.moveAsk(session, (choices, silent) => this.answerableElsewhere(session, choices, silent));
+  }
+
+  /** Re-reads the stored record and the profile in force; a session whose capabilities differ goes by the new ones. */
+  private refreshCapabilities(session: Session): void {
+    const stored = this.store.getClient(session.client.id);
+    if (!stored) return;
+    const next = this.withProfileCaps(stored);
+    const now = session.client;
+    if (next.capabilities.join() === now.capabilities.join() && (next.profileOff ?? []).join() === (now.profileOff ?? []).join() && next.off.join() === now.off.join()) return;
+    this.adoptCapabilities(session, next);
   }
 
   /**
