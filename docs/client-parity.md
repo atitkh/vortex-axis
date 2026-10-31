@@ -77,6 +77,10 @@ The four clients:
    - Windows and Mac: `mic`, `speaker` or `screen` off behaves like talking switched off for that part (no talk key, no playback, no pills); `desktop` off: every `desktop.*` command refused (the same path as Pause).
 5. **Edge cases**: an admin turning off `mic` on the only device with one; turning off `screen` on a device mid-question (Axis should end the question with `ask.end` and ask elsewhere); the hello still lists the full set, so `recordHello` must keep writing only the reported column.
 
+### Capabilities off by profile (unreleased)
+
+A profile can also switch capabilities off (`capabilitiesOff`, `docs/design.md` "Profiles"). Clients need nothing new: they read the same `capabilitiesOff` setting, which the hub now sends as the device's own switches plus the profile's, so a board or page that already honours it follows a profile (silent and pocket switch touch off). The server's record keeps `reported` and `off` as they were and adds `profileOff`; leaving the profile returns only what it took.
+
 ### Touch points
 
 - `server/src/store.ts`: migration for `capabilities_off`; `recordHello` unchanged in meaning; the row mapping (263) computes the effective list; a setter.

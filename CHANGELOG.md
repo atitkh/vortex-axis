@@ -8,7 +8,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 - **Profiles are data** (`server/src/profiles.ts`): kept in the hub database, built-ins (normal, power saver, silent, dock) as editable defaults with a reset, and custom profiles an admin creates and deletes. New built-in **pocket**: silent plus brightness at most 30, manual only. Dock's charge limit still follows the hub's Dock charge limit. A deleted profile sends its devices back to auto.
 - **Admin:** a Profiles page (under Devices) and `/admin/profiles` (list, PUT, DELETE, reset); a change reaches the devices on it at once. The `profile` setting's choices, the Profile switch and `vortex_axis_config` use the live list.
-- Stored shape has room for `capabilitiesOff` (not applied yet).
+- **Profiles switch capabilities off** (`capabilitiesOff`, applied): effective capabilities are reported less the device's switches less the active profile's, in one place (`Hub.withProfileCaps`), at hello and whenever the profile changes; questions that lose their screen or tap move as with a device switch (not when the mic can still answer); the device is sent its own off union the profile's, its device layer untouched. Built-in silent and pocket switch touch off by default. Names are validated (400). Admin: toggles per profile with a warning when nothing can answer, the device page shows "off by profile". `vortex_axis_clients` gives `offByProfile`, `vortex_axis_sense` `info.capabilities.profileOff`.
 
 ## Axis 0.71.0 (2026-10-31): the `touch` capability
 

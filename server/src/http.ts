@@ -329,7 +329,7 @@ export function createHttpHandler(deps: HttpDeps) {
     const session = hub.session(id);
     const info = devices.info(client);
     return {
-      ...client,
+      ...hub.withProfileCaps(client),
       online: Boolean(session),
       // The kind and the offline alert time the attention list goes by (null: never), and what "auto" would be.
       kind: info.kind,

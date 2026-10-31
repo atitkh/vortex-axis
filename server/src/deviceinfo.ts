@@ -114,7 +114,7 @@ export interface DeviceInfo {
   version: string;
   /** A newer build Axis holds for it, when there is one (server/src/versions.ts decides). */
   updateAvailable?: string;
-  capabilities: { reported: Capability[]; off: Capability[]; effective: Capability[] };
+  capabilities: { reported: Capability[]; off: Capability[]; /** Off because of the profile in force. */ profileOff: Capability[]; effective: Capability[] };
   state: DeviceState;
   stateSince?: number;
   vitals: Vitals;
@@ -162,7 +162,9 @@ export class Devices {
     this.extra = extra;
   }
 
-  info(client: ClientRecord, doing = this.hub.doing()): DeviceInfo {
+  info(stored: ClientRecord, doing = this.hub.doing()): DeviceInfo {
+    // The record with the profile in force applied, online or not.
+    const client = this.hub.withProfileCaps(stored);
     const info = deviceInfo(
       {
         client,
@@ -202,7 +204,7 @@ export function deviceInfo(input: DeviceInput, at: number): DeviceInfo {
     lastSeen: online ? at : client.lastSeenAt,
     version: client.version,
     ...(input.held && olderThanHeld(client.version, input.held) ? { updateAvailable: input.held } : {}),
-    capabilities: { reported: client.reported, off: client.off, effective: client.capabilities },
+    capabilities: { reported: client.reported, off: client.off, profileOff: client.profileOff ?? [], effective: client.capabilities },
     state: !online ? "offline" : input.now?.state ?? "idle",
     ...(online && input.now ? { stateSince: input.now.since } : {}),
     vitals: vitals(readings, input.chargeLimit),

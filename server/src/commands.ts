@@ -230,7 +230,7 @@ export const NODE_TOOLS: NodeTool[] = [
       "weak Wi-Fi, an update waiting, offline too long), the charger (`info.vitals.charger.line`: charging, full, held at " +
       "the charge limit), and its profile (`info.profile`: normal, power-saver, silent, dock, pocket or an admin's own, dock holds the battery at " +
       "`info.chargeLimit` on USB; " +
-      "`info.profileReason`: manual, battery or auto). Name a device in `client`, or leave it out for every device and " +
+      "`info.profileReason`: manual, battery or auto; `info.capabilities`: reported, off by an admin, `profileOff` off because of the profile, and the effective list in use). Name a device in `client`, or leave it out for every device and " +
       "the one most in need (`lowest`). Each device comes with a `summary` sentence to say as it is, the details in `info`, " +
       "and its raw `readings`. Use it for questions such as \"how is the desk board\" or \"which device is low\".",
     parameters: { type: "object", properties: { client: TARGET_PROPERTIES.client } },
@@ -434,6 +434,8 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
       type: client.type,
       location: typeof settings.location === "string" ? settings.location : null,
       can: client.capabilities,
+      // Capabilities its profile switched off; they are not in `can` (and so not used) while the profile is on.
+      ...(client.profileOff?.length ? { offByProfile: client.profileOff } : {}),
       online: Boolean(session),
     };
   };

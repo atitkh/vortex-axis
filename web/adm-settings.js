@@ -374,6 +374,8 @@ export function SettingsEditor({ defs, layers, tab, entity, head = [], extra, ra
 /** The capability switches of a device, staged like any setting. */
 export function capabilityGroup(client, entity) {
   const reported = client.reported ?? client.capabilities;
+  // Off because of the profile in force: shown as off, changed on the Profiles page.
+  const byProfile = new Set(client.profileOff ?? []);
   const d = draftOf(entity);
   const off = new Set(d.caps ?? client.off ?? []);
   const flip = (capability, on) =>
@@ -393,7 +395,9 @@ export function capabilityGroup(client, entity) {
     dirty: d.caps !== undefined,
     body: reported.length
       ? html`<div class="caprow">
-          ${reported.map((c) => html`<label key=${c} class=${`chip cap${off.has(c) ? " off" : ""}`}><input type="checkbox" class="switch" data-edit=${`capability-${c}`} aria-label=${c} checked=${!off.has(c)} onChange=${(e) => flip(c, e.target.checked)} />${c}</label>`)}
+          ${reported.map((c) => byProfile.has(c) && !off.has(c)
+            ? html`<label key=${c} class="chip cap off" title=${`off by profile ${client.profile}`}><input type="checkbox" class="switch" data-edit=${`capability-${c}`} aria-label=${c} checked=${false} disabled />${c} <span class="dim sm">off by profile ${client.profile}</span></label>`
+            : html`<label key=${c} class=${`chip cap${off.has(c) ? " off" : ""}`}><input type="checkbox" class="switch" data-edit=${`capability-${c}`} aria-label=${c} checked=${!off.has(c)} onChange=${(e) => flip(c, e.target.checked)} />${c}</label>`)}
         </div>
         <p class="caphelp">Switch one off to stop Axis using it on this device; nothing is added that it does not report. Off means: ${reported.map((c) => `${c}: ${CAPABILITY_OFF[c] ?? "not used"}`).join("; ")}. The device may need a moment to follow.</p>`
       : html`<p class="caphelp">This device reports no capabilities.</p>`,
