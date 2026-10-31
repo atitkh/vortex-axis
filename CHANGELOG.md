@@ -4,7 +4,7 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## Unreleased: editable profiles
+## Axis 0.72.0 (2026-10-31): editable profiles, `pocket`, capabilities off in profiles
 
 - **Profiles are data** (`server/src/profiles.ts`): kept in the hub database, built-ins (normal, power saver, silent, dock) as editable defaults with a reset, and custom profiles an admin creates and deletes. New built-in **pocket**: silent plus brightness at most 30, manual only. Dock's charge limit still follows the hub's Dock charge limit. A deleted profile sends its devices back to auto.
 - **Admin:** a Profiles page (under Devices) and `/admin/profiles` (list, PUT, DELETE, reset); a change reaches the devices on it at once. The `profile` setting's choices, the Profile switch and `vortex_axis_config` use the live list.
