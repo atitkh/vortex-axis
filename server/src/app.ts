@@ -41,7 +41,7 @@ import { MediaStore, Pictures, type PicturePort } from "./media.js";
 import { fitToJpeg } from "./fit.js";
 import { Shows, type SourceDeps } from "./show.js";
 import { PushService } from "./push.js";
-import { Hub, type Session } from "./hub.js";
+import { canTap, Hub, type Session } from "./hub.js";
 import { Store } from "./store.js";
 import { isSilent, type Services } from "./turns.js";
 import { applyRuntimeConfig, loadRuntimeConfig } from "./upstream.js";
@@ -420,9 +420,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
           return undefined;
         }
         const caps = session.client.capabilities;
-        if (!caps.includes("mic") && !(choices.length && caps.includes("screen"))) return undefined;
-        // A choice to tap needs a screen; without one an approval cannot be given here at all.
-        if (silent && !caps.includes("screen")) return undefined;
+        if (!caps.includes("mic") && !(choices.length && canTap(caps))) return undefined;
+        // A choice to tap needs a tappable screen; without one an approval cannot be given here at all.
+        if (silent && !canTap(caps)) return undefined;
         return hub.ask(session, question, choices, timeoutMs, { silent, signal });
       },
     },

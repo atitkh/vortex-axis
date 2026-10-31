@@ -2,7 +2,7 @@ import type { Scalar } from "@vortex-axis/protocol";
 import type { InvokeHandler, NodeTool } from "./gateway/client.js";
 import type { Activity } from "./activity.js";
 import type { Delivery } from "./delivery.js";
-import type { Hub, Session } from "./hub.js";
+import { canTap, type Hub, type Session } from "./hub.js";
 import { Devices, lowest, spokenSummary } from "./deviceinfo.js";
 import { BUILT_IN_SETTINGS, settingProblem, withBuiltIns } from "./schema.js";
 import { PROFILE_CHOICES } from "./profiles.js";
@@ -577,9 +577,9 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const session = hub.pickOutput({ client: text(params.client), location: placeNamed(params) });
         const caps = session.client.capabilities;
         // An answer has to come back somehow: by voice, or by picking a choice on a screen.
-        if (!caps.includes("mic") && !(choices.length && caps.includes("screen"))) {
+        if (!caps.includes("mic") && !(choices.length && canTap(caps))) {
           throw new Error(
-            `${session.client.name} has no microphone${choices.length ? " and no screen" : ", so it can only answer a question with choices"}`,
+            `${session.client.name} has no microphone${choices.length ? " and no tappable screen" : ", so it can only answer a question with choices"}`,
           );
         }
         const result = await hub.ask(session, question.slice(0, 500), choices, ms);
@@ -616,7 +616,7 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           if (params.act === true) {
             asked = "not asked";
             const caps = session.client.capabilities;
-            if (caps.includes("mic") || caps.includes("screen")) {
+            if (caps.includes("mic") || canTap(caps)) {
               try {
                 const what = label ? `the ${label} task` : "that task";
                 const answer = await hub.ask(session, `When ${what} runs later, may it click and type on your computer?`, ["Allow", "Look only"], 30_000);

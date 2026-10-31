@@ -29,6 +29,7 @@ Declare a capability only when all of its "must" lines hold. A capability that h
 | `mic` | It can record a person speaking. | Send speech as 16 kHz, 16-bit, mono PCM. Decide by itself where a sentence starts and ends (section 4). Never send audio before a wake word, a button or a question from Axis opened the microphone. |
 | `speaker` | It can play speech. | Play PCM at the rate `speak.start` gives (24 kHz today; do not assume it). Say in `hello` how much it can buffer. Report `playback` truthfully (section 5). Stop at once on `stop`. |
 | `screen` | It can show text. | Show `transcript` and `reply.text`. Show what state it is in (section 6). Show a question's choices and take a pick. Show the next timer when it can. |
+| `touch` | The screen takes taps and swipes. | Report it with `screen` if people can tap it. A choice question or an approval is offered only to a client with both `screen` and `touch` (or `mic` for a spoken answer). While an admin has it switched off, ignore taps and swipes. A client that does not report `touch` cannot answer a choice by tap. |
 | `buttons` | It has something to press that is not the screen. | Use it for the three things a tap does (section 3). |
 | `vibration` | It can buzz. | Nothing yet. Reserved for wearables. |
 | `sensors` | It reports readings besides the basic ones. | Send them with `sense`. |

@@ -99,6 +99,9 @@ export interface HubOptions {
 }
 
 /** Tracks which clients are connected and speaks the client protocol to them. */
+/** A screen that can be tapped: the only place a choice or an approval can be answered by touch. */
+export const canTap = (caps: readonly string[]): boolean => caps.includes("screen") && caps.includes("touch");
+
 export class Hub implements TurnPort {
   private readonly online = new Map<string, Session>();
   private readonly turns: TurnManager;
@@ -636,19 +639,21 @@ export class Hub implements TurnPort {
     const session = this.online.get(client.id);
     if (session) {
       const lostScreen = session.client.capabilities.includes("screen") && !client.capabilities.includes("screen");
+      // Without touch a question waiting on a tap is moved too, unless a microphone can still answer it.
+      const lostTap = canTap(session.client.capabilities) && !canTap(client.capabilities) && !client.capabilities.includes("mic");
       session.client = client;
-      if (lostScreen) this.turns.moveAsk(session, (choices, silent) => this.answerableElsewhere(session, choices, silent));
+      if (lostScreen || lostTap) this.turns.moveAsk(session, (choices, silent) => this.answerableElsewhere(session, choices, silent));
     }
     this.pushSettings((c) => c.id === client.id);
   }
 
   /**
    * Where a question taken off `from` can be answered: another client by voice or by a tap, else `from` itself by
-   * voice. A silent one (an approval) needs a screen.
+   * voice. A silent one (an approval) needs a tappable screen.
    */
   private answerableElsewhere(from: Session, choices: number, silent: boolean): Session | undefined {
     const can = (s: Session) =>
-      silent ? s.client.capabilities.includes("screen") : s.client.capabilities.includes("mic") || (choices > 0 && s.client.capabilities.includes("screen"));
+      silent ? canTap(s.client.capabilities) : s.client.capabilities.includes("mic") || (choices > 0 && canTap(s.client.capabilities));
     const others = [...this.online.values()].filter((s) => s !== from && can(s));
     return others.find((s) => s.client.capabilities.includes("speaker")) ?? others[0] ?? (!silent && from.client.capabilities.includes("mic") ? from : undefined);
   }

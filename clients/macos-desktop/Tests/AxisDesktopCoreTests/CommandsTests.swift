@@ -293,7 +293,7 @@ final class IdentityTests: XCTestCase {
      */
     func testVoiceAddsTheWindowsCapabilities() throws {
         let talking = DesktopIdentity.create(version: "0.3.0", voice: true)
-        XCTAssertEqual(talking.capabilities, ["desktop", "mic", "speaker", "screen", "images"], "0.4.0: pictures in replies too")
+        XCTAssertEqual(talking.capabilities, ["desktop", "mic", "speaker", "screen", "touch", "images"], "0.4.0: pictures in replies too")
         XCTAssertEqual(DesktopIdentity.create(version: "0.3.0", voice: false).capabilities, ["desktop"])
         let keys = try XCTUnwrap(talking.describe["settings"]?.arrayValue).compactMap { $0["key"]?.stringValue }
         XCTAssertEqual(keys, ["allowLook", "allowInput", "bubble", "allowScreenshot", "autoUpdate", "confirmRisky", "autoOcr", "pointerSize",

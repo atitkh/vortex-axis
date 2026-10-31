@@ -5,6 +5,8 @@ export const CAPABILITIES = [
   "mic",
   "speaker",
   "screen",
+  // The screen takes taps and swipes; without it a picture is only shown, never answered by touch.
+  "touch",
   "buttons",
   "vibration",
   "sensors",

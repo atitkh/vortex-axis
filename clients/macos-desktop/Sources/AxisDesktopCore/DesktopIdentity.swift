@@ -12,7 +12,7 @@ public enum DesktopIdentity {
      * kept on the Mac, not on the admin page (the same on Windows).
      */
     public static func capabilities(voice: Bool) -> [String] {
-        voice ? ["desktop", "mic", "speaker", "screen", "images"] : ["desktop"]
+        voice ? ["desktop", "mic", "speaker", "screen", "touch", "images"] : ["desktop"]
     }
 
     public static func create(version: String, voice: Bool = false) -> ClientIdentity {

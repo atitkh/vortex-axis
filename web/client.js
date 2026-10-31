@@ -28,7 +28,7 @@ function listening() {
 
 // A browser only hands out the microphone on https or on localhost.
 const micAvailable = Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode);
-const capabilities = [...(micAvailable ? ["mic"] : []), "speaker", "screen", "buttons", "images"];
+const capabilities = [...(micAvailable ? ["mic"] : []), "speaker", "screen", "touch", "buttons", "images"];
 
 let identity = JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null");
 let settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{"version":0,"values":{}}');
@@ -611,13 +611,14 @@ face.setIconStyle(settings.values.toolIcons);
 
 // --- what an admin switched off ----------------------------------------------
 // Axis no longer uses what `capabilitiesOff` lists here; the page stops doing it too, and comes back when it goes.
-// screen: no face or words; speaker: nothing plays; mic: no listening, typing still works.
+// screen: no face or words; touch: the face and the answer buttons ignore taps; speaker: nothing plays; mic: no listening, typing still works.
 
 function applyCapsOff(value) {
   const next = new Set(String(value ?? "").split(",").map((c) => c.trim()).filter(Boolean));
   if (!next.size && !capsOff.size) return;
   capsOff = next;
   document.body.classList.toggle("screen-off", capsOff.has("screen"));
+  document.body.classList.toggle("touch-off", capsOff.has("touch"));
   const turnId = player.turnId;
   if (capsOff.has("speaker") && player.stop()) send({ t: "playback", turnId, state: "stopped" });
   if (capsOff.has("mic") && capture) stopCapture(false);

@@ -347,4 +347,5 @@ body:not(.busy) .stop { display: none; }
 .task[data-state="done"] .task-bar i { background: var(--listen); }
 
 /* An admin switched this device's screen off (the capabilitiesOff setting): no face and no words. */
+body.touch-off #face, body.touch-off #choices { pointer-events: none; }
 body.screen-off #face, body.screen-off #caption, body.screen-off #choices, body.screen-off #timer, body.screen-off #task { visibility: hidden; }

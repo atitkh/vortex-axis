@@ -888,7 +888,7 @@ public static class DesktopIdentity
      * The sound settings and the `chime` action are declared either way: the admin page keeps one list per kind of
      * device, and a computer with talking off must not take the chime away from one with it on.
      */
-    public static ClientIdentity Create(string version, bool voice = false) => new(Type, version, voice ? ["desktop", "mic", "speaker", "screen", "images"] : ["desktop"], new JsonObject
+    public static ClientIdentity Create(string version, bool voice = false) => new(Type, version, voice ? ["desktop", "mic", "speaker", "screen", "touch", "images"] : ["desktop"], new JsonObject
     {
         ["settings"] = new JsonArray(
             Setting("allowLook", "Let agents read the screen", "toggle", "Desktop", "Off refuses every look. The person at the computer can also pause the app from its window or tray.", "1"),

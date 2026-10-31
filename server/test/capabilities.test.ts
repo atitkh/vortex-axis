@@ -96,8 +96,8 @@ describe("capabilities an admin switched off", () => {
   });
 
   it("takes a question off a device whose screen was switched off and asks it elsewhere", async () => {
-    const desk = await device("Desk", ["screen"]);
-    const hall = await device("Hall", ["mic", "speaker", "screen"]);
+    const desk = await device("Desk", ["screen", "touch"]);
+    const hall = await device("Hall", ["mic", "speaker", "screen", "touch"]);
     const asking = invoke("vortex.axis.ask", { question: "Lights off?", choices: ["Yes", "No"], client: "Desk", timeoutSeconds: 30 });
     const ask = await desk.client.next("ask");
     await switchOff(desk.identity.clientId, ["screen"]);
@@ -111,11 +111,38 @@ describe("capabilities an admin switched off", () => {
   });
 
   it("ends a question unanswered when nowhere else can take it", async () => {
-    const desk = await device("Desk", ["screen"]);
+    const desk = await device("Desk", ["screen", "touch"]);
     const asking = invoke("vortex.axis.ask", { question: "Lights off?", choices: ["Yes", "No"], client: "Desk" });
     await desk.client.next("ask");
     await switchOff(desk.identity.clientId, ["screen"]);
     await desk.client.next("ask.end");
     expect(await asking).toMatchObject({ answer: null });
+  });
+
+  it("takes touch off a client's capabilities like any other, and a screen without it is not asked a choice", async () => {
+    const store = new Store(":memory:");
+    const code = store.createPairingCode(60_000).code;
+    const { client } = store.pair({ code, type: "board", version: "1", capabilities: ["screen", "touch"] })!;
+    expect(client.capabilities).toEqual(["screen", "touch"]);
+    expect(store.setCapabilitiesOff(client.id, ["touch"])).toMatchObject({ capabilities: ["screen"], reported: ["screen", "touch"], off: ["touch"] });
+    store.close();
+
+    const flat = await device("Flat", ["screen"]);
+    const refused = await admin("POST", "/admin/mcp/tools/try", { name: "vortex_axis_ask", arguments: { question: "Lights off?", choices: ["Yes", "No"], client: "Flat" } });
+    expect(JSON.stringify(refused.body)).toMatch(/no microphone and no tappable screen/);
+    expect(flat.client.received.some((m) => m.t === "ask")).toBe(false);
+  });
+
+  it("moves a question waiting on a tap when touch is switched off live", async () => {
+    const desk = await device("Desk", ["screen", "touch"]);
+    const hall = await device("Hall", ["mic", "speaker", "screen", "touch"]);
+    const asking = invoke("vortex.axis.ask", { question: "Lights off?", choices: ["Yes", "No"], client: "Desk", timeoutSeconds: 30 });
+    const ask = await desk.client.next("ask");
+    await switchOff(desk.identity.clientId, ["touch"]);
+    expect((await desk.client.next("ask.end")).askId).toBe(ask.askId);
+    const moved = await hall.client.next("ask");
+    expect(moved).toMatchObject({ question: "Lights off?", choices: ["Yes", "No"] });
+    hall.client.send({ t: "answer", askId: moved.askId, choice: "No" });
+    expect(await asking).toMatchObject({ client: "Desk", answer: "No" });
   });
 });

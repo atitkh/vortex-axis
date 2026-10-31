@@ -22,6 +22,7 @@ export const CAPABILITY_OFF = {
   mic: "no listening, by wake word, tap or talk key",
   speaker: "nothing is spoken on it",
   screen: "nothing is shown; questions go to another device",
+  touch: "taps and swipes are ignored",
   buttons: "its buttons are not used",
   vibration: "no buzzing",
   sensors: "its readings are not used",

@@ -31,7 +31,7 @@ The gateway's OpenAI-style chat endpoint is not used. Axis can still have any Op
 
 ### 2.2 Clients are types with capabilities
 
-A client is described by what it can do: `mic`, `speaker`, `screen`, `buttons`, `vibration`, `sensors`. A client type is a named set of capabilities plus shared defaults, for example "desk speaker" (mic, speaker, screen) or "watch" (screen, buttons, vibration, sensors).
+A client is described by what it can do: `mic`, `speaker`, `screen`, `touch`, `buttons`, `vibration`, `sensors`. A client type is a named set of capabilities plus shared defaults, for example "desk speaker" (mic, speaker, screen) or "watch" (screen, buttons, vibration, sensors).
 
 Axis routes on capabilities. A spoken reply needs a speaker. A yes/no question can go to any client with buttons.
 

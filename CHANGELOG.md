@@ -4,6 +4,20 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased: the `touch` capability
+
+- **Touch is a capability** (`protocol/src/common.ts`): the screen takes taps and swipes. An admin can switch it off per device like `mic`, `speaker` and `screen` (Capabilities on the device's Settings; "taps and swipes are ignored"). A choice question, an approval (silent) and the desktop "may it click" question are offered only where `screen` AND `touch` are on (`canTap` in `server/src/hub.ts`); a question waiting on a tap with no microphone is moved to another client when touch is switched off live, as for `screen`. The browser page reports `touch` and ignores taps on the face and answer buttons while it is off. Windows and Mac desktop apps report `touch` when talking is on (their pills take clicks); not built or run.
+- **Compatibility:** a client that does not report `touch` (board firmware before 1.8 0.27.0 and round 0.11.0, older desktop apps) can no longer answer a choice question by tap until it reports `touch`; a microphone still answers by voice. Boards get `touch` with the new firmware below.
+- Checked by server tests and typecheck. NOT verified: a real board, a phone, the desktop apps.
+
+## Round board firmware 0.11.0 (Waveshare 1.75) (2026-10-31)
+
+- Reports `touch`; with it switched off on the admin page (or `capsoff touch`) the touch input is ignored completely (no taps, holds, swipes, wake by tap or touch count) while the display and everything else keep working. Built, NOT flashed, not pushed.
+
+## Board firmware 0.27.0 (Waveshare 1.8) (2026-10-31)
+
+- The round board's 0.11.0 `touch` capability, same code. Built, NOT flashed, not pushed.
+
 ## Axis 0.70.0 (2026-10-30)
 
 - **Reminders:** the agent sets a reminder for a wall-clock time, once or repeating (`vortex_axis_reminder`, command `vortex.axis.reminder`: set, list, cancel, dismiss). Daily, weekdays, weekends, weekly or days like `mon,wed,fri`; `at` as local time or with an offset, within 366 days; 100 reminders at most, text 200 characters. Stored in a new `reminders` table (`server/src/reminders.ts`, `recurrence.ts`), separate from timers, which are unchanged. Nothing counts down; at the due time it is said on the device the person is near (or on all with `everywhere`, or only on the `client`/`location` given), with the timer chime, one sentence from the agent, and a phone notification when away. A failed delivery is retried once after five minutes, then MISSED until dismissed. Quiet hours show it silently, or push a notification when no screen is free; `urgent` speaks through them. A reminder overdue by up to six hours fires at start with its lateness, older ones go to MISSED. Every screen shows its text as a progress line for 60 seconds; the admin Now table lists scheduled and missed ones with dismiss; a phone's Live Activity appears only when one goes off (not while it is scheduled). Time zone changes move repeating ones (`rezone()`). Checked by `recurrence.test.ts`, `reminders.test.ts` and the tool tests (`npm test`, `npm run typecheck`); not deployed. NOT verified: the real gateway and its `vortex.axis.reminder` allowance, a real board, a browser or a phone showing the line, the daylight-saving change on the real clock, the Live Activity on a real phone, the migration on live data.

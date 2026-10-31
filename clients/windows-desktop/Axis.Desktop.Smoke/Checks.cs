@@ -530,6 +530,7 @@ static class Checks
         var link = new AxisLink(new Pairing("http://192.168.1.20:8440", "c1", "t", "PC"), DesktopIdentity.Create("0.0.0", true));
         Is(DesktopIdentity.Create("0.0.0", true).Capabilities.Contains("images"), true, "images with talking on");
         Is(DesktopIdentity.Create("0.0.0", false).Capabilities.Contains("images"), false, "no images with talking off");
+        Is(DesktopIdentity.Create("0.0.0", true).Capabilities.Contains("touch"), true, "touch with talking on (its pills take clicks)");
         var actions = DesktopIdentity.Create("0.0.0", false).Describe["actions"]!.AsArray().Select(a => a!["name"]!.GetValue<string>());
         Is(actions.Contains("chime"), true, "the chime action declared either way");
         Is(link.Address.Http.ToString(), "http://192.168.1.20:8440/", "the address pictures are fetched from");
