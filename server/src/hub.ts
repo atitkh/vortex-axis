@@ -98,10 +98,10 @@ export interface HubOptions {
   log?: (line: string) => void;
 }
 
-/** Tracks which clients are connected and speaks the client protocol to them. */
 /** A screen that can be tapped: the only place a choice or an approval can be answered by touch. */
 export const canTap = (caps: readonly string[]): boolean => caps.includes("screen") && caps.includes("touch");
 
+/** Tracks which clients are connected and speaks the client protocol to them. */
 export class Hub implements TurnPort {
   private readonly online = new Map<string, Session>();
   private readonly turns: TurnManager;
