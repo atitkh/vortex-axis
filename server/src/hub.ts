@@ -21,7 +21,7 @@ import type { Live } from "./live.js";
 import type { Voiceprints } from "./voiceprint.js";
 import { isQuiet, withQuiet } from "./quiet.js";
 import { DEFAULT_CHARGE_CURRENT, declaredDefaults, declaredValues, sentDefaults, SERVER_ONLY_KEYS } from "./schema.js";
-import { activeProfile, batterySaver, DEFAULT_DOCK_CHARGE_LIMIT, withProfile, type ProfileName, type ProfileReason } from "./profiles.js";
+import { activeProfile, batterySaver, DEFAULT_DOCK_CHARGE_LIMIT, Profiles, withProfile, type ProfileName, type ProfileReason } from "./profiles.js";
 import { fresh } from "./deviceinfo.js";
 import type { ClientRecord, Store } from "./store.js";
 import { TurnManager, type ClientNow, type Services, type TurnPort } from "./turns.js";
@@ -118,6 +118,8 @@ export class Hub implements TurnPort {
   private readonly chargeCurrent: () => number;
   private readonly screens = new Map<string, { heard: string; said: string; at: number }>();
   private readonly store: Store;
+  /** The profiles in the database (profiles.ts). */
+  readonly profiles: Profiles;
   private readonly helloTimeoutMs: number;
   private readonly pingIntervalMs: number;
   /** How long Axis waits for other devices to report the same wake word (AXIS_WAKE_WINDOW_MS). */
@@ -137,6 +139,7 @@ export class Hub implements TurnPort {
 
   constructor(options: HubOptions) {
     this.store = options.store;
+    this.profiles = new Profiles(options.store);
     this.helloTimeoutMs = options.helloTimeoutMs;
     this.pingIntervalMs = options.pingIntervalMs ?? 0;
     this.wakeWindowMs = options.wakeWindowMs ?? 200;
@@ -550,14 +553,14 @@ export class Hub implements TurnPort {
     const schema = this.store.getSchema(client.type);
     const values = withProfile(this.sentSettings(client), this.profile(client).profile, declaredValues(schema), {
       dockChargeLimit: this.dockChargeLimit(),
-    });
+    }, this.profiles.table());
     values.chargeCurrent = this.chargeCurrent();
     return withQuiet(values, Date.now(), this.timeZone, declaredDefaults(schema, ["volume", "brightness"]));
   }
 
   /** The profile a client is on and why (profiles.ts): its `profile` setting, else the battery rule. */
   profile(client: Pick<ClientRecord, "id" | "type">): { profile: ProfileName; reason: ProfileReason } {
-    return activeProfile(this.store.resolveSettings(client).profile, this.saver.get(client.id) ?? false);
+    return activeProfile(this.store.resolveSettings(client).profile, this.saver.get(client.id) ?? false, this.profiles.names());
   }
 
   /** Calls `listener` after a connected client was sent settings under a different profile than before. */

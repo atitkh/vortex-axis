@@ -187,9 +187,9 @@ export const BUILT_IN_SETTINGS: SettingDef[] = [
     label: "Profile",
     kind: "choice",
     group: "Axis",
-    options: ["auto", "normal", "power-saver", "silent", "dock"],
+    options: ["auto", "normal", "power-saver", "silent", "dock", "pocket"],
     default: "auto",
-    help: "A set of overrides on this device's own settings, beneath quiet hours. \"power-saver\": brightness at most 100, at most 15 frames a second. \"silent\": volume 0, no listening cue or task chime, nothing spoken: replies and messages are shown as text, and tap to talk still works. \"auto\" is normal, and power saver while a battery is low and not charging (the level is a hub setting). \"dock\": normal, but the battery is charged only to the Dock charge limit (a hub setting). Auto never picks dock. A choice other than auto holds until it is set back to auto.",
+    help: "A set of overrides on this device's own settings, beneath quiet hours. \"power-saver\": brightness at most 100, at most 15 frames a second. \"silent\": volume 0, no listening cue or task chime, nothing spoken: replies and messages are shown as text, and tap to talk still works. \"auto\" is normal, and power saver while a battery is low and not charging (the level is a hub setting). \"dock\": normal, but the battery is charged only to the Dock charge limit (a hub setting). \"pocket\": silent, with brightness at most 30. Admins can edit these and add their own on the Profiles page. Auto never picks dock or pocket. A choice other than auto holds until it is set back to auto.",
   },
   {
     key: "chargeLimit",
@@ -280,11 +280,12 @@ export function wakeWordSetting(ids: string[]): SettingDef {
 
 /**
  * A client's own settings after the ones Axis adds. A client cannot replace a
- * built-in key. `wakeWords` are the ids of the stored wake words to offer.
+ * built-in key. `wakeWords` are the ids of the stored wake words to offer, `profiles` the names of the profiles (profiles.ts).
  */
-export function withBuiltIns(schema: ClientSchema | undefined, wakeWords: string[] = []): ClientSchema {
+export function withBuiltIns(schema: ClientSchema | undefined, wakeWords: string[] = [], profiles?: string[]): ClientSchema {
   const own = schema ?? EMPTY_SCHEMA;
-  const builtIn = [...BUILT_IN_SETTINGS, wakeWordSetting(wakeWords)];
+  const live = (def: SettingDef): SettingDef => (def.key === "profile" && profiles ? { ...def, options: ["auto", ...profiles] } : def);
+  const builtIn = [...BUILT_IN_SETTINGS.map(live), wakeWordSetting(wakeWords)];
   const taken = new Set(builtIn.map((s) => s.key));
   return {
     settings: [...builtIn, ...own.settings.filter((s) => !taken.has(s.key))],

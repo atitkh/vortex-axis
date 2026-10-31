@@ -5,7 +5,6 @@ import type { Delivery } from "./delivery.js";
 import { canTap, type Hub, type Session } from "./hub.js";
 import { Devices, lowest, spokenSummary } from "./deviceinfo.js";
 import { BUILT_IN_SETTINGS, settingProblem, withBuiltIns } from "./schema.js";
-import { PROFILE_CHOICES } from "./profiles.js";
 import type { Store, TimerRecord } from "./store.js";
 import type { Attachment } from "./attach.js";
 import type { Progress } from "./progress.js";
@@ -207,8 +206,9 @@ export const NODE_TOOLS: NodeTool[] = [
       "Read or change a setting on one VorteX Axis device, such as volume or location. Give only the client " +
       "to read all its settings. Give key and value to change one. Key `profile` switches its profile: \"silent\" " +
       "(nothing spoken there, replies shown as text, tap to talk still works), \"power-saver\" (dimmer, fewer frames), " +
-      "\"normal\", \"dock\" (normal, but on USB its battery charges only to the hub's Dock charge limit, 80% unless " +
+      "\"normal\", \"pocket\" (silent and dim, for a bag), \"dock\" (normal, but on USB its battery charges only to the hub's Dock charge limit, 80% unless " +
       "changed, then holds), or \"auto\" (normal, with power saver while its battery is low; never dock). Key " +
+      "An admin can edit these and add profiles of their own; an unknown name is refused with the current list. " +
       "`chargeLimit` (50 to 100, 100 no limit) is the device's own charge limit outside dock. A choice other than auto holds " +
       "until set back to auto. Which profile a device is on, and why, is in vortex_axis_sense.",
     parameters: {
@@ -228,7 +228,7 @@ export const NODE_TOOLS: NodeTool[] = [
       "How VorteX Axis devices are doing: online or offline, battery and charging, Wi-Fi signal, uptime and why they last " +
       "restarted, today's use (pickups, touches, turns), what they are doing now, and what needs attention (low battery, " +
       "weak Wi-Fi, an update waiting, offline too long), the charger (`info.vitals.charger.line`: charging, full, held at " +
-      "the charge limit), and its profile (`info.profile`: normal, power-saver, silent or dock, which holds the battery at " +
+      "the charge limit), and its profile (`info.profile`: normal, power-saver, silent, dock, pocket or an admin's own, dock holds the battery at " +
       "`info.chargeLimit` on USB; " +
       "`info.profileReason`: manual, battery or auto). Name a device in `client`, or leave it out for every device and " +
       "the one most in need (`lowest`). Each device comes with a `summary` sentence to say as it is, the details in `info`, " +
@@ -490,8 +490,8 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const key = text(params.key) === "room" ? "location" : text(params.key);
         if (key !== undefined && "value" in params) {
           if (!isScalar(params.value)) throw new Error("value must be text, a number, true/false or null");
-          if (key === "profile" && params.value !== null && !(PROFILE_CHOICES as readonly unknown[]).includes(params.value)) {
-            throw new Error(`profile must be one of ${PROFILE_CHOICES.join(", ")}`);
+          if (key === "profile" && params.value !== null && !["auto", ...hub.profiles.names()].includes(params.value as string)) {
+            throw new Error(`profile must be one of ${["auto", ...hub.profiles.names()].join(", ")}`);
           }
           const def = BUILT_IN_SETTINGS.find((d) => d.key === key);
           const problem = key === "chargeLimit" && def ? settingProblem(def, params.value) : undefined;

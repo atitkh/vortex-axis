@@ -31,6 +31,7 @@ import { RolloutBusy, type Rollouts } from "./rollout.js";
 import { MAX_WAKE_WORD_BYTES, type WakeWordStore, type WakeWordSync } from "./wakewords.js";
 import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
+import { parseProfile, PROFILES } from "./profiles.js";
 import type { SettingsScope, Store } from "./store.js";
 import type { Services } from "./turns.js";
 import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
@@ -405,7 +406,7 @@ export function createHttpHandler(deps: HttpDeps) {
     for (const client of store.listClients()) {
       if (out[client.type]) continue;
       const label = store.getMeta(`type_label:${client.type}`);
-      out[client.type] = { ...withBuiltIns(store.getSchema(client.type), wakeIds()), ...(label ? { label } : {}) };
+      out[client.type] = { ...withBuiltIns(store.getSchema(client.type), wakeIds(), hub.profiles.names()), ...(label ? { label } : {}) };
     }
     return out;
   }
@@ -420,7 +421,7 @@ export function createHttpHandler(deps: HttpDeps) {
 
   /** Refuses a value the client's own schema does not allow. Unknown keys are allowed. */
   function checkAgainstSchema(type: string, values: Record<string, unknown>) {
-    const schema = withBuiltIns(store.getSchema(type), wakeIds());
+    const schema = withBuiltIns(store.getSchema(type), wakeIds(), hub.profiles.names());
     for (const [key, value] of Object.entries(values)) {
       const def = schema.settings.find((s) => s.key === key);
       const problem = def ? settingProblem(def, value as Scalar) : undefined;
@@ -1703,11 +1704,59 @@ export function createHttpHandler(deps: HttpDeps) {
         if (client && !store.getClient(client)) throw new HttpError(404, "no such client");
         return sendJson(res, 200, activity.summary(hours, client));
       }
+      if (parts[1] === "profiles") {
+        const name = parts[2];
+        // Every setting key some known device type or a built-in profile has: what a profile may override.
+        const knownKeys = () => {
+          const keys = new Set<string>();
+          for (const schema of Object.values(typeSchemas())) for (const def of schema.settings) keys.add(def.key);
+          for (const def of withBuiltIns(undefined).settings) keys.add(def.key);
+          for (const p of Object.values(PROFILES)) for (const key of [...Object.keys(p.set ?? {}), ...Object.keys(p.cap ?? {})]) keys.add(key);
+          keys.delete("profile");
+          return keys;
+        };
+        /** Sends settings again to the devices on `profile` (chosen by `on` before a delete, now otherwise). */
+        const repush = (on: Set<string>) => {
+          store.touchSettings();
+          hub.pushSettings((client) => on.has(client.id));
+        };
+        const onProfile = (profile: string) => new Set(store.listClients().filter((c) => hub.profile(c).profile === profile).map((c) => c.id));
+        if (method === "GET" && parts.length === 2) {
+          return sendJson(res, 200, { profiles: hub.profiles.list(), keys: [...knownKeys()].sort() });
+        }
+        if (name && parts.length === 3 && method === "PUT") {
+          const parsed = parseProfile(name, await readJson(req), knownKeys());
+          if (typeof parsed === "string") throw new HttpError(400, parsed);
+          const before = hub.profiles.has(name);
+          hub.profiles.put(parsed);
+          activity?.note("admin", "", `Profile ${name} ${before ? "changed" : "created"}`);
+          repush(onProfile(name));
+          return sendJson(res, before ? 200 : 201, { profiles: hub.profiles.list() });
+        }
+        if (name && parts.length === 3 && method === "DELETE") {
+          if (!hub.profiles.has(name)) throw new HttpError(404, "no such profile");
+          if (Object.hasOwn(PROFILES, name)) throw new HttpError(400, "a built-in profile cannot be deleted; reset it instead");
+          const on = onProfile(name);
+          hub.profiles.remove(name);
+          activity?.note("admin", "", `Profile ${name} deleted`);
+          repush(on);
+          return sendJson(res, 200, { profiles: hub.profiles.list() });
+        }
+        if (name && parts.length === 4 && parts[3] === "reset" && method === "POST") {
+          if (!hub.profiles.has(name)) throw new HttpError(404, "no such profile");
+          if (!Object.hasOwn(PROFILES, name)) throw new HttpError(400, "only a built-in profile can be reset");
+          const on = onProfile(name);
+          hub.profiles.reset(name);
+          activity?.note("admin", "", `Profile ${name} reset to its default`);
+          repush(on);
+          return sendJson(res, 200, { profiles: hub.profiles.list() });
+        }
+      }
       if (parts[1] === "settings") {
         const scope = parts[2];
         if (scope === "global" && parts.length === 3) {
           // The settings Axis itself reads for every client, so a page can show them for everything before any device describes itself.
-          if (method === "GET") return sendJson(res, 200, { values: store.getLayer("global", ""), builtIns: withBuiltIns(undefined, wakeIds()).settings });
+          if (method === "GET") return sendJson(res, 200, { values: store.getLayer("global", ""), builtIns: withBuiltIns(undefined, wakeIds(), hub.profiles.names()).settings });
           if (method === "PATCH") return sendJson(res, 200, await patchSettings(req, "global", ""));
         }
         if ((scope === "type" || scope === "device") && parts.length === 4) {
