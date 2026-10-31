@@ -4,7 +4,7 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## Unreleased: the `touch` capability
+## Axis 0.71.0 (2026-10-31): the `touch` capability
 
 - **Touch is a capability** (`protocol/src/common.ts`): the screen takes taps and swipes. An admin can switch it off per device like `mic`, `speaker` and `screen` (Capabilities on the device's Settings; "taps and swipes are ignored"). A choice question, an approval (silent) and the desktop "may it click" question are offered only where `screen` AND `touch` are on (`canTap` in `server/src/hub.ts`); a question waiting on a tap with no microphone is moved to another client when touch is switched off live, as for `screen`. The browser page reports `touch` and ignores taps on the face and answer buttons while it is off. Windows and Mac desktop apps report `touch` when talking is on (their pills take clicks); not built or run.
 - **Compatibility:** a client that does not report `touch` (board firmware before 1.8 0.27.0 and round 0.11.0, older desktop apps) can no longer answer a choice question by tap until it reports `touch`; a microphone still answers by voice. Boards get `touch` with the new firmware below.

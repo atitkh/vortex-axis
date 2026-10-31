@@ -66,6 +66,10 @@
                 "type": "string"
               },
               {
+                "const": "touch",
+                "type": "string"
+              },
+              {
                 "const": "buttons",
                 "type": "string"
               },
@@ -1456,6 +1460,10 @@
               },
               {
                 "const": "screen",
+                "type": "string"
+              },
+              {
+                "const": "touch",
                 "type": "string"
               },
               {
