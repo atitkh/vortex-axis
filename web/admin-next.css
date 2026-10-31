@@ -104,6 +104,7 @@ input.switch:checked::after { left: 16px; background: var(--on-ink); }
 .seg button { padding: 4px 12px; font: inherit; font-size: var(--t-sm); color: var(--dim); border: none; border-left: 1px solid var(--line-strong); background: none; cursor: pointer; min-height: 28px; }
 .seg button:first-child { border-left: none; }
 .seg button.on { background: var(--accent); color: var(--on-ink); font-weight: 600; }
+#profile-switch { flex-wrap: wrap; max-width: 100%; border-radius: var(--r-md, 12px); }
 
 /* --- marks ------------------------------------------------------------------------------------ */
 .dot { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: inherit; }

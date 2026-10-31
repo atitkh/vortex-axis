@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased: editable profiles
+
+- **Profiles are data** (`server/src/profiles.ts`): kept in the hub database, built-ins (normal, power saver, silent, dock) as editable defaults with a reset, and custom profiles an admin creates and deletes. New built-in **pocket**: silent plus brightness at most 30, manual only. Dock's charge limit still follows the hub's Dock charge limit. A deleted profile sends its devices back to auto.
+- **Admin:** a Profiles page (under Devices) and `/admin/profiles` (list, PUT, DELETE, reset); a change reaches the devices on it at once. The `profile` setting's choices, the Profile switch and `vortex_axis_config` use the live list.
+- Stored shape has room for `capabilitiesOff` (not applied yet).
+
 ## Axis 0.71.0 (2026-10-31): the `touch` capability
 
 - **Touch is a capability** (`protocol/src/common.ts`): the screen takes taps and swipes. An admin can switch it off per device like `mic`, `speaker` and `screen` (Capabilities on the device's Settings; "taps and swipes are ignored"). A choice question, an approval (silent) and the desktop "may it click" question are offered only where `screen` AND `touch` are on (`canTap` in `server/src/hub.ts`); a question waiting on a tap with no microphone is moved to another client when touch is switched off live, as for `screen`. The browser page reports `touch` and ignores taps on the face and answer buttons while it is off. Windows and Mac desktop apps report `touch` when talking is on (their pills take clicks); not built or run.

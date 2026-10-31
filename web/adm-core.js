@@ -454,8 +454,15 @@ export const PROFILES = [
   ["normal", "Normal", "The device's own settings, as set."],
   ["power-saver", "Power saver", "Brightness at most 100, at most 15 frames a second."],
   ["silent", "Silent", "Nothing spoken: replies and messages are shown as text; volume 0, no listening cue or task chime where the device has them."],
+  ["pocket", "Pocket", "Silent, and the screen dim (brightness at most 30): for a device in a bag. Never chosen by Auto."],
   ["dock", "Dock", "Normal, but on USB the battery charges only to the Dock charge limit (a hub setting, 80% unless changed), then holds. Never chosen by Auto."],
 ];
+/** The profile choices in force: the built-ins' words, then any profile an admin made, as the hub's schema lists them. */
+export function profileChoices() {
+  const live = Object.values(store.types).flatMap((t) => t.settings?.find((d) => d.key === "profile")?.options ?? []);
+  const names = live.length ? [...new Set(live)] : PROFILES.map(([v]) => v);
+  return names.map((n) => PROFILES.find(([v]) => v === n) ?? [n, n, "A profile made on the Profiles page."]);
+}
 export const PROFILE_WORDS = Object.fromEntries(PROFILES.map(([v, l]) => [v, l]));
 
 /**

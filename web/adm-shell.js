@@ -14,6 +14,7 @@ import { AgentPage, OpenClawPage, SpeechPage, ToolsPage, VoicesPage, checkAgain,
 import { AppsPage, FacePage, FirmwarePage, WakeWordsPage } from "/web/adm-hardware.js";
 import { IntegrationsPage, SystemPage } from "/web/adm-system.js";
 import { MapPage } from "/web/adm-map.js";
+import { ProfilesPage } from "/web/adm-profiles.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
@@ -25,6 +26,7 @@ export const PAGES = {
   activity: { title: "History", group: "activity", purpose: "Uptime, turn timings and events over the last day or week." },
   clients: { title: "All devices", group: "devices" },
   settings: { title: "Defaults for everything", short: "Defaults", group: "devices" },
+  profiles: { title: "Profiles", group: "devices", purpose: "Named sets of overrides a device can be put on: silent, power saver, pocket, dock and your own." },
   face: { title: "Face and screen", group: "devices", purpose: "The vortex face's looks, idle looks and tool icons, for every device." },
   pair: { title: "Add a device", group: "devices" },
   agent: { title: "Who answers", group: "agent", purpose: "The OpenClaw agent or another chat endpoint that answers turns." },
@@ -320,7 +322,7 @@ function Sidebar({ route, attention }) {
                     return html`<a key=${t.type} href=${typeHref(t.type)} class=${route.page === "type" && route.id === t.type ? "on" : ""} title=${t.type}><span class="nm">${typeName(t.type)}</span><span class=${`n ${n ? "warn" : ""}`}>${n ? plural(n, "update") : t.total}</span></a>`;
                   })}
                   <div class="label">For everything</div>
-                  ${link("settings")}${link("face")}${link("pair")}`
+                  ${link("settings")}${link("profiles")}${link("face")}${link("pair")}`
                 : g.pages.map((p) => html`<span key=${p}>${p === "live" ? link(p, null, busy ? `${busy} live` : "", "accent") : p === "openclaw" ? link(p, null, gwMark[0], gwMark[1]) : link(p, null, p === "firmware" && firmwareBehind ? String(firmwareBehind) : "", "warn")}</span>`)}
             </div>`
           : null}
@@ -599,6 +601,7 @@ function Page({ route, attention }) {
     case "device": return html`<${DevicePage} id=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "type": return html`<${TypePage} type=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "settings": return html`<${Defaults} focusKey=${route.key} />`;
+    case "profiles": return html`<${ProfilesPage} />`;
     case "pair": return html`<${AddDevice} />`;
     case "agent": return html`<${AgentPage} />`;
     case "openclaw": return html`<${OpenClawPage} />`;

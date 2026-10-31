@@ -5,11 +5,11 @@
 
 import { html, useEffect, useRef, useState } from "/web/preact.js";
 import {
-  PROFILES, api, ask, clearDraft, clientById, clientName, deviceHref, draftCount, draftOf, enc, kept, plural, refresh, setDraft, store, toast, typeHref, typeName,
+  profileChoices, api, ask, clearDraft, clientById, clientName, deviceHref, draftCount, draftOf, enc, kept, plural, refresh, setDraft, store, toast, typeHref, typeName,
 } from "/web/adm-core.js";
 
 /** Words and a line of help for each option of a choice that has them: [value, label, help]. */
-const OPTION_WORDS = { profile: PROFILES };
+const OPTION_WORDS = { get profile() { return profileChoices(); } };
 /** Words for some values of a number setting, shown in place of the number. */
 export const NUMBER_WORDS = { chargeLimit: { 100: "No limit" } };
 

@@ -4,7 +4,7 @@
 // a setting. A turn is symbolic (where it is), never traffic or words; a wake word is how sure and how loud, never the word.
 
 import { html, useEffect, useState } from "/web/preact.js";
-import { PROFILES, ago, api, authHeader, deviceHref, enc, plural, profileLine, refresh, signOut, store, toast } from "/web/adm-core.js";
+import { profileChoices, ago, api, authHeader, deviceHref, enc, plural, profileLine, refresh, signOut, store, toast } from "/web/adm-core.js";
 import { inherited } from "/web/adm-settings.js";
 import { DeviceSketch } from "/web/adm-tools.js";
 
@@ -341,9 +341,9 @@ function ProfileSwitch({ client, battery }) {
     }
     setBusy("");
   };
-  const help = PROFILES.find(([v]) => v === choice)?.[2];
+  const help = profileChoices().find(([v]) => v === choice)?.[2];
   return html`<section class="card" id="profile-card"><div class="card-h"><h3>Profile</h3><span class="dim sm" id="profile-now">${profileLine(client.profile, client.profileReason, battery, client.effective?.chargeLimit)}</span></div><div class="card-b">
-    <div class="seg" role="group" aria-label="Profile" id="profile-switch">${PROFILES.map(([v, l, h]) => html`<button key=${v} type="button" data-profile=${v} title=${h} class=${v === choice ? "on" : ""} aria-pressed=${v === choice} disabled=${Boolean(busy)} onClick=${() => pick(v)}>${l}</button>`)}</div>
+    <div class="seg" role="group" aria-label="Profile" id="profile-switch">${profileChoices().map(([v, l, h]) => html`<button key=${v} type="button" data-profile=${v} title=${h} class=${v === choice ? "on" : ""} aria-pressed=${v === choice} disabled=${Boolean(busy)} onClick=${() => pick(v)}>${l}</button>`)}</div>
     <p class="help">${help ? `${help} ` : ""}Applies at once.</p>
   </div></section>`;
 }
