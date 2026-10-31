@@ -27,7 +27,7 @@ HWCDC USBSerial;
 // Everything printed here also goes into a memory buffer the device serves at /logs.
 static axis::LogBuffer logOut(USBSerial);
 
-static const char *const CAPABILITIES[] = {"screen", "speaker", "mic", "image-frames"};
+static const char *const CAPABILITIES[] = {"screen", "touch", "speaker", "mic", "image-frames"};
 // What the Axis admin page offers for this board. Keep in step with applySettings() and the
 // client core's vadLimits(): a key listed here that nothing reads does nothing.
 static const axis::SettingDef SETTINGS[] = {
@@ -67,7 +67,7 @@ static const axis::ActionDef ACTIONS[] = {
     {"edges", "Show screen edges", "Draws a frame along the edges of the screen for ten seconds, to set the picture offset by.", false},
     {"motion", "Which way up", "Gravity along the board's axes in thousandths of g, and the rotation it calls for.", false},
 };
-static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 4, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
+static const axis::Identity IDENTITY = {"waveshare-amoled-1.8", CAPABILITIES, 5, SETTINGS, sizeof SETTINGS / sizeof SETTINGS[0],
                                         ACTIONS, sizeof ACTIONS / sizeof ACTIONS[0]};
 
 static const uint16_t COLOR_HEAD = 0xFFFF;
@@ -240,7 +240,12 @@ static bool hasSpeaker = false, hasMic = false;
 // A question with choices: the face stays, the question goes under it and the choices are buttons below.
 static bool askShown = false;
 // What an admin switched off on the Axis admin page (the capabilitiesOff setting): usually nothing.
-static bool screenOff = false, speakerOff = false, micOff = false;
+static bool screenOff = false, speakerOff = false, micOff = false, touchOff = false;
+// With touch switched off the panel is read and thrown away: no taps, holds, swipes, wake or count.
+static touch::Gesture pollTouch() {
+    const touch::Gesture g = touch::poll();
+    return touchOff ? touch::Gesture::None : g;
+}
 // The panel has been blanked for screenOff; drawing starts again from nothing once it is back.
 static bool screenBlanked = false;
 // The console's `set textSize <size>`, `set idleFace <size>` and `set maxFps <n>`: stand in for those settings on the bench. Empty: the setting.
@@ -392,6 +397,7 @@ static void applySettings() {
     screenOff = listed(off, "screen");
     speakerOff = listed(off, "speaker");
     micOff = listed(off, "mic");
+    touchOff = listed(off, "touch");
     client.setOff(micOff, speakerOff);
     // A recording under way when the microphone is switched off goes nowhere.
     if (micOff && client.listening()) client.stopListening(true);
@@ -1419,7 +1425,7 @@ void loop() {
             display::clear();
             display::setBrightness(0);
         }
-        const touch::Gesture g = touch::poll();
+        const touch::Gesture g = pollTouch();
         if (g == touch::Gesture::Tap) onTap();
         else if (g != touch::Gesture::None) onGesture(g);
         return;
@@ -1434,7 +1440,7 @@ void loop() {
         faceY = -1;
     }
     if (pictureUntil) {
-        const touch::Gesture g = touch::poll();
+        const touch::Gesture g = pollTouch();
         if (g != touch::Gesture::None && g != touch::Gesture::Tap) onGesture(g);
         const bool speaking = speaker::playing() || state.turn == axis::Turn::Speaking;
         // The time on show runs from the end of the speech, so a long answer does not use it up.
@@ -1526,7 +1532,7 @@ void loop() {
         // The question and its buttons wait for the face to reach the top at its small size, as text does.
         const bool there = moveFace(faceTop(), TEXT_FACE);
         if (there || !l.face) drawAsk(l);
-        if (touch::poll() == touch::Gesture::Tap && (there || !l.face)) onAskTap(l);
+        if (pollTouch() == touch::Gesture::Tap && (there || !l.face)) onAskTap(l);
         drawFace = drawFace && l.face;
         vortex::setMode(client.listening() ? vortex::Mode::Listening : vortex::Mode::Idle);
     } else {
@@ -1536,7 +1542,7 @@ void loop() {
             present();
         }
         layout();
-        const touch::Gesture g = touch::poll();
+        const touch::Gesture g = pollTouch();
         if (g == touch::Gesture::Tap) onTap();
         else if (g != touch::Gesture::None) onGesture(g);
     }
