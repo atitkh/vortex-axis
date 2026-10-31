@@ -192,6 +192,8 @@ Both boards (since 1.8 0.21.0 and 1.75 0.5.0) report their power and use as read
 
 ## Pictures
 
+- **Touch** (`touch` capability, the 1.8 since 0.27.0, the round board since 0.11.0): `capabilitiesOff` listing `touch` makes `pollTouch()` in `main.cpp` throw every reading away: no taps, holds, swipes, wake by tap or touch count; the display and all else work. Console `capsoff touch` on the round board. A board below these versions does not report `touch`, so Axis offers it no choice to tap.
+
 A picture (`image-frames`: `image.start`, `image.data`, `image.end`) has the screen to itself, centred on black, with the edge glow over it while listening, thinking or speaking. It stays up for `image.start`'s `seconds` (1 to 300) when given, otherwise 30 s (`PICTURE_MS`), counted from the end of the speech when the board is speaking. A tap, a question with choices, the edge frame or `image.clear` closes it; with a `turnId`, `image.clear` closes only that turn's picture (a picture still arriving or not yet shown is dropped too). A newer picture replaces it. Since the 1.8's 0.25.0 and the round board's 0.9.0; before them every picture stayed 30 s and `image.clear` was ignored. The serial log says `[picture] N bytes, shown with S s` and `[picture] closed by time|tap|clear|question|edges`. On the round board's console, `pcm picture [SECONDS]` shows a JPEG sent over the cable (turn `say-console`) and `pictureclear [TURN]` acts as `image.clear`.
 
 ## Status
