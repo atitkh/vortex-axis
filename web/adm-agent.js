@@ -2,7 +2,7 @@
 // Everything the classic pages #agent, #openclaw, #tools and #speech do is here. What is a
 // setting is staged and saved with the save bar (one per page, entity "page:<name>"); what is an action runs at once.
 
-import { html, useEffect, useRef, useState } from "/web/preact.js";
+import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import { clock } from "/web/charts.js";
 import { Button, ago, api, ask, authHeader, clearDraft, draftOf, plural, refresh, set, setDraft, store, toast } from "/web/adm-core.js";
 import { SaveBar } from "/web/adm-settings.js";
@@ -105,8 +105,10 @@ export function useLoad(path, every = 0, pause) {
   const load = async (method = "GET") => {
     try {
       const d = await api(method, path);
-      cache[path] = d;
-      setData(d);
+      // Identical data keeps the same object, so a poll that found nothing new re-renders nothing.
+      const same = JSON.stringify(d) === JSON.stringify(cache[path]);
+      if (!same) cache[path] = d;
+      setData((cur) => (same && cur !== undefined ? cur : cache[path]));
       setError("");
       return d;
     } catch (e) {
@@ -837,12 +839,13 @@ export function SpeechPage() {
   const [m, setM] = useState();
   const [tm, setTm] = useState();
   const entity = "page:speech";
-  const saved = config && {
+  // Rebuilt only when the config or the voice setting is a new object, not on every render (a poll, a keystroke).
+  const saved = useMemo(() => config && {
     sttList: entriesFromConfig(config.stt), ttsList: entriesFromConfig(config.tts),
     sttCooldown: config.stt.cooldownSeconds ?? 60, ttsCooldown: config.tts.cooldownSeconds ?? 60,
     realtimeFallback: config.speech?.realtimeFallback ?? true,
     ...(talk?.available ? { voiceMode: talk.mode === "realtime" ? "realtime" : "local", voiceProvider: talk.provider ?? "" } : {}),
-  };
+  }, [config, talk]);
   const form = useForm(entity, saved);
   if (!config) return html`<${Head} page="speech" /><${Loading} />`;
   // Lists are staged whole; the generic stage compares as text, which does not suit them.
