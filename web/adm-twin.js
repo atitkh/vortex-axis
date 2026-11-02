@@ -237,9 +237,9 @@ export const stateOf = (n) => STATE[n.online ? n.state : "offline"] ?? STATE.idl
 
 const GOOD = new Set(["up", "on", "connected"]);
 const BAD = new Set(["down", "unreachable", "auth_failed"]);
-const WARN = new Set(["connecting", "pairing_required"]);
+const WARN = new Set(["connecting", "pairing_required", "degraded"]);
 export const serviceColour = (s) => (GOOD.has(s.state) ? "--good" : BAD.has(s.state) ? "--bad" : WARN.has(s.state) ? "--warn" : "--st-off");
-export const SERVICE_WORDS = { up: "up", down: "down", unknown: "not checked yet", on: "on", off: "off", connected: "connected", connecting: "connecting", pairing_required: "waiting for approval", auth_failed: "refused", unreachable: "unreachable", unconfigured: "not set up" };
+export const SERVICE_WORDS = { up: "up", down: "down", unknown: "not checked yet", on: "on", off: "off", connected: "connected", connecting: "connecting", pairing_required: "waiting for approval", auth_failed: "refused", unreachable: "unreachable", unconfigured: "not set up", degraded: "on a fallback" };
 
 export const ms = (n) => (n === undefined ? "" : n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)} s`);
 /** Cuts text to about `px` wide at `size` px. */

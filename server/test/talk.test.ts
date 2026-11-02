@@ -166,11 +166,18 @@ const agent: Agent = { reply: () => (async function* () { yield "Local answer.";
 const asked: string[] = [];
 /** When set, the voice comes as a first piece, a silence of this long, and then a second of sound all at once. */
 let gapMs = 0;
+/** When set, the voice fails: before anything (as when its provider cannot be reached), or after some sound. */
+let failRealtime: "" | "before" | "after" = "";
 const talk = {
   format: TALK_FORMAT,
   available: () => true,
   converse: async (clientId: string, _pcm: Buffer, _format: unknown, handlers: any) => {
     asked.push(clientId);
+    if (failRealtime === "before") throw new Error("the realtime voice of openai could not be reached");
+    if (failRealtime === "after") {
+      await handlers.onAudio?.(Buffer.alloc(960, 1));
+      throw new Error("the realtime voice session ended");
+    }
     if (gapMs) {
       await handlers.onAudio?.(Buffer.alloc(4800, 1));
       await new Promise((resolve) => setTimeout(resolve, gapMs));
@@ -226,6 +233,50 @@ describe("a device set to realtime voice", () => {
     // allowance that second takes most of a second to send. Counted as room, it went out in an instant.
     const afterGap = frames[frames.length - 1]!.at - frames[1]!.at;
     expect(afterGap).toBeGreaterThan(500);
+  });
+
+  describe("when the realtime voice fails", () => {
+    const speakTo = async (turnId: string) => {
+      const { client, identity } = await ready(["mic", "speaker", "screen"], { name: "Desk" });
+      await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { voiceMode: "realtime" } });
+      client.send({ t: "audio.start", turnId, format: UPSTREAM_AUDIO_FORMAT });
+      client.sendAudio(Buffer.alloc(3200, 2));
+      client.send({ t: "audio.end", turnId, reason: "silence" });
+      return { client, identity };
+    };
+
+    it("answers that turn the local way when it fails before saying anything, and keeps the voice mode", async () => {
+      failRealtime = "before";
+      try {
+        const { client, identity } = await speakTo("t1");
+        expect((await client.next("reply.text", 0, (m) => m.turnId === "t1" && m.final)).text).toBe("Local answer.");
+        expect((await client.next("transcript", 0, (m) => m.turnId === "t1")).text).toBe("local words");
+        await client.next("speak.end", 0, (m) => m.turnId === "t1");
+        expect(asked.at(-1)).toBe(identity.clientId);
+        const settings = await admin("GET", `/admin/settings/device/${identity.clientId}`);
+        expect(settings.body.values.voiceMode).toBe("realtime");
+      } finally {
+        failRealtime = "";
+      }
+    });
+
+    it("does not take over when switched off, nor once the voice has made a sound", async () => {
+      failRealtime = "before";
+      try {
+        expect((await admin("PATCH", "/admin/config", { speech: { realtimeFallback: false } })).body.speech).toEqual({ realtimeFallback: false });
+        const off = await speakTo("t1");
+        expect((await off.client.turn("t1", "error")).detail).toMatch(/could not be reached/);
+        expect(off.client.received.some((m) => m.t === "reply.text" && m.text === "Local answer.")).toBe(false);
+
+        await admin("PATCH", "/admin/config", { speech: { realtimeFallback: true } });
+        failRealtime = "after";
+        const late = await speakTo("t2");
+        expect((await late.client.turn("t2", "error")).detail).toMatch(/session ended/);
+        expect(late.client.received.some((m) => m.t === "reply.text" && m.text === "Local answer.")).toBe(false);
+      } finally {
+        failRealtime = "";
+      }
+    });
   });
 
   it("says on the admin page that it needs an OpenClaw gateway, when there is none to go through", async () => {
