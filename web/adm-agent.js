@@ -647,6 +647,29 @@ function TryTool({ tools, name, onPick }) {
 
 // --- Speech (#speech) ----------------------------------------------------------------------------
 
+const KIND_DEFAULTS = { stt: { openai: "whisper-1", elevenlabs: "scribe_v2" }, tts: { openai: "tts-1", elevenlabs: "eleven_flash_v2_5" } };
+
+/** Where a service's key comes from, in words: the page never has the key itself. */
+function keyNote(svc) {
+  const k = svc.keySource;
+  if (!k || k.source === "none") return svc.kind === "elevenlabs" ? "No key: set one here or ELEVENLABS_API_KEY in the environment." : "";
+  if (k.source === "env") return `Key: from environment (${k.env})${k.present ? "" : ", but that variable is empty"}.`;
+  return "Key: saved on the hub.";
+}
+
+function KindSelect({ form, k, id, which }) {
+  const change = (kind) => {
+    const old = form.value(k);
+    form.put(k, kind);
+    // Move the model to the new kind's default only when it is still the old kind's default.
+    const mk = `${which}Model`;
+    const cur = String(form.value(mk) ?? "").trim();
+    if (!cur || cur === KIND_DEFAULTS[which][old]) form.put(mk, KIND_DEFAULTS[which][kind]);
+  };
+  return html`<select class="field" id=${id} data-f=${k} value=${form.value(k)} onChange=${(e) => change(e.currentTarget.value)}>
+    <option value="openai">OpenAI-compatible</option><option value="elevenlabs">ElevenLabs</option></select>`;
+}
+
 export function SpeechPage() {
   const config = useConfig();
   const [talk, loadTalk] = useLoad("/admin/talk");
@@ -654,8 +677,8 @@ export function SpeechPage() {
   const [tm, setTm] = useState();
   const entity = "page:speech";
   const saved = config && {
-    sttUrl: config.stt.url, sttModel: config.stt.model, sttKey: "",
-    ttsUrl: config.tts.url, ttsModel: config.tts.model, ttsKey: "", ttsVoice: config.tts.voice, ttsRate: config.tts.sampleRate,
+    sttKind: config.stt.kind ?? "openai", sttUrl: config.stt.url, sttModel: config.stt.model, sttKey: "",
+    ttsKind: config.tts.kind ?? "openai", ttsUrl: config.tts.url, ttsModel: config.tts.model, ttsKey: "", ttsVoice: config.tts.voice, ttsRate: config.tts.sampleRate,
     ...(talk?.available ? { voiceMode: talk.mode === "realtime" ? "realtime" : "local", voiceProvider: talk.provider ?? "" } : {}),
   };
   const form = useForm(entity, saved);
@@ -663,11 +686,11 @@ export function SpeechPage() {
   const apply = async (v, keys) => {
     if ([...keys].some((k) => k.startsWith("stt") || k.startsWith("tts"))) {
       const rate = Number(v.ttsRate);
-      if (!Number.isInteger(rate) || rate < 8000 || rate > 48000) throw new Error("The PCM sample rate is a whole number from 8000 to 48000.");
+      if (v.ttsKind !== "elevenlabs" && (!Number.isInteger(rate) || rate < 8000 || rate > 48000)) throw new Error("The PCM sample rate is a whole number from 8000 to 48000.");
       set({
         config: await api("PATCH", "/admin/config", {
-          stt: { url: String(v.sttUrl).trim(), model: String(v.sttModel).trim(), ...(v.sttKey ? { apiKey: v.sttKey } : {}) },
-          tts: { url: String(v.ttsUrl).trim(), model: String(v.ttsModel).trim(), voice: String(v.ttsVoice).trim(), sampleRate: rate, ...(v.ttsKey ? { apiKey: v.ttsKey } : {}) },
+          stt: { kind: v.sttKind, url: String(v.sttUrl).trim(), model: String(v.sttModel).trim(), ...(v.sttKey ? { apiKey: v.sttKey } : {}) },
+          tts: { kind: v.ttsKind, url: String(v.ttsUrl).trim(), model: String(v.ttsModel).trim(), voice: String(v.ttsVoice).trim(), ...(Number.isInteger(rate) ? { sampleRate: rate } : {}), ...(v.ttsKey ? { apiKey: v.ttsKey } : {}) },
         }),
       });
     }
@@ -681,6 +704,11 @@ export function SpeechPage() {
     }
   };
   const save = () => saveForm(entity, saved, apply, { secrets: ["sttKey", "ttsKey"] });
+  const sttEl = form.value("sttKind") === "elevenlabs";
+  const ttsEl = form.value("ttsKind") === "elevenlabs";
+  const elSttLabel = sttEl ? "Base address (optional)" : "Address";
+  const sttView = { ...config.stt, kind: form.value("sttKind") };
+  const ttsView = { ...config.tts, kind: form.value("ttsKind") };
   const unsavedService = Object.keys(form.staged).some((k) => k.startsWith("stt") || k.startsWith("tts"));
   const test = async () => {
     setM({ text: "Synthesizing a sentence and transcribing it back…" });
@@ -713,24 +741,28 @@ export function SpeechPage() {
        ...(talk.provider && !talk.providers.some((p) => p.id === talk.provider) ? [[talk.provider, talk.provider]] : [])]
     : [];
   return html`<${Head} page="speech" />
-    <p class="help lead">Custom STT/TTS: OpenAI-style endpoints, such as the local ones that run beside Axis (<code>http://vortex-axis-stt:8000/v1/audio/transcriptions</code> and <code>http://vortex-axis-tts:8000/v1/audio/speech</code>). Keys are kept on the hub and never shown again.</p>
+    <p class="help lead">Custom STT/TTS: OpenAI-style endpoints or ElevenLabs. For OpenAI-style, such as the local ones that run beside Axis (<code>http://vortex-axis-stt:8000/v1/audio/transcriptions</code> and <code>http://vortex-axis-tts:8000/v1/audio/speech</code>). Keys are kept on the hub and never shown again.</p>
     <div class="two">
       <section class="card" id="stt-card">
         <div class="card-h"><h3>Speech to text</h3>${store.status ? html`<${Stat} label=${store.status.upstream.stt === "up" ? "answering" : store.status.upstream.stt === "down" ? "down" : "not tried"} kind=${store.status.upstream.stt === "up" ? "good" : store.status.upstream.stt === "down" ? "bad" : ""} />` : null}</div>
         <div class="card-b fgrid">
-          <${F} label="Address" id="stt-url" dirty=${form.dirty("sttUrl")}><${Text} form=${form} k="sttUrl" id="stt-url" mono placeholder="http://host:8090/v1/audio/transcriptions" /></${F}>
+          <${F} label="Kind" id="stt-kind" dirty=${form.dirty("sttKind")}><${KindSelect} form=${form} k="sttKind" id="stt-kind" which="stt" /></${F}>
+          <${F} label=${elSttLabel} id="stt-url" dirty=${form.dirty("sttUrl")}><${Text} form=${form} k="sttUrl" id="stt-url" mono placeholder=${sttEl ? "https://api.elevenlabs.io" : "http://host:8090/v1/audio/transcriptions"} /></${F}>
           <${F} label="Model" id="stt-model" dirty=${form.dirty("sttModel")}><${Text} form=${form} k="sttModel" id="stt-model" /></${F}>
           <${F} label=${html`Key ${config.stt.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="stt-key" dirty=${form.dirty("sttKey")}><${Text} form=${form} k="sttKey" id="stt-key" type="password" placeholder="leave empty to keep" /></${F}>
+          ${keyNote(sttView) ? html`<p class="help" id="stt-key-note">${keyNote(sttView)}${sttEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
         </div>
       </section>
       <section class="card" id="tts-card">
         <div class="card-h"><h3>Text to speech</h3>${store.status ? html`<${Stat} label=${store.status.upstream.tts === "up" ? "answering" : store.status.upstream.tts === "down" ? "down" : "not tried"} kind=${store.status.upstream.tts === "up" ? "good" : store.status.upstream.tts === "down" ? "bad" : ""} />` : null}</div>
         <div class="card-b fgrid">
-          <${F} label="Address" id="tts-url" dirty=${form.dirty("ttsUrl")}><${Text} form=${form} k="ttsUrl" id="tts-url" mono placeholder="http://host:8092/v1/audio/speech" /></${F}>
+          <${F} label="Kind" id="tts-kind" dirty=${form.dirty("ttsKind")}><${KindSelect} form=${form} k="ttsKind" id="tts-kind" which="tts" /></${F}>
+          <${F} label="Address" id="tts-url" dirty=${form.dirty("ttsUrl")}><${Text} form=${form} k="ttsUrl" id="tts-url" mono placeholder=${ttsEl ? "https://api.elevenlabs.io" : "http://host:8092/v1/audio/speech"} /></${F}>
           <${F} label="Model" id="tts-model" dirty=${form.dirty("ttsModel")}><${Text} form=${form} k="ttsModel" id="tts-model" /></${F}>
           <${F} label=${html`Key ${config.tts.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="tts-key" dirty=${form.dirty("ttsKey")}><${Text} form=${form} k="ttsKey" id="tts-key" type="password" placeholder="leave empty to keep" /></${F}>
-          <${F} label="Default voice" id="tts-voice" dirty=${form.dirty("ttsVoice")}><${Text} form=${form} k="ttsVoice" id="tts-voice" placeholder="service default" /></${F}>
-          <${F} label="PCM sample rate" id="tts-rate" dirty=${form.dirty("ttsRate")}><span class="unit"><${Text} form=${form} k="ttsRate" id="tts-rate" type="number" min="8000" max="48000" step="1" class="field num" /><span>Hz</span></span></${F}>
+          ${keyNote(ttsView) ? html`<p class="help" id="tts-key-note">${keyNote(ttsView)}${ttsEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
+          <${F} label=${ttsEl ? "Voice id" : "Default voice"} id="tts-voice" dirty=${form.dirty("ttsVoice")}><${Text} form=${form} k="ttsVoice" id="tts-voice" placeholder=${ttsEl ? "required, from your ElevenLabs voice library" : "service default"} /></${F}>
+          ${ttsEl ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : html`<${F} label="PCM sample rate" id="tts-rate" dirty=${form.dirty("ttsRate")}><span class="unit"><${Text} form=${form} k="ttsRate" id="tts-rate" type="number" min="8000" max="48000" step="1" class="field num" /><span>Hz</span></span></${F}>`}
         </div>
       </section>
     </div>
