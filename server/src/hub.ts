@@ -96,6 +96,8 @@ export interface HubOptions {
   dockChargeLimit?: () => number;
   /** The most a board's charger draws in mA, sent to every client as `chargeCurrent`. Read each time settings are made. */
   chargeCurrent?: () => number;
+  /** Whether a turn whose realtime voice fails before it says anything is answered the local way; read at each turn. */
+  realtimeFallback?: () => boolean;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -162,6 +164,8 @@ export class Hub implements TurnPort {
       record: (turn, session) => this.activity?.turn(turn, session.client.name),
       live: options.live,
       voices: options.voices,
+      ...(options.realtimeFallback ? { realtimeFallback: options.realtimeFallback } : {}),
+      log: (line) => this.log(line),
       chime: async (session) => {
         if (!this.store.getSchema(session.client.type)?.actions.some((a) => a.name === "chime")) return;
         const chimed = await this.command(session, "chime", undefined, 3000).catch(() => undefined);

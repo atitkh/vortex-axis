@@ -182,8 +182,8 @@ describe("runtime config kinds", () => {
     const { store, cfg } = fresh();
     store.setMeta("upstream_config", JSON.stringify({ stt: { url: "http://x/v1/audio/transcriptions", model: "m" }, tts: { url: "http://x/v1/audio/speech" } }));
     const rc = loadRuntimeConfig(store, cfg);
-    expect(rc.stt).toMatchObject({ kind: "openai", url: "http://x/v1/audio/transcriptions", model: "m" });
-    expect(rc.tts).toMatchObject({ kind: "openai", url: "http://x/v1/audio/speech" });
+    expect(rc.stt.entries[0]).toMatchObject({ kind: "openai", url: "http://x/v1/audio/transcriptions", model: "m" });
+    expect(rc.tts.entries[0]).toMatchObject({ kind: "openai", url: "http://x/v1/audio/speech" });
   });
 
   it("validates kind and env: key names, and a patch without kind keeps it", () => {
@@ -193,8 +193,8 @@ describe("runtime config kinds", () => {
     expect(() => saveRuntimeConfig(store, cfg, { tts: { apiKey: "env:bad name" } })).toThrow(/env:/);
     saveRuntimeConfig(store, cfg, { stt: { kind: "elevenlabs", model: "scribe_v2" }, tts: { kind: "elevenlabs", voice: "abc" } });
     const rc = saveRuntimeConfig(store, cfg, { stt: { model: "scribe_v1" } });
-    expect(rc.stt).toMatchObject({ kind: "elevenlabs", model: "scribe_v1" });
-    expect(rc.tts).toMatchObject({ kind: "elevenlabs", voice: "abc" });
+    expect(rc.stt.entries[0]).toMatchObject({ kind: "elevenlabs", model: "scribe_v1" });
+    expect(rc.tts.entries[0]).toMatchObject({ kind: "elevenlabs", voice: "abc" });
   });
 
   it("reports where a key comes from and never the key", () => {

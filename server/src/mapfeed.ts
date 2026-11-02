@@ -39,6 +39,8 @@ export interface MapInput {
   voiceprint?: boolean;
   /** Home Assistant through MQTT, when it is set up. */
   homeAssistant?: { connected: boolean; error: string | null } | null;
+  /** The speech services' ranked-list state: "degraded" shows a lower-ranked entry is serving. */
+  speech?: { stt?: string; tts?: string };
   /** Recent turns, newest first, for each service's last latency. */
   recentTurns: TurnRecord[];
   axis: { version: string; startedAt: number };
@@ -47,6 +49,8 @@ export interface MapInput {
 
 export function buildMap(input: MapInput) {
   const { upstream, recentTurns } = input;
+  // Devices are only told up or down; the map also says when speech is coming from a fallback entry.
+  const speechState = (which: "stt" | "tts") => (upstream[which] === "up" && input.speech?.[which] === "degraded" ? "degraded" : upstream[which]);
   const last = (pick: (t: TurnRecord) => number | undefined) => {
     for (const turn of recentTurns) {
       const ms = pick(turn);
@@ -61,11 +65,11 @@ export function buildMap(input: MapInput) {
     services.push({ id: "gateway-node", name: "Gateway command link", state: input.node.state, ...(input.node.error ? { error: input.node.error } : {}) });
   }
   services.push(
-    { id: "stt", name: "Speech recognition", state: upstream.stt, ...last((t) => t.sttMs) },
+    { id: "stt", name: "Speech recognition", state: speechState("stt"), ...last((t) => t.sttMs) },
     {
       id: "tts",
       name: "Speech synthesis",
-      state: upstream.tts,
+      state: speechState("tts"),
       // As the activity page's synthesis time: first audio less recognition and the agent.
       ...last((t) => (t.firstAudioMs !== undefined && t.agentMs !== undefined ? t.firstAudioMs - (t.sttMs ?? 0) - t.agentMs : undefined)),
     },

@@ -67,6 +67,13 @@ export interface TurnOptions {
    */
   background?: Background | undefined;
   busySessionKey?: string | undefined;
+  /**
+   * Whether a realtime turn whose voice fails before it has said or done anything is answered the
+   * local way (speech recognition, the agent, speech synthesis) instead. Read at each turn; on without it.
+   */
+  realtimeFallback?: () => boolean;
+  /** Where a turn notes what an admin may want to know, such as a fallback taken. */
+  log?: (line: string) => void;
   /** How long an agent may say nothing new before the device stops waiting and the run is handed over. */
   handoverMs?: number;
   /** Gets the pictures a reply comes with to a screen. */
@@ -927,9 +934,7 @@ export class TurnManager {
         const elsewhere = voices!.routeFor(identity);
         if (elsewhere.route || elsewhere.decline) realtime = false;
       }
-      if ("say" in input) {
-        // Nothing to transcribe and nobody to ask: the words are already here.
-      } else if ("pcm" in input && realtime) {
+      if ("pcm" in input && realtime) {
         // The whole turn is the realtime voice model's. It hears the utterance, answers in its own
         // voice, and hands real work to the agent itself. An open question is still answered the local way.
         const talk = this.services.talk!;
@@ -942,7 +947,9 @@ export class TurnManager {
         const level = this.port.settings(session).realtimeVolume;
         const gain = Math.min(100, Math.max(10, typeof level === "number" ? level : REALTIME_VOLUME)) / 100;
         const odd: { byte?: number | undefined } = {};
-        const result = await talk.converse(id, input.pcm, input.format, {
+        // Whether the voice has done anything the person could notice: past that, a failure is not taken over.
+        let noticed = false;
+        const conversing = talk.converse(id, input.pcm, input.format, {
           signal,
           provider: typeof provider === "string" && provider ? provider : undefined,
           onHeard: (heard) => {
@@ -952,12 +959,15 @@ export class TurnManager {
           onText: (said) => {
             // Only what is new is sent on, as the pieces of a spoken reply are.
             if (!said.startsWith(shown) || said.length <= shown.length) return;
+            noticed = true;
             const piece = said.slice(shown.length);
             shown = said;
             if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece, final: false });
           },
           // Real work goes to the agent Axis always asks, in the same conversation, and its tools show on the face as ever.
           consult: async (work, consultSignal) => {
+            // The agent is at work for this turn: asking it again the local way could do the work twice.
+            noticed = true;
             if (!agent) throw new Error("the agent is not set up");
             let doing: string | undefined;
             const onTool = (tool: string) => {
@@ -977,6 +987,7 @@ export class TurnManager {
             return answer;
           },
           onAudio: async (chunk) => {
+            noticed = true;
             if (turn.thinking) {
               turn.thinking = false;
               stage("speaking");
@@ -986,22 +997,39 @@ export class TurnManager {
             await speaker?.write(scale(chunk, gain, odd));
           },
         });
-        if (signal.aborted) return "interrupted";
-        if (!result.answered) {
-          record.outcome = "no_speech";
-          state("idle", "no speech heard");
+        let result: Awaited<typeof conversing> | undefined;
+        try {
+          result = await conversing;
+        } catch (error) {
+          // The realtime voice could not be reached, or failed before a sound or a word of its answer:
+          // when allowed, this one turn is answered the local way. The device's voice mode stays as it is.
+          const fallback = this.options.realtimeFallback?.() ?? true;
+          if (signal.aborted || noticed || !fallback || !stt || !tts) throw error;
+          this.options.log?.(`realtime voice failed for ${session.client.name} before answering (${(error as Error).message}); this turn is answered by local speech`);
+          turn.thinking = false;
+        }
+        if (result) {
+          if (signal.aborted) return "interrupted";
+          if (!result.answered) {
+            record.outcome = "no_speech";
+            state("idle", "no speech heard");
+            return undefined;
+          }
+          live?.words(id, turnId, { said: result.said });
+          await speaker?.flush();
+          if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: result.said.slice(0, 16000), final: true });
+          if (speaker?.started) {
+            this.port.send(session, { t: "speak.end", turnId });
+            if (!turn.silenced) await Promise.race([new Promise<void>((resolve) => (turn.playbackDone = resolve)), sleep(speaker.aheadMs() + this.playbackGraceMs, signal)]);
+            if (signal.aborted) return "interrupted";
+          }
+          state("idle");
           return undefined;
         }
-        live?.words(id, turnId, { said: result.said });
-        await speaker?.flush();
-        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: result.said.slice(0, 16000), final: true });
-        if (speaker?.started) {
-          this.port.send(session, { t: "speak.end", turnId });
-          if (!turn.silenced) await Promise.race([new Promise<void>((resolve) => (turn.playbackDone = resolve)), sleep(speaker.aheadMs() + this.playbackGraceMs, signal)]);
-          if (signal.aborted) return "interrupted";
-        }
-        state("idle");
-        return undefined;
+        // The realtime voice failed before answering: on to local speech below.
+      }
+      if ("say" in input) {
+        // Nothing to transcribe and nobody to ask: the words are already here.
       } else if ("pcm" in input) {
         if (!stt) throw new TurnFailure("upstream_down", "speech recognition is not set up");
         state("transcribing");

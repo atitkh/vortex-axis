@@ -86,26 +86,32 @@ describe("runtime settings", () => {
       tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: undefined, sampleRate: 22050, apiKey: undefined },
     });
     const res = await admin("GET", "/admin/config");
-    expect(res.body).toEqual({
+    // Entry #1's fields stay at the top of each service, for a page that edits one entry.
+    expect(res.body).toMatchObject({
       stt: { kind: "openai", url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true, keySource: { source: "saved" } },
       tts: { kind: "openai", url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false, keySource: { source: "none" } },
       voiceprint: { url: "" },
       agent: { backend: "gateway", url: "", model: "", systemPrompt: "", gatewayNote: "", tokenSet: false, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
     });
+    expect(res.body.stt.entries).toEqual([
+      { id: "main", enabled: true, label: "", kind: "openai", url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true, keySource: { source: "saved" } },
+    ]);
+    expect(res.body.stt.cooldownSeconds).toBe(60);
+    expect(res.body.speech).toEqual({ realtimeFallback: true });
     expect(JSON.stringify(res.body)).not.toContain("stt-secret");
   });
 
   it("saves a change, keeps untouched secrets, and survives a restart", async () => {
     await admin("PATCH", "/admin/config", { stt: { url: "http://a.test/t", apiKey: "k1" } });
     const second = await admin("PATCH", "/admin/config", { stt: { model: "parakeet" }, tts: { url: "http://b.test/s", voice: "nova" } });
-    expect(second.body.stt).toEqual({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
+    expect(second.body.stt).toMatchObject({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
     expect(second.body.tts).toMatchObject({ url: "http://b.test/s", voice: "nova", sampleRate: 24000 });
 
     await restart();
-    expect((await admin("GET", "/admin/config")).body.stt).toEqual({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
+    expect((await admin("GET", "/admin/config")).body.stt).toMatchObject({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
 
     const cleared = await admin("PATCH", "/admin/config", { stt: { apiKey: "", url: "" } });
-    expect(cleared.body.stt).toEqual({ kind: "openai", url: "", model: "parakeet", apiKeySet: false, keySource: { source: "none" } });
+    expect(cleared.body.stt).toMatchObject({ kind: "openai", url: "", model: "parakeet", apiKeySet: false, keySource: { source: "none" } });
   });
 
   it("rejects values it cannot use", async () => {

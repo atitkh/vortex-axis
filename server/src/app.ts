@@ -171,7 +171,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Set once: nothing that reloads the other services touches it.
   services.talk = talk;
   const reloadServices = () => {
-    applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
+    applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey, log);
     Object.assign(services, options.services);
     void checkHealth();
   };
@@ -195,6 +195,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     powerSaverBelow: () => config.powerSaverBelow,
     dockChargeLimit: () => config.dockChargeLimit,
     chargeCurrent: () => config.chargeCurrent,
+    // Read at each turn, so the switch on the Speech settings applies at once.
+    realtimeFallback: () => loadRuntimeConfig(store, config).speech.realtimeFallback,
     activity,
     log,
   });
@@ -477,7 +479,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     const [openclaw, stt, tts] = await Promise.all([check(services.agent), check(services.stt), check(services.tts)]);
     hub.setUpstream({ openclaw, stt: services.stt ? sttStatus(stt) : stt, tts: services.tts ? ttsStatus(tts) : tts });
   }
-  applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey);
+  applyRuntimeConfig(services, loadRuntimeConfig(store, config), gateway, config.gateway.sessionKey, log);
   Object.assign(services, options.services);
 
   let homeAssistant: HomeAssistant | undefined;

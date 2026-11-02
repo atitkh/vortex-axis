@@ -40,7 +40,7 @@ import { SHOW_MAX_BYTES, readPicture, type Shows, type SourceDeps } from "./show
 import { Devices, offlineAfterMs } from "./deviceinfo.js";
 import { buildMap, startMapFeed } from "./mapfeed.js";
 import { CatalogError, loadCatalog } from "./elevenlabs-catalog.js";
-import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
+import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, speechLevel, speechStatus, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const PAIR_ATTEMPTS_PER_MINUTE = 10;
@@ -366,6 +366,7 @@ export function createHttpHandler(deps: HttpDeps) {
     return buildMap({
       devices: devices.all(),
       upstream: hub.upstreamStatus(),
+      speech: { stt: speechLevel(services.stt), tts: speechLevel(services.tts) },
       usesGateway,
       node: { state: status.node.state, error: status.node.error },
       ...(deps.voices ? { voiceprint: deps.voices.active() } : {}),
@@ -1643,12 +1644,20 @@ export function createHttpHandler(deps: HttpDeps) {
         if (method === "POST" && parts.length === 3 && parts[2] === "test") {
           return sendJson(res, 200, await testServices(services));
         }
+        // Each speech entry's state, in rank order: up, cooling down until when, last error, which one served last.
+        if (method === "GET" && parts.length === 3 && parts[2] === "speech-status") {
+          return sendJson(res, 200, speechStatus(loadRuntimeConfig(store, config), services));
+        }
         // The voices and models of the ElevenLabs account behind the saved key, for the Speech page's pickers.
-        // The key stays here; the page only sees the trimmed lists. GET /admin/config/elevenlabs?service=stt|tts[&refresh=1]
+        // The key stays here; the page only sees the trimmed lists.
+        // GET /admin/config/elevenlabs?service=stt|tts[&id=ENTRY][&refresh=1]; without an id, entry #1.
         if (method === "GET" && parts.length === 3 && parts[2] === "elevenlabs") {
           const service = url.searchParams.get("service");
           if (service !== "stt" && service !== "tts") throw new HttpError(400, 'service must be "stt" or "tts"');
-          const entry = loadRuntimeConfig(store, config)[service];
+          const entries = loadRuntimeConfig(store, config)[service].entries;
+          const id = url.searchParams.get("id");
+          const entry = id ? entries.find((e) => e.id === id) : entries[0];
+          if (!entry) throw new HttpError(404, `no ${service} entry ${id ?? ""}`.trim());
           if (entry.kind !== "elevenlabs") throw new HttpError(400, `${service} is not set to ElevenLabs`);
           try {
             return sendJson(res, 200, await loadCatalog(service, entry, url.searchParams.get("refresh") === "1"));
