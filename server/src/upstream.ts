@@ -1,7 +1,16 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
 import { ChatCompletionsAgent, DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
 import type { Config } from "./config.js";
-import { OpenAiSpeechToText, OpenAiTextToSpeech } from "./speech.js";
+import {
+  ELEVENLABS_KEY_ENV,
+  ElevenLabsSpeechToText,
+  ElevenLabsTextToSpeech,
+  OpenAiSpeechToText,
+  OpenAiTextToSpeech,
+  resolveApiKey,
+  SPEECH_KINDS,
+  type SpeechKind,
+} from "./speech.js";
 import type { Store } from "./store.js";
 import { HttpVoiceprintService } from "./voiceprint.js";
 import type { Services } from "./turns.js";
@@ -12,8 +21,13 @@ import type { Services } from "./turns.js";
  * supplies the starting point.
  */
 export interface RuntimeConfig {
-  stt: { url: string; model: string; apiKey: string };
-  tts: { url: string; model: string; voice: string; sampleRate: number; apiKey: string };
+  /**
+   * `kind` is "openai" (an OpenAI-style endpoint, the default and what a config saved before
+   * kinds existed means) or "elevenlabs". `apiKey` may be `env:NAME` to read that variable.
+   */
+  stt: { kind: SpeechKind; url: string; model: string; apiKey: string };
+  /** For ElevenLabs the sample rate is fixed at 24000 and `sampleRate` is ignored. */
+  tts: { kind: SpeechKind; url: string; model: string; voice: string; sampleRate: number; apiKey: string };
   /** The voiceprint service: an address answering POST with a recording, as speech/voiceprint.py does. */
   voiceprint: { url: string };
   agent: {
@@ -49,8 +63,9 @@ type Patch = { [K in keyof RuntimeConfig]?: Partial<RuntimeConfig[K]> };
 
 function fromEnvironment(config: Config): RuntimeConfig {
   return {
-    stt: { url: config.stt?.url ?? "", model: config.stt?.model ?? "whisper-1", apiKey: config.stt?.apiKey ?? "" },
+    stt: { kind: "openai", url: config.stt?.url ?? "", model: config.stt?.model ?? "whisper-1", apiKey: config.stt?.apiKey ?? "" },
     tts: {
+      kind: "openai",
       url: config.tts?.url ?? "",
       model: config.tts?.model ?? "tts-1",
       voice: config.tts?.voice ?? "",
@@ -113,6 +128,14 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   }
   checkUrl("stt.url", p.stt?.url);
   checkUrl("tts.url", p.tts?.url);
+  for (const [name, value] of [["stt.kind", p.stt?.kind], ["tts.kind", p.tts?.kind]] as const) {
+    if (value !== undefined && !SPEECH_KINDS.includes(value)) throw new Error(`${name} must be "openai" or "elevenlabs"`);
+  }
+  for (const [name, value] of [["stt.apiKey", p.stt?.apiKey], ["tts.apiKey", p.tts?.apiKey]] as const) {
+    if (typeof value === "string" && value.startsWith("env:") && !/^env:[A-Za-z_][A-Za-z0-9_]*$/.test(value.trim())) {
+      throw new Error(`${name} must be env: followed by a variable name, such as env:ELEVENLABS_API_KEY`);
+    }
+  }
   checkUrl("voiceprint.url", p.voiceprint?.url);
   checkUrl("agent.url", p.agent?.url);
   for (const [name, value] of [
@@ -150,8 +173,8 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   };
   const saved = JSON.parse(store.getMeta(META_KEY) ?? "{}") as Patch;
   const next: Patch = {
-    stt: { ...saved.stt, ...pick<RuntimeConfig["stt"]>(["url", "model", "apiKey"], p.stt) },
-    tts: { ...saved.tts, ...pick<RuntimeConfig["tts"]>(["url", "model", "voice", "sampleRate", "apiKey"], p.tts) },
+    stt: { ...saved.stt, ...pick<RuntimeConfig["stt"]>(["kind", "url", "model", "apiKey"], p.stt) },
+    tts: { ...saved.tts, ...pick<RuntimeConfig["tts"]>(["kind", "url", "model", "voice", "sampleRate", "apiKey"], p.tts) },
     voiceprint: { ...saved.voiceprint, ...pick<RuntimeConfig["voiceprint"]>(["url"], p.voiceprint) },
     agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt", "gatewayNote"], p.agent) },
   };
@@ -164,9 +187,12 @@ export function publicRuntimeConfig(rc: RuntimeConfig) {
   const { apiKey: sttKey, ...stt } = rc.stt;
   const { apiKey: ttsKey, ...tts } = rc.tts;
   const { token, ...agent } = rc.agent;
+  // Where each key comes from, never the key: "saved", "env" (with the variable's name) or "none".
+  const source = (c: RuntimeConfig["stt"] | RuntimeConfig["tts"], key: string) =>
+    resolveApiKey(key, c.kind === "elevenlabs" ? ELEVENLABS_KEY_ENV : undefined).info;
   return {
-    stt: { ...stt, apiKeySet: Boolean(sttKey) },
-    tts: { ...tts, apiKeySet: Boolean(ttsKey) },
+    stt: { ...stt, apiKeySet: Boolean(sttKey), keySource: source(rc.stt, sttKey) },
+    tts: { ...tts, apiKeySet: Boolean(ttsKey), keySource: source(rc.tts, ttsKey) },
     voiceprint: rc.voiceprint,
     agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
   };
@@ -179,10 +205,20 @@ export function applyRuntimeConfig(
   gatewayAgent: Agent,
   sessionKey: string,
 ): void {
-  services.stt = rc.stt.url ? new OpenAiSpeechToText({ ...rc.stt, apiKey: rc.stt.apiKey || undefined }) : undefined;
-  services.tts = rc.tts.url
-    ? new OpenAiTextToSpeech({ ...rc.tts, voice: rc.tts.voice || undefined, apiKey: rc.tts.apiKey || undefined })
-    : undefined;
+  const { stt, tts } = rc;
+  // ElevenLabs has a default address, so it needs no url to be on. The OpenAI starting models mean "its default".
+  services.stt =
+    stt.kind === "elevenlabs"
+      ? new ElevenLabsSpeechToText({ url: stt.url, model: stt.model === "whisper-1" ? "" : stt.model, apiKey: stt.apiKey })
+      : stt.url
+        ? new OpenAiSpeechToText({ ...stt, apiKey: stt.apiKey || undefined })
+        : undefined;
+  services.tts =
+    tts.kind === "elevenlabs"
+      ? new ElevenLabsTextToSpeech({ url: tts.url, model: tts.model === "tts-1" ? "" : tts.model, voice: tts.voice, apiKey: tts.apiKey })
+      : tts.url
+        ? new OpenAiTextToSpeech({ ...tts, voice: tts.voice || undefined, apiKey: tts.apiKey || undefined })
+        : undefined;
   services.voiceprint = rc.voiceprint.url ? new HttpVoiceprintService(rc.voiceprint.url) : undefined;
   gatewayAgent.setNote?.(gatewayNoteFor(rc.agent));
   if (rc.agent.backend === "gateway") services.agent = gatewayAgent;

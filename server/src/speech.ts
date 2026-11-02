@@ -22,8 +22,55 @@ export interface SpeechEndpoint {
   apiKey?: string | undefined;
 }
 
+/** Which service speaks: an OpenAI-style endpoint, or ElevenLabs. */
+export type SpeechKind = "openai" | "elevenlabs";
+export const SPEECH_KINDS: readonly SpeechKind[] = ["openai", "elevenlabs"];
+
+/** Where ElevenLabs keys come from when the saved one is empty. */
+export const ELEVENLABS_KEY_ENV = "ELEVENLABS_API_KEY";
+export const ELEVENLABS_BASE = "https://api.elevenlabs.io";
+
+export interface KeySource {
+  source: "saved" | "env" | "none";
+  /** The environment variable the key is read from, when `source` is "env". */
+  env?: string;
+  /** For "env": whether that variable holds a value right now. */
+  present?: boolean;
+}
+
+/**
+ * Finds the API key to use now. A saved `env:NAME` reads that variable; a saved key is used as it
+ * is; an empty one falls back to `fallbackEnv` when given. Read at call time, so the plaintext key
+ * need never be saved. Never log or return `key`.
+ */
+export function resolveApiKey(
+  saved: string | undefined,
+  fallbackEnv?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { key: string | undefined; info: KeySource } {
+  const text = (saved ?? "").trim();
+  const named = /^env:(.+)$/.exec(text)?.[1]?.trim();
+  const name = named ?? (text ? undefined : fallbackEnv);
+  if (name) {
+    const key = env[name]?.trim() || undefined;
+    if (!named && !key) return { key: undefined, info: { source: "none" } };
+    return { key, info: { source: "env", env: name, present: key !== undefined } };
+  }
+  return text ? { key: text, info: { source: "saved" } } : { key: undefined, info: { source: "none" } };
+}
+
 function authHeaders(apiKey: string | undefined): Record<string, string> {
-  return apiKey ? { authorization: `Bearer ${apiKey}` } : {};
+  const key = resolveApiKey(apiKey).key;
+  return key ? { authorization: `Bearer ${key}` } : {};
+}
+
+function elevenLabsHeaders(apiKey: string | undefined): Record<string, string> {
+  const key = resolveApiKey(apiKey, ELEVENLABS_KEY_ENV).key;
+  return key ? { "xi-api-key": key } : {};
+}
+
+function elevenLabsBase(url: string | undefined): string {
+  return (url?.trim() || ELEVENLABS_BASE).replace(/\/+$/, "");
 }
 
 /** Wraps mono 16-bit PCM in a 44-byte WAV header, which is what transcription services accept. */
@@ -209,5 +256,102 @@ export class OpenAiTextToSpeech implements TextToSpeech {
 
   healthy(): Promise<boolean> {
     return reachable(this.endpoint.url, this.endpoint.apiKey);
+  }
+}
+
+/** ElevenLabs raw PCM at 24 kHz, 16-bit mono: `output_format=pcm_24000`. */
+const ELEVENLABS_PCM: AudioFormat = { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 };
+
+/** The API refuses audio shorter than 100 ms; below this nothing is sent. */
+const ELEVENLABS_MIN_MS = 100;
+
+/** Checks ElevenLabs is reachable: an authenticated model list. Any answer below 500 counts. */
+async function elevenLabsReachable(url: string | undefined, apiKey: string | undefined): Promise<boolean> {
+  try {
+    const res = await fetch(`${elevenLabsBase(url)}/v1/models`, {
+      headers: elevenLabsHeaders(apiKey),
+      signal: AbortSignal.timeout(3000),
+    });
+    await res.body?.cancel();
+    return res.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+export interface ElevenLabsEndpoint {
+  /** Base address; empty means https://api.elevenlabs.io. Regional hosts work, for example https://api.us.elevenlabs.io. */
+  url?: string | undefined;
+  model?: string | undefined;
+  apiKey?: string | undefined;
+}
+
+/** Speech recognition through ElevenLabs Scribe, `POST /v1/speech-to-text`. */
+export class ElevenLabsSpeechToText implements SpeechToText {
+  constructor(private readonly endpoint: ElevenLabsEndpoint) {}
+
+  async transcribe(pcm: Buffer, format: AudioFormat, signal?: AbortSignal): Promise<string> {
+    if ((pcm.length / 2 / format.sampleRate) * 1000 < ELEVENLABS_MIN_MS) return "";
+    const raw = format.sampleRate === 16000 && format.channels === 1;
+    const form = new FormData();
+    form.set("model_id", this.endpoint.model || "scribe_v2");
+    form.set("file_format", raw ? "pcm_s16le_16" : "other");
+    form.set(
+      "file",
+      raw
+        ? new Blob([new Uint8Array(pcm)], { type: "audio/pcm" })
+        : new Blob([new Uint8Array(pcmToWav(pcm, format))], { type: "audio/wav" }),
+      raw ? "audio.pcm" : "audio.wav",
+    );
+    const res = await fetch(`${elevenLabsBase(this.endpoint.url)}/v1/speech-to-text`, {
+      method: "POST",
+      headers: elevenLabsHeaders(this.endpoint.apiKey),
+      body: form,
+      signal: signal ?? null,
+    });
+    const body = await res.text();
+    if (!res.ok) throw new Error(`speech recognition answered HTTP ${res.status}`);
+    try {
+      const parsed = JSON.parse(body) as { text?: unknown };
+      return typeof parsed.text === "string" ? parsed.text.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
+  healthy(): Promise<boolean> {
+    return elevenLabsReachable(this.endpoint.url, this.endpoint.apiKey);
+  }
+}
+
+/** Speech synthesis through ElevenLabs, `POST /v1/text-to-speech/{voice_id}`, asking for 24 kHz PCM. */
+export class ElevenLabsTextToSpeech implements TextToSpeech {
+  readonly format: AudioFormat = ELEVENLABS_PCM;
+
+  constructor(private readonly endpoint: ElevenLabsEndpoint & { voice?: string | undefined }) {}
+
+  async *synthesize(
+    text: string,
+    options: { voice?: string | undefined },
+    signal?: AbortSignal,
+  ): AsyncIterable<Buffer> {
+    const voice = (options.voice ?? this.endpoint.voice)?.trim();
+    if (!voice) throw new Error("ElevenLabs needs a voice id: set a default voice on the Speech page");
+    const url = `${elevenLabsBase(this.endpoint.url)}/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=pcm_24000`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...elevenLabsHeaders(this.endpoint.apiKey) },
+      body: JSON.stringify({ text, model_id: this.endpoint.model || "eleven_flash_v2_5" }),
+      signal: signal ?? null,
+    });
+    if (!res.ok || !res.body) {
+      await res.body?.cancel();
+      throw new Error(`speech synthesis answered HTTP ${res.status}`);
+    }
+    for await (const chunk of drain(res.body)) yield Buffer.from(chunk);
+  }
+
+  healthy(): Promise<boolean> {
+    return elevenLabsReachable(this.endpoint.url, this.endpoint.apiKey);
   }
 }
