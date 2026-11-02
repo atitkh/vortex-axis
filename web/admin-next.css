@@ -825,3 +825,19 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .ring-g text { fill: var(--text); font-size: 13px; font-weight: 600; }
 .att-list { margin: 0; padding-left: 18px; color: var(--warn-text); }
 @media (max-width: 900px) { .map-dev { grid-template-columns: 1fr; } }
+
+/* Speech: ranked entry lists (drag handle, drop line, per-entry fields). */
+.stack > .card { margin-bottom: 14px; }
+.sp-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
+.sp-entry { border: 1px solid var(--line); border-radius: var(--r-md, 8px); background: var(--raise); padding: 10px 12px; }
+.sp-entry.off { opacity: 0.7; }
+.sp-entry.dragging { opacity: 0.45; border-style: dashed; }
+.sp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sp-handle { cursor: grab; touch-action: none; user-select: none; padding: 4px 8px; color: var(--dim); border: 1px solid var(--line-strong); border-radius: 6px; letter-spacing: -2px; font-weight: 700; }
+.sp-handle:active { cursor: grabbing; }
+.sp-rank { font-weight: 600; font-size: var(--t-sm); }
+.sp-tools { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sp-tip { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-drop { height: 4px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); list-style: none; margin: -7px 0; }
+.sp-entry .f { grid-template-columns: 120px minmax(0, 1fr); }
+@media (max-width: 720px) { .sp-entry .f { grid-template-columns: minmax(0, 1fr); } .sp-tools { margin-left: 0; } }

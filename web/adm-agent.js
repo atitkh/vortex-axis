@@ -6,6 +6,7 @@ import { html, useEffect, useRef, useState } from "/web/preact.js";
 import { clock } from "/web/charts.js";
 import { Button, ago, api, ask, authHeader, clearDraft, draftOf, plural, refresh, set, setDraft, store, toast } from "/web/adm-core.js";
 import { SaveBar } from "/web/adm-settings.js";
+import { MAX_ENTRIES, COOLDOWN_MAX, COOLDOWN_MIN, addEntry, buildServicePatch, canAdd, dropEntry, dropIndex, entriesFromConfig, entryBadge, listChanged, moveEntry, removeEntry, stateLine } from "/web/speech-entries.js";
 import { PAGES, PageHead } from "/web/adm-shell.js";
 
 // --- staged forms -------------------------------------------------------------------------------
@@ -667,19 +668,19 @@ function keyUsable(svc) {
  * The ElevenLabs voices and models of the account, asked of the hub (which holds the key; the page
  * never sees it). Loaded once a usable saved key is there; `error` set means use plain text fields.
  */
-function useCatalog(which, svc) {
+function useCatalog(which, svc, id) {
   const on = svc.kind === "elevenlabs" && keyUsable(svc);
   const [state, setState] = useState({ busy: false });
   const load = async (fresh) => {
     setState((s) => ({ ...s, busy: true, error: undefined }));
     try {
-      const data = await api("GET", `/admin/config/elevenlabs?service=${which}${fresh ? "&refresh=1" : ""}`);
+      const data = await api("GET", `/admin/config/elevenlabs?service=${which}${id ? `&id=${encodeURIComponent(id)}` : ""}${fresh ? "&refresh=1" : ""}`);
       setState({ busy: false, data });
     } catch (e) {
       setState({ busy: false, error: e.message });
     }
   };
-  useEffect(() => { if (on) load(false); }, [on, svc.url, svc.keySource?.source, svc.keySource?.env]);
+  useEffect(() => { if (on) load(false); }, [on, id, svc.url, svc.keySource?.source, svc.keySource?.env]);
   return { on, ...state, refresh: () => load(true) };
 }
 
@@ -716,42 +717,149 @@ function VoicePreview({ voice }) {
     <button type="button" class="btn sm" id="tts-preview" onClick=${() => { const a = audio.current; if (a) { a.currentTime = 0; a.play().catch(() => {}); } }}>Preview</button></span>`;
 }
 
-function KindSelect({ form, k, id, which }) {
-  const change = (kind) => {
-    const old = form.value(k);
-    form.put(k, kind);
-    // Move the model to the new kind's default only when it is still the old kind's default.
-    const mk = `${which}Model`;
-    const cur = String(form.value(mk) ?? "").trim();
-    if (!cur || cur === KIND_DEFAULTS[which][old]) form.put(mk, KIND_DEFAULTS[which][kind]);
+const KIND_LABEL = { openai: "OpenAI-compatible", elevenlabs: "ElevenLabs" };
+
+/** One entry of a ranked list: handle, fields, status. `update(patch)` edits it; the list lives in the page's draft. */
+function EntryCard({ which, e, index, count, saved, status, active, drag, update, move, remove }) {
+  const el = e.kind === "elevenlabs";
+  const isSaved = Boolean(saved);
+  const cat = useCatalog(which, isSaved ? { ...saved, kind: saved.kind === e.kind ? e.kind : "" } : { kind: "" }, saved?.id);
+  const list = cat.on && cat.data && !cat.error;
+  const items = (c) => c.data.models.map((m) => ({ id: m.id, label: m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id }));
+  const voices = which === "tts" && list ? cat.data.voices.map((v) => ({ id: v.id, label: `${v.name}${v.category ? ` (${v.category})` : ""}` })) : [];
+  const picked = which === "tts" && list ? cat.data.voices.find((v) => v.id === String(e.voice ?? "").trim()) : undefined;
+  const view = { kind: e.kind, keySource: saved?.keySource };
+  const pid = `${which}-${e.key}`;
+  const [badgeText, badgeKind, tip] = entryBadge(e, status);
+  const form = { value: (k) => e[k], put: (k, v) => update({ [k]: v }) };
+  const field = (k, label, node, extra) => html`<div class=${`f${extra ?? ""}`}><label class="f-l" for=${`${pid}-${k}`}>${label}</label><div class="f-c">${node}</div></div>`;
+  const text = (k, props = {}) => html`<input id=${`${pid}-${k}`} class=${`field${props.mono ? " mono" : ""}`} value=${e[k] ?? ""} spellcheck="false" ...${props.attrs ?? {}} placeholder=${props.placeholder} type=${props.type ?? "text"} onInput=${(ev) => update({ [k]: ev.currentTarget.value })} />`;
+  const pick = (k, items, placeholder, mono) => html`<${PickOrType} form=${form} k=${k} id=${`${pid}-${k}`} items=${items} placeholder=${placeholder} mono=${mono} />`;
+  const kindChange = (kind) => {
+    const patch = { kind };
+    const cur = String(e.model ?? "").trim();
+    if (!cur || cur === KIND_DEFAULTS[which][e.kind]) patch.model = KIND_DEFAULTS[which][kind];
+    update(patch);
   };
-  return html`<select class="field" id=${id} data-f=${k} value=${form.value(k)} onChange=${(e) => change(e.currentTarget.value)}>
-    <option value="openai">OpenAI-compatible</option><option value="elevenlabs">ElevenLabs</option></select>`;
+  return html`<li class=${`sp-entry${e.enabled ? "" : " off"}${drag.from === index ? " dragging" : ""}`} data-entry=${e.key} data-index=${index}>
+    <div class="sp-head">
+      <span class="sp-handle" role="presentation" title="Drag to reorder" data-handle=${index} onPointerDown=${(ev) => drag.start(ev, index)}>⋮⋮</span>
+      <span class="sp-rank" data-rank>${index === 0 ? "1 · primary" : `fallback ${index + 1}`}</span>
+      <${Stat} label=${badgeText} kind=${badgeKind} />
+      ${active ? html`<span class="badge accent" data-serving>serving</span>` : null}
+      ${tip ? html`<span class="help sp-tip" title=${tip}>${tip.length > 80 ? `${tip.slice(0, 80)}…` : tip}</span>` : null}
+      <span class="sp-tools">
+        <label class="switch-l"><input type="checkbox" class="switch" aria-label=${`Entry ${index + 1} enabled`} checked=${e.enabled} onChange=${(ev) => update({ enabled: ev.currentTarget.checked })} /><span>on</span></label>
+        <button type="button" class="btn sm" aria-label=${`Move entry ${index + 1} up`} data-move="up" disabled=${index === 0} onClick=${() => move(index, index - 1)}>↑</button>
+        <button type="button" class="btn sm" aria-label=${`Move entry ${index + 1} down`} data-move="down" disabled=${index === count - 1} onClick=${() => move(index, index + 1)}>↓</button>
+        <button type="button" class="btn sm" aria-label=${`Delete entry ${index + 1}`} data-delete onClick=${() => remove(index)}>Delete</button>
+      </span>
+    </div>
+    <div class="fgrid">
+      ${field("label", "Label", text("label", { placeholder: "optional name" }))}
+      ${field("kind", "Kind", html`<select class="field" id=${`${pid}-kind`} value=${e.kind} onChange=${(ev) => kindChange(ev.currentTarget.value)}>${Object.entries(KIND_LABEL).map(([v, l]) => html`<option key=${v} value=${v}>${l}</option>`)}</select>`)}
+      ${field("url", el ? "Base address (optional)" : "Address", text("url", { mono: true, placeholder: el ? "https://api.elevenlabs.io" : which === "stt" ? "http://host:8090/v1/audio/transcriptions" : "http://host:8092/v1/audio/speech" }))}
+      ${field("model", "Model", list ? pick("model", items(cat)) : text("model"))}
+      ${el && cat.on ? html`<${CatalogNote} cat=${cat} id=${`${pid}-note`} />` : el && !isSaved ? html`<p class="help">Save to load voices and models.</p>` : null}
+      ${field("apiKey", html`Key ${saved?.apiKeySet ? html`<span class="badge">set</span>` : null}`, text("apiKey", { type: "password", placeholder: "leave empty to keep", attrs: { autocomplete: "off" } }))}
+      ${keyNote(view) || el ? html`<p class="help" id=${`${pid}-key-note`}>${keyNote(view)}${el ? " Type env:NAME to read another variable." : ""}</p>` : null}
+      ${which === "tts" ? field("voice", el ? "Voice id" : "Default voice", list ? html`<span class="unit">${pick("voice", voices, "voice id", true)}<${VoicePreview} voice=${picked} /></span>` : text("voice", { placeholder: el ? "required, from your ElevenLabs voice library" : "service default" })) : null}
+      ${which === "tts" ? (el ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : field("sampleRate", "PCM sample rate", html`<span class="unit">${text("sampleRate", { type: "number", attrs: { min: 8000, max: 48000, step: 1 } })}<span>Hz</span></span>`)) : null}
+    </div>
+  </li>`;
+}
+
+/**
+ * A service's ordered list: cards, a drop indicator while dragging, Add endpoint, and the cooldown.
+ * Dragging uses pointer events on the handle (mouse, touch and pen); Move up/down buttons do the same by keyboard.
+ */
+function EntryList({ which, title, list, savedList, onList, status, cooldown, onCooldown, form, dirty }) {
+  const [drag, setDrag] = useState({ from: -1, slot: -1 });
+  const ref = useRef();
+  const live = useRef(drag);
+  live.current = drag;
+  const slotAt = (y) => dropIndex([...ref.current.querySelectorAll(":scope > .sp-entry")].map((n) => { const r = n.getBoundingClientRect(); return r.top + r.height / 2; }), y);
+  const start = (ev, index) => {
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();
+    const handle = ev.currentTarget;
+    try { handle.setPointerCapture(ev.pointerId); } catch {}
+    setDrag({ from: index, slot: index });
+    const move = (m) => setDrag({ from: index, slot: slotAt(m.clientY) });
+    const end = (u, cancel) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", cancelled);
+      document.removeEventListener("keydown", key);
+      const slot = live.current.slot;
+      setDrag({ from: -1, slot: -1 });
+      if (!cancel && slot >= 0) onList(dropEntry(list, index, slot));
+    };
+    const up = (u) => end(u, false);
+    const cancelled = (u) => end(u, true);
+    const key = (k) => k.key === "Escape" && end(k, true);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", cancelled);
+    document.addEventListener("keydown", key);
+  };
+  const byId = new Map((status?.entries ?? []).map((s) => [s.id, s]));
+  const state = status?.state;
+  const stateKind = { ok: "good", degraded: "warn", down: "bad", off: "" }[state] ?? "";
+  const dragging = drag.from >= 0;
+  const indicator = (slot) => (dragging && drag.slot === slot && slot !== drag.from && slot !== drag.from + 1 ? html`<li class="sp-drop" data-drop aria-hidden="true"></li>` : null);
+  return html`<section class="card" id=${`${which}-card`}>
+    <div class="card-h"><h3>${title}</h3>${state ? html`<${Stat} label=${state} kind=${stateKind} />` : null}</div>
+    <div class="card-b">
+      ${state ? html`<p class="help" id=${`${which}-state`}>${stateLine(state)}</p>` : null}
+      ${dirty ? html`<p class="help"><span class="src-chip unsaved">unsaved</span> The order and entries change when you save.</p>` : null}
+      ${list.length === 0 ? html`<p class="help">No endpoints: this service is off.</p>` : null}
+      <ol class="sp-list" ref=${ref} aria-label=${`${title}, in order of use`}>
+        ${list.map((e, i) => html`${indicator(i)}<${EntryCard} key=${e.key} which=${which} e=${e} index=${i} count=${list.length} saved=${savedList.find((s) => s.key === e.key)}
+          status=${byId.get(e.id)} active=${Boolean(byId.get(e.id)?.active)} drag=${{ from: drag.from, start }}
+          update=${(patch) => onList(list.map((x, j) => (j === i ? { ...x, ...patch } : x)))} move=${(a, b) => onList(moveEntry(list, a, b))} remove=${(a) => onList(removeEntry(list, a))} />`)}
+        ${indicator(list.length)}
+      </ol>
+      <p class="btnrow"><button type="button" class="btn sm" id=${`${which}-add`} disabled=${!canAdd(list)} onClick=${() => onList(addEntry(list))}>Add endpoint</button>
+        ${canAdd(list) ? null : html`<span class="help">Most ${MAX_ENTRIES} entries.</span>`}</p>
+      <${F} label="Cooldown after a failure (seconds)" id=${`${which}-cooldown`} dirty=${form.dirty(`${which}Cooldown`)}
+        help=${`How long a failed entry is skipped before it is tried again (${COOLDOWN_MIN} to ${COOLDOWN_MAX}). A good health check brings it back sooner.`}>
+        <input id=${`${which}-cooldown`} class="field num" type="number" min=${COOLDOWN_MIN} max=${COOLDOWN_MAX} step="1" value=${cooldown} onInput=${(ev) => onCooldown(ev.currentTarget.value)} />
+      </${F}>
+    </div>
+  </section>`;
 }
 
 export function SpeechPage() {
   const config = useConfig();
   const [talk, loadTalk] = useLoad("/admin/talk");
+  const [status, loadStatus] = useLoad("/admin/config/speech-status", 10_000);
   const [m, setM] = useState();
   const [tm, setTm] = useState();
   const entity = "page:speech";
   const saved = config && {
-    sttKind: config.stt.kind ?? "openai", sttUrl: config.stt.url, sttModel: config.stt.model, sttKey: "",
-    ttsKind: config.tts.kind ?? "openai", ttsUrl: config.tts.url, ttsModel: config.tts.model, ttsKey: "", ttsVoice: config.tts.voice, ttsRate: config.tts.sampleRate,
+    sttList: entriesFromConfig(config.stt), ttsList: entriesFromConfig(config.tts),
+    sttCooldown: config.stt.cooldownSeconds ?? 60, ttsCooldown: config.tts.cooldownSeconds ?? 60,
+    realtimeFallback: config.speech?.realtimeFallback ?? true,
     ...(talk?.available ? { voiceMode: talk.mode === "realtime" ? "realtime" : "local", voiceProvider: talk.provider ?? "" } : {}),
   };
   const form = useForm(entity, saved);
   if (!config) return html`<${Head} page="speech" /><${Loading} />`;
+  // Lists are staged whole; the generic stage compares as text, which does not suit them.
+  const putList = (k, list) => setDraft(entity, (d) => {
+    if (listChanged(list, saved[k])) d.values[k] = list;
+    else delete d.values[k];
+    return d;
+  });
   const apply = async (v, keys) => {
-    if ([...keys].some((k) => k.startsWith("stt") || k.startsWith("tts"))) {
-      const rate = Number(v.ttsRate);
-      if (v.ttsKind !== "elevenlabs" && (!Number.isInteger(rate) || rate < 8000 || rate > 48000)) throw new Error("The PCM sample rate is a whole number from 8000 to 48000.");
-      set({
-        config: await api("PATCH", "/admin/config", {
-          stt: { kind: v.sttKind, url: String(v.sttUrl).trim(), model: String(v.sttModel).trim(), ...(v.sttKey ? { apiKey: v.sttKey } : {}) },
-          tts: { kind: v.ttsKind, url: String(v.ttsUrl).trim(), model: String(v.ttsModel).trim(), voice: String(v.ttsVoice).trim(), ...(Number.isInteger(rate) ? { sampleRate: rate } : {}), ...(v.ttsKey ? { apiKey: v.ttsKey } : {}) },
-        }),
-      });
+    const body = {};
+    for (const which of ["stt", "tts"]) {
+      if (keys.has(`${which}List`) || keys.has(`${which}Cooldown`)) body[which] = buildServicePatch(which, v[`${which}List`], v[`${which}Cooldown`]);
+    }
+    if (keys.has("realtimeFallback")) body.speech = { realtimeFallback: Boolean(v.realtimeFallback) };
+    if (Object.keys(body).length) {
+      set({ config: await api("PATCH", "/admin/config", body) });
+      loadStatus();
     }
     const values = {};
     if (keys.has("voiceMode")) values.voiceMode = v.voiceMode === "realtime" ? "realtime" : null;
@@ -762,21 +870,9 @@ export function SpeechPage() {
       refresh();
     }
   };
-  const save = () => saveForm(entity, saved, apply, { secrets: ["sttKey", "ttsKey"] });
-  const sttEl = form.value("sttKind") === "elevenlabs";
-  const ttsEl = form.value("ttsKind") === "elevenlabs";
-  const elSttLabel = sttEl ? "Base address (optional)" : "Address";
-  const sttView = { ...config.stt, kind: form.value("sttKind") };
-  const ttsView = { ...config.tts, kind: form.value("ttsKind") };
-  // The pickers use what is saved (the hub asks ElevenLabs with the saved key), so they wait for a save after a key or kind change.
-  const sttCat = useCatalog("stt", { ...config.stt, kind: config.stt.kind === form.value("sttKind") ? config.stt.kind : "" });
-  const ttsCat = useCatalog("tts", { ...config.tts, kind: config.tts.kind === form.value("ttsKind") ? config.tts.kind : "" });
-  const sttList = sttCat.on && sttCat.data && !sttCat.error;
-  const ttsList = ttsCat.on && ttsCat.data && !ttsCat.error;
-  const modelItems = (c) => c.data.models.map((m) => ({ id: m.id, label: m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id }));
-  const voiceItems = ttsList ? ttsCat.data.voices.map((v) => ({ id: v.id, label: `${v.name}${v.category ? ` (${v.category})` : ""}` })) : [];
-  const pickedVoice = ttsList ? ttsCat.data.voices.find((v) => v.id === String(form.value("ttsVoice") ?? "").trim()) : undefined;
-  const unsavedService = Object.keys(form.staged).some((k) => k.startsWith("stt") || k.startsWith("tts"));
+  // A list that was reordered or had an entry removed cannot be put back (keys are never read back), so there is no Undo for lists.
+  const save = () => saveForm(entity, saved, apply, { secrets: ["sttList", "ttsList"] });
+  const unsavedService = ["sttList", "ttsList", "sttCooldown", "ttsCooldown"].some((k) => form.dirty(k));
   const test = async () => {
     setM({ text: "Synthesizing a sentence and transcribing it back…" });
     try {
@@ -809,31 +905,11 @@ export function SpeechPage() {
     : [];
   return html`<${Head} page="speech" />
     <p class="help lead">Custom STT/TTS: OpenAI-style endpoints or ElevenLabs. For OpenAI-style, such as the local ones that run beside Axis (<code>http://vortex-axis-stt:8000/v1/audio/transcriptions</code> and <code>http://vortex-axis-tts:8000/v1/audio/speech</code>). Keys are kept on the hub and never shown again.</p>
-    <div class="two">
-      <section class="card" id="stt-card">
-        <div class="card-h"><h3>Speech to text</h3>${store.status ? html`<${Stat} label=${store.status.upstream.stt === "up" ? "answering" : store.status.upstream.stt === "down" ? "down" : "not tried"} kind=${store.status.upstream.stt === "up" ? "good" : store.status.upstream.stt === "down" ? "bad" : ""} />` : null}</div>
-        <div class="card-b fgrid">
-          <${F} label="Kind" id="stt-kind" dirty=${form.dirty("sttKind")}><${KindSelect} form=${form} k="sttKind" id="stt-kind" which="stt" /></${F}>
-          <${F} label=${elSttLabel} id="stt-url" dirty=${form.dirty("sttUrl")}><${Text} form=${form} k="sttUrl" id="stt-url" mono placeholder=${sttEl ? "https://api.elevenlabs.io" : "http://host:8090/v1/audio/transcriptions"} /></${F}>
-          <${F} label="Model" id="stt-model" dirty=${form.dirty("sttModel")}>${sttList ? html`<${PickOrType} form=${form} k="sttModel" id="stt-model" items=${modelItems(sttCat)} />` : html`<${Text} form=${form} k="sttModel" id="stt-model" />`}</${F}>
-          ${sttEl && sttCat.on ? html`<${CatalogNote} cat=${sttCat} id="stt-model-note" />` : null}
-          <${F} label=${html`Key ${config.stt.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="stt-key" dirty=${form.dirty("sttKey")}><${Text} form=${form} k="sttKey" id="stt-key" type="password" placeholder="leave empty to keep" /></${F}>
-          ${keyNote(sttView) ? html`<p class="help" id="stt-key-note">${keyNote(sttView)}${sttEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
-        </div>
-      </section>
-      <section class="card" id="tts-card">
-        <div class="card-h"><h3>Text to speech</h3>${store.status ? html`<${Stat} label=${store.status.upstream.tts === "up" ? "answering" : store.status.upstream.tts === "down" ? "down" : "not tried"} kind=${store.status.upstream.tts === "up" ? "good" : store.status.upstream.tts === "down" ? "bad" : ""} />` : null}</div>
-        <div class="card-b fgrid">
-          <${F} label="Kind" id="tts-kind" dirty=${form.dirty("ttsKind")}><${KindSelect} form=${form} k="ttsKind" id="tts-kind" which="tts" /></${F}>
-          <${F} label="Address" id="tts-url" dirty=${form.dirty("ttsUrl")}><${Text} form=${form} k="ttsUrl" id="tts-url" mono placeholder=${ttsEl ? "https://api.elevenlabs.io" : "http://host:8092/v1/audio/speech"} /></${F}>
-          <${F} label="Model" id="tts-model" dirty=${form.dirty("ttsModel")}>${ttsList ? html`<${PickOrType} form=${form} k="ttsModel" id="tts-model" items=${modelItems(ttsCat)} />` : html`<${Text} form=${form} k="ttsModel" id="tts-model" />`}</${F}>
-          <${F} label=${html`Key ${config.tts.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="tts-key" dirty=${form.dirty("ttsKey")}><${Text} form=${form} k="ttsKey" id="tts-key" type="password" placeholder="leave empty to keep" /></${F}>
-          ${keyNote(ttsView) ? html`<p class="help" id="tts-key-note">${keyNote(ttsView)}${ttsEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
-          <${F} label=${ttsEl ? "Voice id" : "Default voice"} id="tts-voice" dirty=${form.dirty("ttsVoice")}>${ttsList ? html`<span class="unit"><${PickOrType} form=${form} k="ttsVoice" id="tts-voice" items=${voiceItems} mono placeholder="voice id" /><${VoicePreview} voice=${pickedVoice} /></span>` : html`<${Text} form=${form} k="ttsVoice" id="tts-voice" placeholder=${ttsEl ? "required, from your ElevenLabs voice library" : "service default"} />`}</${F}>
-          ${ttsEl && ttsCat.on ? html`<${CatalogNote} cat=${ttsCat} id="tts-voice-note" />` : null}
-          ${ttsEl ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : html`<${F} label="PCM sample rate" id="tts-rate" dirty=${form.dirty("ttsRate")}><span class="unit"><${Text} form=${form} k="ttsRate" id="tts-rate" type="number" min="8000" max="48000" step="1" class="field num" /><span>Hz</span></span></${F}>`}
-        </div>
-      </section>
+    <div class="stack">
+      <${EntryList} which="stt" title="Speech to text" list=${form.value("sttList")} savedList=${saved.sttList} onList=${(l) => putList("sttList", l)} status=${status?.stt}
+        cooldown=${form.value("sttCooldown")} onCooldown=${(v) => form.put("sttCooldown", v)} form=${form} dirty=${form.dirty("sttList")} />
+      <${EntryList} which="tts" title="Text to speech" list=${form.value("ttsList")} savedList=${saved.ttsList} onList=${(l) => putList("ttsList", l)} status=${status?.tts}
+        cooldown=${form.value("ttsCooldown")} onCooldown=${(v) => form.put("ttsCooldown", v)} form=${form} dirty=${form.dirty("ttsList")} />
     </div>
     <section class="card" id="speech-test-card">
       <div class="card-h"><h3>Test both</h3><${Button} class="btn sm" id="speech-test" run=${test}>Test both</${Button}></div>
@@ -869,6 +945,15 @@ export function SpeechPage() {
             </${F}>
           </div>`
         : null}
+    </section>
+    <section class="card" id="fallback-card">
+      <div class="card-h"><h3>Realtime fallback</h3></div>
+      <div class="card-b">
+        <${F} label="Fall back to the local pipeline" id="realtime-fallback" dirty=${form.dirty("realtimeFallback")}
+          help="If the realtime voice cannot be reached or fails before it makes a sound, that turn is answered by the local speech to text, the agent and text to speech instead. This needs a working local STT and TTS above.">
+          <${Switch} form=${form} k="realtimeFallback" label="Realtime voice: fall back to the local pipeline if it fails" />
+        </${F}>
+      </div>
     </section>
     <p class="help">Telling voices apart is under <a href="#voices">Voices</a>.</p>
     <${SaveBar} entity=${entity} save=${save} floating />`;
