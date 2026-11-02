@@ -87,8 +87,8 @@ describe("runtime settings", () => {
     });
     const res = await admin("GET", "/admin/config");
     expect(res.body).toEqual({
-      stt: { url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true },
-      tts: { url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false },
+      stt: { kind: "openai", url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true, keySource: { source: "saved" } },
+      tts: { kind: "openai", url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false, keySource: { source: "none" } },
       voiceprint: { url: "" },
       agent: { backend: "gateway", url: "", model: "", systemPrompt: "", gatewayNote: "", tokenSet: false, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
     });
@@ -98,14 +98,14 @@ describe("runtime settings", () => {
   it("saves a change, keeps untouched secrets, and survives a restart", async () => {
     await admin("PATCH", "/admin/config", { stt: { url: "http://a.test/t", apiKey: "k1" } });
     const second = await admin("PATCH", "/admin/config", { stt: { model: "parakeet" }, tts: { url: "http://b.test/s", voice: "nova" } });
-    expect(second.body.stt).toEqual({ url: "http://a.test/t", model: "parakeet", apiKeySet: true });
+    expect(second.body.stt).toEqual({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
     expect(second.body.tts).toMatchObject({ url: "http://b.test/s", voice: "nova", sampleRate: 24000 });
 
     await restart();
-    expect((await admin("GET", "/admin/config")).body.stt).toEqual({ url: "http://a.test/t", model: "parakeet", apiKeySet: true });
+    expect((await admin("GET", "/admin/config")).body.stt).toEqual({ kind: "openai", url: "http://a.test/t", model: "parakeet", apiKeySet: true, keySource: { source: "saved" } });
 
     const cleared = await admin("PATCH", "/admin/config", { stt: { apiKey: "", url: "" } });
-    expect(cleared.body.stt).toEqual({ url: "", model: "parakeet", apiKeySet: false });
+    expect(cleared.body.stt).toEqual({ kind: "openai", url: "", model: "parakeet", apiKeySet: false, keySource: { source: "none" } });
   });
 
   it("rejects values it cannot use", async () => {
