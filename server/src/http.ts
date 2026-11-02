@@ -39,6 +39,7 @@ import type { MediaStore } from "./media.js";
 import { SHOW_MAX_BYTES, readPicture, type Shows, type SourceDeps } from "./show.js";
 import { Devices, offlineAfterMs } from "./deviceinfo.js";
 import { buildMap, startMapFeed } from "./mapfeed.js";
+import { CatalogError, loadCatalog } from "./elevenlabs-catalog.js";
 import { loadRuntimeConfig, publicRuntimeConfig, saveRuntimeConfig, testChatAgent, testServices } from "./upstream.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -1641,6 +1642,20 @@ export function createHttpHandler(deps: HttpDeps) {
         }
         if (method === "POST" && parts.length === 3 && parts[2] === "test") {
           return sendJson(res, 200, await testServices(services));
+        }
+        // The voices and models of the ElevenLabs account behind the saved key, for the Speech page's pickers.
+        // The key stays here; the page only sees the trimmed lists. GET /admin/config/elevenlabs?service=stt|tts[&refresh=1]
+        if (method === "GET" && parts.length === 3 && parts[2] === "elevenlabs") {
+          const service = url.searchParams.get("service");
+          if (service !== "stt" && service !== "tts") throw new HttpError(400, 'service must be "stt" or "tts"');
+          const entry = loadRuntimeConfig(store, config)[service];
+          if (entry.kind !== "elevenlabs") throw new HttpError(400, `${service} is not set to ElevenLabs`);
+          try {
+            return sendJson(res, 200, await loadCatalog(service, entry, url.searchParams.get("refresh") === "1"));
+          } catch (error) {
+            if (!(error instanceof CatalogError)) throw error;
+            return sendJson(res, error.status, { error: error.message, code: error.code, ...(error.upstream ? { upstreamStatus: error.upstream } : {}) });
+          }
         }
         // Tries a chat endpoint as typed, before it is saved. Nothing is stored.
         if (method === "POST" && parts.length === 3 && parts[2] === "test-agent") {

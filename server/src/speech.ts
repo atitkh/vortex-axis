@@ -265,15 +265,27 @@ const ELEVENLABS_PCM: AudioFormat = { encoding: "pcm_s16le", sampleRate: 24000, 
 /** The API refuses audio shorter than 100 ms; below this nothing is sent. */
 const ELEVENLABS_MIN_MS = 100;
 
-/** Checks ElevenLabs is reachable: an authenticated model list. Any answer below 500 counts. */
+/**
+ * Checks ElevenLabs answers and accepts the key: GET /v1/user must give 2xx. A restricted key may
+ * lack the user_read permission and get 401/403 there although speech works, so on 401/403 a second
+ * cheap call, GET /v1/voices, decides: 2xx there is healthy, 401/403 there is unhealthy. 5xx,
+ * timeouts and a missing key (no network call) are unhealthy.
+ */
 async function elevenLabsReachable(url: string | undefined, apiKey: string | undefined): Promise<boolean> {
-  try {
-    const res = await fetch(`${elevenLabsBase(url)}/v1/models`, {
-      headers: elevenLabsHeaders(apiKey),
-      signal: AbortSignal.timeout(3000),
-    });
+  const headers = elevenLabsHeaders(apiKey);
+  if (!headers["xi-api-key"]) return false;
+  const base = elevenLabsBase(url);
+  const probe = async (path: string): Promise<number> => {
+    const res = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(3000) });
     await res.body?.cancel();
-    return res.status < 500;
+    return res.status;
+  };
+  try {
+    const user = await probe("/v1/user");
+    if (user >= 200 && user < 300) return true;
+    if (user !== 401 && user !== 403) return false;
+    const voices = await probe("/v1/voices");
+    return voices >= 200 && voices < 300;
   } catch {
     return false;
   }
