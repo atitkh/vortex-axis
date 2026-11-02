@@ -7,6 +7,7 @@ services:
     image: vortex-axis:local
     container_name: vortex-axis
     restart: unless-stopped
+    # Everything in .env reaches the container, including ELEVENLABS_API_KEY.
     env_file: .env
     environment:
       AXIS_PORT: "8440"

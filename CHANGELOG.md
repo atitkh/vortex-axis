@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased
+
+- **ElevenLabs for speech** (`server/src/speech.ts`, `upstream.ts`): speech recognition and synthesis each get a `kind`, "openai" (default; saved configs without one are unchanged) or "elevenlabs", chosen on the admin Speech page. Recognition is Scribe (`/v1/speech-to-text`, raw 16 kHz PCM or a WAV, clips under 100 ms skipped), synthesis `/v1/text-to-speech/{voice}` as 24 kHz PCM (the sample rate setting is ignored for it; a voice id is required); health is an authenticated `GET /v1/models`. **Keys can come from the environment:** the saved key, else `env:NAME`, else for ElevenLabs `ELEVENLABS_API_KEY`, read when used; the admin config reports `keySource` (saved, env with the variable's name, or none), never the key. Checked by `elevenlabs.test.ts` against a local stub server. NOT verified: the real ElevenLabs API.
+
 ## Axis 0.72.0 (2026-10-31): editable profiles, `pocket`, capabilities off in profiles
 
 - **Profiles are data** (`server/src/profiles.ts`): kept in the hub database, built-ins (normal, power saver, silent, dock) as editable defaults with a reset, and custom profiles an admin creates and deletes. New built-in **pocket**: silent plus brightness at most 30, manual only. Dock's charge limit still follows the hub's Dock charge limit. A deleted profile sends its devices back to auto.
