@@ -767,12 +767,26 @@ try {
     await next.run(`document.querySelector('#speech-test').click()`);
     step("admin: speech test", await next.until(`(t => /Synthesis/.test(t) && t.slice(0, 80))(document.querySelector('#speech-note')?.textContent ?? '')`, "the new speech test", 60000));
     step("admin: realtime voice", await next.until(`document.querySelector('#talk-state').textContent === 'needs OpenClaw' && !document.querySelector('#talk-body') && document.querySelector('#talk-note').textContent.slice(0, 50)`, "the realtime voice card"));
-    await next.run(fill("#tts-rate", "100"));
+    await next.run(fill('#tts-card input[id$="-sampleRate"]', "100"));
     await next.until(`/1 unsaved change/.test(${saveBar}?.textContent ?? '')`, "the save bar for the sample rate");
     await next.run(`${saveBar}.querySelector('[data-save]').click()`);
     step("admin: sample rate refused", await next.until(`(t => /8000 to 48000/.test(t) && t)(document.querySelector('.savebar .save-error')?.textContent ?? '')`, "the sample rate refusal"));
     await next.run(`[...${saveBar}.querySelectorAll('button')].find(b => b.textContent === 'Discard').click()`);
     await next.until(`!${saveBar}`, "the discard on Speech");
+    // Ranked entry lists: add, button reorder, pointer drag-and-drop reorder, live rank numbers, nothing saved until Save.
+    await next.run(`document.querySelector('#stt-add').click()`);
+    await next.until(`document.querySelectorAll('#stt-card .sp-entry').length === 2`, "a second speech-to-text entry");
+    await next.run(fill('#stt-card .sp-entry:nth-child(2) input[id$="-label"]', "second"));
+    await next.run(`document.querySelector('#stt-card .sp-entry:nth-child(2) [data-move=up]').click()`);
+    step("admin: speech reorder by button", await next.until(`(l => l[0].value === 'second' && [...document.querySelectorAll('#stt-card [data-rank]')].map(r => r.textContent).join('|') === '1 · primary|fallback 2' && /unsaved/.test(document.querySelector('#stt-card').textContent) && 'second moved to rank 1')(document.querySelectorAll('#stt-card input[id$="-label"]'))`, "the moved entry"));
+    const dragEv = (t, where) => `(() => { const cards = [...document.querySelectorAll('#stt-card .sp-entry')], h = cards[0].querySelector('[data-handle]'), r = cards[1].getBoundingClientRect(), y = ${where === "start" ? "cards[0].getBoundingClientRect().top + 5" : "r.top + r.height - 2"}; h.dispatchEvent(new PointerEvent('${t}', { bubbles: true, pointerId: 7, button: 0, clientY: y, clientX: 5 })); })()`;
+    await next.run(dragEv("pointerdown", "start"));
+    await next.run(dragEv("pointermove", "end"));
+    await next.until(`document.querySelector('[data-drop]') && (window.sawDrop = true)`, "the drop line");
+    await next.run(dragEv("pointerup", "end"));
+    step("admin: speech reorder by drag", await next.until(`window.sawDrop && (l => l[1].value === 'second' && 'dropped second below the first; drop line shown')(document.querySelectorAll('#stt-card input[id$="-label"]'))`, "the dragged entry"));
+    await next.run(`[...${saveBar}.querySelectorAll('button')].find(b => b.textContent === 'Discard').click()`);
+    await next.until(`!${saveBar} && document.querySelectorAll('#stt-card .sp-entry').length === 1`, "the discard of the new entry");
     await next.run(`location.hash = '#voices'`);
     await next.until(`document.querySelector('#vp-state')?.textContent === 'off'`, "the voices page");
     await next.run(fill("#vp-known", "0.8"));
