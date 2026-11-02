@@ -56,7 +56,7 @@ const SECURITY_HEADERS = {
 };
 /** The pages load only their own files and talk only to Axis. Inline styles are used by the admin page. */
 const PAGE_POLICY =
-  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' https:; connect-src 'self' ws: wss:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {

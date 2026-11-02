@@ -657,6 +657,65 @@ function keyNote(svc) {
   return "Key: saved on the hub.";
 }
 
+/** True when the saved settings give an ElevenLabs key to use now (saved, or an env variable that holds one). */
+function keyUsable(svc) {
+  const k = svc.keySource;
+  return Boolean(k && k.source !== "none" && (k.source !== "env" || k.present));
+}
+
+/**
+ * The ElevenLabs voices and models of the account, asked of the hub (which holds the key; the page
+ * never sees it). Loaded once a usable saved key is there; `error` set means use plain text fields.
+ */
+function useCatalog(which, svc) {
+  const on = svc.kind === "elevenlabs" && keyUsable(svc);
+  const [state, setState] = useState({ busy: false });
+  const load = async (fresh) => {
+    setState((s) => ({ ...s, busy: true, error: undefined }));
+    try {
+      const data = await api("GET", `/admin/config/elevenlabs?service=${which}${fresh ? "&refresh=1" : ""}`);
+      setState({ busy: false, data });
+    } catch (e) {
+      setState({ busy: false, error: e.message });
+    }
+  };
+  useEffect(() => { if (on) load(false); }, [on, svc.url, svc.keySource?.source, svc.keySource?.env]);
+  return { on, ...state, refresh: () => load(true) };
+}
+
+const CUSTOM = "__custom__";
+
+/** A dropdown of `items` ([{id, label}]) for a form field: the current value stays selectable, "Custom value" shows a text box. */
+function PickOrType({ form, k, id, items, placeholder, mono }) {
+  const [custom, setCustom] = useState(false);
+  const cur = String(form.value(k) ?? "");
+  const known = items.some((i) => i.id === cur);
+  const options = known || !cur ? items : [{ id: cur, label: `${cur} (current)` }, ...items];
+  if (custom) {
+    return html`<span class="unit"><${Text} form=${form} k=${k} id=${id} mono=${mono} placeholder=${placeholder} />
+      <button type="button" class="btn sm" onClick=${() => setCustom(false)}>List</button></span>`;
+  }
+  return html`<select class="field" id=${id} data-f=${k} value=${cur}
+    onChange=${(e) => (e.currentTarget.value === CUSTOM ? setCustom(true) : form.put(k, e.currentTarget.value))}>
+    ${cur ? null : html`<option value="">Choose…</option>`}
+    ${options.map((i) => html`<option key=${i.id} value=${i.id}>${i.label}</option>`)}
+    <option value=${CUSTOM}>Custom value…</option></select>`;
+}
+
+/** The status line under a picker: loading, the error with a Refresh, or just Refresh. */
+function CatalogNote({ cat, id }) {
+  return html`<p class="help" id=${id}>${cat.busy ? "Loading from ElevenLabs…" : cat.error ? `Could not load the list (${cat.error}); type the value instead.` : "From your ElevenLabs account."}
+    ${" "}<button type="button" class="btn sm" disabled=${cat.busy} onClick=${cat.refresh}>Refresh</button></p>`;
+}
+
+/** Plays a voice's own preview clip. The address comes from the voices list. */
+function VoicePreview({ voice }) {
+  const audio = useRef();
+  if (!voice?.previewUrl) return null;
+  return html`<span><audio ref=${audio} src=${voice.previewUrl} preload="none"></audio>
+    <button type="button" class="btn sm" id="tts-preview" onClick=${() => { const a = audio.current; if (a) { a.currentTime = 0; a.play().catch(() => {}); } }}>Preview</button></span>`;
+}
+
 function KindSelect({ form, k, id, which }) {
   const change = (kind) => {
     const old = form.value(k);
@@ -709,6 +768,14 @@ export function SpeechPage() {
   const elSttLabel = sttEl ? "Base address (optional)" : "Address";
   const sttView = { ...config.stt, kind: form.value("sttKind") };
   const ttsView = { ...config.tts, kind: form.value("ttsKind") };
+  // The pickers use what is saved (the hub asks ElevenLabs with the saved key), so they wait for a save after a key or kind change.
+  const sttCat = useCatalog("stt", { ...config.stt, kind: config.stt.kind === form.value("sttKind") ? config.stt.kind : "" });
+  const ttsCat = useCatalog("tts", { ...config.tts, kind: config.tts.kind === form.value("ttsKind") ? config.tts.kind : "" });
+  const sttList = sttCat.on && sttCat.data && !sttCat.error;
+  const ttsList = ttsCat.on && ttsCat.data && !ttsCat.error;
+  const modelItems = (c) => c.data.models.map((m) => ({ id: m.id, label: m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id }));
+  const voiceItems = ttsList ? ttsCat.data.voices.map((v) => ({ id: v.id, label: `${v.name}${v.category ? ` (${v.category})` : ""}` })) : [];
+  const pickedVoice = ttsList ? ttsCat.data.voices.find((v) => v.id === String(form.value("ttsVoice") ?? "").trim()) : undefined;
   const unsavedService = Object.keys(form.staged).some((k) => k.startsWith("stt") || k.startsWith("tts"));
   const test = async () => {
     setM({ text: "Synthesizing a sentence and transcribing it back…" });
@@ -748,7 +815,8 @@ export function SpeechPage() {
         <div class="card-b fgrid">
           <${F} label="Kind" id="stt-kind" dirty=${form.dirty("sttKind")}><${KindSelect} form=${form} k="sttKind" id="stt-kind" which="stt" /></${F}>
           <${F} label=${elSttLabel} id="stt-url" dirty=${form.dirty("sttUrl")}><${Text} form=${form} k="sttUrl" id="stt-url" mono placeholder=${sttEl ? "https://api.elevenlabs.io" : "http://host:8090/v1/audio/transcriptions"} /></${F}>
-          <${F} label="Model" id="stt-model" dirty=${form.dirty("sttModel")}><${Text} form=${form} k="sttModel" id="stt-model" /></${F}>
+          <${F} label="Model" id="stt-model" dirty=${form.dirty("sttModel")}>${sttList ? html`<${PickOrType} form=${form} k="sttModel" id="stt-model" items=${modelItems(sttCat)} />` : html`<${Text} form=${form} k="sttModel" id="stt-model" />`}</${F}>
+          ${sttEl && sttCat.on ? html`<${CatalogNote} cat=${sttCat} id="stt-model-note" />` : null}
           <${F} label=${html`Key ${config.stt.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="stt-key" dirty=${form.dirty("sttKey")}><${Text} form=${form} k="sttKey" id="stt-key" type="password" placeholder="leave empty to keep" /></${F}>
           ${keyNote(sttView) ? html`<p class="help" id="stt-key-note">${keyNote(sttView)}${sttEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
         </div>
@@ -758,10 +826,11 @@ export function SpeechPage() {
         <div class="card-b fgrid">
           <${F} label="Kind" id="tts-kind" dirty=${form.dirty("ttsKind")}><${KindSelect} form=${form} k="ttsKind" id="tts-kind" which="tts" /></${F}>
           <${F} label="Address" id="tts-url" dirty=${form.dirty("ttsUrl")}><${Text} form=${form} k="ttsUrl" id="tts-url" mono placeholder=${ttsEl ? "https://api.elevenlabs.io" : "http://host:8092/v1/audio/speech"} /></${F}>
-          <${F} label="Model" id="tts-model" dirty=${form.dirty("ttsModel")}><${Text} form=${form} k="ttsModel" id="tts-model" /></${F}>
+          <${F} label="Model" id="tts-model" dirty=${form.dirty("ttsModel")}>${ttsList ? html`<${PickOrType} form=${form} k="ttsModel" id="tts-model" items=${modelItems(ttsCat)} />` : html`<${Text} form=${form} k="ttsModel" id="tts-model" />`}</${F}>
           <${F} label=${html`Key ${config.tts.apiKeySet ? html`<span class="badge">set</span>` : null}`} id="tts-key" dirty=${form.dirty("ttsKey")}><${Text} form=${form} k="ttsKey" id="tts-key" type="password" placeholder="leave empty to keep" /></${F}>
           ${keyNote(ttsView) ? html`<p class="help" id="tts-key-note">${keyNote(ttsView)}${ttsEl ? " Type env:NAME to read another variable." : ""}</p>` : null}
-          <${F} label=${ttsEl ? "Voice id" : "Default voice"} id="tts-voice" dirty=${form.dirty("ttsVoice")}><${Text} form=${form} k="ttsVoice" id="tts-voice" placeholder=${ttsEl ? "required, from your ElevenLabs voice library" : "service default"} /></${F}>
+          <${F} label=${ttsEl ? "Voice id" : "Default voice"} id="tts-voice" dirty=${form.dirty("ttsVoice")}>${ttsList ? html`<span class="unit"><${PickOrType} form=${form} k="ttsVoice" id="tts-voice" items=${voiceItems} mono placeholder="voice id" /><${VoicePreview} voice=${pickedVoice} /></span>` : html`<${Text} form=${form} k="ttsVoice" id="tts-voice" placeholder=${ttsEl ? "required, from your ElevenLabs voice library" : "service default"} />`}</${F}>
+          ${ttsEl && ttsCat.on ? html`<${CatalogNote} cat=${ttsCat} id="tts-voice-note" />` : null}
           ${ttsEl ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : html`<${F} label="PCM sample rate" id="tts-rate" dirty=${form.dirty("ttsRate")}><span class="unit"><${Text} form=${form} k="ttsRate" id="tts-rate" type="number" min="8000" max="48000" step="1" class="field num" /><span>Hz</span></span></${F}>`}
         </div>
       </section>

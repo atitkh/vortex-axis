@@ -24,6 +24,7 @@ let server: Server;
 let base: string;
 let seen: Seen[] = [];
 let status = 200;
+let byPath: Record<string, number> = {};
 let reply: Buffer | string = "";
 
 beforeAll(async () => {
@@ -32,7 +33,7 @@ beforeAll(async () => {
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
-      res.statusCode = status;
+      res.statusCode = byPath[req.url ?? ""] ?? status;
       res.end(reply);
     });
   });
@@ -43,6 +44,7 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 beforeEach(() => {
   seen = [];
   status = 200;
+  byPath = {};
   reply = "";
   delete process.env.ELEVENLABS_API_KEY;
   delete process.env.MY_EL_KEY;
@@ -105,16 +107,33 @@ describe("ElevenLabs text to speech", () => {
     await failing.catch((e: Error) => expect(e.message).not.toContain(KEY));
   });
 
-  it("checks health with an authenticated GET, unhealthy only on 5xx", async () => {
+  it("checks health with GET /v1/user: 2xx healthy; 5xx and no key unhealthy", async () => {
     const tts = new ElevenLabsTextToSpeech({ url: base, voice: "v", apiKey: KEY });
     expect(await tts.healthy()).toBe(true);
+    expect(seen).toHaveLength(1);
     expect(seen[0]!.method).toBe("GET");
-    expect(seen[0]!.url).toBe("/v1/models");
+    expect(seen[0]!.url).toBe("/v1/user");
     expect(seen[0]!.headers["xi-api-key"]).toBe(KEY);
-    status = 401;
-    expect(await tts.healthy()).toBe(true);
     status = 503;
     expect(await tts.healthy()).toBe(false);
+    seen = [];
+    expect(await new ElevenLabsSpeechToText({ url: base }).healthy()).toBe(false);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("on 401/403 from /v1/user asks /v1/voices: 2xx there is healthy, 401 or 403 there is not", async () => {
+    const stt = new ElevenLabsSpeechToText({ url: base, apiKey: KEY });
+    byPath = { "/v1/user": 401, "/v1/voices": 200 };
+    expect(await stt.healthy()).toBe(true);
+    expect(seen.map((r) => r.url)).toEqual(["/v1/user", "/v1/voices"]);
+    byPath = { "/v1/user": 403, "/v1/voices": 401 };
+    expect(await stt.healthy()).toBe(false);
+    byPath = { "/v1/user": 401, "/v1/voices": 503 };
+    expect(await stt.healthy()).toBe(false);
+    byPath = { "/v1/user": 404 };
+    seen = [];
+    expect(await stt.healthy()).toBe(false);
+    expect(seen).toHaveLength(1);
   });
 });
 
