@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { UPSTREAM_AUDIO_FORMAT, type Capability } from "@vortex-axis/protocol";
 import { matchChoice } from "../src/ask.js";
 import { createInvokeHandler } from "../src/commands.js";
@@ -126,6 +126,8 @@ describe("vortex.axis.ask", () => {
 });
 
 describe("vortex.axis.timer", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
   it("says how long a timer is", () => {
     expect(spokenLength(300)).toBe("5 minute");
     expect(spokenLength(5400)).toBe("1 hour 30 minute");
@@ -133,12 +135,15 @@ describe("vortex.axis.timer", () => {
   });
 
   it("sets, lists, cancels and dismisses reminders, and shows when the next one is", async () => {
+    // Fixed clock (Tue 2026-11-03 08:00 Chicago) so the listing order does not depend on the time of day the suite runs.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-03T14:00:00Z"));
     await device("Desk");
-    const set = await invoke("vortex.axis.reminder", { action: "set", text: "call\nthe dentist", at: new Date(Date.now() + 36 * 3600_000).toISOString().slice(0, 16).replace("T", " "), client: "Desk" });
+    const set = await invoke("vortex.axis.reminder", { action: "set", text: "call\nthe dentist", at: "2026-11-04 20:00", client: "Desk" });
     expect(set.set).toMatchObject({ text: "call the dentist", target: "Desk", repeat: null, urgent: false });
     expect(set.set.next).toEqual(expect.any(String));
     expect(set.timeZone).toBe("America/Chicago");
-    const daily = await invoke("vortex.axis.reminder", { action: "set", text: "stretch", at: new Date(Date.now() + 40 * 3600_000).toISOString().slice(0, 10) + " 09:00", repeat: "weekdays", everywhere: true, urgent: true });
+    const daily = await invoke("vortex.axis.reminder", { action: "set", text: "stretch", at: "2026-11-05 09:00", repeat: "weekdays", everywhere: true, urgent: true });
     expect(daily.set).toMatchObject({ target: "everywhere", urgent: true, repeat: { at: "09:00", days: "1,2,3,4,5" } });
     expect((await invoke("vortex.axis.reminder", {})).reminders.map((r: any) => r.text)).toEqual(["call the dentist", "stretch"]);
     // Nothing is a timer.
