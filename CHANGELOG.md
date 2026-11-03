@@ -6,6 +6,8 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 ## Unreleased
 
+## Axis 0.74.0 (2026-11-03): ElevenLabs audio tags for v3 and v4
+
 - **Audio tags for ElevenLabs v3/v4 voices** (`server/src/audiotags.ts`, `upstream.ts`, `fallback.ts`, `sentences.ts`, `turns.ts`, `web/adm-agent.js`, `web/speech-entries.js`): when the top-ranked enabled text-to-speech entry is an ElevenLabs `eleven_v4*` or `eleven_v3*` model (and its new **Audio tags** setting is not Off), the agent is told, after its note (gateway) or system prompt (chat endpoint), that its replies are spoken by a voice that understands tags like `[whispers]` and `[sighs]`. The text of that paragraph is the new `agent.audioTagsNote` (empty = built-in, `-` = none), edited on the Agent page. Tags are taken out of everything Axis shows (device screens, the session view, the realtime consult answer) and, per entry inside the ranked wrapper, out of the text of any entry that cannot act on them, so an ElevenLabs fallback still gets them and a local voice never reads them aloud. The sentence splitter keeps a leading tag with its sentence and never sends a tag-only fragment alone. With any other top entry nothing changes at all. Raw tags stay in the OpenClaw chat history.
 
 ## Axis 0.73.0 (2026-11-02): ElevenLabs speech, ranked speech lists with failover, realtime fallback
