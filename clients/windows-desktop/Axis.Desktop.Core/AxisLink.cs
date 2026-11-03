@@ -194,6 +194,27 @@ public sealed class AxisLink : IAsyncDisposable
         // sleep or a network change the socket can look open for minutes): aborted, so the loop connects again.
         var heard = Environment.TickCount64;
         using var beating = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        // What Axis sends is handled on a worker of its own, in order, so a handler that blocks (a wedged audio device, a
+        // lock) can never stop the loop below from reading: a loop that does not read stops answering the server's own
+        // pings and cannot be told to close, which left the app "connected" while deaf.
+        var work = System.Threading.Channels.Channel.CreateUnbounded<Action>(new System.Threading.Channels.UnboundedChannelOptions { SingleReader = true });
+        var handlingSince = 0L;
+        _ = Task.Run(async () =>
+        {
+            await foreach (var job in work.Reader.ReadAllAsync())
+            {
+                Interlocked.Exchange(ref handlingSince, Environment.TickCount64);
+                try { job(); }
+                catch (Exception e) { Trouble?.Invoke($"handling a message from Axis failed: {e.Message} ({e.GetType().Name})"); }
+                var took = Environment.TickCount64 - Interlocked.Exchange(ref handlingSince, 0);
+                if (took > 2000) Trouble?.Invoke($"handling a message from Axis took {took} ms");
+            }
+        });
+
+        // A `ping` every 15 s, sent without waiting for it (a send that hangs must not stop the check below); a
+        // connection that has said nothing for 40 s, or whose send has hung for 10 s, is dead: aborted, so the loop
+        // connects again.
         _ = Task.Run(async () =>
         {
             try
@@ -201,8 +222,21 @@ public sealed class AxisLink : IAsyncDisposable
                 while (true)
                 {
                     await Task.Delay(15000, beating.Token);
-                    try { await SendAsync(new JsonObject { ["t"] = "ping" }, beating.Token); } catch (Exception e) when (e is not OperationCanceledException) { }
-                    if (Environment.TickCount64 - Interlocked.Read(ref heard) > 40000) { try { ws.Abort(); } catch { } return; }
+                    _ = Task.Run(async () =>
+                    {
+                        try { await SendAsync(new JsonObject { ["t"] = "ping" }, beating.Token); }
+                        catch (Exception) { }
+                    });
+                    var quiet = Environment.TickCount64 - Interlocked.Read(ref heard);
+                    if (quiet > 40000)
+                    {
+                        Trouble?.Invoke($"Axis said nothing for {quiet / 1000} s; connecting again");
+                        try { ws.Abort(); } catch { }
+                        return;
+                    }
+                    var since = Interlocked.Read(ref handlingSince);
+                    if (since != 0 && Environment.TickCount64 - since > 5000)
+                        Trouble?.Invoke($"a message from Axis has been handled for {(Environment.TickCount64 - since) / 1000} s without finishing");
                 }
             }
             catch (OperationCanceledException) { }
@@ -224,7 +258,8 @@ public sealed class AxisLink : IAsyncDisposable
             } while (!result.EndOfMessage);
             if (result.MessageType != WebSocketMessageType.Text)
             {
-                Audio?.Invoke(message.ToArray());
+                var pcm = message.ToArray();
+                work.Writer.TryWrite(() => Audio?.Invoke(pcm));
                 continue;
             }
 
@@ -240,7 +275,7 @@ public sealed class AxisLink : IAsyncDisposable
                     settingsVersion = root.GetProperty("version").GetInt32();
                     var values = new Dictionary<string, JsonElement>();
                     foreach (var p in root.GetProperty("values").EnumerateObject()) values[p.Name] = p.Value.Clone();
-                    SettingsChanged?.Invoke(values);
+                    work.Writer.TryWrite(() => SettingsChanged?.Invoke(values));
                     break;
                 case "command":
                     // Each command runs on its own, so a slow look does not hold up a point.
@@ -258,7 +293,9 @@ public sealed class AxisLink : IAsyncDisposable
                     _ = Task.Run(() => AnswerAsync(id, name, parameters, ct, receivedAt), ct);
                     break;
                 case "turn" or "transcript" or "reply.text" or "reply.image" or "speak.start" or "speak.end" or "stop" or "ask" or "ask.end" or "status":
-                    Message?.Invoke(root.GetProperty("t").GetString()!, root.Clone());
+                    var kind = root.GetProperty("t").GetString()!;
+                    var body = root.Clone();
+                    work.Writer.TryWrite(() => Message?.Invoke(kind, body));
                     break;
                 case "error":
                     var code = root.GetProperty("code").GetString();
@@ -270,7 +307,7 @@ public sealed class AxisLink : IAsyncDisposable
         }
         return null;
         }
-        finally { beating.Cancel(); }
+        finally { beating.Cancel(); work.Writer.TryComplete(); }
     }
 
     static string? CloseReason(ClientWebSocket ws) =>
@@ -356,19 +393,36 @@ public sealed class AxisLink : IAsyncDisposable
     {
         var ws = socket;
         if (ws == null || ws.State != WebSocketState.Open) return false;
-        await sendLock.WaitAsync();
-        try { await ws.SendAsync(pcm, WebSocketMessageType.Binary, true, CancellationToken.None); return true; }
+        // A send that cannot finish in 10 s means the connection is dead whatever it looks like: it is dropped.
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            await sendLock.WaitAsync(limit.Token);
+            try { await ws.SendAsync(pcm, WebSocketMessageType.Binary, true, limit.Token); return true; }
+            finally { sendLock.Release(); }
+        }
+        catch (OperationCanceledException) { try { ws.Abort(); } catch { } return false; }
         catch { return false; }
-        finally { sendLock.Release(); }
     }
 
     async Task SendAsync(JsonObject message, CancellationToken ct)
     {
         var ws = socket ?? throw new InvalidOperationException("not connected");
         var bytes = Encoding.UTF8.GetBytes(message.ToJsonString(Json));
-        await sendLock.WaitAsync(ct);
-        try { await ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct); }
-        finally { sendLock.Release(); }
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            await sendLock.WaitAsync(limit.Token);
+            try { await ws.SendAsync(bytes, WebSocketMessageType.Text, true, limit.Token); }
+            finally { sendLock.Release(); }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Not asked to stop, so the send itself hung: the connection is dead.
+            try { ws.Abort(); } catch { }
+            throw new IOException("a send to Axis did not finish in 10 s");
+        }
         if (message["t"]?.GetValue<string>() is "audio.start" or "text") TurnStarted?.Invoke();
     }
 

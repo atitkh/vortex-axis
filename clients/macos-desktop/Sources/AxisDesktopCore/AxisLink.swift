@@ -297,7 +297,8 @@ public final class AxisLink: @unchecked Sendable {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 if Task.isCancelled { return }
-                _ = await self?.trySend(.object(["t": "ping"]))
+                // Not awaited: a send that hangs (sends are chained) must not stop the silence check below.
+                Task { [weak self] in _ = await self?.trySend(.object(["t": "ping"])) }
                 ws?.sendPing { _ in }
                 if heard.silentFor > 40 { ws?.cancel(with: .abnormalClosure, reason: nil) }
             }

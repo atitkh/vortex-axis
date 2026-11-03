@@ -242,7 +242,8 @@ public partial class App : System.Windows.Application
                 return commands!.HandleAsync(name, p, ct);
             },
         };
-        link.Trouble += line => Dispatcher.BeginInvoke(() => Note("⚠ " + line));
+        link.Trouble += line => { Diag.Log("link: " + line); Dispatcher.BeginInvoke(() => Note("⚠ " + line)); };
+        link.StateChanged += (state, why) => Diag.Log($"link: {state}{(why != null ? " (" + why + ")" : "")}");
         readings.Attach(link);
         link.StateChanged += (state, why) => Dispatcher.BeginInvoke(() =>
         {
