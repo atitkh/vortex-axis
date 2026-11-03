@@ -711,12 +711,38 @@ function CatalogNote({ cat, id }) {
     ${" "}<button type="button" class="btn sm" disabled=${cat.busy} onClick=${cat.refresh}>Refresh</button></p>`;
 }
 
-/** Plays a voice's own preview clip. The address comes from the voices list. */
-function VoicePreview({ voice }) {
+/** MediaError codes to words, for the message under the button. */
+const MEDIA_ERRORS = { 1: "playback was aborted", 2: "network error while loading the clip", 3: "the clip could not be decoded", 4: "this browser cannot play the clip (blocked or unsupported)" };
+
+/**
+ * Plays a voice's own preview clip. The address comes from the voices list. The button turns into Stop
+ * while it plays; a failure shows as "Preview failed: …" instead of nothing, and a voice without a clip says so.
+ */
+function VoicePreview({ voice, id }) {
   const audio = useRef();
-  if (!voice?.previewUrl) return null;
-  return html`<span><audio ref=${audio} src=${voice.previewUrl} preload="none"></audio>
-    <button type="button" class="btn sm" id="tts-preview" onClick=${() => { const a = audio.current; if (a) { a.currentTime = 0; a.play().catch(() => {}); } }}>Preview</button></span>`;
+  const [state, setState] = useState({ playing: false, error: "" });
+  const url = voice?.previewUrl ?? "";
+  useEffect(() => setState({ playing: false, error: "" }), [url]);
+  if (!id) return null;
+  if (!url) return html`<span class="help" id="tts-preview-note">${voice ? "No preview clip for this voice." : "Not in the voice list, so no preview."}</span>`;
+  const fail = (why) => setState({ playing: false, error: why });
+  const toggle = () => {
+    const a = audio.current;
+    if (!a) return;
+    if (state.playing) {
+      a.pause();
+      a.currentTime = 0;
+      return setState({ playing: false, error: "" });
+    }
+    setState({ playing: false, error: "" });
+    a.currentTime = 0;
+    const started = a.play();
+    if (started) started.then(() => setState((s) => (s.error ? s : { playing: true, error: "" })), (e) => fail(e?.name === "AbortError" ? "playback was interrupted" : e?.name === "NotSupportedError" ? MEDIA_ERRORS[4] : e?.message || String(e)));
+  };
+  const onError = () => fail(MEDIA_ERRORS[audio.current?.error?.code] ?? "playback failed");
+  return html`<span><audio ref=${audio} src=${url} preload="none" onError=${onError} onEnded=${() => setState({ playing: false, error: "" })}></audio>
+    <button type="button" class="btn sm" id="tts-preview" aria-pressed=${state.playing} onClick=${toggle}>${state.playing ? "Stop" : "Preview"}</button>
+    ${state.error ? html`<span class="help" id="tts-preview-error" role="alert">${` Preview failed: ${state.error}`}</span>` : null}</span>`;
 }
 
 const KIND_LABEL = { openai: "OpenAI-compatible", elevenlabs: "ElevenLabs" };
@@ -765,7 +791,7 @@ function EntryCard({ which, e, index, count, saved, status, active, drag, update
       ${el && cat.on ? html`<${CatalogNote} cat=${cat} id=${`${pid}-note`} />` : el && !isSaved ? html`<p class="help">Save to load voices and models.</p>` : null}
       ${field("apiKey", html`Key ${saved?.apiKeySet ? html`<span class="badge">set</span>` : null}`, text("apiKey", { type: "password", placeholder: "leave empty to keep", attrs: { autocomplete: "off" } }))}
       ${keyNote(view) || el ? html`<p class="help" id=${`${pid}-key-note`}>${keyNote(view)}${el ? " Type env:NAME to read another variable." : ""}</p>` : null}
-      ${which === "tts" ? field("voice", el ? "Voice id" : "Default voice", list ? html`<span class="unit">${pick("voice", voices, "voice id", true)}<${VoicePreview} voice=${picked} /></span>` : text("voice", { placeholder: el ? "required, from your ElevenLabs voice library" : "service default" })) : null}
+      ${which === "tts" ? field("voice", el ? "Voice id" : "Default voice", list ? html`<span class="unit">${pick("voice", voices, "voice id", true)}<${VoicePreview} voice=${picked} id=${String(e.voice ?? "").trim()} /></span>` : text("voice", { placeholder: el ? "required, from your ElevenLabs voice library" : "service default" })) : null}
       ${which === "tts" ? (el ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : field("sampleRate", "PCM sample rate", html`<span class="unit">${text("sampleRate", { type: "number", attrs: { min: 8000, max: 48000, step: 1 } })}<span>Hz</span></span>`)) : null}
     </div>
   </li>`;

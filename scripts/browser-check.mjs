@@ -44,6 +44,21 @@ const speech = createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/octet-stream" });
       return void res.end(pcm);
     }
+    // A stand-in ElevenLabs: voices and models, and a preview clip served as text/plain the way Google storage serves the real ones.
+    if (req.url?.startsWith("/v2/voices")) {
+      const port = speech.address().port;
+      return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ voices: [{ voice_id: "v1", name: "Stub Voice", category: "premade", preview_url: `http://127.0.0.1:${port}/preview.wav` }, { voice_id: "v2", name: "Silent Voice", category: "premade", preview_url: "" }, ...(process.env.PV_REAL ? [{ voice_id: "v3", name: "Real Voice", category: "premade", preview_url: process.env.PV_REAL }] : [])], has_more: false }));
+    }
+    if (req.url === "/v1/models") {
+      return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify([{ model_id: "stub_tts", name: "Stub", can_do_text_to_speech: true }]));
+    }
+    if (req.url === "/preview.wav") {
+      const n = 8000 * 0.5, wav = Buffer.alloc(44 + n * 2);
+      wav.write("RIFF", 0); wav.writeUInt32LE(36 + n * 2, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(n * 2, 40);
+      for (let i = 0; i < n; i++) wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / 8000) * 2000), 44 + i * 2);
+      return void res.writeHead(200, { "content-type": "text/plain" }).end(wav);
+    }
     res.writeHead(200, { "content-type": "application/json" }).end("{}");
   });
 });
@@ -787,6 +802,40 @@ try {
     step("admin: speech reorder by drag", await next.until(`window.sawDrop && (l => l[1].value === 'second' && 'dropped second below the first; drop line shown')(document.querySelectorAll('#stt-card input[id$="-label"]'))`, "the dragged entry"));
     await next.run(`[...${saveBar}.querySelectorAll('button')].find(b => b.textContent === 'Discard').click()`);
     await next.until(`!${saveBar} && document.querySelectorAll('#stt-card .sp-entry').length === 1`, "the discard of the new entry");
+    // Voice preview: a real click plays the clip (Preview becomes Stop, ends on its own), and a failure is shown, never swallowed.
+    {
+      const authz = { authorization: "Bearer browser-check-admin-token-0123", "content-type": "application/json" };
+      const patched = await fetch(`${base}/admin/config`, { method: "PATCH", headers: authz, body: JSON.stringify({ tts: { entries: [{ id: "main" }, { label: "Eleven", kind: "elevenlabs", url: stub, apiKey: "stub-key", voice: "v1", model: "stub_tts" }] } }) });
+      if (!patched.ok) throw new Error(`saving the ElevenLabs entry: HTTP ${patched.status}`);
+      await next.run(`location.reload()`);
+      await next.until(`document.querySelector('#tts-preview')`, "the preview button", 20000);
+      const clickPreview = async () => {
+        const [px, py] = await next.run(`(b => { b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [r.x + 4, r.y + 4]; })(document.querySelector('#tts-preview'))`);
+        await next.front();
+        await next.click(px, py);
+      };
+      // The stub's address is http, which the page's media-src (self and https) refuses: the failure must be on screen.
+      await clickPreview();
+      step("admin: preview failure shown", await next.until(`(t => /^ ?Preview failed: [^ ]/.test(t) && t.trim())(document.querySelector('#tts-preview-error')?.textContent ?? '')`, "the preview failure message"));
+      if ((await next.run(`document.querySelector('#tts-preview').textContent`)) !== "Preview") throw new Error("the button stayed on Stop after a failed preview");
+      // Play, Stop, and the end of the clip, with the browser's own play() stood in for (the clip itself is out of reach here).
+      await next.run(`(() => { HTMLMediaElement.prototype.play = function () { this.paused = false; this.t = setTimeout(() => this.dispatchEvent(new Event('ended')), 1500); return Promise.resolve(); }; HTMLMediaElement.prototype.pause = function () { clearTimeout(this.t); }; })()`);
+      await clickPreview();
+      await next.until(`document.querySelector('#tts-preview')?.textContent === 'Stop' && !document.querySelector('#tts-preview-error')`, "Preview to become Stop");
+      await clickPreview();
+      await next.until(`document.querySelector('#tts-preview')?.textContent === 'Preview'`, "Stop to go back to Preview");
+      await clickPreview();
+      await next.until(`document.querySelector('#tts-preview')?.textContent === 'Stop'`, "Preview to become Stop again");
+      step("admin: preview play, stop, end", await next.until(`document.querySelector('#tts-preview')?.textContent === 'Preview' && 'back to Preview when the clip ended'`, "the clip to end"));
+      // Against a real preview address, when the network allows (PV_REAL=https://...mp3): the real element plays.
+      if (process.env.PV_REAL) {
+        await fetch(`${base}/admin/config`, { method: "PATCH", headers: authz, body: JSON.stringify({ tts: { entries: [{ id: "main" }, { id: (await adminGet("/admin/config")).tts.entries[1].id, voice: "v3" }] } }) });
+        await next.run(`location.reload()`);
+        await next.until(`document.querySelector('#tts-preview')`, "the preview button", 20000);
+        await clickPreview();
+        step("admin: real preview plays", await next.until(`(a => a && !a.paused && a.currentTime > 0 && !document.querySelector('#tts-preview-error') && 'playing at ' + a.currentTime.toFixed(1) + ' s')(document.querySelector('#tts-preview')?.parentElement.querySelector('audio'))`, "the real preview to play", 20000));
+      }
+    }
     await next.run(`location.hash = '#voices'`);
     await next.until(`document.querySelector('#vp-state')?.textContent === 'off'`, "the voices page");
     await next.run(fill("#vp-known", "0.8"));
