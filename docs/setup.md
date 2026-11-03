@@ -85,6 +85,10 @@ A service with no entry that can work is reported to clients as down. In the cod
 
 The addresses in `.env` are starting points. Anything saved on the admin page is stored in the data folder and wins from then on, and it applies to the next turn without a restart. The admin page's "Test both" button synthesizes a sentence and has recognition transcribe it back, with timings.
 
+#### Audio tags (ElevenLabs v3 and v4)
+
+ElevenLabs `eleven_v4`, `eleven_v4_turbo` and `eleven_v3` voices act on tags in square brackets such as `[whispers]`, `[sighs]` or `[excited]`. When the top-ranked enabled text-to-speech entry is one of those models and its **Audio tags** setting is Auto (the default), Axis adds a short paragraph to what the agent is told (after the OpenClaw note, or the chat endpoint's system prompt) asking it to use tags sparingly. Edit that text under **Audio tags note** on the Agent page: empty is the built-in one, a single `-` sends none. Axis takes the tags out of everything it shows and out of the text sent to any entry that cannot act on them, such as a local voice after a failover; the OpenClaw chat history keeps them. With any other top entry nothing is added and nothing is stripped. Set **Audio tags** to Off on the entry to switch it off for that entry.
+
 ### Pairing Axis with OpenClaw
 
 Axis joins the gateway the way a device does: one identity, an operator link for turns and a node link for commands. The admin page does steps 2 and 5 for you; the calls below are what it uses.
