@@ -6,7 +6,7 @@ import { html, useEffect, useMemo, useRef, useState } from "/web/preact.js";
 import { clock } from "/web/charts.js";
 import { Button, ago, api, ask, authHeader, clearDraft, draftOf, plural, refresh, set, setDraft, store, toast } from "/web/adm-core.js";
 import { SaveBar } from "/web/adm-settings.js";
-import { MAX_ENTRIES, COOLDOWN_MAX, COOLDOWN_MIN, addEntry, buildServicePatch, canAdd, dropEntry, dropIndex, entriesFromConfig, entryBadge, listChanged, moveEntry, removeEntry, stateLine } from "/web/speech-entries.js";
+import { MAX_ENTRIES, COOLDOWN_MAX, COOLDOWN_MIN, addEntry, buildServicePatch, canAdd, dropEntry, dropIndex, entriesFromConfig, entryBadge, listChanged, modelSupportsAudioTags, moveEntry, removeEntry, stateLine } from "/web/speech-entries.js";
 import { PAGES, PageHead } from "/web/adm-shell.js";
 
 // --- staged forms -------------------------------------------------------------------------------
@@ -164,7 +164,7 @@ export function AgentPage() {
   const entity = "page:agent";
   const a = config?.agent;
   const saved = a && {
-    backend: a.backend, agentId: store.gateway?.agentId || "", note: a.gatewayNote || a.defaultGatewayNote,
+    backend: a.backend, agentId: store.gateway?.agentId || "", note: a.gatewayNote || a.defaultGatewayNote, tagsNote: a.audioTagsNote || a.defaultAudioTagsNote,
     url: a.url, model: a.model, token: "", prompt: a.systemPrompt || a.defaultSystemPrompt,
   };
   const form = useForm(entity, saved);
@@ -175,7 +175,7 @@ export function AgentPage() {
       config: await api("PATCH", "/admin/config", {
         agent: {
           backend: v.backend, url: String(v.url).trim(), model: String(v.model).trim(),
-          systemPrompt: builtIn(v.prompt, a.defaultSystemPrompt), gatewayNote: builtIn(v.note, a.defaultGatewayNote),
+          systemPrompt: builtIn(v.prompt, a.defaultSystemPrompt), gatewayNote: builtIn(v.note, a.defaultGatewayNote), audioTagsNote: builtIn(v.tagsNote, a.defaultAudioTagsNote),
           ...(v.token ? { token: v.token } : {}),
         },
       }),
@@ -213,6 +213,10 @@ export function AgentPage() {
         <${F} hidden=${openai} label="Note to the agent" id="agent-note" dirty=${form.dirty("note")}
           help=${html`Added to the agent's own system prompt on every turn from Axis: that it is speaking as a voice assistant, what the line describing the device means, and that the Axis tools reach the devices. Keep it free of anything that changes from turn to turn. Empty the box and save for the built-in one; a single <code>-</code> sends none.`}>
           <${Text} form=${form} k="note" id="agent-note" area rows=${8} />
+        </${F}>
+        <${F} label="Audio tags note" id="agent-tags-note" dirty=${form.dirty("tagsNote")}
+          help="Sent to the agent, after the note above or the system prompt, only while the top-ranked text-to-speech entry is an ElevenLabs model that supports audio tags (v3 or v4). Empty the box and save for the built-in one; a single - sends none.">
+          <${Text} form=${form} k="tagsNote" id="agent-tags-note" area rows=${8} />
         </${F}>
         <${F} hidden=${!openai} label="Chat endpoint" id="agent-url" dirty=${form.dirty("url")}>
           <${Text} form=${form} k="url" id="agent-url" mono placeholder="http://host:11434/v1/chat/completions" />
@@ -792,6 +796,7 @@ function EntryCard({ which, e, index, count, saved, status, active, drag, update
       ${field("apiKey", html`Key ${saved?.apiKeySet ? html`<span class="badge">set</span>` : null}`, text("apiKey", { type: "password", placeholder: "leave empty to keep", attrs: { autocomplete: "off" } }))}
       ${keyNote(view) || el ? html`<p class="help" id=${`${pid}-key-note`}>${keyNote(view)}${el ? " Type env:NAME to read another variable." : ""}</p>` : null}
       ${which === "tts" ? field("voice", el ? "Voice id" : "Default voice", list ? html`<span class="unit">${pick("voice", voices, "voice id", true)}<${VoicePreview} voice=${picked} id=${String(e.voice ?? "").trim()} /></span>` : text("voice", { placeholder: el ? "required, from your ElevenLabs voice library" : "service default" })) : null}
+      ${which === "tts" && el ? field("audioTags", "Audio tags", html`<span class="unit"><select class="field" id=${`${pid}-audioTags`} value=${e.audioTags === "off" ? "off" : "auto"} onChange=${(ev) => update({ audioTags: ev.currentTarget.value })}><option value="auto">Auto</option><option value="off">Off</option></select><span class=${`badge${modelSupportsAudioTags(e.kind, e.model) ? " good" : ""}`} data-tags-support=${modelSupportsAudioTags(e.kind, e.model) ? "yes" : "no"}>${modelSupportsAudioTags(e.kind, e.model) ? "tags supported by this model" : "not supported by this model"}</span></span>`) : null}
       ${which === "tts" ? (el ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : field("sampleRate", "PCM sample rate", html`<span class="unit">${text("sampleRate", { type: "number", attrs: { min: 8000, max: 48000, step: 1 } })}<span>Hz</span></span>`)) : null}
     </div>
   </li>`;

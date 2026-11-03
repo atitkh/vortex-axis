@@ -1,4 +1,5 @@
 import { scale, type RealtimeTalk } from "./talk.js";
+import { stripAudioTags } from "./audiotags.js";
 import { doingFor } from "./doing.js";
 import type { AudioFormat, ClientMessage, ErrorCode, ScalarMap, ServerMessage } from "@vortex-axis/protocol";
 import type { Agent } from "./agent.js";
@@ -24,6 +25,8 @@ export interface Services {
   talk?: RealtimeTalk | undefined;
   /** Turns a recording into a voiceprint, for telling voices apart. */
   voiceprint?: VoiceprintService | undefined;
+  /** The voice that speaks acts on audio tags ([whispers]): they are kept in what it is given and taken out of what is shown. */
+  audioTags?: boolean | undefined;
 }
 
 /** What the turn logic needs from the hub. */
@@ -984,7 +987,8 @@ export class TurnManager {
                 : agent.reply(`${this.header(session, identity)}\n${work.question}`, consultSignal, onTool);
             let answer = "";
             for await (const piece of source) answer += piece;
-            return answer;
+            // The realtime voice is not the one tags are meant for.
+            return this.services.audioTags ? stripAudioTags(answer) : answer;
           },
           onAudio: async (chunk) => {
             noticed = true;
@@ -1133,13 +1137,17 @@ export class TurnManager {
       const settings = this.port.settings(session);
       const voice = typeof settings.voice === "string" && settings.voice ? settings.voice : undefined;
       const pauseMs = typeof settings.sentencePauseMs === "number" ? Math.min(1500, Math.max(0, settings.sentencePauseMs)) : 300;
-      const splitter = new SentenceSplitter();
+      const tags = Boolean(this.services.audioTags);
+      // With audio tags in use the voice is given them, and everything shown has them taken out.
+      const shownText = (text: string) => (tags ? stripAudioTags(text) : text);
+      const splitter = new SentenceSplitter(12, 220, tags);
       let full = "";
 
       const showPiece = (piece: Piece) => {
         stage("speaking");
-        live?.words(id, turnId, { said: piece.text });
-        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text: piece.text, final: false });
+        const text = shownText(piece.text);
+        live?.words(id, turnId, { said: text });
+        if (hasScreen) this.port.send(session, { t: "reply.text", turnId, text, final: false });
       };
       // With a speaker, each sentence's text goes out as its audio starts; without, at once.
       const queue =
@@ -1255,7 +1263,7 @@ export class TurnManager {
 
       if (hasScreen) {
         // A silent reply leaves the screen empty rather than showing "NO_REPLY".
-        this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : `${about}${full.trim()}`.slice(0, 16000), final: true });
+        this.port.send(session, { t: "reply.text", turnId, text: silent ? "" : shownText(`${about}${full.trim()}`).slice(0, 16000), final: true });
       }
       if (media.length && this.options.pictures) void this.options.pictures.show(media, { clientId: id, turnId });
       if (speaker?.started) {

@@ -1,3 +1,5 @@
+import { isTagsOnly } from "./audiotags.js";
+
 /** How a piece ended, which decides the pause after it when spoken. */
 export type PieceEnd = "sentence" | "clause" | "paragraph" | "none";
 
@@ -20,12 +22,16 @@ function endOf(raw: string): PieceEnd {
  */
 export class SentenceSplitter {
   private buffer = "";
+  /** A piece that was only audio tags, waiting to start the next one. */
+  private carry = "";
 
   constructor(
     /** A piece shorter than this is held back and joined to the next one. */
     private readonly minLength = 12,
     /** Text with no sentence end is cut at a pause once it grows past this. */
     private readonly maxLength = 220,
+    /** Keep a tag-only fragment ("[laughs]") with the sentence after it, instead of as a piece of its own. */
+    private readonly audioTags = false,
   ) {}
 
   /** Adds text and returns any pieces that are now complete. */
@@ -40,8 +46,16 @@ export class SentenceSplitter {
     for (;;) {
       const cut = this.findCut();
       if (cut < 0) break;
-      const raw = this.buffer.slice(0, cut);
+      let raw = this.buffer.slice(0, cut);
       this.buffer = this.buffer.slice(cut);
+      if (this.audioTags) {
+        raw = this.carry + raw;
+        this.carry = "";
+        if (isTagsOnly(raw)) {
+          this.carry = raw;
+          continue;
+        }
+      }
       if (raw.trim()) pieces.push({ text: raw.trim(), end: endOf(raw) });
     }
     return pieces;
@@ -53,8 +67,11 @@ export class SentenceSplitter {
   }
 
   flushPiece(): Piece | undefined {
-    const raw = this.buffer;
+    const raw = this.carry + this.buffer;
+    this.carry = "";
     this.buffer = "";
+    // Tags with nothing after them have no sentence to colour: dropped.
+    if (this.audioTags && isTagsOnly(raw)) return undefined;
     return raw.trim() ? { text: raw.trim(), end: endOf(raw) } : undefined;
   }
 

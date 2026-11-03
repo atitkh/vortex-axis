@@ -5,6 +5,15 @@ export const MAX_ENTRIES = 8;
 export const COOLDOWN_MIN = 5;
 export const COOLDOWN_MAX = 3600;
 
+/** Model ids (by prefix) that act on audio tags. Same list as AUDIO_TAG_MODEL_PREFIXES in server/src/audiotags.ts; a test checks they agree. */
+export const AUDIO_TAG_MODEL_PREFIXES = ["eleven_v4", "eleven_v3"];
+
+/** Whether an ElevenLabs model acts on audio tags such as [whispers]. */
+export function modelSupportsAudioTags(kind, model) {
+  const id = String(model ?? "").trim().toLowerCase();
+  return kind === "elevenlabs" && AUDIO_TAG_MODEL_PREFIXES.some((prefix) => id.startsWith(prefix));
+}
+
 /** Moves the item at `from` so it ends up at index `to` (both clamped). Returns a new array. */
 export function moveEntry(list, from, to) {
   if (from < 0 || from >= list.length) return list;
@@ -31,7 +40,7 @@ export function dropEntry(list, from, slot) {
 let counter = 0;
 /** A fresh unsaved entry: no id until the hub gives it one; `key` is the page's own handle. */
 export function newEntry(kind = "openai") {
-  return { key: `new-${Date.now().toString(36)}-${counter++}`, enabled: true, label: "", kind, url: "", model: kind === "elevenlabs" ? "" : "", voice: "", sampleRate: 24000, apiKey: "" };
+  return { key: `new-${Date.now().toString(36)}-${counter++}`, enabled: true, label: "", kind, url: "", model: kind === "elevenlabs" ? "" : "", voice: "", sampleRate: 24000, audioTags: "auto", apiKey: "" };
 }
 
 export const canAdd = (list) => list.length < MAX_ENTRIES;
@@ -70,6 +79,7 @@ export function buildServicePatch(which, working, cooldown) {
     if (!e.key?.startsWith("new-") && e.id) out.id = e.id;
     if (which === "tts") {
       out.voice = String(e.voice ?? "").trim();
+      out.audioTags = e.audioTags === "off" ? "off" : "auto";
       if (e.kind !== "elevenlabs") {
         const rate = Number(e.sampleRate);
         if (!Number.isInteger(rate) || rate < 8000 || rate > 48000) throw new Error(`${where}: the PCM sample rate is a whole number from 8000 to 48000.`);

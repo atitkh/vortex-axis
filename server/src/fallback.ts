@@ -1,4 +1,5 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
+import { stripAudioTags } from "./audiotags.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
 
 /** How long one synthesis entry may take to send its first audio before the next one is tried. */
@@ -13,6 +14,8 @@ export interface RankedEntry<S> {
   rank: number;
   /** What the client was built from; state carried over a reload only while this is unchanged. */
   fingerprint?: string;
+  /** For synthesis: the voice acts on audio tags ([whispers]) in the text it is given. */
+  audioTags?: boolean;
   service: S;
 }
 
@@ -45,6 +48,8 @@ export interface FallbackOptions {
   log?: (line: string) => void;
   /** Per-attempt time limit, for tests; the constants above otherwise. */
   attemptMs?: number;
+  /** Audio tags are in use: text goes to an entry that cannot act on them with the tags taken out. Off: text goes through untouched. */
+  audioTags?: boolean;
   /** State of the previous wrapper's entries, by id, so a reload does not forget what was down. */
   carry?: Map<string, { fingerprint?: string | undefined; state: EntryState }>;
 }
@@ -203,7 +208,8 @@ export class FallbackTextToSpeech extends Fallback<TextToSpeech> implements Text
       const onAbort = () => stop.abort(signal?.reason);
       signal?.addEventListener("abort", onAbort, { once: true });
       // A device's own voice is chosen among the top entry's voices; any other entry speaks in its own.
-      const iterator = entry.service.synthesize(text, i === 0 ? options : {}, stop.signal)[Symbol.asyncIterator]();
+      const said = this.options.audioTags && !entry.audioTags ? stripAudioTags(text) : text;
+      const iterator = entry.service.synthesize(said, i === 0 ? options : {}, stop.signal)[Symbol.asyncIterator]();
       let first: IteratorResult<Buffer>;
       let timer: NodeJS.Timeout | undefined;
       try {

@@ -1,6 +1,7 @@
+import { AUDIO_TAGS_SETTINGS, effectiveAudioTags, type AudioTagsSetting } from "./audiotags.js";
 import { randomBytes } from "node:crypto";
 import type { AudioFormat } from "@vortex-axis/protocol";
-import { ChatCompletionsAgent, DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
+import { ChatCompletionsAgent, DEFAULT_AUDIO_TAGS_NOTE, DEFAULT_GATEWAY_NOTE, DEFAULT_SYSTEM_PROMPT, type Agent } from "./agent.js";
 import type { Config } from "./config.js";
 import {
   ELEVENLABS_KEY_ENV,
@@ -51,18 +52,34 @@ export interface RuntimeConfig {
      * Empty means the built-in one; "-" means send none.
      */
     gatewayNote: string;
+    /**
+     * Added to either note while the top-ranked synthesis voice acts on audio tags.
+     * Empty means the built-in one; "-" means send none.
+     */
+    audioTagsNote: string;
   };
 }
 
-/** The note an OpenClaw agent is sent: the admin's own, the built-in one, or none at all for "-". */
-export function gatewayNoteFor(agent: Pick<RuntimeConfig["agent"], "gatewayNote">): string {
-  const own = agent.gatewayNote.trim();
-  return own === "-" ? "" : own || DEFAULT_GATEWAY_NOTE;
+/** The audio-tags paragraph: the admin's own, the built-in one, or none for "-". Only asked for while tags are in use. */
+function audioTagsNoteFor(agent: { audioTagsNote?: string }): string {
+  const own = (agent.audioTagsNote ?? "").trim();
+  return own === "-" ? "" : own || DEFAULT_AUDIO_TAGS_NOTE;
 }
 
-/** The system message a chat endpoint is sent: the admin's own, or the built-in one when none is set. */
-export function systemPromptFor(agent: Pick<RuntimeConfig["agent"], "systemPrompt">): string {
-  return agent.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
+/**
+ * The note an OpenClaw agent is sent: the admin's own, the built-in one, or none at all for "-",
+ * with the audio-tags paragraph after it while `tagsActive`.
+ */
+export function gatewayNoteFor(agent: Pick<RuntimeConfig["agent"], "gatewayNote" | "audioTagsNote">, tagsActive = false): string {
+  const own = agent.gatewayNote.trim();
+  const note = own === "-" ? "" : own || DEFAULT_GATEWAY_NOTE;
+  return tagsActive ? [note, audioTagsNoteFor(agent)].filter(Boolean).join("\n\n") : note;
+}
+
+/** The system message a chat endpoint is sent: the admin's own, or the built-in one when none is set, plus the audio-tags paragraph while `tagsActive`. */
+export function systemPromptFor(agent: Pick<RuntimeConfig["agent"], "systemPrompt"> & { audioTagsNote?: string }, tagsActive = false): string {
+  const prompt = agent.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
+  return tagsActive ? [prompt, audioTagsNoteFor(agent)].filter(Boolean).join("\n\n") : prompt;
 }
 
 const META_KEY = "upstream_config";
@@ -86,6 +103,17 @@ export interface SttEntry {
 export interface TtsEntry extends SttEntry {
   voice: string;
   sampleRate: number;
+  /** "auto": send audio tags ([whispers]) where the model acts on them; "off": never. See audiotags.ts. */
+  audioTags: AudioTagsSetting;
+}
+
+/**
+ * Whether audio tags are in use: the voice that normally speaks, the first enabled entry that can
+ * work, is one that acts on them. A fallback entry never turns them on, since it may not be the one heard.
+ */
+export function audioTagsActive(entries: TtsEntry[]): boolean {
+  const top = entries.find((entry) => entry.enabled && ttsFor(entry));
+  return Boolean(top && effectiveAudioTags(top));
 }
 
 /** At most this many entries per service. */
@@ -99,7 +127,7 @@ export const DEFAULT_COOLDOWN_SECONDS = 60;
 export const MAIN_ENTRY_ID = "main";
 
 const STT_FIELDS = ["kind", "url", "model", "apiKey"] as const;
-const TTS_FIELDS = ["kind", "url", "model", "voice", "sampleRate", "apiKey"] as const;
+const TTS_FIELDS = ["kind", "url", "model", "voice", "sampleRate", "apiKey", "audioTags"] as const;
 const ENTRY_FIELDS = ["enabled", "label"] as const;
 
 /** An entry as stored: its id and only the fields that were ever set. */
@@ -124,12 +152,13 @@ function envDefaults(config: Config) {
       voice: config.tts?.voice ?? "",
       sampleRate: config.tts?.sampleRate ?? 24000,
       apiKey: config.tts?.apiKey ?? "",
+      audioTags: "auto" as AudioTagsSetting,
     },
   };
 }
 
 const BLANK_STT = { kind: "openai" as SpeechKind, url: "", model: "whisper-1", apiKey: "" };
-const BLANK_TTS = { kind: "openai" as SpeechKind, url: "", model: "tts-1", voice: "", sampleRate: 24000, apiKey: "" };
+const BLANK_TTS = { kind: "openai" as SpeechKind, url: "", model: "tts-1", voice: "", sampleRate: 24000, apiKey: "", audioTags: "auto" as AudioTagsSetting };
 
 function newEntryId(taken: Set<string>): string {
   for (;;) {
@@ -171,6 +200,7 @@ export function loadRuntimeConfig(store: Store, config: Config): RuntimeConfig {
       token: config.agent?.token ?? "",
       systemPrompt: "",
       gatewayNote: "",
+      audioTagsNote: "",
       ...saved.agent,
     },
   };
@@ -205,6 +235,9 @@ function checkEntry(name: string, e: Record<string, unknown>, tts: boolean): voi
   if (e.enabled !== undefined && typeof e.enabled !== "boolean") throw new Error(`${name}.enabled must be true or false`);
   if (e.label !== undefined && (typeof e.label !== "string" || e.label.length > 80)) throw new Error(`${name}.label must be text of at most 80 characters`);
   if (e.id !== undefined && (typeof e.id !== "string" || e.id.length > 64)) throw new Error(`${name}.id must be short text`);
+  if (tts && e.audioTags !== undefined && !AUDIO_TAGS_SETTINGS.includes(e.audioTags as AudioTagsSetting)) {
+    throw new Error(`${name}.audioTags must be "auto" or "off"`);
+  }
   const rate = e.sampleRate;
   if (tts && rate !== undefined && (!Number.isInteger(rate) || (rate as number) < 8000 || (rate as number) > 48000)) {
     throw new Error(`${name}.sampleRate must be a whole number from 8000 to 48000`);
@@ -292,6 +325,10 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
   if (gatewayNote !== undefined && (typeof gatewayNote !== "string" || gatewayNote.length > 4000)) {
     throw new Error("agent.gatewayNote must be text of at most 4000 characters");
   }
+  const tagsNote = p.agent?.audioTagsNote;
+  if (tagsNote !== undefined && (typeof tagsNote !== "string" || tagsNote.length > 4000)) {
+    throw new Error("agent.audioTagsNote must be text of at most 4000 characters");
+  }
   const backend = p.agent?.backend;
   if (backend !== undefined && backend !== "gateway" && backend !== "openai") {
     throw new Error('agent.backend must be "gateway" or "openai"');
@@ -306,7 +343,7 @@ export function saveRuntimeConfig(store: Store, config: Config, patch: unknown):
     tts: patchService("tts", storedService(saved.tts), p.tts ?? {}),
     speech: { ...saved.speech, ...pick<RuntimeConfig["speech"]>(["realtimeFallback"], p.speech) },
     voiceprint: { ...saved.voiceprint, ...pick<RuntimeConfig["voiceprint"]>(["url"], p.voiceprint) },
-    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt", "gatewayNote"], p.agent) },
+    agent: { ...saved.agent, ...pick<RuntimeConfig["agent"]>(["backend", "url", "model", "token", "systemPrompt", "gatewayNote", "audioTagsNote"], p.agent) },
   };
   store.setMeta(META_KEY, JSON.stringify(next));
   return loadRuntimeConfig(store, config);
@@ -333,7 +370,7 @@ export function publicRuntimeConfig(rc: RuntimeConfig) {
     tts: { ...flat(rc.tts.entries, BLANK_TTS), entries: rc.tts.entries.map(publicEntry), cooldownSeconds: rc.tts.cooldownSeconds },
     speech: rc.speech,
     voiceprint: rc.voiceprint,
-    agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
+    agent: { ...agent, tokenSet: Boolean(token), defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE, defaultAudioTagsNote: DEFAULT_AUDIO_TAGS_NOTE },
   };
 }
 
@@ -375,16 +412,18 @@ export function applyRuntimeConfig(
       return service ? [{ id: entry.id, label: entry.label, rank: i + 1, fingerprint: fingerprint(entry), service }] : [];
     });
   const stt = build(rc.stt.entries, sttFor);
-  const tts = build(rc.tts.entries, ttsFor);
+  const tts = build(rc.tts.entries, ttsFor).map((entry) => ({ ...entry, audioTags: effectiveAudioTags(rc.tts.entries.find((e) => e.id === entry.id)!) }));
+  const tags = audioTagsActive(rc.tts.entries);
   const before = { stt: services.stt instanceof FallbackSpeechToText ? services.stt : undefined, tts: services.tts instanceof FallbackTextToSpeech ? services.tts : undefined };
   services.stt = stt.length
     ? new FallbackSpeechToText(stt, { cooldownSeconds: rc.stt.cooldownSeconds, ...(log ? { log } : {}), ...(before.stt ? { carry: before.stt.carry() } : {}) })
     : undefined;
   services.tts = tts.length
-    ? new FallbackTextToSpeech(tts, { cooldownSeconds: rc.tts.cooldownSeconds, ...(log ? { log } : {}), ...(before.tts ? { carry: before.tts.carry() } : {}) })
+    ? new FallbackTextToSpeech(tts, { cooldownSeconds: rc.tts.cooldownSeconds, ...(tags ? { audioTags: true } : {}), ...(log ? { log } : {}), ...(before.tts ? { carry: before.tts.carry() } : {}) })
     : undefined;
   services.voiceprint = rc.voiceprint.url ? new HttpVoiceprintService(rc.voiceprint.url) : undefined;
-  gatewayAgent.setNote?.(gatewayNoteFor(rc.agent));
+  services.audioTags = tags;
+  gatewayAgent.setNote?.(gatewayNoteFor(rc.agent, tags));
   if (rc.agent.backend === "gateway") services.agent = gatewayAgent;
   else {
     services.agent = rc.agent.url
@@ -392,7 +431,7 @@ export function applyRuntimeConfig(
           url: rc.agent.url,
           model: rc.agent.model,
           token: rc.agent.token || undefined,
-          systemPrompt: systemPromptFor(rc.agent),
+          systemPrompt: systemPromptFor(rc.agent, tags),
           sessionKey,
         })
       : undefined;
