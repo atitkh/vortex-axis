@@ -10,6 +10,10 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - **Layered tags are stripped too** (`server/src/audiotags.ts`): a tag may now hold commas and be up to 60 characters, so `[whispering, playful]` no longer shows on a screen or reaches a voice that cannot act on it. Tested against every tag in the built-in note.
 - Not heard on a real v4 voice: how well the new effects land is for the owner's ears. A custom note saved on the Agent page is unchanged and keeps winning.
 
+## Mac desktop app 0.7.1 (2026-11-03): no more "connected but deaf"
+
+- The same four changes as Windows 0.14.1 (see that entry), in `AxisLink.swift`: heartbeat not awaited, messages/audio/settings handled in order on a worker, a send hung 10 s drops the connection, link state and trouble written to `~/Library/Logs/VorteX Axis/link.log`. Written on Linux; NOT compiled or run (build it on the Mac).
+
 ## Desktop app 0.14.1 (2026-11-03): no more "connected but deaf"
 
 - **Windows** (`AxisLink.cs`): messages and speech audio from Axis are handled on a worker of their own instead of inside the receive loop, so a blocked handler can no longer stop the app reading (it then stopped answering the server's pings too, yet looked connected on the dashboard, with no timers, progress or voice). The 15 s heartbeat no longer awaits its own ping, so its silence check always runs; every send gives up after 10 s and drops the connection; a handler that runs over 2 s (or 5 s and still going) is reported. Link state changes and these reports are now written to `%APPDATA%\VorteX Axis\desktop.log`. NOT verified on the owner's PC.
