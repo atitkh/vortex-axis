@@ -236,6 +236,86 @@ describe("speech recognition over ranked entries", () => {
   });
 });
 
+/** A synthesis stand-in that yields the given chunks. */
+function chunkTts(chunks: Buffer[], rate = 16000): TextToSpeech {
+  return { format: pcm(rate), async *synthesize() { for (const c of chunks) yield c; }, healthy: async () => true };
+}
+const samples = (...v: number[]) => { const b = Buffer.alloc(v.length * 2); v.forEach((x, i) => b.writeInt16LE(x, i * 2)); return b; };
+const drain = async (t: TextToSpeech) => { const out: Buffer[] = []; for await (const c of t.synthesize("x", {})) out.push(c); return Buffer.concat(out); };
+const gained = (chunks: Buffer[], gain?: number, rate = 16000) =>
+  new FallbackTextToSpeech([{ id: "a", label: "", rank: 1, service: chunkTts(chunks, rate), ...(gain === undefined ? {} : { gain }) }], { cooldownSeconds: 60 });
+
+describe("per-entry volume trim", () => {
+  const clip = samples(0, 1000, -1000, 32767, -32768, 3, -3);
+  it("leaves the audio byte-identical at 100 and when unset, odd chunks included", async () => {
+    const chunks = [clip.subarray(0, 5), clip.subarray(5, 6), clip.subarray(6)];
+    for (const g of [undefined, 100]) {
+      const out: Buffer[] = [];
+      for await (const c of gained(chunks, g).synthesize("x", {})) out.push(c);
+      expect(out.map((c) => c.length)).toEqual([5, 1, 8]);
+      expect(Buffer.concat(out).equals(clip)).toBe(true);
+    }
+  });
+  it("halves amplitude with rounding, and stays inside int16", async () => {
+    const out = await drain(gained([clip], 50));
+    const got = Array.from({ length: out.length / 2 }, (_, i) => out.readInt16LE(i * 2));
+    expect(got).toEqual([0, 500, -500, 16384, -16384, 2, -1]); // Math.round: 1.5 -> 2, -1.5 -> -1
+  });
+  it("gives the same output cut at odd byte boundaries as in one piece", async () => {
+    const whole = await drain(gained([clip], 30));
+    const cut = await drain(gained([clip.subarray(0, 3), clip.subarray(3, 4), clip.subarray(4, 11), clip.subarray(11)], 30));
+    expect(cut.equals(whole)).toBe(true);
+  });
+  it("trims each entry on its own when one fails before audio", async () => {
+    const bad = fakeTts("fail", 16000).service;
+    const mk = (gains: [number, number]) => new FallbackTextToSpeech([
+      { id: "a", label: "", rank: 1, service: bad, gain: gains[0] },
+      { id: "b", label: "", rank: 2, service: chunkTts([clip]), gain: gains[1] },
+    ], { cooldownSeconds: 60 });
+    expect((await drain(mk([50, 100]))).equals(clip)).toBe(true);
+    expect((await drain(mk([100, 50]))).readInt16LE(2)).toBe(500);
+    const first = new FallbackTextToSpeech([
+      { id: "a", label: "", rank: 1, service: chunkTts([clip]), gain: 50 },
+      { id: "b", label: "", rank: 2, service: chunkTts([clip]), gain: 100 },
+    ], { cooldownSeconds: 60 });
+    expect((await drain(first)).readInt16LE(2)).toBe(500);
+  });
+  it("trims before resampling a fallback entry to the wrapper's rate", async () => {
+    const loud = samples(...Array.from({ length: 40 }, () => 20000));
+    const top = chunkTts([], 16000);
+    const w = new FallbackTextToSpeech([
+      { id: "a", label: "", rank: 1, service: { ...top, synthesize: async function* () { throw new Error("down"); } }, },
+      { id: "b", label: "", rank: 2, service: chunkTts([loud], 8000), gain: 50 },
+    ], { cooldownSeconds: 60 });
+    const out = await drain(w);
+    expect(out.length).toBeGreaterThan(loud.length);
+    for (let i = 0; i < out.length; i += 2) expect(out.readInt16LE(i)).toBe(10000);
+  });
+});
+
+describe("volume trim settings", () => {
+  const fresh = () => ({ store: new Store(":memory:"), cfg: config({}) });
+  it("accepts 10 and 100, rejects the rest", () => {
+    const { store, cfg } = fresh();
+    for (const g of [10, 100]) expect(() => saveRuntimeConfig(store, cfg, { tts: { entries: [{ gain: g }] } })).not.toThrow();
+    for (const g of [9, 101, 50.5, "abc"]) expect(() => saveRuntimeConfig(store, cfg, { tts: { entries: [{ gain: g }] } })).toThrow(/gain must be a whole number from 10 to 100/);
+    expect(() => saveRuntimeConfig(store, cfg, { tts: { gain: 5 } })).toThrow(/tts.gain/);
+  });
+  it("keeps the saved gain when a patch omits it, and loads old entries as 100", () => {
+    const { store, cfg } = fresh();
+    expect(loadRuntimeConfig(store, cfg).tts.entries[0]!.gain).toBe(100);
+    saveRuntimeConfig(store, cfg, { tts: { entries: [{ id: MAIN_ENTRY_ID, gain: 60 }, { url: "http://b/", gain: 80 }] } });
+    let rc = loadRuntimeConfig(store, cfg);
+    expect(rc.tts.entries.map((e) => e.gain)).toEqual([60, 80]);
+    saveRuntimeConfig(store, cfg, { tts: { entries: rc.tts.entries.map((e) => ({ id: e.id, label: "x" })) } });
+    rc = loadRuntimeConfig(store, cfg);
+    expect(rc.tts.entries.map((e) => e.gain)).toEqual([60, 80]);
+    saveRuntimeConfig(store, cfg, { tts: { voice: "v" } }); // old single-entry shape
+    expect(loadRuntimeConfig(store, cfg).tts.entries[0]!.gain).toBe(60);
+    expect(publicRuntimeConfig(rc).tts.entries.map((e: { gain: number }) => e.gain)).toEqual([60, 80]);
+  });
+});
+
 describe("the streaming resampler", () => {
   it("gives what converting the whole clip at once gives, however it is cut", () => {
     const whole = Buffer.alloc(2000);

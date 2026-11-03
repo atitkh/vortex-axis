@@ -89,7 +89,7 @@ describe("runtime settings", () => {
     // Entry #1's fields stay at the top of each service, for a page that edits one entry.
     expect(res.body).toMatchObject({
       stt: { kind: "openai", url: "http://stt.test/v1/audio/transcriptions", model: "whisper-1", apiKeySet: true, keySource: { source: "saved" } },
-      tts: { kind: "openai", url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, apiKeySet: false, keySource: { source: "none" } },
+      tts: { kind: "openai", url: "http://tts.test/v1/audio/speech", model: "tts-1", voice: "", sampleRate: 22050, gain: 100, apiKeySet: false, keySource: { source: "none" } },
       voiceprint: { url: "" },
       agent: { backend: "gateway", url: "", model: "", systemPrompt: "", gatewayNote: "", tokenSet: false, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT, defaultGatewayNote: DEFAULT_GATEWAY_NOTE },
     });
@@ -119,6 +119,7 @@ describe("runtime settings", () => {
     expect(await bad({ stt: { url: "ftp://x" } })).toBe(400);
     expect(await bad({ stt: { url: "not a url" } })).toBe(400);
     expect(await bad({ tts: { sampleRate: 100 } })).toBe(400);
+    expect(await bad({ tts: { gain: 101 } })).toBe(400);
     expect(await bad({ agent: { backend: "magic" } })).toBe(400);
     expect(await bad({ other: {} })).toBe(400);
     expect(await bad({ stt: "x" })).toBe(400);

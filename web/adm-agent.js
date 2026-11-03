@@ -804,6 +804,8 @@ function EntryCard({ which, e, index, count, saved, status, active, drag, update
       ${which === "tts" ? field("voice", el ? "Voice id" : "Default voice", list ? html`<span class="unit">${pick("voice", voices, "voice id", true)}<${VoicePreview} voice=${picked} id=${String(e.voice ?? "").trim()} /></span>` : text("voice", { placeholder: el ? "required, from your ElevenLabs voice library" : "service default" })) : null}
       ${which === "tts" && el ? field("audioTags", "Audio tags", html`<span class="unit"><select class="field" id=${`${pid}-audioTags`} value=${e.audioTags === "off" ? "off" : "auto"} onChange=${(ev) => update({ audioTags: ev.currentTarget.value })}><option value="auto">Auto</option><option value="off">Off</option></select><span class=${`badge${modelSupportsAudioTags(e.kind, e.model) ? " good" : ""}`} data-tags-support=${modelSupportsAudioTags(e.kind, e.model) ? "yes" : "no"}>${modelSupportsAudioTags(e.kind, e.model) ? "tags supported by this model" : "not supported by this model"}</span></span>`) : null}
       ${which === "tts" ? (el ? html`<p class="help">ElevenLabs audio is 24000 Hz.</p>` : field("sampleRate", "PCM sample rate", html`<span class="unit">${text("sampleRate", { type: "number", attrs: { min: 8000, max: 48000, step: 1 } })}<span>Hz</span></span>`)) : null}
+      ${which === "tts" ? field("gain", "Volume trim (%)", text("gain", { type: "number", attrs: { min: 10, max: 100, step: 5 } })) : null}
+      ${which === "tts" ? html`<p class="help">Lower this if a voice buzzes or distorts on the small speaker. Applies to this entry only.</p>` : null}
     </div>
   </li>`;
 }

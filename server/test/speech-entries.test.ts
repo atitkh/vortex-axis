@@ -67,4 +67,11 @@ describe("speech entries", () => {
     const down = se.entryBadge(E("a"), { up: false, downUntil: 61_000, lastError: "boom" }, 1000);
     expect(down).toEqual(["down, retry in 60s", "bad", "boom"]);
   });
+  it("sends the volume trim for synthesis entries only, 100 when unset, and refuses out-of-range", () => {
+    const t = se.buildServicePatch("tts", [E("a", { gain: "55" }), E("b")], 60).entries;
+    expect([t[0].gain, t[1].gain]).toEqual([55, 100]);
+    expect("gain" in se.buildServicePatch("stt", [E("a")], 60).entries[0]).toBe(false);
+    for (const g of [9, 101, 50.5, "abc"]) expect(() => se.buildServicePatch("tts", [E("a", { gain: g })], 60)).toThrow(/volume trim/);
+    expect(se.newEntry("elevenlabs").gain).toBe(100);
+  });
 });

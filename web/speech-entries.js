@@ -40,7 +40,7 @@ export function dropEntry(list, from, slot) {
 let counter = 0;
 /** A fresh unsaved entry: no id until the hub gives it one; `key` is the page's own handle. */
 export function newEntry(kind = "openai") {
-  return { key: `new-${Date.now().toString(36)}-${counter++}`, enabled: true, label: "", kind, url: "", model: kind === "elevenlabs" ? "" : "", voice: "", sampleRate: 24000, audioTags: "auto", apiKey: "" };
+  return { key: `new-${Date.now().toString(36)}-${counter++}`, enabled: true, label: "", kind, url: "", model: kind === "elevenlabs" ? "" : "", voice: "", sampleRate: 24000, gain: 100, audioTags: "auto", apiKey: "" };
 }
 
 export const canAdd = (list) => list.length < MAX_ENTRIES;
@@ -51,7 +51,7 @@ export const removeEntry = (list, index) => list.filter((_, i) => i !== index);
 export function entriesFromConfig(svc) {
   const list = Array.isArray(svc?.entries) && svc.entries.length
     ? svc.entries
-    : svc?.url ? [{ id: "main", enabled: true, label: "", kind: svc.kind, url: svc.url, model: svc.model, voice: svc.voice, sampleRate: svc.sampleRate, apiKeySet: svc.apiKeySet, keySource: svc.keySource }] : [];
+    : svc?.url ? [{ id: "main", enabled: true, label: "", kind: svc.kind, url: svc.url, model: svc.model, voice: svc.voice, sampleRate: svc.sampleRate, gain: svc.gain, apiKeySet: svc.apiKeySet, keySource: svc.keySource }] : [];
   return list.map((e) => ({ ...e, key: e.id, label: e.label ?? "", voice: e.voice ?? "", apiKey: "" }));
 }
 
@@ -80,6 +80,9 @@ export function buildServicePatch(which, working, cooldown) {
     if (which === "tts") {
       out.voice = String(e.voice ?? "").trim();
       out.audioTags = e.audioTags === "off" ? "off" : "auto";
+      const gain = e.gain === undefined || e.gain === "" ? 100 : Number(e.gain);
+      if (!Number.isInteger(gain) || gain < 10 || gain > 100) throw new Error(`${where}: the volume trim is a whole number from 10 to 100.`);
+      out.gain = gain;
       if (e.kind !== "elevenlabs") {
         const rate = Number(e.sampleRate);
         if (!Number.isInteger(rate) || rate < 8000 || rate > 48000) throw new Error(`${where}: the PCM sample rate is a whole number from 8000 to 48000.`);

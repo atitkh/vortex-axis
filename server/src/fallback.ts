@@ -1,5 +1,6 @@
 import type { AudioFormat } from "@vortex-axis/protocol";
 import { stripAudioTags } from "./audiotags.js";
+import { scale } from "./talk.js";
 import type { SpeechToText, TextToSpeech } from "./speech.js";
 
 /** How long one synthesis entry may take to send its first audio before the next one is tried. */
@@ -16,6 +17,8 @@ export interface RankedEntry<S> {
   fingerprint?: string;
   /** For synthesis: the voice acts on audio tags ([whispers]) in the text it is given. */
   audioTags?: boolean;
+  /** For synthesis: output volume trim in percent (10..100); absent or 100 leaves the audio untouched. */
+  gain?: number;
   service: S;
 }
 
@@ -239,12 +242,25 @@ export class FallbackTextToSpeech extends Fallback<TextToSpeech> implements Text
       this.succeeded(i);
       const convert = entry.service.format.sampleRate === this.format.sampleRate ? undefined : new StreamResampler(entry.service.format.sampleRate, this.format.sampleRate);
       let done = first.done;
+      // This entry's trim comes first, so it applies at the entry's own rate and a clip is trimmed once.
+      const odd: { byte?: number | undefined } = {};
+      const level = entry.gain !== undefined && entry.gain < 100 ? entry.gain / 100 : undefined;
+      const shape = (chunk: Buffer): Buffer => {
+        const trimmed = level === undefined ? chunk : scale(chunk, level, odd);
+        return convert ? convert.push(trimmed) : trimmed;
+      };
       try {
-        if (!first.done) yield convert ? convert.push(first.value) : first.value;
+        if (!first.done) {
+          const out = shape(first.value);
+          if (out.length || level === undefined) yield out;
+        }
         while (!done) {
           const step = await iterator.next();
           done = step.done;
-          if (!step.done) yield convert ? convert.push(step.value) : step.value;
+          if (!step.done) {
+            const out = shape(step.value);
+            if (out.length || level === undefined) yield out;
+          }
         }
       } catch (error) {
         if (!signal?.aborted) this.failed(i, error, undefined);

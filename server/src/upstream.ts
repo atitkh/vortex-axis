@@ -103,6 +103,8 @@ export interface SttEntry {
 export interface TtsEntry extends SttEntry {
   voice: string;
   sampleRate: number;
+  /** Output volume trim in percent, 10 to 100; 100 leaves the audio untouched. Applied to this entry's audio only. */
+  gain: number;
   /** "auto": send audio tags ([whispers]) where the model acts on them; "off": never. See audiotags.ts. */
   audioTags: AudioTagsSetting;
 }
@@ -127,7 +129,7 @@ export const DEFAULT_COOLDOWN_SECONDS = 60;
 export const MAIN_ENTRY_ID = "main";
 
 const STT_FIELDS = ["kind", "url", "model", "apiKey"] as const;
-const TTS_FIELDS = ["kind", "url", "model", "voice", "sampleRate", "apiKey", "audioTags"] as const;
+const TTS_FIELDS = ["kind", "url", "model", "voice", "sampleRate", "gain", "apiKey", "audioTags"] as const;
 const ENTRY_FIELDS = ["enabled", "label"] as const;
 
 /** An entry as stored: its id and only the fields that were ever set. */
@@ -151,6 +153,7 @@ function envDefaults(config: Config) {
       model: config.tts?.model ?? "tts-1",
       voice: config.tts?.voice ?? "",
       sampleRate: config.tts?.sampleRate ?? 24000,
+      gain: 100,
       apiKey: config.tts?.apiKey ?? "",
       audioTags: "auto" as AudioTagsSetting,
     },
@@ -158,7 +161,7 @@ function envDefaults(config: Config) {
 }
 
 const BLANK_STT = { kind: "openai" as SpeechKind, url: "", model: "whisper-1", apiKey: "" };
-const BLANK_TTS = { kind: "openai" as SpeechKind, url: "", model: "tts-1", voice: "", sampleRate: 24000, apiKey: "", audioTags: "auto" as AudioTagsSetting };
+const BLANK_TTS = { kind: "openai" as SpeechKind, url: "", model: "tts-1", voice: "", sampleRate: 24000, gain: 100, apiKey: "", audioTags: "auto" as AudioTagsSetting };
 
 function newEntryId(taken: Set<string>): string {
   for (;;) {
@@ -241,6 +244,10 @@ function checkEntry(name: string, e: Record<string, unknown>, tts: boolean): voi
   const rate = e.sampleRate;
   if (tts && rate !== undefined && (!Number.isInteger(rate) || (rate as number) < 8000 || (rate as number) > 48000)) {
     throw new Error(`${name}.sampleRate must be a whole number from 8000 to 48000`);
+  }
+  const gain = e.gain;
+  if (tts && gain !== undefined && (!Number.isInteger(gain) || (gain as number) < 10 || (gain as number) > 100)) {
+    throw new Error(`${name}.gain must be a whole number from 10 to 100`);
   }
 }
 
@@ -412,7 +419,7 @@ export function applyRuntimeConfig(
       return service ? [{ id: entry.id, label: entry.label, rank: i + 1, fingerprint: fingerprint(entry), service }] : [];
     });
   const stt = build(rc.stt.entries, sttFor);
-  const tts = build(rc.tts.entries, ttsFor).map((entry) => ({ ...entry, audioTags: effectiveAudioTags(rc.tts.entries.find((e) => e.id === entry.id)!) }));
+  const tts = build(rc.tts.entries, ttsFor).map((entry) => ({ ...entry, audioTags: effectiveAudioTags(rc.tts.entries.find((e) => e.id === entry.id)!), gain: rc.tts.entries.find((e) => e.id === entry.id)!.gain }));
   const tags = audioTagsActive(rc.tts.entries);
   const before = { stt: services.stt instanceof FallbackSpeechToText ? services.stt : undefined, tts: services.tts instanceof FallbackTextToSpeech ? services.tts : undefined };
   services.stt = stt.length

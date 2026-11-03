@@ -6,6 +6,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 ## Unreleased
 
+- **Per-entry volume trim for speech synthesis** (`server/src/fallback.ts`, `server/src/upstream.ts`, `web/adm-agent.js`, `web/speech-entries.js`). Each text-to-speech entry has a `gain` (whole percent, 10 to 100, default 100) for voices that come in loud and buzz on a small speaker. It is applied to the audio that entry yields, before any conversion to the top entry's rate, with the same `scale` the realtime voice uses; at 100 the audio is not touched at all. The Speech page has a "Volume trim (%)" field on each synthesis card. Saved entries without it load as 100; a patch that leaves it out keeps the saved value.
 - **Speech page: the voice and model dropdowns no longer get rebuilt on every poll** (`web/adm-agent.js`, `scripts/scroll-check.mjs`). The shell's 3 s poll re-rendered the page and re-wrote the `value` of every `<option>` (about 4000 writes in 26 s with 300 voices), which makes Chrome rebuild an open native dropdown and put its list back at the top. The option nodes are now kept while their content is the same. `scripts/scroll-check.mjs` now uses a stub whose health check flips up and down and whose voice list changes order, and fails if the select is mutated, loses focus, or the page height or scroll position moves.
 
 ## Axis 0.74.0 (2026-11-03): ElevenLabs audio tags for v3 and v4
