@@ -698,15 +698,21 @@ function PickOrType({ form, k, id, items, placeholder, mono }) {
   const cur = String(form.value(k) ?? "");
   const known = items.some((i) => i.id === cur);
   const options = known || !cur ? items : [{ id: cur, label: `${cur} (current)` }, ...items];
+  // The <option> vnodes are kept while their content is the same: a re-render (the shell's 3 s poll) must not touch
+  // hundreds of options, which makes the browser rebuild an open dropdown and put its list back at the top.
+  const sig = `${cur ? 1 : 0}\u0001${options.map((i) => `${i.id}\u0000${i.label}`).join("\u0001")}`;
+  const optionNodes = useMemo(() => [
+    cur ? null : html`<option key="" value="">Choose…</option>`,
+    ...options.map((i) => html`<option key=${i.id} value=${i.id}>${i.label}</option>`),
+    html`<option key=${CUSTOM} value=${CUSTOM}>Custom value…</option>`,
+  ], [sig]);
   if (custom) {
     return html`<span class="unit"><${Text} form=${form} k=${k} id=${id} mono=${mono} placeholder=${placeholder} />
       <button type="button" class="btn sm" onClick=${() => setCustom(false)}>List</button></span>`;
   }
   return html`<select class="field" id=${id} data-f=${k} value=${cur}
     onChange=${(e) => (e.currentTarget.value === CUSTOM ? setCustom(true) : form.put(k, e.currentTarget.value))}>
-    ${cur ? null : html`<option value="">Choose…</option>`}
-    ${options.map((i) => html`<option key=${i.id} value=${i.id}>${i.label}</option>`)}
-    <option value=${CUSTOM}>Custom value…</option></select>`;
+    ${optionNodes}</select>`;
 }
 
 /** The status line under a picker: loading, the error with a Refresh, or just Refresh. */
