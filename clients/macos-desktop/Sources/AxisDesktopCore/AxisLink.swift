@@ -242,7 +242,34 @@ public final class AxisLink: @unchecked Sendable {
 
     private func setState(_ state: LinkState, _ why: String?) {
         lock.withLock { _state = state }
+        Self.log("link: \(state)\(why.map { " (\($0))" } ?? "")")
         onState?(state, why)
+    }
+
+    /** A line in `~/Library/Logs/VorteX Axis/link.log` (kept short: the old half goes past 200 KB), for finding out why a link went quiet. */
+    static func log(_ line: String) {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/VorteX Axis")
+        let file = dir.appendingPathComponent("link.log")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int, size > 200_000,
+           let text = try? String(contentsOf: file, encoding: .utf8) {
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            try? lines[(lines.count / 2)...].joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        }
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        guard let data = "\(stamp) \(line)\n".data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: file) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: file)
+        }
+    }
+
+    private func trouble(_ line: String) {
+        Self.log("trouble: \(line)")
+        onTrouble?(line)
     }
 
     private func run() async {
@@ -305,6 +332,22 @@ public final class AxisLink: @unchecked Sendable {
         }
         defer { pinging.cancel() }
 
+        // What Axis sends is handled on a worker of its own, in order, so a handler that blocks can never stop the loop
+        // below from reading (a loop that does not read cannot see the connection die, nor close it).
+        var poster: AsyncStream<@Sendable () -> Void>.Continuation?
+        let jobs = AsyncStream<@Sendable () -> Void> { poster = $0 }
+        let post = poster!
+        let handlingSince = HeardBox()
+        let worker = Task.detached { [weak self] in
+            for await job in jobs {
+                handlingSince.touch()
+                job()
+                let took = handlingSince.silentFor
+                if took > 2 { self?.trouble("handling a message from Axis took \(Int(took * 1000)) ms") }
+            }
+        }
+        defer { post.finish(); worker.cancel() }
+
         var hello: [String: JSONValue] = [
             "t": "hello",
             "protocol": .int(Self.protocolVersion),
@@ -331,7 +374,7 @@ public final class AxisLink: @unchecked Sendable {
             case .string(let s): text = s
             case .data(let audio):
                 heard.touch()
-                onAudio?(audio)
+                post.yield { [weak self] in self?.onAudio?(audio) }
                 continue
             @unknown default: continue
             }
@@ -343,7 +386,8 @@ public final class AxisLink: @unchecked Sendable {
                 setState(.online, nil)
             case "settings":
                 if let v = root["version"]?.intValue { lock.withLock { settingsVersion = v } }
-                onSettings?(root["values"]?.objectValue ?? [:])
+                let values = root["values"]?.objectValue ?? [:]
+                post.yield { [weak self] in self?.onSettings?(values) }
             case "command":
                 guard let id = root["id"]?.stringValue, let name = root["name"]?.stringValue else { continue }
                 // Structured arguments (desktop.steps, paste) arrive beside the params; the handler sees them as params.data.
@@ -354,7 +398,7 @@ public final class AxisLink: @unchecked Sendable {
                 let given = params
                 Task { await self.answer(id: id, name: name, params: .object(given), received: received) }
             case "turn", "transcript", "reply.text", "reply.image", "speak.start", "speak.end", "stop", "ask", "ask.end", "status":
-                onMessage?(t, root)
+                post.yield { [weak self] in self?.onMessage?(t, root) }
             case "error":
                 let code = root["code"]?.stringValue
                 let words = root["message"]?.stringValue ?? ""
@@ -463,6 +507,15 @@ public final class AxisLink: @unchecked Sendable {
             sendTail = t
             return t
         }
+        // A send that cannot finish in 10 s means the connection is dead whatever it looks like: it is dropped, and the
+        // loop connects again. (Sends are chained, so one hung send would otherwise hold every later one.)
+        let limit = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if Task.isCancelled { return }
+            self?.trouble("a send to Axis did not finish in 10 s; connecting again")
+            self?.lock.withLock { self?.socket }?.cancel(with: .abnormalClosure, reason: nil)
+        }
+        defer { limit.cancel() }
         try await task.value
     }
 }

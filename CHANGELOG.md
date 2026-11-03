@@ -7,7 +7,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 ## Desktop app 0.14.1 (2026-11-03): no more "connected but deaf"
 
 - **Windows** (`AxisLink.cs`): messages and speech audio from Axis are handled on a worker of their own instead of inside the receive loop, so a blocked handler can no longer stop the app reading (it then stopped answering the server's pings too, yet looked connected on the dashboard, with no timers, progress or voice). The 15 s heartbeat no longer awaits its own ping, so its silence check always runs; every send gives up after 10 s and drops the connection; a handler that runs over 2 s (or 5 s and still going) is reported. Link state changes and these reports are now written to `%APPDATA%\VorteX Axis\desktop.log`. NOT verified on the owner's PC.
-- **Mac** (`AxisLink.swift`, Mac app next version): the heartbeat no longer awaits its ping (same cause). Not compiled or run.
+- **Mac 0.7.1** (`AxisLink.swift`): the same four changes, line for line: the heartbeat no longer awaits its ping, messages/audio/settings are handled in order on a worker (`AsyncStream`) instead of in the receive loop, a send that hangs 10 s drops the connection, and link state/trouble go to `~/Library/Logs/VorteX Axis/link.log`. Written on Linux; NOT compiled or run (build it on the Mac).
 
 ## Axis 0.75.0 (2026-11-03): per-entry volume trim, Speech page fixes
 
