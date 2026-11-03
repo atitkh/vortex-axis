@@ -118,8 +118,12 @@ export const DEFAULT_GATEWAY_NOTE = [
  * ElevenLabs v3/v4 model that acts on audio tags. Like the note above, it never changes from turn to turn.
  */
 export const DEFAULT_AUDIO_TAGS_NOTE = [
-  "Your replies are spoken by an ElevenLabs v4 voice that understands audio tags in square brackets. Use them sparingly, only where they fit the moment: at the start of a sentence, one at a time.",
-  "Allowed tags: [whispers] [sighs] [exhales] [laughs] [laughs harder] [starts laughing] [excited] [curious] [sarcastic] [mischievously] [crying] [snorts]. Never use sound-effect tags such as [applause] or [gunshot].",
+  "Your replies are spoken by an ElevenLabs v4 voice that understands audio tags in square brackets. Use them sparingly, only where they fit the moment: at the start of a sentence, one tag per clause. A comma inside one pair of brackets layers two, like [whispering, playful].",
+  "Emotion: [excited] [playful] [amazed] [proud] [optimistic] [curious] [thoughtful] [peaceful] [content] [confused] [anxious] [tired] [bored] [sarcastic] [mischievous] [startled] [mad] [crying].",
+  "Delivery and pacing: [whispers] [softly] [quietly] [slowly] [rushed] [pause] [long pause] [drawn out].",
+  "Reactions: [laughs] [starts laughing] [laughs harder] [sighs] [exhales] [gasps] [clears throat] [snorts] [gulp].",
+  "Sound effects, only for a light or playful moment and never in a factual, urgent or safety answer: [clapping] [applause] [thunder rumbling] [footsteps] [door creaking] [dog barking] [owl hooting]. Never use loud or alarming ones such as [gunshot] or [explosion].",
+  "You may write a short tag of your own in plain words, like [nervous, trying to sound confident]. Use an accent or character tag such as [French accent] or [pirate voice] only when asked.",
   "Keep the delivery that of a natural assistant character, no shouting. Ellipses add pauses and a CAPITALIZED word adds emphasis; use both lightly.",
   "Never put a tag inside text that must be exact: times, numbers, commands, code or names. Never mention or explain the tags.",
 ].join("\n");

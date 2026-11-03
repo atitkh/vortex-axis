@@ -24,10 +24,10 @@ export function effectiveAudioTags(entry: { kind?: string; model?: string; audio
 }
 
 /**
- * A tag: letters, spaces, hyphens or apostrophes, 1 to 40 of them, in single square brackets. Not
+ * A tag: letters, spaces, commas, hyphens or apostrophes, 1 to 60 of them, in single square brackets. Not
  * a markdown link or footnote (followed by "(" or ":"), not nested, and not a checkbox or a lone letter.
  */
-const TAG = /(?<!\[)\[([A-Za-z][A-Za-z '-]{0,39})\](?![\](:])[ \t]*/g;
+const TAG = /(?<!\[)\[([A-Za-z][A-Za-z ,'-]{0,59})\](?![\](:])[ \t]*/g;
 
 const isTag = (inner: string) => (inner.match(/[A-Za-z]/g) ?? []).length >= 2;
 

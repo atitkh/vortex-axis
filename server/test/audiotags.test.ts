@@ -48,8 +48,19 @@ describe("stripAudioTags", () => {
     expect(stripAudioTags("It's [don't-stop] fine")).toBe("It's fine");
   });
 
+  it("takes layered tags (a comma inside one pair of brackets) out", () => {
+    expect(stripAudioTags("[whispering, playful] Guess what.")).toBe("Guess what.");
+    expect(stripAudioTags("Fine. [nervous, trying to sound confident] Here goes.")).toBe("Fine. Here goes.");
+  });
+
+  it("takes out every tag the built-in note offers, and nothing else of it", () => {
+    const tags = DEFAULT_AUDIO_TAGS_NOTE.match(/\[[^\]]+\]/g) ?? [];
+    expect(tags.length).toBeGreaterThan(40);
+    for (const t of tags) expect(stripAudioTags(`${t} Hello.`), t).toBe("Hello.");
+  });
+
   it("leaves ordinary text alone", () => {
-    for (const t of ["see [1]", "see [link](http://x)", "done [x]", "todo [ ] item", "[X] ok", "a [b: c] d", "note[1]: text", "[[whispers]]", "[a]", "[two\nlines]", "[]", "plain text", "[abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz]", "[é]x"]) {
+    for (const t of ["see [1]", "see [link](http://x)", "done [x]", "todo [ ] item", "[X] ok", "a [b: c] d", "note[1]: text", "[[whispers]]", "[a]", "[two\nlines]", "[]", "plain text", "[abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz]", "[é]x"]) {
       expect(stripAudioTags(t), t).toBe(t);
     }
   });

@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.75.1 (2026-11-03): richer built-in audio tags note
+
+- **The built-in audio tags note** (`DEFAULT_AUDIO_TAGS_NOTE` in `server/src/agent.ts`, the one default appended to BOTH the OpenClaw agent's note and a chat endpoint's system prompt while tags are in use; an empty "Audio tags note" box means this one, `-` means none) now lists ElevenLabs' own v4 tag families (blog "Audio Tags list", docs best-practices): emotion, delivery and pacing, reactions, and a few sound effects (`[clapping] [applause] [thunder rumbling] [footsteps] [door creaking] [dog barking] [owl hooting]`) for light moments only, never loud ones (`[gunshot]`, `[explosion]`). It tells the agent it may layer tags with a comma (`[whispering, playful]`) or write its own short plain-words tag, and to use accent/character tags only when asked. It used to name 12 tags and ban all sound effects.
+- **Layered tags are stripped too** (`server/src/audiotags.ts`): a tag may now hold commas and be up to 60 characters, so `[whispering, playful]` no longer shows on a screen or reaches a voice that cannot act on it. Tested against every tag in the built-in note.
+- Not heard on a real v4 voice: how well the new effects land is for the owner's ears. A custom note saved on the Agent page is unchanged and keeps winning.
+
 ## Desktop app 0.14.1 (2026-11-03): no more "connected but deaf"
 
 - **Windows** (`AxisLink.cs`): messages and speech audio from Axis are handled on a worker of their own instead of inside the receive loop, so a blocked handler can no longer stop the app reading (it then stopped answering the server's pings too, yet looked connected on the dashboard, with no timers, progress or voice). The 15 s heartbeat no longer awaits its own ping, so its silence check always runs; every send gives up after 10 s and drops the connection; a handler that runs over 2 s (or 5 s and still going) is reported. Link state changes and these reports are now written to `%APPDATA%\VorteX Axis\desktop.log`. NOT verified on the owner's PC.
