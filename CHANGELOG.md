@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.75.2 (2026-11-04): release that bundles the newest desktop app
+
+- No server change. A release cut so the bundle carries the Windows desktop app 0.14.2 (reconnect at once after a drop; 0.14.1's receive-loop and heartbeat fixes) instead of the 0.14.0 inside `v0.75.1`. The Mac app 0.7.2 is built by hand and is not part of the bundle.
+
 ## Mac desktop app 0.7.2 (2026-11-04): reconnect at once after a drop
 
 - `AxisLink.swift`: the same reset of the reconnect wait as Windows 0.14.2. Written on Linux; NOT compiled or run. Why the Mac showed no pills and stuck on "hearing you" after sleep is NOT found: the server has not seen the Mac connect at all since 2026-11-03 21:32 UTC, so its `~/Library/Logs/VorteX Axis/link.log` is needed.
