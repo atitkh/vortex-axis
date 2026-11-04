@@ -149,6 +149,9 @@ public sealed class AxisLink : IAsyncDisposable
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception e) { why = e.Message; }
+            // A connection that had been up is not a failed attempt: the drop that follows is tried again at once, not
+            // after the 30 s a run of failures earns (the log showed a 30 s blind gap after every proxy drop).
+            if (State == LinkState.Online) attempt = 0;
             var wait = BackoffSeconds[Math.Min(attempt++, BackoffSeconds.Length - 1)];
             SetState(LinkState.Offline, why ?? "connection closed");
             // Waited in slices, so a wake or a network coming back cuts the wait short.

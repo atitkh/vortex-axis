@@ -4,6 +4,14 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Mac desktop app 0.7.2 (2026-11-04): reconnect at once after a drop
+
+- `AxisLink.swift`: the same reset of the reconnect wait as Windows 0.14.2. Written on Linux; NOT compiled or run. Why the Mac showed no pills and stuck on "hearing you" after sleep is NOT found: the server has not seen the Mac connect at all since 2026-11-03 21:32 UTC, so its `~/Library/Logs/VorteX Axis/link.log` is needed.
+
+## Desktop app 0.14.2 (2026-11-04): reconnect at once after a drop
+
+- `AxisLink.cs`: the wait before reconnecting only grows over failed attempts; a connection that had been Online now starts over at 1 s. Before, an app whose link was dropped every 20 to 60 minutes (the proxy closes the socket without a close handshake, seen in `desktop.log`) waited 30 s each time, with no timers, progress or voice for that long. The first 1 s attempt also gets Axis's current progress and timers, which the server sends on every connect. NOT verified on the owner's PC.
+
 ## Axis 0.75.1 (2026-11-03): richer built-in audio tags note
 
 - **The built-in audio tags note** (`DEFAULT_AUDIO_TAGS_NOTE` in `server/src/agent.ts`, the one default appended to BOTH the OpenClaw agent's note and a chat endpoint's system prompt while tags are in use; an empty "Audio tags note" box means this one, `-` means none) now lists ElevenLabs' own v4 tag families (blog "Audio Tags list", docs best-practices): emotion, delivery and pacing, reactions, and a few sound effects (`[clapping] [applause] [thunder rumbling] [footsteps] [door creaking] [dog barking] [owl hooting]`) for light moments only, never loud ones (`[gunshot]`, `[explosion]`). It tells the agent it may layer tags with a comma (`[whispering, playful]`) or write its own short plain-words tag, and to use accent/character tags only when asked. It used to name 12 tags and ban all sound effects.

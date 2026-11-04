@@ -287,6 +287,9 @@ public final class AxisLink: @unchecked Sendable {
                 if Task.isCancelled { return }
                 why = describeError(error)
             }
+            // A connection that had been up is not a failed attempt: the drop that follows is tried again at once, not
+            // after the 30 s a run of failures earns (the Windows log showed a 30 s blind gap after every proxy drop).
+            if state == .online { attempt = 0 }
             let wait = Self.backoffSeconds[min(attempt, Self.backoffSeconds.count - 1)]
             attempt += 1
             setState(.offline, why ?? "connection closed")
