@@ -80,6 +80,33 @@ final class HeardBox: @unchecked Sendable {
     var silentFor: Double { lock.withLock { Double(DispatchTime.now().uptimeNanoseconds - at.uptimeNanoseconds) / 1e9 } }
 }
 
+/** A value set once, by whoever gets there first; whoever waits on it gets that value. */
+final class Settle<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T?
+    private var waiting: CheckedContinuation<T, Never>?
+    func finish(_ v: T) {
+        let c: CheckedContinuation<T, Never>? = lock.withLock {
+            if value != nil { return nil }
+            value = v
+            let w = waiting
+            waiting = nil
+            return w
+        }
+        c?.resume(returning: v)
+    }
+    func wait() async -> T {
+        await withCheckedContinuation { (c: CheckedContinuation<T, Never>) in
+            let ready: T? = lock.withLock {
+                if let v = value { return v }
+                waiting = c
+                return nil
+            }
+            if let ready { c.resume(returning: ready) }
+        }
+    }
+}
+
 /** A flag shared with a callback. */
 final class PongBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -138,6 +165,10 @@ public final class AxisLink: @unchecked Sendable {
     private var settingsVersion = 0
     private var _state = LinkState.stopped
     private var woke = false
+    /** Which connection attempt is the current one: an attempt given up on (below) must not report itself online. */
+    private var generation = 0
+    /** When Axis was last heard from on the current attempt, for the watchdog in `run`. */
+    private var heardNow: HeardBox?
     #if canImport(Network)
     private var pathWatch: NWPathMonitor?
     #endif
@@ -278,7 +309,7 @@ public final class AxisLink: @unchecked Sendable {
             setState(.connecting, nil)
             var why: String?
             do {
-                if let refused = try await connection() {
+                if let refused = try await attemptConnection() {
                     setState(.refused, refused)
                     return
                 }
@@ -306,8 +337,52 @@ public final class AxisLink: @unchecked Sendable {
         }
     }
 
+    /**
+     * One connection, to its end, with a watchdog. After a sleep the system's socket can be left in a state where
+     * `receive` never returns, not even when the task is cancelled (the link.log of 2026-11-04 ended at "online" with
+     * nothing after the wake, and a stack sample showed every thread idle): a connection that is not over 4 s after a
+     * wake or a nudge, or that has heard nothing for 60 s, is given up on and left behind, and the loop connects again.
+     */
+    private func attemptConnection() async throws -> String? {
+        let gen: Int = lock.withLock { generation += 1; return generation }
+        let outcome = Settle<Result<String?, Error>>()
+        let work = Task { [weak self] in
+            guard let self else { outcome.finish(.success(nil)); return }
+            do { outcome.finish(.success(try await self.connection(gen))) } catch { outcome.finish(.failure(error)) }
+        }
+        let watchdog = Task { [weak self] in
+            var wokeFor = 0
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+                guard let self else { return }
+                let (woken, heard) = self.lock.withLock { (self.woke, self.heardNow) }
+                wokeFor = woken ? wokeFor + 250 : 0
+                if wokeFor > 4000 {
+                    Self.log("watchdog: the connection did not end 4 s after a wake; giving up on it")
+                    outcome.finish(.failure(DesktopError("the connection did not end after a wake")))
+                    return
+                }
+                if let heard, heard.silentFor > 60 {
+                    Self.log("watchdog: nothing heard for 60 s; giving up on the connection")
+                    outcome.finish(.failure(DesktopError("nothing heard from Axis for 60 s")))
+                    return
+                }
+            }
+        }
+        let result = await outcome.wait()
+        watchdog.cancel()
+        // Whatever is left of an attempt given up on is cancelled and no longer counts.
+        let abandoned: URLSessionWebSocketTask? = lock.withLock {
+            if generation == gen { generation += 1 }
+            return socket
+        }
+        abandoned?.cancel(with: .goingAway, reason: nil)
+        work.cancel()
+        return try result.get()
+    }
+
     /** One connection, to its end. Returns why Axis refused this client for good, or nil for an ordinary drop. */
-    private func connection() async throws -> String? {
+    private func connection(_ gen: Int) async throws -> String? {
         let request = URLRequest(url: address.socket, timeoutInterval: 15)
         let ws = session.webSocketTask(with: request)
         // Axis's documented limit for a JSON frame.
@@ -321,6 +396,7 @@ public final class AxisLink: @unchecked Sendable {
         }
         defer { ws.cancel(with: .goingAway, reason: nil) }
         let heard = HeardBox()
+        lock.withLock { heardNow = heard }
         let pinging = Task { [weak self, weak ws] in
             // A `ping` to Axis every 15 s (it answers `pong`); a connection that has said nothing for 40 s is dead
             // (after a sleep or a network change the socket can look open for minutes): dropped, so the loop connects again.
@@ -386,7 +462,8 @@ public final class AxisLink: @unchecked Sendable {
             switch t {
             case "welcome":
                 try await send(describeMessage())
-                setState(.online, nil)
+                // Not for an attempt that was given up on meanwhile.
+                if lock.withLock({ generation == gen }) { setState(.online, nil) }
             case "settings":
                 if let v = root["version"]?.intValue { lock.withLock { settingsVersion = v } }
                 let values = root["values"]?.objectValue ?? [:]
