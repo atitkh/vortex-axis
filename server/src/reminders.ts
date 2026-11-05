@@ -88,7 +88,7 @@ export class Reminders {
   private zone: string;
 
   constructor(private readonly options: RemindersOptions) {
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => Date.now());
     this.log = options.log ?? (() => {});
     this.retryMs = options.retryMs ?? 300_000;
     this.chimeMs = options.chimeMs ?? 900;

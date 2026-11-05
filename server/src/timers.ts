@@ -67,7 +67,7 @@ export class Timers {
     this.store = options.store;
     this.hub = options.hub;
     this.activity = options.activity;
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => Date.now());
     this.log = options.log ?? (() => {});
     this.retryMs = options.retryMs ?? RETRY_MS;
     this.chimeMs = options.chimeMs ?? 900;

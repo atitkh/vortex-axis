@@ -516,6 +516,7 @@ public class HelperTest {
         helper.pause("test");
         int keepStartMs = helper.startMs;
         helper.startMs = 700;
+        fh.die(); // nothing may answer at the port: a helper left running by an earlier step would be taken up as "already running"
         helper.tick();
         check(helper.state() == Helper.State.BASIC && helper.detail().contains("the helper got as far as: onCreate (pid 1, uid 10124, port"),
                 "Basic, and the message says how far it got: " + helper.detail());
