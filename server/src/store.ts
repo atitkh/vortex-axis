@@ -392,7 +392,16 @@ export class Store {
       this.db = new DatabaseSync(":memory:");
     } else {
       mkdirSync(dataDir, { recursive: true });
-      this.db = new DatabaseSync(join(dataDir, "axis.sqlite"));
+      try {
+        this.db = new DatabaseSync(join(dataDir, "axis.sqlite"));
+      } catch (error) {
+        const who = typeof process.getuid === "function" ? ` (running as user ${process.getuid()})` : "";
+        throw new Error(
+          `Cannot open ${join(dataDir, "axis.sqlite")}${who}: ${error instanceof Error ? error.message : String(error)}. ` +
+            "The data folder must be writable by that user; with Docker, create the folder before the first start or let the image's entrypoint start as root.",
+          { cause: error },
+        );
+      }
       // The file holds the gateway's private key, the push keys and every token's hash: for this user only.
       // Best effort: a data folder on a share may not take modes.
       for (const [path, mode] of [[dataDir, 0o700], [join(dataDir, "axis.sqlite"), 0o600]] as const) {

@@ -8,7 +8,7 @@ What exists today: client pairing, per-client tokens, settings sync, wake word a
 
 ```bash
 cp .env.example .env      # set AXIS_ADMIN_TOKEN; the rest can be done on the admin page
-mkdir -p data             # or the folder AXIS_DATA_PATH names
+mkdir -p data             # or the folder AXIS_DATA_PATH names (Axis runs as whoever owns it; if Docker makes it, it is handed to the image's user)
 docker compose up -d --build
 curl http://localhost:8440/healthz
 ```

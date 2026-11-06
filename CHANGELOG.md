@@ -4,6 +4,11 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased: first start on a fresh machine, and a how-it-works page
+
+- **The data folder no longer has to belong to user 1000.** A fresh Docker host where the folder was made by root (Docker creates it when it is missing) or by a user that is not id 1000 stopped at start with `unable to open database file`. The image now starts as root only to look at who owns `/data`, then runs Axis as that user (a root-owned folder is handed to the image's `node` user). Checked with a root-owned, a 1000-owned and a 1001-owned folder. The error for a database that cannot be opened now names the folder and the user.
+- `docs/how-it-works.md`: what Axis does, where the conversation goes, choosing the agent, switching conversations, what to run, and what is rough, for someone new to the repository.
+
 ## Mac desktop app 0.7.3 (2026-11-05): a link that hangs after a sleep is given up on
 
 - The Mac showed "online" in its window and nothing worked after a sleep, while Axis saw it offline. The link.log of 2026-11-04 ended at `online` with no line after the wake, and a stack sample showed every thread idle: the connection's `receive` never returned, even cancelled, so the reconnect loop never ran. A watchdog now gives up on a connection that is not over 4 s after a wake (or a network return), or that has heard nothing for 60 s, leaves it behind and connects again; an attempt given up on cannot report itself online. Written on Linux with no Swift toolchain: not built, not tried. Untested on a real sleep; the first check is `link.log` showing `watchdog:` lines and `connecting` after a wake.

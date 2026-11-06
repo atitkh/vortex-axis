@@ -38,10 +38,12 @@ COPY --from=build /app/esp-web-tools flasher/esp-web-tools
 # Board firmware and the Windows desktop app and the Quest client, when this is a release image (empty otherwise): a fresh hub
 # can update boards and offer the app from the start (server/src/bundled.ts, desktopapp.ts).
 COPY bundled bundled
-RUN mkdir -p /data /backup && chown node:node /data /backup
-USER node
+# Started as root only to pick the user (docker-entrypoint.sh): Axis itself runs as the owner of /data, never as root.
+RUN apk add --no-cache su-exec && mkdir -p /data /backup && chown node:node /data /backup
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 VOLUME /data
 EXPOSE 8440
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
   CMD wget -qO- http://127.0.0.1:8440/healthz || exit 1
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server/dist/index.js"]

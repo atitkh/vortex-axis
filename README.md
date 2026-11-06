@@ -52,6 +52,8 @@ Every board, and the web page, shows the same face. It listens, thinks, speaks a
 
 ## Quick start
 
+New here? [docs/how-it-works.md](docs/how-it-works.md) explains what you are about to run.
+
 You need Docker. Speech models are fetched on first start (about 250 MB).
 
 ```bash
@@ -91,6 +93,7 @@ A release image comes with the board firmware, the Windows app and the Quest app
 
 ## Where to read more
 
+- [docs/how-it-works.md](docs/how-it-works.md): start here: what Axis does, where a conversation goes, how to point it at an agent, switching conversations, what you need to run it, and what is rough.
 - [docs/setup.md](docs/setup.md): addresses and HTTPS, agents and MCP, backups, speech, pairing with OpenClaw, the admin API, developing.
 - [docs/hardware.md](docs/hardware.md): the board, the computer app, a phone, and making your own device.
 - [docs/design.md](docs/design.md): how it works and why.
