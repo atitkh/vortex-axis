@@ -7,6 +7,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 ## Unreleased: first start on a fresh machine, and a how-it-works page
 
 - **The data folder no longer has to belong to user 1000.** A fresh Docker host where the folder was made by root (Docker creates it when it is missing) or by a user that is not id 1000 stopped at start with `unable to open database file`. The image now starts as root only to look at who owns `/data`, then runs Axis as that user (a root-owned folder is handed to the image's `node` user). Checked with a root-owned, a 1000-owned and a 1001-owned folder. The error for a database that cannot be opened now names the folder and the user.
+- **The same for the speech services.** The speech image (`speech/`) also ran as user 1000 and stopped with `PermissionError: ... '/models/tmp...'` when the models folder was root-owned or another user's. It now starts through the same kind of entrypoint and runs as the owner of `/models` (a root-owned folder is handed to the image's user). Checked with root-, 1000- and 1001-owned folders.
 - `docs/how-it-works.md`: what Axis does, where the conversation goes, choosing the agent, switching conversations, what to run, and what is rough, for someone new to the repository.
 
 ## Mac desktop app 0.7.3 (2026-11-05): a link that hangs after a sleep is given up on

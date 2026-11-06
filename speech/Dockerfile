@@ -9,8 +9,10 @@ RUN pip install sherpa-onnx==1.13.8 numpy soundfile soxr
 WORKDIR /app
 COPY common.py stt.py tts.py voiceprint.py ./
 RUN useradd --uid 1000 --no-create-home speech && mkdir -p /models && chown speech /models
-USER speech
+# Started as root only to pick the user (docker-entrypoint.sh): the service itself runs as the owner of /models, never as root.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 VOLUME /models
 HEALTHCHECK --interval=30s --timeout=3s --start-period=600s \
   CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/health', timeout=2)" || exit 1
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "stt.py"]
