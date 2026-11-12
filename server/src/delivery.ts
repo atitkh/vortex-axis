@@ -184,12 +184,12 @@ export class Delivery {
   }
 
   /**
-   * Marks dropped what was kept and can no longer be said (the cap of five or a quiet hour dropped it), then deletes
-   * notifications past their retention. A kept message whose time is up is no longer said, but stays on record until then.
+   * Marks dropped what was kept and can no longer be said (its window lapsed, or the cap of five or a quiet hour dropped it),
+   * then deletes notifications past their retention. A dropped one stays on record until then.
    */
   prune(): void {
     const now = this.now();
-    this.options.store.dropUnheldNotifications();
+    this.options.store.dropUnheldNotifications(now);
     this.options.store.sweepNotifications(now);
   }
 

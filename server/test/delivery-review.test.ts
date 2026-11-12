@@ -92,6 +92,20 @@ describe("notification rows do not stay pending or held for ever", () => {
     expect(statusOf("Kept for the box.")).toBe("dropped");
   });
 
+  it("pruning marks dropped a held one whose window lapsed, urgent or not", async () => {
+    const { delivery } = setup();
+    const porch = clientOf("porch");
+    await delivery.sayTo(porch, "Lapsed.");
+    await delivery.sayTo(porch, "Lapsed urgent.", true);
+    now += HOLD / 2;
+    delivery.prune();
+    expect(statusOf("Lapsed.")).toBe("held");
+    now += HOLD;
+    delivery.prune();
+    expect(statusOf("Lapsed.")).toBe("dropped");
+    expect(statusOf("Lapsed urgent.")).toBe("dropped");
+  });
+
   it("pruning leaves a delivered one alone, and a held one still kept", async () => {
     const { delivery, connect } = setup();
     await delivery.sayOn(connect(clientOf("desk")), "Said.");

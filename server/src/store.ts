@@ -933,13 +933,13 @@ export class Store {
     return row.n;
   }
 
-  /** Marks `dropped` every held notification with no delivery still held (the cap or a quiet hour dropped them all). Returns how many. */
-  dropUnheldNotifications(): number {
+  /** Marks `dropped` every held notification with no delivery still held inside its window. Returns how many. */
+  dropUnheldNotifications(now: number): number {
     const result = this.db
       .prepare(
-        "UPDATE notifications SET status = 'dropped' WHERE status = 'held' AND NOT EXISTS (SELECT 1 FROM notification_deliveries d WHERE d.notification_id = notifications.id AND d.state = 'held')",
+        "UPDATE notifications SET status = 'dropped' WHERE status = 'held' AND NOT EXISTS (SELECT 1 FROM notification_deliveries d WHERE d.notification_id = notifications.id AND d.state = 'held' AND (d.until IS NULL OR d.until > ?))",
       )
-      .run();
+      .run(now);
     return Number(result.changes);
   }
 

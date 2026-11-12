@@ -504,7 +504,7 @@ describe("delivery, kept in the notifications table", () => {
     await invoke("vortex.axis.say", { text: "Too late.", client: "Porch" });
     await sleep(120);
     ctx.app.delivery.prune();
-    expect(row("Too late.")).toMatchObject({ status: "held" });
+    expect(row("Too late.")).toMatchObject({ status: "dropped" });
     expect(ctx.app.delivery.waitingFor(identity.clientId)).toBe(4);
   });
 });
