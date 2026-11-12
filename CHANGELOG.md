@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased: notifications kept on record
+
+- **Held, pushed and missed messages survive a restart.** Everything Axis sends an agent to say, show or ask is now a row in a new `notifications` table, with one row per device in `notification_deliveries`. The held and missed queues are read from these tables instead of memory, so a restart no longer loses a message held for a device that is away, a message pushed to a closed browser, or a missed question. Reminder firings are recorded too, linked to their reminder. Missed questions and missed reminders stay until dismissed; other low and normal notifications are kept 7 days, and each source is capped at 500 rows. A question still open at a restart becomes missed. Still to come: the webhook route, the inbox page and the ask agent. Tests: `server/test/notifications.test.ts`, `delivery.test.ts`, `reminders.test.ts`.
+
 ## Unreleased: first start on a fresh machine, and a how-it-works page
 
 - **The data folder no longer has to belong to user 1000.** A fresh Docker host where the folder was made by root (Docker creates it when it is missing) or by a user that is not id 1000 stopped at start with `unable to open database file`. The image now starts as root only to look at who owns `/data`, then runs Axis as that user (a root-owned folder is handed to the image's `node` user). Checked with a root-owned, a 1000-owned and a 1001-owned folder. The error for a database that cannot be opened now names the folder and the user.
