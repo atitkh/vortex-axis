@@ -453,3 +453,57 @@ describe("reminders", () => {
     });
   });
 });
+
+describe("reminders, kept in the notifications table", () => {
+  it("a delivered reminder is one reminder notification linked to it, and survives its one-off row", async () => {
+    const desk = await device("Desk");
+    const row = add();
+    ctx.app.reminders.start();
+    await hearOut(desk);
+    await sleep(100);
+    expect(ctx.app.store.listReminders().find((r) => r.id === row.id)).toBeUndefined();
+    const kept = ctx.app.store.listNotifications({ source: "reminder" });
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ reminderId: row.id, status: "heard" });
+    expect(kept[0]!.body).toContain("Take the pills");
+    expect(kept[0]!.deliveredAt).toBeDefined();
+    expect(ctx.app.store.notificationsForReminder(row.id)).toHaveLength(1);
+  });
+
+  it("everywhere writes one row for all devices", async () => {
+    const a = await device("A");
+    const b = await device("B");
+    ctx.app.reminders.stop();
+    const own = new Reminders({ store: ctx.app.store, hub: ctx.app.hub, progress: ctx.app.progress, delivery: ctx.app.delivery, timeZone: () => "America/Chicago" });
+    const row = add({ everywhere: true, dueAt: Date.now() + 50 });
+    own.start();
+    await hearOut(a);
+    await hearOut(b);
+    await sleep(100);
+    own.stop();
+    const rows = ctx.app.store.listNotifications({ source: "reminder" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ reminderId: row.id, everywhere: true, body: "Reminder: Take the pills." });
+  });
+
+  it("a missed reminder is kept past the sweep until dismissed, then the next sweep removes it", async () => {
+    ctx.app.reminders.stop();
+    const own = new Reminders({ store: ctx.app.store, hub: ctx.app.hub, progress: ctx.app.progress, timeZone: () => "America/Chicago", retryMs: 100 });
+    const row = add({ dueAt: Date.now() + 50 });
+    own.start();
+    await sleep(500);
+    own.stop();
+    const [missed] = ctx.app.store.notificationsForReminder(row.id);
+    expect(missed).toMatchObject({ source: "reminder", status: "missed" });
+    expect(missed!.expiresAt).toBeUndefined();
+    const far = Date.now() + 30 * 86_400_000;
+    ctx.app.store.sweepNotifications(far);
+    expect(ctx.app.store.notificationsForReminder(row.id)).toHaveLength(1);
+    expect(ctx.app.reminders.dismiss({ id: row.id })).toHaveLength(1);
+    const [gone] = ctx.app.store.notificationsForReminder(row.id);
+    expect(gone!.dismissedAt).toBeDefined();
+    expect(gone!.expiresAt).toBeDefined();
+    ctx.app.store.sweepNotifications(Date.now() + 1000);
+    expect(ctx.app.store.notificationsForReminder(row.id)).toHaveLength(0);
+  });
+});

@@ -167,6 +167,10 @@ export class Reminders {
     if (match.id === undefined && !match.all) return [];
     const gone = this.list().filter((r) => r.missedAt !== undefined && (match.id === undefined || r.id === match.id));
     for (const r of gone) {
+      const now = this.now();
+      for (const n of this.options.store.notificationsForReminder(r.id)) {
+        if (n.status === "missed" && n.dismissedAt === undefined) this.options.store.updateNotification(n.id, { dismissedAt: now, expiresAt: now });
+      }
       if (r.timeOfDay) this.options.store.updateReminder(r.id, { missedAt: undefined, missedCount: 0 });
       else this.options.store.removeReminder(r.id);
     }
@@ -313,12 +317,15 @@ export class Reminders {
     const plain = r.text.replace(/[.!?]+$/, "");
     const staticLine = `Reminder: ${plain}.${late ? ` It was due ${late} ago.` : ""}`;
     const route = this.route(r);
+    const nid = this.row(r, staticLine);
     // The phone's activity goes to "due" now, and sounds unless the reminder is being said quietly.
     this.fired.set(r.id, { text: r.text, dueAt: r.dueAt ?? this.now(), at: this.now(), quiet: route.kind === "hush" || route.kind === "push" });
     this.changed();
     if (route.kind === "everywhere") {
-      const result = await this.options.delivery!.sayToAll(r.location, staticLine, r.urgent);
+      this.options.store.updateNotification(nid, { everywhere: !r.location?.trim() });
+      const result = await this.options.delivery!.sayToAll(r.location, staticLine, r.urgent, { id: nid, reminderId: r.id });
       const delivered = result.clients.some((c) => c.heard || c.shown);
+      this.settle(nid, delivered ? (result.heard ? "heard" : "delivered") : "pending");
       activity?.note("reminder", "", `Reminder said everywhere${delivered ? "" : " (not confirmed)"}: ${r.text}`);
       return delivered;
     }
@@ -328,6 +335,7 @@ export class Reminders {
     if (route.kind === "push") {
       const sent = (await this.options.notifyAll?.("Reminder", staticLine, `reminder-${r.id}`).catch(() => 0)) ?? 0;
       activity?.note("reminder", "", `Reminder in quiet hours with no screen: ${sent > 0 ? "sent as a notification" : "no notification sent"}: ${r.text}`, sent > 0 ? "info" : "warn");
+      this.settle(nid, sent > 0 ? "delivered" : "pending");
       return sent > 0;
     }
     if (route.kind === "hush") {
@@ -335,6 +343,7 @@ export class Reminders {
       this.options.tellPhones?.("Reminder", r.text, `reminder-${r.id}`);
       const shown = await hub.say(route.session, staticLine, { silent: true }).then(() => true, () => false);
       activity?.note("reminder", route.session.client.id, `Reminder ${shown ? "shown quietly" : "could not be shown"} on ${route.session.client.name}: ${r.text}`, shown ? "info" : "warn");
+      this.settle(nid, shown ? "delivered" : "pending");
       return shown;
     }
     const { session } = route;
@@ -363,7 +372,27 @@ export class Reminders {
     }
     const delivered = heard || handedOver || screens > 0 || (shown && session.client.capabilities.includes("screen"));
     activity?.note("reminder", session.client.id, `Reminder said on ${session.client.name}${delivered ? "" : " (not confirmed)"}: ${r.text}`);
+    this.settle(nid, heard ? "heard" : delivered ? "delivered" : "pending");
     return delivered;
+  }
+
+  /** The notification row of this firing: the reminder's pending one (a retry reuses it), else a new one. */
+  private row(r: ReminderRecord, body: string): number {
+    const { store } = this.options;
+    const open = store.notificationsForReminder(r.id).filter((n) => n.status === "pending").pop();
+    if (open) return open.id;
+    return store.addNotification({
+      source: "reminder", body, priority: r.urgent ? "urgent" : "normal", everywhere: false, retain: false, reminderId: r.id,
+      ...(r.clientId ? { clientId: r.clientId } : {}), ...(r.location ? { location: r.location } : {}), status: "pending",
+    }).id;
+  }
+
+  /** Marks the row with how the firing went; "pending" (not delivered yet) is left for the retry or for miss. */
+  private settle(id: number, status: "pending" | "delivered" | "heard"): void {
+    if (status === "pending") return;
+    const now = this.now();
+    const updated = this.options.store.updateNotification(id, { status, deliveredAt: now, ...(status === "heard" ? { heardAt: now } : {}) });
+    if (!updated) this.log(`reminder notification ${id} is gone, not marked ${status}`);
   }
 
   /** Delivered: a one-off is finished with; a repeating one moves to its next time. */
@@ -383,6 +412,10 @@ export class Reminders {
     } else {
       this.options.store.updateReminder(r.id, { dueAt: undefined, attempts: 0, retryAt: undefined, missedAt, missedCount: r.missedCount + 1 });
     }
+    // Kept until dismissed: no expiry, so the 7-day sweep leaves it.
+    const open = this.options.store.notificationsForReminder(r.id).filter((n) => n.status === "pending").pop();
+    const nid = open?.id ?? this.row(r, `Reminder: ${r.text.replace(/[.!?]+$/, "")}.`);
+    this.options.store.updateNotification(nid, { status: "missed", expiresAt: undefined });
     this.options.activity?.note("reminder", r.clientId ?? "", `MISSED reminder (${why}): ${r.text}`, "warn");
   }
 
