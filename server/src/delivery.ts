@@ -183,9 +183,14 @@ export class Delivery {
     this.options.holdMs = holdMs;
   }
 
-  /** Deletes notifications past their retention. A kept message whose time is up is no longer said, but stays on record until then. */
+  /**
+   * Marks dropped what was kept and can no longer be said (the cap of five or a quiet hour dropped it), then deletes
+   * notifications past their retention. A kept message whose time is up is no longer said, but stays on record until then.
+   */
   prune(): void {
-    this.options.store.sweepNotifications(this.now());
+    const now = this.now();
+    this.options.store.dropUnheldNotifications();
+    this.options.store.sweepNotifications(now);
   }
 
   /** How many messages are waiting for a client, for the admin page. */
@@ -216,12 +221,15 @@ export class Delivery {
     }).id;
   }
 
-  /** Records how a notification went to one client and moves the notification's status forward to match. */
+  /**
+   * Records how a notification went to one client and moves the notification's status forward to match. A failed or dropped
+   * delivery marks a still-pending notification dropped, so it does not stay pending for ever.
+   */
   private delivered(id: number, clientId: string, route: DeliveryRoute, state: DeliveryState, until?: number): void {
     const at = this.now();
     this.options.store.setDelivery({ notificationId: id, clientId, route, state, at, until });
     const status: NotificationStatus | undefined =
-      state === "heard" ? "heard" : state === "shown" || state === "pushed" ? "delivered" : state === "held" ? "held" : state === "dropped" ? "dropped" : undefined;
+      state === "heard" ? "heard" : state === "shown" || state === "pushed" ? "delivered" : state === "held" ? "held" : state === "dropped" || state === "failed" ? "dropped" : undefined;
     if (!status) return;
     const current = this.options.store.getNotification(id);
     if (!current) return;

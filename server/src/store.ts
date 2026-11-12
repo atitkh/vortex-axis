@@ -925,6 +925,16 @@ export class Store {
     return row.n;
   }
 
+  /** Marks `dropped` every held notification with no delivery still held (the cap or a quiet hour dropped them all). Returns how many. */
+  dropUnheldNotifications(): number {
+    const result = this.db
+      .prepare(
+        "UPDATE notifications SET status = 'dropped' WHERE status = 'held' AND NOT EXISTS (SELECT 1 FROM notification_deliveries d WHERE d.notification_id = notifications.id AND d.state = 'held')",
+      )
+      .run();
+    return Number(result.changes);
+  }
+
   /**
    * Deletes notifications past `expiresAt`, then those beyond SOURCE_CAP per source, oldest first. A pending or held one is never
    * removed by the cap. Returns how many rows went; their deliveries go with them.
