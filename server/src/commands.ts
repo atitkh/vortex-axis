@@ -588,8 +588,13 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           );
         }
         const result = await hub.ask(session, question.slice(0, 500), choices, ms);
-        // Its outcome is kept as an ask notification; the question itself lived only here.
-        delivery.recordAsk(session.client, question.slice(0, 500), choices, result);
+        // Its outcome is kept as an ask notification; the question itself lived only here. Not being able to keep it
+        // must not lose the answer the person gave.
+        try {
+          delivery.recordAsk(session.client, question.slice(0, 500), choices, result);
+        } catch (error) {
+          deps.activity?.note("agent", session.client.id, `The answer from ${session.client.name} could not be recorded: ${(error as Error).message}`, "warn");
+        }
         return {
           client: session.client.name,
           ...result,

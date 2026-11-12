@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Capability } from "@vortex-axis/protocol";
+import { createInvokeHandler } from "../src/commands.js";
 import { Reminders } from "../src/reminders.js";
 import type { TextToSpeech } from "../src/speech.js";
 import { connect, ctx, newPairedClient, useServer } from "./harness.js";
@@ -86,5 +87,24 @@ describe("a reminder that is cancelled or removed", () => {
     const rows = ctx.app.store.notificationsForReminder(fresh.id);
     expect(rows).toHaveLength(2);
     expect(rows[1]!.body).toContain("New words");
+  });
+});
+
+describe("a question answered on a connected device", () => {
+  it("still returns the answer when it cannot be recorded, and notes why", async () => {
+    const desk = await device("Desk", ["screen", "mic"]);
+    const { hub, store, timers, reminders, delivery, activity } = ctx.app;
+    const recorded = vi.spyOn(delivery, "recordAsk").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    const noted = vi.spyOn(activity, "note");
+    const invoke = createInvokeHandler({ hub, store, timers, reminders, timeZone: () => "America/Chicago", delivery, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0 });
+    const pending = invoke("vortex.axis.ask", { question: "Lights off?", choices: ["Yes", "No"], client: "Desk" }) as Promise<any>;
+    const ask = await desk.next("ask");
+    desk.send({ t: "answer", askId: ask.askId, choice: "No" });
+    expect(await pending).toMatchObject({ client: "Desk", answer: "No" });
+    expect(recorded).toHaveBeenCalledOnce();
+    expect(noted.mock.calls.some((c) => String(c[2]).includes("database is locked"))).toBe(true);
+    vi.restoreAllMocks();
   });
 });
