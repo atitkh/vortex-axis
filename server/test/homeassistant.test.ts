@@ -1,9 +1,12 @@
+import { createECDH, randomBytes } from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Agent } from "../src/agent.js";
 import { HomeAssistant } from "../src/homeassistant.js";
 import { topicMatches } from "../src/mqtt.js";
 import type { TextToSpeech } from "../src/speech.js";
-import { admin, ctx, ready, useServer } from "./harness.js";
+import { admin, ctx, newPairedClient, ready, restart, useServer } from "./harness.js";
 
 const tts: TextToSpeech = {
   format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 },
@@ -202,5 +205,97 @@ describe("home assistant", () => {
     await admin("DELETE", `/admin/clients/${id}`);
     await expect.poll(() => m.kept.get(`homeassistant/sensor/vortex_axis_${id}/state/config`), WAIT).toBe("");
     expect(m.kept.get(`homeassistant/notify/vortex_axis_${id}/say/config`)).toBe("");
+  });
+});
+
+/** A stand-in push service that counts what it is sent, and a phone (a browser with its page closed) subscribed to it. */
+async function closedPhone() {
+  const posts: Buffer[] = [];
+  const server = createHttpServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      posts.push(Buffer.concat(chunks));
+      res.writeHead(201).end();
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const keys = createECDH("prime256v1");
+  keys.generateKeys();
+  const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+  ctx.app.store.setPushSubscription(identity.clientId, {
+    endpoint: `http://127.0.0.1:${(server.address() as any).port}/push/abc`,
+    p256dh: keys.getPublicKey().toString("base64url"),
+    auth: randomBytes(16).toString("base64url"),
+  });
+  const waiting = () =>
+    fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+  return { identity, posts, waiting, close: () => server.close() };
+}
+
+async function awayOn() {
+  const m = await linked();
+  m.send("vortex-axis/hub/away/set", "ON");
+  await expect.poll(() => m.kept.get("vortex-axis/hub/away"), WAIT).toBe("ON");
+  return m;
+}
+
+describe("while Home Assistant says the person is away", () => {
+  it("puts an agent's question to the closed phone as a notification", async () => {
+    await restart({ mirrorQuestions: true }, { tts });
+    const phone = await closedPhone();
+    try {
+      await awayOn();
+      const gateway = ctx.app.gateway as unknown as { eventListeners: Set<(event: string, payload: any) => void> };
+      for (const listener of gateway.eventListeners)
+        listener("question.requested", {
+          id: "q-1",
+          expiresAtMs: Date.now() + 60_000,
+          questions: [{ questionId: "a", question: "Ship it now?", options: [{ label: "Yes" }, { label: "No" }] }],
+        });
+      await expect.poll(() => phone.posts.length, WAIT).toBe(1);
+      const { asks } = await phone.waiting();
+      expect(asks).toEqual([expect.objectContaining({ question: "Ship it now?", choices: ["Yes", "No"] })]);
+      const answered = await fetch(`${ctx.base}/v1/push/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: asks[0].id, token: asks[0].token, choice: "Yes" }),
+      });
+      expect(answered.status).toBe(200);
+    } finally {
+      phone.close();
+    }
+  });
+
+  it("sends the answer of a long run to the phone by push", async () => {
+    let release = () => {};
+    const agent: Agent = {
+      reply: (_message, signal, _onTool, _onState, _route, onRun) =>
+        (async function* () {
+          onRun?.({ runId: "run-1", sessionKey: "agent:main:vortex-axis" });
+          await new Promise<void>((resolve) => {
+            release = resolve;
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          if (!signal?.aborted) yield "The report is ready.";
+        })(),
+      target: async () => ({ sessionKey: "agent:main:vortex-axis", agentId: "main" }),
+      activeRun: async () => ({ active: false }),
+      healthy: async () => true,
+    };
+    await restart({ handoverMs: 150 }, { tts, agent });
+    const { client } = await ready(["screen"], { name: "Desk" });
+    const phone = await closedPhone();
+    try {
+      client.send({ t: "text", turnId: "t1", text: "write the report" });
+      await client.turn("t1", "idle");
+      await awayOn();
+      release();
+      // Pushed to the closed phone, not said on the desk; the page opened from it is handed the answer.
+      await expect.poll(() => phone.posts.length, WAIT).toBeGreaterThan(0);
+      await expect.poll(async () => (await phone.waiting()).messages, WAIT).toEqual(["About write the report: The report is ready."]);
+    } finally {
+      phone.close();
+    }
   });
 });
