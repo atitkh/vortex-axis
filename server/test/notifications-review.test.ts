@@ -47,3 +47,44 @@ describe("an everywhere reminder that is not delivered", () => {
     expect(rows.map((n) => n.status)).toEqual(["missed"]);
   });
 });
+
+describe("a reminder that is cancelled or removed", () => {
+  it("drops the row of a firing still waiting for its retry", async () => {
+    await device("Box", ["speaker", "mic"]);
+    vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+    const own = engine({ retryMs: 60_000, notifyAll: async () => 0 });
+    const r = addReminder();
+    own.start();
+    await sleep(200);
+    expect(ctx.app.store.listReminders().find((x) => x.id === r.id)).toMatchObject({ attempts: 1 });
+    expect(ctx.app.store.notificationsForReminder(r.id).map((n) => n.status)).toEqual(["pending"]);
+    expect(own.cancel({ id: r.id })).toHaveLength(1);
+    own.stop();
+    vi.restoreAllMocks();
+    expect(ctx.app.store.notificationsForReminder(r.id).map((n) => n.status)).toEqual(["dropped"]);
+  });
+
+  it("a new reminder that gets an old one's id does not take over the old one's row", async () => {
+    await device("Box", ["speaker", "mic"]);
+    const quiet = vi.spyOn(ctx.app.hub, "quiet").mockReturnValue(true);
+    const own = engine({ retryMs: 60_000, notifyAll: async () => 0 });
+    const old = addReminder({ text: "Old words" });
+    own.start();
+    await sleep(200);
+    own.stop();
+    quiet.mockRestore();
+    expect(ctx.app.store.notificationsForReminder(old.id)).toHaveLength(1);
+    ctx.app.store.removeReminder(old.id);
+    await sleep(5);
+    await device("Desk");
+    const fresh = addReminder({ text: "New words", createdAt: Date.now() });
+    expect(fresh.id).toBe(old.id);
+    const again = engine();
+    again.start();
+    await sleep(400);
+    again.stop();
+    const rows = ctx.app.store.notificationsForReminder(fresh.id);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.body).toContain("New words");
+  });
+});

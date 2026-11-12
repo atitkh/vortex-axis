@@ -155,7 +155,7 @@ export class Reminders {
     const text = match.text?.toLowerCase();
     const gone = this.list().filter((r) => (match.id === undefined || r.id === match.id) && (text === undefined || r.text.toLowerCase().includes(text)));
     for (const r of gone) {
-      this.options.store.removeReminder(r.id);
+      this.remove(r);
       this.options.activity?.note("reminder", r.clientId ?? "", `Reminder cancelled: ${r.text}`);
     }
     if (gone.length) {
@@ -175,7 +175,7 @@ export class Reminders {
         if (n.status === "missed" && n.dismissedAt === undefined) this.options.store.updateNotification(n.id, { dismissedAt: now, expiresAt: now });
       }
       if (r.timeOfDay) this.options.store.updateReminder(r.id, { missedAt: undefined, missedCount: 0 });
-      else this.options.store.removeReminder(r.id);
+      else this.remove(r);
     }
     if (gone.length) {
       this.arm();
@@ -384,7 +384,20 @@ export class Reminders {
    * dropped (one said everywhere), and it is still this firing's row.
    */
   private openRow(r: ReminderRecord): NotificationRecord | undefined {
-    return this.options.store.notificationsForReminder(r.id).filter((n) => OPEN.includes(n.status)).pop();
+    // Its id may have been an older reminder's (SQLite reuses the highest id), so a row from before it was set is not its own.
+    return this.options.store
+      .notificationsForReminder(r.id)
+      .filter((n) => OPEN.includes(n.status) && n.createdAt >= r.createdAt)
+      .pop();
+  }
+
+  /** Deletes a reminder; a row of a firing still under way is dropped, as nothing will say it now. */
+  private remove(r: ReminderRecord): void {
+    const { store } = this.options;
+    for (const n of store.notificationsForReminder(r.id)) {
+      if (n.status === "pending" || n.status === "held") store.updateNotification(n.id, { status: "dropped" });
+    }
+    store.removeReminder(r.id);
   }
 
   /** The notification row of this firing: the reminder's open one (a retry reuses it), else a new one. */
@@ -409,7 +422,7 @@ export class Reminders {
   /** Delivered: a one-off is finished with; a repeating one moves to its next time. */
   private done(r: ReminderRecord): void {
     if (!r.timeOfDay || !r.days) {
-      this.options.store.removeReminder(r.id);
+      this.remove(r);
       return;
     }
     this.options.store.updateReminder(r.id, { dueAt: this.next(r), attempts: 0, retryAt: undefined });
