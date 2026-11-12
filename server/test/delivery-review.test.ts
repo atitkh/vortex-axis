@@ -101,3 +101,20 @@ describe("notification rows do not stay pending or held for ever", () => {
     expect(statusOf("Waiting.")).toBe("held");
   });
 });
+
+describe("saying what was kept when a client reconnects mid-way", () => {
+  it("says it on the newest connection, not the one that went away", async () => {
+    const { delivery, connect, said } = setup();
+    const desk = clientOf("desk");
+    await delivery.sayTo(desk, "Kept one.");
+    await delivery.sayTo(desk, "Kept two.");
+    const first = connect(desk);
+    await new Promise((r) => setTimeout(r, 500));
+    const second = connect(desk);
+    await new Promise((r) => setTimeout(r, 2600));
+    expect(said.map((s) => s.text)).toEqual(["Kept one.", "Kept two."]);
+    expect(said.every((s) => s.session === second)).toBe(true);
+    expect(said.some((s) => s.session === first)).toBe(false);
+    expect(delivery.waitingFor("desk")).toBe(0);
+  });
+});

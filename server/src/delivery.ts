@@ -268,8 +268,8 @@ export class Delivery {
       // Give the client a moment to settle (settings, its own greeting) before it is spoken to.
       await new Promise((resolve) => setTimeout(resolve, 1500));
       for (const message of waiting) {
-        // Gone again mid-way: what is left stays kept for next time.
-        if (!this.options.hub.session(clientId)) return;
+        // Gone again mid-way, or back on a new connection: what is left stays kept, for next time or for that connection.
+        if (this.options.hub.session(clientId) !== session) return;
         try {
           await this.sayOn(session, message.body, message.priority === "urgent", undefined, { id: message.id });
           this.options.note?.(clientId, `Said a kept message on ${session.client.name} now that it is back`);
@@ -279,6 +279,9 @@ export class Delivery {
       }
     } finally {
       this.inFlight.delete(clientId);
+      // It reconnected while this ran: that connect's flush was skipped, so what is left is said on the new connection.
+      const newer = this.options.hub.session(clientId);
+      if (newer && newer !== session && this.options.store.held(clientId, this.now()).length) void this.flush(newer);
     }
   }
 
