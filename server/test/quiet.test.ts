@@ -118,3 +118,26 @@ describe("quiet hours on a device", () => {
     expect(said.note).toMatch(/quiet hours/);
   });
 });
+
+describe("quiet hours and messages kept for later", () => {
+  function aroundNow() {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = minuteOfDay(Date.now(), zone);
+    const hhmm = (m: number) => `${String(Math.floor(((m + 1440) % 1440) / 60)).padStart(2, "0")}:${String((m + 1440) % 60).padStart(2, "0")}`;
+    return { quietFrom: hhmm(now - 5), quietTo: hhmm(now + 120) };
+  }
+
+  it("shows the text in quiet hours without keeping it, and speaks what is urgent", async () => {
+    const { identity, client } = await ready(["speaker", "screen"], { name: "Nightstand" });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: aroundNow() });
+    await client.next("settings", 0, (m) => m.values.quietFrom !== undefined);
+    expect(await invoke("vortex.axis.say", { text: "Washer done.", client: "Nightstand" })).toMatchObject({ heard: false, shown: true });
+    expect((await admin("GET", `/admin/clients/${identity.clientId}`)).body).toMatchObject({ waiting: 0, notified: 0 });
+    expect(client.received.some((m) => m.t === "speak.start")).toBe(false);
+
+    const spoken = invoke("vortex.axis.say", { text: "Door open.", client: "Nightstand", urgent: true });
+    const end = await client.next("speak.end");
+    client.send({ t: "playback", turnId: end.turnId, state: "finished" });
+    expect(await spoken).toMatchObject({ heard: true, shown: true });
+  });
+});

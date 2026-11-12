@@ -309,3 +309,90 @@ describe("saying something everywhere", () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });
+
+// Pinned before the held, notified and missed lists moved from memory into the store: what a device and a page see stays the same.
+describe("delivery, as a device and a page see it", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const asksOf = (identity: { token: string; clientId: string }) =>
+    fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+  const clientInfo = async (id: string) => (await admin("GET", `/admin/clients/${id}`)).body;
+
+  it("keeps what a silent device with no screen is told, and says it when it leaves silent", async () => {
+    const { identity, client } = await ready(["speaker"], { name: "Puck" });
+    await invoke("vortex.axis.config", { client: "Puck", key: "profile", value: "silent" });
+    expect(await invoke("vortex.axis.say", { text: "Kept while silent.", client: "Puck" })).toMatchObject({ heard: false, shown: false, held: true });
+    expect((await clientInfo(identity.clientId)).waiting).toBe(1);
+    expect(made).not.toContain("Kept while silent.");
+
+    await invoke("vortex.axis.config", { client: "Puck", key: "profile", value: "auto" });
+    await finish(client);
+    expect(made).toContain("Kept while silent.");
+    await expect.poll(async () => (await clientInfo(identity.clientId)).waiting).toBe(0);
+  });
+
+  it("keeps five messages at most for a client that is offline, dropping the oldest", async () => {
+    const capabilities: Capability[] = ["speaker", "screen"];
+    const identity = await newPairedClient({ capabilities, name: "Porch" });
+    for (let i = 1; i <= 6; i++) expect(await invoke("vortex.axis.say", { text: `Porch ${i}.`, client: "Porch" })).toMatchObject({ held: true });
+    expect((await clientInfo(identity.clientId)).waiting).toBe(5);
+
+    const client = await connect(identity, { capabilities });
+    await client.next("status");
+    for (let i = 0; i < 5; i++) await finish(client);
+    expect(made.filter((t) => t.startsWith("Porch "))).toEqual(["Porch 2.", "Porch 3.", "Porch 4.", "Porch 5.", "Porch 6."]);
+    await expect.poll(async () => (await clientInfo(identity.clientId)).waiting).toBe(0);
+  });
+
+  it("hands a page what it was sent while closed, in order and once", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      await invoke("vortex.axis.say", { text: "First.", client: "Phone" });
+      await invoke("vortex.axis.say", { text: "Second.", client: "Phone" });
+      expect(service.posts).toHaveLength(2);
+      expect((await clientInfo(identity.clientId)).notified).toBe(2);
+      expect((await clientInfo(identity.clientId)).waiting).toBe(0);
+      expect((await asksOf(identity)).messages).toEqual(["First.", "Second."]);
+      expect(await asksOf(identity)).toMatchObject({ messages: [], received: [], missed: [], asks: [] });
+      expect((await clientInfo(identity.clientId)).notified).toBe(0);
+    } finally {
+      service.close();
+    }
+  });
+
+  it("lists a question while it is open and, once it runs out of time, as missed once", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      const client = ctx.app.store.getClient(identity.clientId)!;
+      const asked = ctx.app.delivery.askByNotification(client, "Lights off?", ["Yes", "No"], 300);
+      await expect.poll(() => service.posts.length).toBe(1);
+      expect(ctx.app.delivery.openAsks(identity.clientId)).toMatchObject([{ question: "Lights off?", choices: ["Yes", "No"] }]);
+      expect(await asked).toEqual({ answer: null, timedOut: true });
+      expect(ctx.app.delivery.openAsks(identity.clientId)).toEqual([]);
+      expect((await asksOf(identity)).missed).toEqual([{ question: "Lights off?", at: expect.any(Number) }]);
+      expect((await asksOf(identity)).missed).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
+
+  it("does not say a kept message once its time is up, and pruning changes nothing a device sees", async () => {
+    const capabilities: Capability[] = ["speaker", "screen"];
+    const identity = await newPairedClient({ capabilities, name: "Shed" });
+    ctx.app.delivery.setHoldMs(50);
+    expect(await invoke("vortex.axis.say", { text: "Too late.", client: "Shed" })).toMatchObject({ held: true });
+    await sleep(120);
+    expect((await clientInfo(identity.clientId)).waiting).toBe(0);
+    ctx.app.delivery.prune();
+    const client = await connect(identity, { capabilities });
+    await client.next("status");
+    await sleep(2_000);
+    expect(made).not.toContain("Too late.");
+    expect(client.received.some((m) => m.t === "speak.start")).toBe(false);
+  });
+});
