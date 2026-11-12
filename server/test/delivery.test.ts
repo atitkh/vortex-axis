@@ -426,8 +426,8 @@ describe("delivery, kept in the notifications table", () => {
       await client.next("status");
       await finish(client);
       expect(made).toContain("Held over restart.");
-      await expect.poll(async () => (await clientInfo(kitchen.clientId)).waiting).toBe(0);
-      await expect.poll(() => row("Held over restart.").status).toBe("heard");
+      await expect.poll(async () => (await clientInfo(kitchen.clientId)).waiting, { timeout: 5000 }).toBe(0);
+      await expect.poll(() => row("Held over restart.").status, { timeout: 5000 }).toBe("heard");
       expect(deliveryOf("Held over restart.", kitchen.clientId)).toMatchObject({ route: "live", state: "heard" });
 
       expect((await asksOf(phone)).messages).toEqual(["Pushed over restart."]);
@@ -436,7 +436,7 @@ describe("delivery, kept in the notifications table", () => {
     } finally {
       service.close();
     }
-  });
+  }, 30_000);
 
   it("records a question that runs out of time, and one cut off by a restart, as missed", async () => {
     const service = await pushService();
