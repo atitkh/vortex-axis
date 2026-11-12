@@ -118,3 +118,39 @@ describe("saying what was kept when a client reconnects mid-way", () => {
     expect(delivery.waitingFor("desk")).toBe(0);
   });
 });
+
+describe("handing a page what it missed", () => {
+  it("marks taken (and read) only what it handed over", async () => {
+    now = T0;
+    store = new Store(":memory:", () => now);
+    const fake = fakeHub();
+    let failing = false;
+    const push = { has: () => true, notify: async () => (failing ? Promise.reject(new Error("push service down")) : "sent") };
+    const delivery = new Delivery({ hub: fake.hub, store, holdMs: HOLD, now: () => now, push: push as never });
+    const phone = clientOf("phone");
+
+    await delivery.sayTo(phone, "Expired.");
+    now += HOLD + 1;
+    for (let i = 1; i <= 7; i++) {
+      now += 1;
+      await delivery.sayTo(phone, `Pushed ${i}.`);
+    }
+    failing = true;
+    await expect(delivery.sayTo(phone, "Failed.")).rejects.toThrow();
+    const open = store.addNotification({ source: "ask", body: "Still open?", priority: "normal", everywhere: false, retain: false, clientId: "phone", status: "pending" });
+    store.setDelivery({ notificationId: open.id, clientId: "phone", route: "push", state: "pushed", at: now, until: now + HOLD });
+    const missed = store.addNotification({ source: "ask", body: "Missed?", priority: "normal", everywhere: false, retain: false, clientId: "phone", status: "timed_out" });
+    store.setDelivery({ notificationId: missed.id, clientId: "phone", route: "push", state: "missed", at: now });
+
+    const taken = delivery.takeMissed("phone");
+    expect(taken.messages.map((m) => m.text)).toEqual(["Pushed 3.", "Pushed 4.", "Pushed 5.", "Pushed 6.", "Pushed 7."]);
+    expect(taken.asks.map((a) => a.question)).toEqual(["Missed?"]);
+
+    const takenAt = (body: string) => {
+      const n = store.listNotifications().find((x) => x.body === body)!;
+      return { taken: store.deliveriesOf(n.id)[0]!.takenAt !== undefined, read: n.readAt !== undefined };
+    };
+    for (const body of ["Pushed 3.", "Pushed 7.", "Missed?"]) expect(takenAt(body)).toEqual({ taken: true, read: true });
+    for (const body of ["Expired.", "Pushed 1.", "Pushed 2.", "Failed.", "Still open?"]) expect(takenAt(body)).toEqual({ taken: false, read: false });
+  });
+});

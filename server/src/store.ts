@@ -917,6 +917,14 @@ export class Store {
     return ids;
   }
 
+  /** Marks the given notifications' deliveries to a client taken, and the notifications read; others are left as they are. */
+  takeDeliveriesOf(clientId: string, notificationIds: number[], now: number): void {
+    for (const id of notificationIds) {
+      this.db.prepare("UPDATE notification_deliveries SET taken_at = ? WHERE notification_id = ? AND client_id = ? AND taken_at IS NULL").run(now, id, clientId);
+      this.db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL").run(now, id);
+    }
+  }
+
   /** How many deliveries a client has in a state. */
   countDeliveries(clientId: string, state: DeliveryState): number {
     const row = this.db

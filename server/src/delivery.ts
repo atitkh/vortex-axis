@@ -434,7 +434,8 @@ export class Delivery {
     const now = this.now();
     const messages = this.pushedMessages(clientId, now);
     const asks = this.options.store.missedAsksUntaken(clientId, now).slice(-MAX_HELD);
-    this.options.store.takeDeliveries(clientId, ["push"], now);
+    // Only what is handed over is taken: an expired, failed or still-open one, or one beyond the five, is left as it is.
+    this.options.store.takeDeliveriesOf(clientId, [...messages, ...asks].map((n) => n.id), now);
     return { messages: messages.map((m) => ({ text: m.body, at: m.createdAt })), asks: asks.map((a) => ({ question: a.body, at: a.createdAt })) };
   }
 
