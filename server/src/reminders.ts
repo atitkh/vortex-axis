@@ -3,7 +3,10 @@ import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import type { Progress } from "./progress.js";
 import { describeWhen, localParts, localToUtc, nextOccurrence, parseRepeat, parseWhen, timeOfDayOf, weekdayOf } from "./recurrence.js";
-import type { ReminderRecord, Store } from "./store.js";
+import type { NotificationRecord, NotificationStatus, ReminderRecord, Store } from "./store.js";
+
+/** A firing's row in these states is not settled yet: a retry or a miss takes it over. */
+const OPEN: NotificationStatus[] = ["pending", "held", "dropped"];
 
 /** setTimeout cannot wait longer than this; a longer wait is simply re-armed. */
 const MAX_WAIT_MS = 2 ** 31 - 1;
@@ -376,10 +379,18 @@ export class Reminders {
     return delivered;
   }
 
-  /** The notification row of this firing: the reminder's pending one (a retry reuses it), else a new one. */
+  /**
+   * The row of a firing still under way: the newest one not settled yet. A delivery may already have moved it to held or
+   * dropped (one said everywhere), and it is still this firing's row.
+   */
+  private openRow(r: ReminderRecord): NotificationRecord | undefined {
+    return this.options.store.notificationsForReminder(r.id).filter((n) => OPEN.includes(n.status)).pop();
+  }
+
+  /** The notification row of this firing: the reminder's open one (a retry reuses it), else a new one. */
   private row(r: ReminderRecord, body: string): number {
     const { store } = this.options;
-    const open = store.notificationsForReminder(r.id).filter((n) => n.status === "pending").pop();
+    const open = this.openRow(r);
     if (open) return open.id;
     return store.addNotification({
       source: "reminder", body, priority: r.urgent ? "urgent" : "normal", everywhere: false, retain: false, reminderId: r.id,
@@ -413,8 +424,7 @@ export class Reminders {
       this.options.store.updateReminder(r.id, { dueAt: undefined, attempts: 0, retryAt: undefined, missedAt, missedCount: r.missedCount + 1 });
     }
     // Kept until dismissed: no expiry, so the 7-day sweep leaves it.
-    const open = this.options.store.notificationsForReminder(r.id).filter((n) => n.status === "pending").pop();
-    const nid = open?.id ?? this.row(r, `Reminder: ${r.text.replace(/[.!?]+$/, "")}.`);
+    const nid = this.openRow(r)?.id ?? this.row(r, `Reminder: ${r.text.replace(/[.!?]+$/, "")}.`);
     this.options.store.updateNotification(nid, { status: "missed", expiresAt: undefined });
     this.options.activity?.note("reminder", r.clientId ?? "", `MISSED reminder (${why}): ${r.text}`, "warn");
   }
