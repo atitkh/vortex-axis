@@ -5,7 +5,7 @@ import type { Capability } from "@vortex-axis/protocol";
 import { createInvokeHandler } from "../src/commands.js";
 import { encryptPush } from "../src/push.js";
 import type { TextToSpeech } from "../src/speech.js";
-import { admin, connect, ctx, newPairedClient, ready, useServer } from "./harness.js";
+import { admin, connect, ctx, newPairedClient, ready, restart, useServer } from "./harness.js";
 
 // A voice, so a client with a speaker is spoken to and can report it heard. `made` lists what it was asked to say.
 const made: string[] = [];
@@ -394,5 +394,117 @@ describe("delivery, as a device and a page see it", () => {
     await sleep(2_000);
     expect(made).not.toContain("Too late.");
     expect(client.received.some((m) => m.t === "speak.start")).toBe(false);
+  });
+});
+
+describe("delivery, kept in the notifications table", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const asksOf = (identity: { token: string; clientId: string }) =>
+    fetch(`${ctx.base}/v1/push/asks`, { headers: { authorization: `Bearer ${identity.token}`, "x-axis-client": identity.clientId } }).then((r) => r.json());
+  const clientInfo = async (id: string) => (await admin("GET", `/admin/clients/${id}`)).body;
+  const row = (body: string) => ctx.app.store.listNotifications().find((n) => n.body === body)!;
+  const deliveryOf = (body: string, clientId: string) => ctx.app.store.deliveriesOf(row(body).id).find((d) => d.clientId === clientId);
+
+  it("keeps a held message and a pushed one across a restart", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const capabilities: Capability[] = ["speaker", "screen"];
+      const kitchen = await newPairedClient({ capabilities, name: "Kitchen" });
+      const phone = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(phone.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      expect(await invoke("vortex.axis.say", { text: "Held over restart.", client: "Kitchen" })).toMatchObject({ held: true });
+      expect(await invoke("vortex.axis.say", { text: "Pushed over restart.", client: "Phone" })).toMatchObject({ shown: true });
+      expect(row("Held over restart.")).toMatchObject({ source: "agent", status: "held", clientId: kitchen.clientId });
+      expect(deliveryOf("Pushed over restart.", phone.clientId)).toMatchObject({ route: "push", state: "pushed" });
+
+      await restart();
+      expect((await clientInfo(kitchen.clientId)).waiting).toBe(1);
+      expect((await clientInfo(phone.clientId)).notified).toBe(1);
+
+      const client = await connect(kitchen, { capabilities });
+      await client.next("status");
+      await finish(client);
+      expect(made).toContain("Held over restart.");
+      await expect.poll(async () => (await clientInfo(kitchen.clientId)).waiting).toBe(0);
+      await expect.poll(() => row("Held over restart.").status).toBe("heard");
+      expect(deliveryOf("Held over restart.", kitchen.clientId)).toMatchObject({ route: "live", state: "heard" });
+
+      expect((await asksOf(phone)).messages).toEqual(["Pushed over restart."]);
+      expect((await asksOf(phone)).messages).toEqual([]);
+      expect(row("Pushed over restart.").readAt).toEqual(expect.any(Number));
+    } finally {
+      service.close();
+    }
+  });
+
+  it("records a question that runs out of time, and one cut off by a restart, as missed", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      const client = ctx.app.store.getClient(identity.clientId)!;
+      expect(await ctx.app.delivery.askByNotification(client, "Short one?", ["Yes", "No"], 40)).toMatchObject({ timedOut: true });
+      expect(row("Short one?")).toMatchObject({ source: "ask", status: "timed_out", choices: ["Yes", "No"], expiresAt: undefined });
+      expect(deliveryOf("Short one?", identity.clientId)).toMatchObject({ state: "missed" });
+      expect((await asksOf(identity)).missed).toEqual([{ question: "Short one?", at: expect.any(Number) }]);
+
+      void ctx.app.delivery.askByNotification(client, "Long one?", ["Yes", "No"], 60_000);
+      await expect.poll(() => service.posts.length).toBe(2);
+      expect(row("Long one?").status).toBe("pending");
+
+      await restart();
+      expect(row("Long one?")).toMatchObject({ status: "timed_out", expiresAt: undefined });
+      const after = await asksOf(identity);
+      expect(after.asks).toEqual([]);
+      expect(after.missed).toEqual([{ question: "Long one?", at: expect.any(Number) }]);
+      expect((await asksOf(identity)).missed).toEqual([]);
+    } finally {
+      service.close();
+    }
+  });
+
+  it("records an answered question with its answer", async () => {
+    const service = await pushService();
+    const mine = browser();
+    try {
+      const identity = await newPairedClient({ capabilities: ["screen", "speaker"], name: "Phone" });
+      ctx.app.store.setPushSubscription(identity.clientId, { endpoint: service.endpoint, p256dh: mine.p256dh, auth: mine.auth });
+      const client = ctx.app.store.getClient(identity.clientId)!;
+      const asked = ctx.app.delivery.askByNotification(client, "Red or blue?", ["Red", "Blue"], 20_000);
+      await expect.poll(() => service.posts.length).toBe(1);
+      const { ask } = JSON.parse(mine.open(service.posts[0]!.body));
+      expect(ctx.app.delivery.answer(ask.id, ask.token, "Blue")).toBe(true);
+      expect(await asked).toMatchObject({ answer: "Blue" });
+      expect(row("Red or blue?")).toMatchObject({ status: "answered", answer: "Blue" });
+    } finally {
+      service.close();
+    }
+  });
+
+  it("records one row for a message said everywhere", async () => {
+    const den = await ready(["speaker"], { name: "Den" });
+    const hall = await ready(["speaker"], { name: "Hall" });
+    const said = invoke("vortex.axis.say", { text: "All of you.", everywhere: true });
+    await Promise.all([finish(den.client), finish(hall.client)]);
+    await said;
+    expect(ctx.app.store.listNotifications().filter((n) => n.body === "All of you.")).toHaveLength(1);
+    expect(row("All of you.")).toMatchObject({ everywhere: true, status: "heard" });
+    expect(ctx.app.store.deliveriesOf(row("All of you.").id).map((d) => d.state)).toEqual(["heard", "heard"]);
+  });
+
+  it("marks the oldest of six held messages dropped, and pruning leaves a kept message past its time on record", async () => {
+    const identity = await newPairedClient({ capabilities: ["speaker", "screen"], name: "Porch" });
+    for (let i = 1; i <= 6; i++) await invoke("vortex.axis.say", { text: `Porch ${i}.`, client: "Porch" });
+    expect(deliveryOf("Porch 1.", identity.clientId)).toMatchObject({ state: "dropped" });
+    expect(deliveryOf("Porch 6.", identity.clientId)).toMatchObject({ state: "held" });
+
+    ctx.app.delivery.setHoldMs(50);
+    await invoke("vortex.axis.say", { text: "Too late.", client: "Porch" });
+    await sleep(120);
+    ctx.app.delivery.prune();
+    expect(row("Too late.")).toMatchObject({ status: "held" });
+    expect(ctx.app.delivery.waitingFor(identity.clientId)).toBe(4);
   });
 });

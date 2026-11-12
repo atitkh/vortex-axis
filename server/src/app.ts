@@ -270,6 +270,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       activity.note("message", clientId, text, level ?? "info");
     },
   });
+  // Questions sent as notifications before a restart can no longer be answered: recorded as missed.
+  delivery.startup();
   // One function carries out every tool call, whichever door it came in by: the OpenClaw node here, MCP in http.ts.
   // A phone is told about a task only while the person is away from the screens: Home Assistant says so.
   const tellPhones = (title: string, body: string, tag: string) => {

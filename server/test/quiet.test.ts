@@ -141,3 +141,26 @@ describe("quiet hours and messages kept for later", () => {
     expect(await spoken).toMatchObject({ heard: true, shown: true });
   });
 });
+
+describe("quiet hours, as recorded", () => {
+  it("records what was shown in quiet hours as delivered by the silent route, and an urgent one as heard", async () => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = minuteOfDay(Date.now(), zone);
+    const hhmm = (m: number) => `${String(Math.floor(((m + 1440) % 1440) / 60)).padStart(2, "0")}:${String((m + 1440) % 60).padStart(2, "0")}`;
+    const { identity, client } = await ready(["speaker", "screen"], { name: "Nightstand" });
+    await admin("PATCH", `/admin/settings/device/${identity.clientId}`, { values: { quietFrom: hhmm(now - 5), quietTo: hhmm(now + 120) } });
+    await client.next("settings", 0, (m) => m.values.quietFrom !== undefined);
+    await invoke("vortex.axis.say", { text: "Washer done.", client: "Nightstand" });
+    const quiet = ctx.app.store.listNotifications().find((n) => n.body === "Washer done.")!;
+    expect(quiet).toMatchObject({ source: "agent", status: "delivered", priority: "normal" });
+    expect(ctx.app.store.deliveriesOf(quiet.id)).toMatchObject([{ clientId: identity.clientId, route: "silent", state: "shown" }]);
+
+    const spoken = invoke("vortex.axis.say", { text: "Door open.", client: "Nightstand", urgent: true });
+    const end = await client.next("speak.end");
+    client.send({ t: "playback", turnId: end.turnId, state: "finished" });
+    await spoken;
+    const loud = ctx.app.store.listNotifications().find((n) => n.body === "Door open.")!;
+    expect(loud).toMatchObject({ status: "heard", priority: "urgent", expiresAt: undefined });
+    expect(ctx.app.store.deliveriesOf(loud.id)).toMatchObject([{ route: "live", state: "heard" }]);
+  });
+});

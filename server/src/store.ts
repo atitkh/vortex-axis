@@ -866,6 +866,11 @@ export class Store {
       .run(delivery.clientId, delivery.clientId, HELD_CAP);
   }
 
+  /** One notification, or undefined. */
+  getNotification(id: number): NotificationRecord | undefined {
+    return this.notificationsWhere("n.id = ?", [id], "n.id", true)[0];
+  }
+
   /** The deliveries of one notification, by client. */
   deliveriesOf(notificationId: number): NotificationDelivery[] {
     const rows = this.db
