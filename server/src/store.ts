@@ -203,6 +203,37 @@ const MIGRATIONS: string[] = [
   `
   CREATE TABLE reminders (id INTEGER PRIMARY KEY, text TEXT NOT NULL, due_at INTEGER, time_of_day TEXT, days TEXT, client_id TEXT, location TEXT, everywhere INTEGER NOT NULL DEFAULT 0, urgent INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER, missed_at INTEGER, missed_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
   `,
+  // Everything that reaches the user through Axis, kept (see docs/design.md). `reminder_id` has no foreign key on purpose: a one-off reminder is deleted once done.
+  `
+  CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_name TEXT,
+    title TEXT, body TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'normal',
+    tag TEXT, dedupe_key TEXT, url TEXT,
+    client_id TEXT, location TEXT, everywhere INTEGER NOT NULL DEFAULT 0,
+    retain INTEGER NOT NULL DEFAULT 0,
+    reminder_id INTEGER,
+    choices TEXT, answer TEXT,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL, delivered_at INTEGER, heard_at INTEGER,
+    read_at INTEGER, dismissed_at INTEGER,
+    expires_at INTEGER
+  );
+  CREATE UNIQUE INDEX notifications_dedupe ON notifications(source, dedupe_key);
+  CREATE INDEX notifications_source_created ON notifications(source, created_at);
+  CREATE INDEX notifications_reminder ON notifications(reminder_id);
+  CREATE TABLE notification_deliveries (
+    notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+    client_id TEXT NOT NULL,
+    route TEXT NOT NULL,
+    state TEXT NOT NULL,
+    at INTEGER NOT NULL, until INTEGER, taken_at INTEGER,
+    PRIMARY KEY (notification_id, client_id)
+  );
+  CREATE INDEX deliveries_client ON notification_deliveries(client_id, state);
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -244,6 +275,60 @@ export interface ReminderRecord {
   missedAt?: number | undefined;
   missedCount: number;
   createdAt: number;
+}
+
+/** Days a low or normal notification is kept; urgent and retained ones stay until dismissed. */
+export const RETENTION_DAYS = 7;
+/** Most notifications kept per source; the oldest go first. */
+export const SOURCE_CAP = 500;
+/** Most messages held for one device; older ones are dropped. */
+const HELD_CAP = 5;
+
+export type NotificationSource = "agent" | "reminder" | "ask" | "system";
+export type NotificationPriority = "low" | "normal" | "urgent";
+export type NotificationStatus = "pending" | "delivered" | "heard" | "held" | "missed" | "answered" | "timed_out" | "dropped";
+
+/** One thing that reached (or tried to reach) the user. `expiresAt` absent: kept until dismissed. */
+export interface NotificationRecord {
+  id: number;
+  source: NotificationSource;
+  sourceName?: string | undefined;
+  title?: string | undefined;
+  body: string;
+  priority: NotificationPriority;
+  tag?: string | undefined;
+  dedupeKey?: string | undefined;
+  url?: string | undefined;
+  clientId?: string | undefined;
+  location?: string | undefined;
+  everywhere: boolean;
+  retain: boolean;
+  /** The reminder it came from; not a foreign key, the reminder may be gone. */
+  reminderId?: number | undefined;
+  /** Asks only. */
+  choices?: string[] | undefined;
+  answer?: string | undefined;
+  status: NotificationStatus;
+  createdAt: number;
+  deliveredAt?: number | undefined;
+  heardAt?: number | undefined;
+  readAt?: number | undefined;
+  dismissedAt?: number | undefined;
+  expiresAt?: number | undefined;
+}
+
+export type DeliveryRoute = "live" | "silent" | "push" | "held";
+export type DeliveryState = "held" | "shown" | "heard" | "pushed" | "missed" | "dropped" | "failed";
+
+/** How one notification went to one client. */
+export interface NotificationDelivery {
+  notificationId: number;
+  clientId: string;
+  route: DeliveryRoute;
+  state: DeliveryState;
+  at: number;
+  until?: number | undefined;
+  takenAt?: number | undefined;
 }
 
 /** A timer an agent set. It is announced on `clientId` when that client can be reached. */
@@ -696,6 +781,219 @@ export class Store {
 
   removeReminder(id: number): boolean {
     return this.db.prepare("DELETE FROM reminders WHERE id = ?").run(id).changes === 1;
+  }
+
+  // --- notifications ----------------------------------------------------------
+
+  /**
+   * Records a notification. `createdAt` defaults to now; `expiresAt` defaults to the retention rule (7 days for low and normal,
+   * none for urgent or retained) and may be given, `null` meaning none. A second row with the same source and dedupe key throws.
+   */
+  addNotification(
+    input: Omit<NotificationRecord, "id" | "createdAt" | "expiresAt"> & { createdAt?: number; expiresAt?: number | null },
+  ): NotificationRecord {
+    const createdAt = input.createdAt ?? this.now();
+    const expiresAt =
+      input.expiresAt !== undefined ? input.expiresAt : input.retain || input.priority === "urgent" ? null : createdAt + RETENTION_DAYS * 86_400_000;
+    const result = this.db
+      .prepare(
+        "INSERT INTO notifications (source, source_name, title, body, priority, tag, dedupe_key, url, client_id, location, everywhere, retain, reminder_id, choices, answer, status, created_at, delivered_at, heard_at, read_at, dismissed_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        input.source,
+        input.sourceName ?? null,
+        input.title ?? null,
+        input.body,
+        input.priority,
+        input.tag ?? null,
+        input.dedupeKey ?? null,
+        input.url ?? null,
+        input.clientId ?? null,
+        input.location ?? null,
+        input.everywhere ? 1 : 0,
+        input.retain ? 1 : 0,
+        input.reminderId ?? null,
+        input.choices ? JSON.stringify(input.choices) : null,
+        input.answer ?? null,
+        input.status,
+        createdAt,
+        input.deliveredAt ?? null,
+        input.heardAt ?? null,
+        input.readAt ?? null,
+        input.dismissedAt ?? null,
+        expiresAt,
+      );
+    const { createdAt: _created, expiresAt: _expires, ...rest } = input;
+    return { ...rest, id: Number(result.lastInsertRowid), createdAt, expiresAt: expiresAt ?? undefined };
+  }
+
+  /** Changes the named fields; a field set to `undefined` is cleared. Returns false when there is no such notification. */
+  updateNotification(id: number, patch: Partial<Omit<NotificationRecord, "id" | "createdAt" | "source">>): boolean {
+    const columns: Record<string, string> = {
+      sourceName: "source_name", title: "title", body: "body", priority: "priority", tag: "tag", dedupeKey: "dedupe_key", url: "url",
+      clientId: "client_id", location: "location", everywhere: "everywhere", retain: "retain", reminderId: "reminder_id", choices: "choices",
+      answer: "answer", status: "status", deliveredAt: "delivered_at", heardAt: "heard_at", readAt: "read_at", dismissedAt: "dismissed_at",
+      expiresAt: "expires_at",
+    };
+    const sets: string[] = [];
+    const values: Array<string | number | null> = [];
+    for (const [key, column] of Object.entries(columns)) {
+      if (!(key in patch)) continue;
+      const value = (patch as Record<string, unknown>)[key];
+      sets.push(`${column} = ?`);
+      if (Array.isArray(value)) values.push(JSON.stringify(value));
+      else values.push(typeof value === "boolean" ? (value ? 1 : 0) : ((value as string | number | undefined) ?? null));
+    }
+    if (sets.length === 0) return this.db.prepare("SELECT 1 FROM notifications WHERE id = ?").get(id) !== undefined;
+    return this.db.prepare(`UPDATE notifications SET ${sets.join(", ")} WHERE id = ?`).run(...values, id).changes === 1;
+  }
+
+  /**
+   * Records how a notification went to one client, replacing an earlier record for the same pair. A new `held` delivery keeps only the
+   * HELD_CAP newest held ones of that client; the older are marked `dropped`.
+   */
+  setDelivery(delivery: NotificationDelivery): void {
+    this.db
+      .prepare(
+        "INSERT INTO notification_deliveries (notification_id, client_id, route, state, at, until, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (notification_id, client_id) DO UPDATE SET route = excluded.route, state = excluded.state, at = excluded.at, until = excluded.until, taken_at = excluded.taken_at",
+      )
+      .run(delivery.notificationId, delivery.clientId, delivery.route, delivery.state, delivery.at, delivery.until ?? null, delivery.takenAt ?? null);
+    if (delivery.state !== "held") return;
+    this.db
+      .prepare(
+        "UPDATE notification_deliveries SET state = 'dropped' WHERE client_id = ? AND state = 'held' AND notification_id NOT IN (SELECT notification_id FROM notification_deliveries WHERE client_id = ? AND state = 'held' ORDER BY at DESC, notification_id DESC LIMIT ?)",
+      )
+      .run(delivery.clientId, delivery.clientId, HELD_CAP);
+  }
+
+  /** The deliveries of one notification, by client. */
+  deliveriesOf(notificationId: number): NotificationDelivery[] {
+    const rows = this.db
+      .prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? ORDER BY client_id")
+      .all(notificationId) as unknown as Array<Record<string, string | number | null>>;
+    return rows.map((r) => this.deliveryFromRow(r));
+  }
+
+  /** Notifications held for a client and still inside their delivery window, oldest first. */
+  held(clientId: string, now: number): NotificationRecord[] {
+    return this.notificationsWhere("d.client_id = ? AND d.state = 'held' AND (d.until IS NULL OR d.until > ?)", [clientId, now], "d.at, n.id");
+  }
+
+  /** Notifications pushed to a client's closed browser that it has not fetched yet, oldest first. */
+  pushedUntaken(clientId: string, now: number): NotificationRecord[] {
+    return this.notificationsWhere(
+      "d.client_id = ? AND d.state = 'pushed' AND d.taken_at IS NULL AND (d.until IS NULL OR d.until > ?)",
+      [clientId, now],
+      "d.at, n.id",
+    );
+  }
+
+  /** Asks a client missed and has not been told about yet, oldest first. */
+  missedAsksUntaken(clientId: string, now: number): NotificationRecord[] {
+    return this.notificationsWhere(
+      "n.source = 'ask' AND d.client_id = ? AND d.state = 'missed' AND d.taken_at IS NULL AND (n.expires_at IS NULL OR n.expires_at > ?)",
+      [clientId, now],
+      "d.at, n.id",
+    );
+  }
+
+  /** Marks a client's untaken deliveries on the given routes as taken, and their notifications as read. Returns the notification ids. */
+  takeDeliveries(clientId: string, routes: DeliveryRoute[], now: number): number[] {
+    if (routes.length === 0) return [];
+    const marks = routes.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT notification_id FROM notification_deliveries WHERE client_id = ? AND taken_at IS NULL AND route IN (${marks}) ORDER BY at, notification_id`)
+      .all(clientId, ...routes) as unknown as Array<{ notification_id: number }>;
+    const ids = rows.map((r) => r.notification_id);
+    for (const id of ids) {
+      this.db.prepare("UPDATE notification_deliveries SET taken_at = ? WHERE notification_id = ? AND client_id = ?").run(now, id, clientId);
+      this.db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL").run(now, id);
+    }
+    return ids;
+  }
+
+  /** How many deliveries a client has in a state. */
+  countDeliveries(clientId: string, state: DeliveryState): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM notification_deliveries WHERE client_id = ? AND state = ?")
+      .get(clientId, state) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Deletes notifications past `expiresAt`, then those beyond SOURCE_CAP per source, oldest first. A pending or held one is never
+   * removed by the cap. Returns how many rows went; their deliveries go with them.
+   */
+  sweepNotifications(now: number): number {
+    const expired = this.db.prepare("DELETE FROM notifications WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now).changes;
+    const capped = this.db
+      .prepare(
+        "DELETE FROM notifications WHERE status NOT IN ('pending', 'held') AND id IN (SELECT n.id FROM notifications n WHERE (SELECT COUNT(*) FROM notifications m WHERE m.source = n.source AND (m.created_at > n.created_at OR (m.created_at = n.created_at AND m.id > n.id))) >= ?)",
+      )
+      .run(SOURCE_CAP).changes;
+    return Number(expired) + Number(capped);
+  }
+
+  /** Every notification a reminder produced, oldest first. */
+  notificationsForReminder(reminderId: number): NotificationRecord[] {
+    return this.notificationsWhere("n.reminder_id = ?", [reminderId], "n.created_at, n.id", true);
+  }
+
+  /** Notifications, newest first; for tests and the admin page. */
+  listNotifications(filter: { source?: NotificationSource; limit?: number } = {}): NotificationRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM notifications ${filter.source ? "WHERE source = ?" : ""} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(...(filter.source ? [filter.source] : []), filter.limit ?? 200) as unknown as Array<Record<string, string | number | null>>;
+    return rows.map((r) => this.notificationFromRow(r));
+  }
+
+  /** `where` may use `n` (notifications) and, unless `plain`, `d` (notification_deliveries). */
+  private notificationsWhere(where: string, params: Array<string | number>, order: string, plain = false): NotificationRecord[] {
+    const from = plain ? "notifications n" : "notifications n JOIN notification_deliveries d ON d.notification_id = n.id";
+    const rows = this.db.prepare(`SELECT n.* FROM ${from} WHERE ${where} ORDER BY ${order}`).all(...params) as unknown as Array<Record<string, string | number | null>>;
+    return rows.map((r) => this.notificationFromRow(r));
+  }
+
+  private notificationFromRow(r: Record<string, string | number | null>): NotificationRecord {
+    const opt = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
+    return {
+      id: r.id as number,
+      source: r.source as NotificationSource,
+      sourceName: opt(r.source_name as string | null),
+      title: opt(r.title as string | null),
+      body: r.body as string,
+      priority: r.priority as NotificationPriority,
+      tag: opt(r.tag as string | null),
+      dedupeKey: opt(r.dedupe_key as string | null),
+      url: opt(r.url as string | null),
+      clientId: opt(r.client_id as string | null),
+      location: opt(r.location as string | null),
+      everywhere: r.everywhere === 1,
+      retain: r.retain === 1,
+      reminderId: opt(r.reminder_id as number | null),
+      choices: r.choices === null ? undefined : (JSON.parse(r.choices as string) as string[]),
+      answer: opt(r.answer as string | null),
+      status: r.status as NotificationStatus,
+      createdAt: r.created_at as number,
+      deliveredAt: opt(r.delivered_at as number | null),
+      heardAt: opt(r.heard_at as number | null),
+      readAt: opt(r.read_at as number | null),
+      dismissedAt: opt(r.dismissed_at as number | null),
+      expiresAt: opt(r.expires_at as number | null),
+    };
+  }
+
+  private deliveryFromRow(r: Record<string, string | number | null>): NotificationDelivery {
+    const opt = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
+    return {
+      notificationId: r.notification_id as number,
+      clientId: r.client_id as string,
+      route: r.route as DeliveryRoute,
+      state: r.state as DeliveryState,
+      at: r.at as number,
+      until: opt(r.until as number | null),
+      takenAt: opt(r.taken_at as number | null),
+    };
   }
 
   // --- what each client type offers ----------------------------------------
