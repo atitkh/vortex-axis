@@ -1,7 +1,7 @@
 import type { Scalar } from "@vortex-axis/protocol";
 import type { InvokeHandler, NodeTool } from "./gateway/client.js";
 import type { Activity } from "./activity.js";
-import type { Delivery } from "./delivery.js";
+import type { Delivery, DeliveryMeta } from "./delivery.js";
 import { canTap, type Hub, type Session } from "./hub.js";
 import { Devices, lowest, spokenSummary } from "./deviceinfo.js";
 import { BUILT_IN_SETTINGS, settingProblem, withBuiltIns } from "./schema.js";
@@ -459,14 +459,17 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         const named = text(params.client);
         // Urgent speaks even in a device's quiet hours. A notification marked time-sensitive counts.
         const urgent = params.urgent === true || params.priority === "timeSensitive";
+        // Recorded with where it came from, for the notifications kept.
+        const title = text(params.title);
+        const meta: DeliveryMeta = { source: "agent", sourceName: command === "vortex.axis.say" ? "say" : "notify", ...(title ? { title } : {}) };
         // On every device that can speak, in one location or in the whole place.
         if (params.everywhere === true) {
           if (named) throw new Error("give a client or everywhere, not both");
-          return delivery.sayToAll(placeNamed(params), words, urgent);
+          return delivery.sayToAll(placeNamed(params), words, urgent, meta);
         }
         // A named client need not be connected: a closed browser gets a notification, anything else is kept for a while.
-        if (named) return delivery.sayTo(clientNamed(named), words, urgent);
-        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words, urgent);
+        if (named) return delivery.sayTo(clientNamed(named), words, urgent, meta);
+        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words, urgent, undefined, meta);
       }
 
       case "vortex.axis.show": {
@@ -585,6 +588,8 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           );
         }
         const result = await hub.ask(session, question.slice(0, 500), choices, ms);
+        // Its outcome is kept as an ask notification; the question itself lived only here.
+        delivery.recordAsk(session.client, question.slice(0, 500), choices, result);
         return {
           client: session.client.name,
           ...result,

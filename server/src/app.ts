@@ -380,17 +380,18 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     pictures: (clientId, media) => pictures.show(media, { clientId, turnId: `say-${Date.now().toString(36)}`, orAnywhere: true }),
     progress,
     deliver: async (clientId, text) => {
+      const meta = { source: "agent" as const, sourceName: "background" };
       if (store.getMeta("away") === "1") {
         const phone = store.pushClientIds().find((id) => !hub.session(id));
         const client = phone ? store.getClient(phone) : undefined;
-        if (client) return delivery.sayTo(client, text);
+        if (client) return delivery.sayTo(client, text, false, meta);
       }
       try {
-        return await delivery.sayOn(hub.pickOutput({}), text);
+        return await delivery.sayOn(hub.pickOutput({}), text, false, undefined, meta);
       } catch {
         // Nobody to say it to now: kept for the device that asked, for when it is back.
         const client = store.getClient(clientId);
-        if (client) return delivery.sayTo(client, text);
+        if (client) return delivery.sayTo(client, text, false, meta);
       }
     },
     // The agent answering turns stops its own runs.
@@ -415,7 +416,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       ask: async ({ question, choices, timeoutMs, silent, signal }) => {
         if (store.getMeta("away") === "1") {
           const phone = store.listClients().find((client) => delivery.canAskByNotification(client, choices));
-          if (phone) return delivery.askByNotification(phone, question, choices, timeoutMs);
+          if (phone) return delivery.askByNotification(phone, question, choices, timeoutMs, { source: "ask", sourceName: "agent-ask" });
         }
         let session;
         try {

@@ -262,6 +262,8 @@ describe("while Home Assistant says the person is away", () => {
         body: JSON.stringify({ id: asks[0].id, token: asks[0].token, choice: "Yes" }),
       });
       expect(answered.status).toBe(200);
+      const row = ctx.app.store.listNotifications().find((n) => n.body === "Ship it now?");
+      expect(row).toMatchObject({ source: "ask", sourceName: "agent-ask", clientId: phone.identity.clientId, status: "answered", answer: "Yes" });
     } finally {
       phone.close();
     }
@@ -294,8 +296,30 @@ describe("while Home Assistant says the person is away", () => {
       // Pushed to the closed phone, not said on the desk; the page opened from it is handed the answer.
       await expect.poll(() => phone.posts.length, WAIT).toBeGreaterThan(0);
       await expect.poll(async () => (await phone.waiting()).messages, WAIT).toEqual(["About write the report: The report is ready."]);
+      expect(ctx.app.store.listNotifications()).toEqual([
+        expect.objectContaining({ source: "agent", sourceName: "background", clientId: phone.identity.clientId, body: "About write the report: The report is ready." }),
+      ]);
     } finally {
       phone.close();
     }
+  });
+
+  it("records what Home Assistant sends as from Home Assistant, with its title", async () => {
+    const { identity, client } = await ready(["speaker", "screen"], { name: "Desk" });
+    const m = await linked();
+    m.send(`vortex-axis/${identity.clientId}/say`, JSON.stringify({ message: "The door is open.", title: "Front door" }));
+    await client.next("reply.text", 0, (r) => r.final && r.text === "The door is open.");
+    await expect.poll(() => ctx.app.store.listNotifications().find((n) => n.body === "The door is open."), WAIT).toMatchObject({
+      source: "agent",
+      sourceName: "homeassistant",
+      title: "Front door",
+      clientId: identity.clientId,
+    });
+    m.send("vortex-axis/hub/say", "Everyone, dinner.");
+    await expect.poll(() => ctx.app.store.listNotifications().find((n) => n.body === "Everyone, dinner."), WAIT).toMatchObject({
+      sourceName: "homeassistant",
+      everywhere: true,
+    });
+    expect(ctx.app.store.listNotifications().find((n) => n.body === "Everyone, dinner.")!.title).toBeUndefined();
   });
 });

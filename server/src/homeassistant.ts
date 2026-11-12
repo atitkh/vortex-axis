@@ -344,7 +344,8 @@ export class HomeAssistant {
     const urgent = title.trim().toLowerCase() === "urgent";
     const client = id === "hub" ? undefined : this.options.store.getClient(id);
     if (id !== "hub" && !client) return;
-    const done = client ? this.options.delivery.sayTo(client, message, urgent) : this.options.delivery.sayToAll(undefined, message, urgent);
+    const meta = { source: "agent" as const, sourceName: "homeassistant", ...(title.trim() ? { title: title.trim().slice(0, 200) } : {}) };
+    const done = client ? this.options.delivery.sayTo(client, message, urgent, meta) : this.options.delivery.sayToAll(undefined, message, urgent, meta);
     done.catch((error) => this.options.log?.(`home assistant: could not say that${client ? ` on ${client.name}` : ""}: ${(error as Error).message}`));
   }
 

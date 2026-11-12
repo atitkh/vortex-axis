@@ -508,3 +508,33 @@ describe("delivery, kept in the notifications table", () => {
     expect(ctx.app.delivery.waitingFor(identity.clientId)).toBe(4);
   });
 });
+
+describe("where a notification came from", () => {
+  const row = (body: string) => ctx.app.store.listNotifications().find((n) => n.body === body);
+
+  it("records an agent's say and notify by name, with the title it gave", async () => {
+    const { client } = await ready(["screen"], { name: "Desk" });
+    await invoke("vortex.axis.say", { text: "Build passed.", client: "Desk" });
+    expect(row("Build passed.")).toMatchObject({ source: "agent", sourceName: "say", clientId: expect.any(String) });
+    expect(row("Build passed.")!.title).toBeUndefined();
+    await invoke("vortex.axis.say", { text: "Deploy done.", title: "Deploy" });
+    expect(row("Deploy done.")).toMatchObject({ sourceName: "say", title: "Deploy" });
+    await invoke("system.notify", { title: "Mail", body: "Two new messages", client: "Desk" });
+    expect(row("Mail. Two new messages")).toMatchObject({ source: "agent", sourceName: "notify", title: "Mail" });
+    // Nothing to say is refused before anything is recorded.
+    const before = ctx.app.store.listNotifications().length;
+    await expect(invoke("vortex.axis.say", { text: "  " })).rejects.toThrow(/nothing to say/);
+    expect(ctx.app.store.listNotifications()).toHaveLength(before);
+    client.close();
+  });
+
+  it("records a question answered by a tap on a connected device as answered, with the answer", async () => {
+    const { client } = await ready(["screen", "touch"], { name: "Desk" });
+    const pending = invoke("vortex.axis.ask", { question: "Lights off?", choices: ["Yes", "No"], client: "Desk" });
+    const ask = await client.next("ask");
+    client.send({ t: "answer", askId: ask.askId, choice: "No" });
+    expect(await pending).toMatchObject({ answer: "No", how: "tap" });
+    expect(row("Lights off?")).toMatchObject({ source: "ask", status: "answered", answer: "No", choices: ["Yes", "No"], clientId: expect.any(String) });
+  });
+});
+
