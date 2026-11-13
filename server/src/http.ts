@@ -22,7 +22,7 @@ import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
 import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
-import { hasCredential, verify as verifyHook, type HookSources } from "./hooks.js";
+import { HOOK_ID, HookInputError, hasCredential, verify as verifyHook, type HookSourceInput, type HookSourcePatch, type HookSources } from "./hooks.js";
 import { ADMIN_FAILURES, ADMIN_LOCK_MS, Lockout } from "./lockout.js";
 import type { ToolAccess } from "./tools.js";
 import { DESKTOP_TYPE, MACOS_DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
@@ -1320,6 +1320,55 @@ export function createHttpHandler(deps: HttpDeps) {
           stop();
         });
         return;
+      }
+      // Webhook sources: who may post notices in. Secrets are shown once, when made or rotated, and never listed.
+      if (parts[1] === "hooks" && deps.hooks) {
+        const hooks = deps.hooks;
+        const fail = (error: unknown): never => {
+          throw new HttpError(error instanceof HookInputError ? 400 : 500, (error as Error).message);
+        };
+        if (method === "GET" && parts.length === 2) {
+          return sendJson(res, 200, { hooks: hooks.list().map((h) => ({ ...h, path: `/v1/hook/${h.id}` })) });
+        }
+        if (method === "POST" && parts.length === 2) {
+          const body = (await readJson(req)) as HookSourceInput;
+          try {
+            const made = hooks.create(body);
+            return sendJson(res, 201, { source: { ...made.source, path: `/v1/hook/${made.source.id}` }, secret: made.secret });
+          } catch (error) {
+            return fail(error);
+          }
+        }
+        if (parts.length >= 3 && !HOOK_ID.test(parts[2]!)) throw new HttpError(404, "no such source");
+        if (method === "PATCH" && parts.length === 3) {
+          const body = (await readJson(req)) as HookSourcePatch;
+          try {
+            if (!hooks.update(parts[2]!, body)) throw new HttpError(404, "no such source");
+          } catch (error) {
+            if (error instanceof HttpError) throw error;
+            return fail(error);
+          }
+          return sendJson(res, 200, { hooks: hooks.list().map((h) => ({ ...h, path: `/v1/hook/${h.id}` })) });
+        }
+        if (method === "POST" && parts.length === 4 && parts[3] === "rotate") {
+          const secret = hooks.rotate(parts[2]!);
+          if (!secret) throw new HttpError(404, "no such source");
+          return sendJson(res, 200, { secret });
+        }
+        if (method === "DELETE" && parts.length === 3) {
+          if (!hooks.remove(parts[2]!)) throw new HttpError(404, "no such source");
+          return sendJson(res, 200, { removed: parts[2] });
+        }
+        // A fixed notice through the same path a request takes, minus the credential check: clamp, rate limit and delivery all apply.
+        if (method === "POST" && parts.length === 4 && parts[3] === "test") {
+          const source = hooks.record(parts[2]!);
+          if (!source) throw new HttpError(404, "no such source");
+          const payload = Buffer.from(JSON.stringify({ title: "Test notice", body: "Sent from the admin page.", priority: "normal", tag: "test" }));
+          const answer = hooks.handle(source, payload, { "content-type": "application/json" });
+          sendJson(res, answer.status, answer.body);
+          if (answer.deliver) void answer.deliver();
+          return;
+        }
       }
       // Agents: the tools they have, and the tokens that let a harness in by MCP.
       if (parts[1] === "mcp" && deps.tools) {
