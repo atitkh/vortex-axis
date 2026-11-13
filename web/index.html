@@ -35,6 +35,13 @@
         <path class="slash" d="M4.500 4.500l15 15"/>
       </svg>
     </button>
+    <button type="button" class="icon hidden" id="inbox-toggle" aria-label="Inbox" title="Inbox" aria-expanded="false" aria-controls="inbox-panel">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 13.500l2.500-8h11l2.500 8v5H4z"/>
+        <path d="M4 13.500h4.500a3.500 3.500 0 0 0 7 0H20"/>
+      </svg>
+      <span class="inbox-badge hidden" id="inbox-badge"></span>
+    </button>
     <button type="button" class="icon hidden" id="history-toggle" aria-label="History" title="History" aria-expanded="false" aria-controls="history">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4.500 12a7.500 7.500 0 1 0 2.300-5.400"/>
@@ -95,6 +102,21 @@
     <p class="notice hidden" id="sound-note">Sound is off until you tap or type on this page. <button type="button" id="sound-enable">Turn sound on</button></p>
   </section>
 </main>
+
+<aside class="drawer hidden" id="inbox-panel" aria-label="Inbox">
+  <div class="drawer-head">
+    <span>Inbox</span>
+    <span class="drawer-actions">
+      <button type="button" class="ghost" id="inbox-clear">Dismiss all</button>
+      <button type="button" class="icon" id="inbox-close" aria-label="Close inbox" title="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6.500 6.500l11 11m0-11l-11 11"/></svg>
+      </button>
+    </span>
+  </div>
+  <div class="log" id="inbox-list"></div>
+  <p class="log-empty" id="inbox-empty">Nothing in the inbox.</p>
+  <p class="drawer-foot">What agents, reminders and other services sent to this browser. Axis keeps it until you dismiss it.</p>
+</aside>
 
 <aside class="drawer hidden" id="history" aria-label="History">
   <div class="drawer-head">

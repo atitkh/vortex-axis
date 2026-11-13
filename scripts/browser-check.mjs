@@ -302,6 +302,12 @@ try {
     await client.run(`${byId("mute")}.click()`);
     await client.run(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
     if (!(await client.run(`${byId("sound-pop")}.classList.contains('hidden')`))) throw new Error("the sound controls stayed open after a press elsewhere");
+    // The phone panel opens and shows its empty state (the inbox call answers for a paired browser).
+    step("client: Inbox panel opens", await (async () => {
+      await client.run(`${byId("inbox-toggle")}.click()`);
+      return client.until(`!${byId("inbox-panel")}.classList.contains('hidden') && ${byId("inbox-panel")}.classList.contains('is-empty')`, "the inbox panel");
+    })());
+    await client.run(`${byId("inbox-close")}.click()`);
     // The pairing: its name at the bottom opens the way out, which takes two presses and is not taken here.
     await client.run(`${byId("who")}.click()`);
     await client.run(`${byId("forget")}.click()`);
@@ -417,6 +423,9 @@ try {
       stray.push(...(await next.run(`[...${classicLinks}, ...[...document.querySelectorAll('.classic-card')].map(() => 'card')]`)).map((h) => `${page}: ${h}`));
     }
     if (stray.length) throw new Error(`classic links left on the new page: ${stray.join(", ")}`);
+    // The Inbox page draws (empty here) and its menu entry exists; a page error would fail the run below.
+    await next.run(`location.hash = '#inbox'`);
+    step("admin: Inbox page renders", await next.until(`!!document.querySelector('#inbox-page [data-inbox-empty], #inbox-page .inbox-item') && !!document.querySelector('a[href="#inbox"]')`, "the Inbox page"));
     const toClassic = await next.run(`[...document.querySelectorAll('a[href^="/admin-classic"]')].map(a => a.textContent)`);
     if (toClassic.length) throw new Error(`links to /admin-classic: ${JSON.stringify(toClassic)}`);
     if ((await fetch(`${base}/admin-classic`)).status !== 404) throw new Error("/admin-classic still answers");
@@ -751,7 +760,7 @@ try {
     if (cardsAfter === cardsBefore || (await adminGet("/admin/mcp")).mirrorCards !== cardsBefore) throw new Error("the progress cards switch did not save or undo");
     step("admin: progress cards switch", `${cardsBefore} → ${cardsAfter} saved, undone`);
     await next.run(`location.hash = '#tools'`);
-    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 13 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
+    await next.until(`document.querySelectorAll('#tools-list tbody tr').length === 14 && document.querySelector('#mcp-url').value.endsWith('/mcp')`, "the new tools page");
     await next.run(`${fill("#mcp-token-name", "Browser check next")}; document.querySelector('#mcp-token-new').click()`);
     const nextToken = await next.until(`document.querySelector('#mcp-token-value')?.value`, "the new token on the new page");
     await next.until(`/Browser check next/.test(document.querySelector('#mcp-tokens').textContent)`, "the token in the new list");

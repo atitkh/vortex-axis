@@ -15,6 +15,7 @@ import { AppsPage, FacePage, FirmwarePage, WakeWordsPage } from "/web/adm-hardwa
 import { IntegrationsPage, SystemPage } from "/web/adm-system.js";
 import { MapPage } from "/web/adm-map.js";
 import { ProfilesPage } from "/web/adm-profiles.js";
+import { InboxPage, useUnread } from "/web/adm-inbox.js";
 
 // --- pages and routes -------------------------------------------------------------------------
 
@@ -22,6 +23,7 @@ import { ProfilesPage } from "/web/adm-profiles.js";
 export const PAGES = {
   overview: { title: "Overview", purpose: "What needs attention, and how Axis has been doing." },
   map: { title: "Map", purpose: "A drawing of the devices, Axis and the services behind it, live; and one page per device with its readings." },
+  inbox: { title: "Inbox", purpose: "What agents, reminders, questions, webhooks and the system have told you, with unread first marked." },
   live: { title: "Live", group: "activity", purpose: "Turns, tool calls and wake words as they happen, and what is running now." },
   activity: { title: "History", group: "activity", purpose: "Uptime, turn timings and events over the last day or week." },
   clients: { title: "All devices", group: "devices" },
@@ -138,6 +140,7 @@ const PATHS = {
   devices: "M6 2.5h8a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 16V4A1.5 1.5 0 0 1 6 2.5ZM9 14.5h2",
   agent: "M10 3a3 3 0 0 1 3 3v3a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM5 9a5 5 0 0 0 10 0M10 14v3",
   chip: "M6 6h8v8H6zM8 2v3M12 2v3M8 15v3M12 15v3M2 8h3M2 12h3M15 8h3M15 12h3",
+  bell: "M5 15V9a5 5 0 0 1 10 0v6l1.5 1.5h-13ZM8.5 18h3",
   plug: "M7 2v4M13 2v4M5 6h10v3a5 5 0 0 1-10 0V6ZM10 14v4",
   gear: "M10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4",
   search: "M9 3a6 6 0 1 0 0 12A6 6 0 0 0 9 3ZM13.5 13.5 17 17",
@@ -288,6 +291,7 @@ function Sidebar({ route, attention }) {
     return html`<a href=${`#${page}`} class=${on ? "on" : ""} aria-current=${on ? "page" : undefined}>${label ?? PAGES[page].short ?? PAGES[page].title}${count ? html`<span class=${`n ${countKind ?? ""}`}>${count}</span>` : null}</a>`;
   };
   const s = store.status;
+  const unread = useUnread();
   const types = typesInUse();
   const devices = [...store.clients].sort((a, b) => a.name.localeCompare(b.name));
   const firmwareBehind = store.clients.filter(behind).length;
@@ -308,6 +312,7 @@ function Sidebar({ route, attention }) {
     <div class="nav">
       <a href="#overview" class=${route.page === "overview" ? "toplink on" : "toplink"}><${Icon} name="home" /><span>Overview</span>${attention.length ? html`<span class=${`n ${attention.some((a) => a.level === "bad") ? "bad" : "warn"}`}>${attention.length}</span>` : null}</a>
       <a href="#map" class=${route.page === "map" ? "toplink on" : "toplink"}><${Icon} name="map" /><span>Map</span></a>
+      <a href="#inbox" class=${route.page === "inbox" ? "toplink on" : "toplink"}><${Icon} name="bell" /><span>Inbox</span>${unread ? html`<span class="n warn" data-inbox-unread>${unread}</span>` : null}</a>
       ${GROUPS.map((g) => html`<div class="grp" key=${g.key}>
         ${groupHead(g)}
         ${isOpen(g.key)
@@ -601,6 +606,7 @@ function Page({ route, attention }) {
     case "device": return html`<${DevicePage} id=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "type": return html`<${TypePage} type=${route.id} tab=${route.tab} focusKey=${route.key} />`;
     case "settings": return html`<${Defaults} focusKey=${route.key} />`;
+    case "inbox": return html`<${InboxPage} />`;
     case "profiles": return html`<${ProfilesPage} />`;
     case "pair": return html`<${AddDevice} />`;
     case "agent": return html`<${AgentPage} />`;

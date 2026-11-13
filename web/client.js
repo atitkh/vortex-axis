@@ -309,6 +309,9 @@ function forget(message = "") {
   show("footer", false);
   show("sound", false);
   show("bell", false);
+  show("inbox-toggle", false);
+  show("inbox-panel", false);
+  clearInterval(inboxTimer);
   closePops();
   show("history-toggle", false);
   clearHistory();
@@ -383,6 +386,7 @@ function start() {
   show("talk", true);
   show("footer", true);
   show("sound", true);
+  startInbox();
   $("who").textContent = `Paired as ${identity.name}`;
   // Pairing can happen long after the page loaded; the notification button belongs to a paired client.
   queueMicrotask(() => showNotifyControl());
@@ -1377,6 +1381,118 @@ if (location.hash.startsWith("#ask=")) {
   }
   history.replaceState(null, "", "/");
 }
+
+// --- the inbox: what Axis recorded for this browser (GET /v1/inbox, the same token as the push subscription).
+// Everything in it came from outside, so it is drawn with textContent only.
+let inboxUnread = 0;
+let inboxTimer = 0;
+const inboxPanel = () => $("inbox-panel");
+function paintBadge(n) {
+  inboxUnread = n;
+  const badge = $("inbox-badge");
+  badge.textContent = n > 99 ? "99+" : String(n);
+  show("inbox-badge", n > 0);
+  $("inbox-toggle").setAttribute("aria-label", n ? `Inbox, ${n} unread` : "Inbox");
+  // The installed app's icon, where the browser allows it.
+  try {
+    if (n > 0) navigator.setAppBadge?.(n)?.catch?.(() => {});
+    else navigator.clearAppBadge?.()?.catch?.(() => {});
+  } catch {
+    // No badge API here.
+  }
+}
+async function inboxCall(path, body) {
+  const response = await fetch(`/v1/inbox${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { ...asClient(), ...(body ? { "content-type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  return response.json();
+}
+function drawNotices(items) {
+  const list = $("inbox-list");
+  list.replaceChildren();
+  for (const n of items) {
+    const row = document.createElement("div");
+    row.className = `notice${n.unread ? " unread" : ""}`;
+    const head = document.createElement("div");
+    head.className = "notice-head";
+    const title = document.createElement("span");
+    title.className = "notice-title";
+    title.textContent = n.title || n.from || "";
+    const meta = document.createElement("span");
+    meta.className = "notice-meta";
+    meta.textContent = `${n.from ?? ""} · ${n.age ?? ""} ago`;
+    head.append(title, meta);
+    row.append(head);
+    if (n.body) {
+      const body = document.createElement("div");
+      body.className = "notice-body";
+      body.textContent = n.body;
+      row.append(body);
+    }
+    const acts = document.createElement("div");
+    acts.className = "notice-acts";
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "ghost";
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", async () => {
+      try {
+        const done = await inboxCall("/dismiss", { ids: [n.id] });
+        row.remove();
+        paintBadge(done.unread ?? 0);
+        inboxPanel().classList.toggle("is-empty", !list.children.length);
+      } catch {
+        // The next refresh shows what is true.
+      }
+    });
+    acts.append(dismiss);
+    row.append(acts);
+    list.append(row);
+  }
+  inboxPanel().classList.toggle("is-empty", !items.length);
+}
+async function refreshInbox() {
+  if (!identity || document.hidden) return;
+  try {
+    const data = await inboxCall("?limit=50");
+    paintBadge(data.unread ?? 0);
+    if (!inboxPanel().classList.contains("hidden")) {
+      drawNotices(data.items ?? []);
+      const ids = (data.items ?? []).filter((n) => n.unread).map((n) => n.id);
+      // Opening it is reading it; the rows keep their highlight until the next refresh.
+      if (ids.length) paintBadge((await inboxCall("/read", { ids })).unread ?? 0);
+    }
+  } catch {
+    // Offline or not allowed: leave the badge as it was.
+  }
+}
+function toggleInbox(open) {
+  show("inbox-panel", open);
+  $("inbox-toggle").setAttribute("aria-expanded", String(open));
+  if (open) refreshInbox();
+}
+function startInbox() {
+  show("inbox-toggle", true);
+  refreshInbox();
+  clearInterval(inboxTimer);
+  inboxTimer = setInterval(refreshInbox, 60_000);
+}
+$("inbox-toggle").addEventListener("click", () => toggleInbox(inboxPanel().classList.contains("hidden")));
+$("inbox-close").addEventListener("click", () => toggleInbox(false));
+$("inbox-clear").addEventListener("click", async () => {
+  try {
+    await inboxCall("/dismiss", { all: true });
+    drawNotices([]);
+    paintBadge(0);
+  } catch {
+    // Left as it was.
+  }
+});
+document.addEventListener("visibilitychange", () => !document.hidden && refreshInbox());
+navigator.serviceWorker?.addEventListener("message", () => setTimeout(refreshInbox, 1500));
 
 // What was kept from before this page was loaded. A question still marked as waiting then got no answer
 // here; if it is in fact still open, asking Axis below brings it back.

@@ -841,3 +841,13 @@ table.t tr.dirty td { background: var(--accent-soft); }
 .sp-drop { height: 4px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); list-style: none; margin: -7px 0; }
 .sp-entry .f { grid-template-columns: 120px minmax(0, 1fr); }
 @media (max-width: 720px) { .sp-entry .f { grid-template-columns: minmax(0, 1fr); } .sp-tools { margin-left: 0; } }
+
+/* Inbox page. Text from outside is shown as plain text, wrapped. */
+.inbox-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.inbox-item { padding: 10px 16px; border-top: 1px solid var(--line); }
+.inbox-item:first-child { border-top: 0; }
+.inbox-item.unread { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-line); }
+.inbox-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inbox-item.unread .inbox-title { font-weight: 700; } .inbox-item:not(.unread) .inbox-title { font-weight: 500; }
+.inbox-body { margin: 4px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-acts { display: flex; gap: 6px; }
