@@ -486,7 +486,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
-      createInvokeHandler({ hub, store, devices, timers, reminders, timeZone: () => config.timeZone, delivery, shows, pictureSource, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt, hookAgentBusy: () => hooks.agentBusy() }),
+      createInvokeHandler({ hub, store, devices, timers, reminders, timeZone: () => config.timeZone, delivery, shows, pictureSource, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt, hookAgentBusy: () => hooks.agentBusy(), inboxOnBoards: (target) => boardInbox.show(target) }),
     ),
     (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );

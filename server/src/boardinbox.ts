@@ -24,7 +24,7 @@ export function inboxLine(title: string | undefined, body: string | undefined): 
 
 /**
  * The unread notifications on the boards: a screen with touch is told how many are unread for it (addressed to it or to everyone)
- * and the newest few, as `inbox.show {count, items}`; items is "<id>\t<line>\n" a row. A tap on a row comes back as `inbox.act`.
+ * and the newest few, as `inbox.show {count, items}` (`open: 1` added when the person asked to see the list); items is "<id>\t<line>\n" a row. A tap on a row comes back as `inbox.act`.
  * Sends only when the count or the rows changed, and changes close together make one send.
  */
 export class BoardInbox {
@@ -74,24 +74,64 @@ export class BoardInbox {
     this.timer.unref();
   }
 
-  /** Tells one screen, or every screen with touch, what is unread, if it differs from what it was last told. */
-  tell(only?: Session): void {
+  /**
+   * Tells one screen, or every screen with touch, what is unread, if it differs from what it was last told.
+   * With `open` (one screen only) it is told whatever it was told before, once, with `open: 1`: the board then lists the rows as
+   * if its dot had been tapped. Returns the unread count of the last screen told or looked at.
+   */
+  tell(only?: Session, open = false): number {
+    let unread = 0;
     for (const session of only ? [only] : this.hub.sessions()) {
-      const caps = session.client.capabilities;
-      if (!caps.includes("screen") || !caps.includes("touch")) continue;
+      if (!onBoard(session)) continue;
       const viewer = session.client.id;
       try {
         const count = this.store.unreadCount({ viewer, unread: true });
         const rows = this.store.listNotifications({ viewer, unread: true, limit: ITEMS });
+        unread = count;
+        const opens = open && only !== undefined;
         const fingerprint = `${count}:${rows.map((r) => r.id).join(",")}`;
-        if (this.sent.get(viewer) === fingerprint) continue;
+        if (!opens && this.sent.get(viewer) === fingerprint) continue;
         this.sent.set(viewer, fingerprint);
         const items = rows.map((r) => `${r.id}\t${inboxLine(r.title, r.body)}\n`).join("");
         // A client that does not know the command says so or says nothing; either is fine.
-        this.hub.command(session, "inbox.show", { count, items }, 3000).catch(() => undefined);
+        this.hub.command(session, "inbox.show", opens ? { count, items, open: 1 } : { count, items }, 3000).catch(() => undefined);
       } catch (error) {
         this.options.note?.("inbox", viewer, `Telling ${session.client.name} its unread notifications failed: ${(error as Error).message}`, "bad");
       }
     }
+    return unread;
   }
+
+  /**
+   * Opens the unread list on one board's screen, for "show me the inbox": the board named or in the place named, else the one the
+   * person last spoke to if it is a board, else the first board online. The rows are the stored ones; the caller gives no text.
+   */
+  show(target: { client?: string | undefined; location?: string | undefined } = {}): { opened: boolean; board?: string; unread?: number; reason?: string } {
+    let session: Session | undefined;
+    if (target.client || target.location) {
+      session = this.hub.pickOutput(target);
+      if (!onBoard(session)) throw new Error(`${session.client.name} has no screen with touch to list the inbox on`);
+    } else {
+      try {
+        const picked = this.hub.pickOutput({});
+        if (onBoard(picked)) session = picked;
+      } catch {
+        // Nothing that speaks or shows text is online; a board may still be.
+      }
+      if (!session) for (const s of this.hub.sessions()) if (onBoard(s)) { session = s; break; }
+      if (!session) return { opened: false, reason: "no board with a screen is online" };
+    }
+    const board = session.client.name;
+    const unread = this.store.unreadCount({ viewer: session.client.id, unread: true });
+    if (unread === 0) return { opened: false, board, unread, reason: `nothing is unread for ${board}` };
+    this.tell(session, true);
+    this.options.note?.("inbox", session.client.id, `The inbox list was opened on ${board}`);
+    return { opened: true, board, unread };
+  }
+}
+
+/** A board that shows the inbox: a screen with touch. */
+function onBoard(session: Session): boolean {
+  const caps = session.client.capabilities;
+  return caps.includes("screen") && caps.includes("touch");
 }

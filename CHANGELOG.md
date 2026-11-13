@@ -19,7 +19,8 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - New admin-only command `inbox.show {count, items}` (like `progress.show`) tells each board with a screen and touch how many notifications are unread for it (addressed to it or to everyone) and the newest five, `items` being `<id>\t<line>\n` a row (title, else body, one line, 48 characters at most). Sent when the count or rows change (changes within 500 ms make one send), when a board connects, and checked every 60 s. `server/src/boardinbox.ts`.
 - New board-to-Axis message `inbox.act {id, act: "read"|"dismiss"}`: marks read or dismisses a notification the board may see (its own or everyone's); another board's is left alone, an unknown id does nothing. Added to protocol 1 (addition only, the schema is regenerated).
 - The store tells a listener after any change to notifications (`onNotificationsChanged`).
-- Checked by tests only. No firmware change: boards ignore `inbox.show` until firmware that reads it ships (1.8 0.28.0, round 0.12.0, planned). Deploy Axis first (an old Axis rejects `inbox.act`). NOT verified: a real board.
+- `vortex_axis_inbox` has an action `show` (optional `client`, `location`): it opens the unread list on a board's screen, for "show me the inbox". The board named, else the one last spoken to if it has a screen and touch, else the first such board online, is sent `inbox.show` once more with `open: 1` and the rows from the store (the agent gives no text; `inbox.show` stays admin-only). It answers which board opened it, or why none did ("no board with a screen is online", nothing unread).
+- Checked by tests only. Boards ignore `inbox.show` until firmware that reads it runs on them (1.8 0.28.0, round 0.12.0, below: compile-checked only). Deploy Axis first (an old Axis rejects `inbox.act`). NOT verified: a real board.
 
 ## Axis 0.76.0 (2026-11-12): notifications kept on record, a webhook door, an inbox
 
