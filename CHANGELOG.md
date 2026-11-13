@@ -4,7 +4,9 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## Unreleased: webhook door and shared routing
+## Axis 0.76.0 (2026-11-12): notifications kept on record, a webhook door, an inbox
+
+### Webhook door and shared routing
 
 - **A webhook can ask the agent (off by default, risky).** A source switched to "Ask the agent" hands payloads with `"mode": "ask-agent"` (or preset events above low) to an agent as untrusted information, in a conversation of its own (`<session>-hooks`), never the main chat. The agent is chosen under Webhooks, "Agent for webhooks" (empty: the same agent as Axis; or pick a different one). One run per source at a time, 10 minutes; its one-sentence answer goes out under the source's ceiling, `NO_REPLY` sends nothing, failures are noted. While one runs, an agent cannot switch `confirmRisky` off.
 - **An inbox for notifications.** `GET /admin/notifications` (with read and dismiss) and the browser client's `GET /v1/inbox` list what was sent, filtered by source, name and unread; the agent tool `vortex_axis_inbox` lists, marks read and dismisses without returning links. Dismissing leaves a notification still being delivered alone. Needs `vortex.axis.inbox` allowed on the gateway and the node approved again.
@@ -12,11 +14,11 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 - **`say` and `notify` with no target now reach the closed phone while you are Away**, through the shared `Delivery.routeNotice` that webhooks use. They went only to a connected device before.
 - Not built yet: asking the agent from a webhook, an inbox page, Gitea/GitHub presets.
 
-## Unreleased: notifications kept on record
+### Notifications kept on record
 
 - **Held, pushed and missed messages survive a restart.** Everything Axis sends an agent to say, show or ask is now a row in a new `notifications` table, with one row per device in `notification_deliveries`. The held and missed queues are read from these tables instead of memory, so a restart no longer loses a message held for a device that is away, a message pushed to a closed browser, or a missed question. Reminder firings are recorded too, linked to their reminder. Missed questions and missed reminders stay until dismissed; other low and normal notifications are kept 7 days, and each source is capped at 500 rows. A question still open at a restart becomes missed. Still to come: the webhook route, the inbox page and the ask agent. Tests: `server/test/notifications.test.ts`, `delivery.test.ts`, `reminders.test.ts`.
 
-## Unreleased: first start on a fresh machine, and a how-it-works page
+### First start on a fresh machine, and a how-it-works page
 
 - **The data folder no longer has to belong to user 1000.** A fresh Docker host where the folder was made by root (Docker creates it when it is missing) or by a user that is not id 1000 stopped at start with `unable to open database file`. The image now starts as root only to look at who owns `/data`, then runs Axis as that user (a root-owned folder is handed to the image's `node` user). Checked with a root-owned, a 1000-owned and a 1001-owned folder. The error for a database that cannot be opened now names the folder and the user.
 - **The same for the speech services.** The speech image (`speech/`) also ran as user 1000 and stopped with `PermissionError: ... '/models/tmp...'` when the models folder was root-owned or another user's. It now starts through the same kind of entrypoint and runs as the owner of `/models` (a root-owned folder is handed to the image's user). Checked with root-, 1000- and 1001-owned folders.
