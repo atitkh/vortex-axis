@@ -158,6 +158,27 @@ describe("webhook notices, delivered", () => {
     }
   });
 
+  it("the one order: an old browser with a subscription is never the Away target, and pickOutput stays on a live session", async () => {
+    await restart({}, { tts });
+    const { client } = await board();
+    const phone = await closedPhone();
+    const old = await newPairedClient({ capabilities: ["screen"], name: "Brave Windows" });
+    ctx.app.store.setPushSubscription(old.clientId, { endpoint: "http://127.0.0.1:9/never", p256dh: "x", auth: "y" });
+    try {
+      ctx.app.store.setMeta("away", "1");
+      const where = ctx.app.hub.pickDestination({}, true);
+      expect("push" in where && where.push.id).toBe(phone.identity.clientId);
+      // A caller that needs a live session gets the board, never the closed phone.
+      expect(ctx.app.hub.pickOutput({}).client.id).not.toBe(phone.identity.clientId);
+      expect(client).toBeTruthy();
+      ctx.app.store.setMeta("away", undefined);
+      const home = ctx.app.hub.pickDestination({}, true);
+      expect("session" in home).toBe(true);
+    } finally {
+      phone.close();
+    }
+  });
+
   it("explicit client, location and everywhere follow the say mapping", async () => {
     const { client: desk } = await board("Desk", { location: "office" });
     const { identity: denId, client: den } = await board("Den", { location: "den" });

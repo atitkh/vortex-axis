@@ -282,17 +282,18 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   // One function carries out every tool call, whichever door it came in by: the OpenClaw node here, MCP in http.ts.
   // A phone is told about a task only while the person is away from the screens: Home Assistant says so.
   const tellPhones = (title: string, body: string, tag: string) => {
-    if (store.getMeta("away") !== "1") return;
-    for (const id of store.pushClientIds()) {
-      if (hub.session(id)) continue;
-      push.notify(id, { title, body, tag }).catch(() => undefined);
-    }
+    if (!hub.isAway()) return;
+    const phone = hub.awayPhone();
+    if (phone) push.notify(phone.id, { title, body, tag }).catch(() => undefined);
   };
   // Every phone that is not open on a screen, away or not; how many were sent. For what must not wait for the person to leave.
   const notifyAll = async (title: string, body: string, tag: string): Promise<number> => {
     let sent = 0;
     for (const id of store.pushClientIds()) {
       if (hub.session(id)) continue;
+      // Phones only: not any browser that once subscribed.
+      const client = store.getClient(id);
+      if (!client || !hub.isPhone(client)) continue;
       if ((await push.notify(id, { title, body, tag }).catch(() => "failed")) === "sent") sent++;
     }
     return sent;
@@ -419,7 +420,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     route: {
       ask: async ({ question, choices, timeoutMs, silent, signal }) => {
         // The same Away choice as every notice (Delivery.awayPhone); a question also needs choices to offer there.
-        const phone = delivery.awayPhone();
+        const where = hub.pickDestination({}, true);
+        const phone = "push" in where ? where.push : undefined;
         if (phone && delivery.canAskByNotification(phone, choices)) {
           return delivery.askByNotification(phone, question, choices, timeoutMs, { source: "ask", sourceName: "agent-ask" });
         }
@@ -609,7 +611,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       socket.destroy();
       return;
     }
-    sockets.handleUpgrade(req, socket, head, (ws) => hub.accept(ws));
+    sockets.handleUpgrade(req, socket, head, (ws) => hub.accept(ws, String(req.headers["user-agent"] ?? "")));
   });
 
   await new Promise<void>((resolve, reject) => {

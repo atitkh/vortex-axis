@@ -298,7 +298,12 @@ export class Reminders {
       }
     }
     try {
-      session ??= hub.pickOutput({});
+      if (!session) {
+        // The one order (Hub.pickDestination): away with the page closed, that is the phone.
+        const where = hub.pickDestination({}, true);
+        if ("push" in where) return { kind: "push", ...(fellBack ? { fellBack } : {}) };
+        session = where.session;
+      }
     } catch (error) {
       // Nothing online. At boot clients have not reconnected yet, so the first try waits; the retry goes to the phones.
       if (r.attempts === 0) throw error;

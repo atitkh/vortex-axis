@@ -285,7 +285,8 @@ describe("while Home Assistant says the person is away", () => {
       activeRun: async () => ({ active: false }),
       healthy: async () => true,
     };
-    await restart({ handoverMs: 150 }, { tts, agent });
+    // The desk was used a moment ago and a device used within the hold wins even while away (Hub.pickDestination); so the hold is 1 ms here.
+    await restart({ handoverMs: 150, outputHoldMs: 1 }, { tts, agent });
     const { client } = await ready(["screen"], { name: "Desk" });
     const phone = await closedPhone();
     try {

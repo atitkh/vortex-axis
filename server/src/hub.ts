@@ -271,12 +271,37 @@ export class Hub implements TurnPort {
     for (const listener of this.changeListeners) listener(clientId, change);
   }
 
+  /** True when the person is away from the screens (Home Assistant says so). */
+  isAway(): boolean {
+    return this.store.getMeta("away") === "1";
+  }
+
+  /** A phone: a client whose browser said it was one (or, before it said so, whose name says phone). */
+  isPhone(client: ClientRecord): boolean {
+    const known = this.store.getMeta(`phone:${client.id}`);
+    return known === undefined ? /phone/i.test(client.name) : known === "1";
+  }
+
+  /** While away: the phone with its page closed that takes notifications and was seen most recently. */
+  awayPhone(): ClientRecord | undefined {
+    return this.store
+      .pushClientIds()
+      .filter((id) => !this.online.has(id))
+      .map((id) => this.store.getClient(id))
+      .filter((c): c is ClientRecord => Boolean(c) && this.isPhone(c as ClientRecord))
+      .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
+  }
+
   /**
-   * Chooses where agent-started output goes. A named client or location wins.
-   * Otherwise it is the client last spoken to, then the configured default
-   * client, then any client that can speak or show text.
+   * THE ONE ORDER for where output goes when nothing says where. Every notice, announcement, reminder, question and
+   * agent-started output uses it; change the order here and nowhere else.
+   *   1. A named client or location wins (that client even when offline for a notice; a location needs a device there).
+   *   2. The client the person last used within outputHoldMs, if it is online and can output, whether away or not.
+   *   3. Not away: the default client if online, then any client that can speak or show text.
+   *   4. Away: a phone (online, else with its page closed and push on, the latest seen); with no phone, as 3.
+   * `allowPush`: a closed phone may be the answer (a notice or question can be pushed); otherwise a live session is required.
    */
-  pickOutput(target: { client?: string | undefined; location?: string | undefined }): Session {
+  pickDestination(target: { client?: string | undefined; location?: string | undefined }, allowPush: boolean): { session: Session } | { push: ClientRecord } {
     const canOutput = (s: Session) =>
       s.client.capabilities.includes("speaker") || s.client.capabilities.includes("screen");
     // A client that can speak is preferred over one that can only show text.
@@ -289,7 +314,7 @@ export class Hub implements TurnPort {
       const session = this.online.get(client.id);
       if (!session) throw new Error(`${client.name} is offline`);
       if (!canOutput(session)) throw new Error(`${client.name} can neither speak nor show text`);
-      return session;
+      return { session };
     }
 
     const able = [...this.online.values()].filter(canOutput);
@@ -298,21 +323,35 @@ export class Hub implements TurnPort {
       const there = able.filter((s) => String(this.settings(s).location ?? "").toLowerCase() === location);
       const session = best(there);
       if (!session) throw new Error(`no client that can speak or show text is online in "${target.location}"`);
-      return session;
+      return { session };
     }
 
     const recent = this.turns.recentInput(this.outputHoldMs);
     const fromRecent = recent ? able.find((s) => s.client.id === recent) : undefined;
-    if (fromRecent) return fromRecent;
+    if (fromRecent) return { session: fromRecent };
+
+    if (this.isAway()) {
+      const phoneOnline = able.find((s) => this.isPhone(s.client));
+      if (phoneOnline) return { session: phoneOnline };
+      if (allowPush) {
+        const phone = this.awayPhone();
+        if (phone) return { push: phone };
+      }
+    }
 
     const configured = this.store.getLayer("global", "").defaultClient;
     const preferred = typeof configured === "string" ? this.store.findClient(configured) : undefined;
     const fromDefault = preferred ? able.find((s) => s.client.id === preferred.id) : undefined;
-    if (fromDefault) return fromDefault;
+    if (fromDefault) return { session: fromDefault };
 
     const session = best(able);
     if (!session) throw new Error("no client that can speak or show text is online");
-    return session;
+    return { session };
+  }
+
+  /** The live session output goes to: pickDestination without a push. */
+  pickOutput(target: { client?: string | undefined; location?: string | undefined }): Session {
+    return (this.pickDestination(target, false) as { session: Session }).session;
   }
 
   isOnline(clientId: string): boolean {
@@ -324,7 +363,7 @@ export class Hub implements TurnPort {
   }
 
   /** Takes over a freshly accepted socket. The first frame must be `hello`. */
-  accept(socket: WebSocket): void {
+  accept(socket: WebSocket, userAgent?: string): void {
     let session: Session | undefined;
 
     const helloTimer = setTimeout(() => {
@@ -374,7 +413,7 @@ export class Hub implements TurnPort {
           this.fail(socket, "bad_message", "hello must come first", CLOSE_PROTOCOL);
           return;
         }
-        session = this.handleHello(socket, message);
+        session = this.handleHello(socket, message, userAgent);
         return;
       }
       this.handleMessage(session, message);
@@ -405,7 +444,7 @@ export class Hub implements TurnPort {
     socket.on("error", () => socket.terminate());
   }
 
-  private handleHello(socket: WebSocket, hello: Extract<ClientMessage, { t: "hello" }>): Session | undefined {
+  private handleHello(socket: WebSocket, hello: Extract<ClientMessage, { t: "hello" }>, userAgent?: string): Session | undefined {
     if (!isSupportedProtocolVersion(hello.protocol)) {
       this.fail(socket, "unsupported_protocol", `protocol ${hello.protocol} is not supported`, CLOSE_PROTOCOL);
       return undefined;
@@ -437,6 +476,8 @@ export class Hub implements TurnPort {
       readAt: {},
       links: [],
     };
+    // Which clients are phones is learned from the page's own browser, for the Away route.
+    if (userAgent) this.store.setMeta(`phone:${client.id}`, /iPhone|iPod|Android.*Mobile/i.test(userAgent) ? "1" : "0");
     this.online.set(client.id, session);
     this.log(`client ${client.id} (${client.name}) connected`);
     this.activity?.state("client", client.id, "online", `${client.name} connected (${client.type} ${hello.version})`);

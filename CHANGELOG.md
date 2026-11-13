@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased (2026-11-12): one order for where output goes
+
+- `Hub.pickDestination` is the only place that decides where a notice, announcement, reminder, question or agent-started output goes when nothing names a device: a named client or location wins; else the client last used within 10 minutes if online (even while away); else, not away, the default client then any device that can speak or show text; else, away, a phone (online, or with its page closed and push on, the latest seen), and with no phone as not away. `pickOutput` is the same order asking for a live session. Webhooks, say/notify, reminders, background answers, agent questions and the task push all use it.
+- Away push goes to phones only (a browser reporting an iPhone or Android phone, or named "phone" until it reports), never to any browser that once subscribed; an old Brave Windows subscription had won the first-in-the-table pick.
+- Behaviour change: a device used within 10 minutes now also wins while away (before, the phone won).
+
 ## Board firmware 0.28.0 (Waveshare 1.8) (2026-11-12)
 
 - The inbox on the screen, for Axis 0.77.0's `inbox.show`: a cyan dot with the unread count ("9+" above 9) on the idle face, top right, drawn with the battery mark. A tap on the dot lists the newest five for 8 s; a tap on a row marks it read, a hold on a row dismisses it (sent as `inbox.act`, not as a gesture), a tap elsewhere closes the list; the row dims or goes at once. `inbox.show` with `open: 1` opens the list from Axis once the board is idle, also with touch off (rows then only to read); a new `inbox.show` while it is open changes the rows without closing it. Nothing is shown offline. Console: `preview inbox N` (the dot with N unread), `preview inboxlist` (the list; taps there are logged, not sent).

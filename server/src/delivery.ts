@@ -339,8 +339,8 @@ export class Delivery {
   /**
    * The one way a notice finds where to go, for say, notify, webhooks and the agent's own answers.
    * everywhere: every device that can speak (in the location given); a named client: that client, connected or not;
-   * a location: the device there; otherwise, while Home Assistant says the person is away, a phone whose page is closed
-   * gets it as a notification; else the device last spoken to (then the default client, then any).
+   * a location: the device there; otherwise the one order in Hub.pickDestination (last used within 10 minutes, then the
+   * default client, or while away the phone).
    */
   async routeNotice(target: NoticeTarget, text: string, urgent = false, meta?: DeliveryMeta): Promise<Delivered | { clients: Delivered[]; heard: boolean }> {
     const named = target.client?.trim();
@@ -354,24 +354,9 @@ export class Delivery {
       if (!client) throw new Error(`there is no client called "${named}"`);
       return this.sayTo(client, text, urgent, meta);
     }
-    if (!location) {
-      const phone = this.awayPhone();
-      if (phone) return this.sayTo(phone, text, urgent, meta);
-    }
-    return this.sayOn(this.options.hub.pickOutput({ location }), text, urgent, undefined, meta);
-  }
-
-  /** While the person is away: a client whose page is closed and that takes notifications, to reach them there. */
-  awayPhone(): ClientRecord | undefined {
-    if (this.options.store.getMeta("away") !== "1") return undefined;
-    // The one seen most recently: an old browser that still holds a subscription must not win over the phone in a pocket.
-    const closed = this.options.store
-      .pushClientIds()
-      .filter((id) => !this.options.hub.session(id))
-      .map((id) => this.options.store.getClient(id))
-      .filter((c): c is ClientRecord => Boolean(c))
-      .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0));
-    return closed[0];
+    const where = this.options.hub.pickDestination({ location }, true);
+    if ("push" in where) return this.sayTo(where.push, text, urgent, meta);
+    return this.sayOn(where.session, text, urgent, undefined, meta);
   }
 
   /** True when a question can be put to this client as a notification: it is away, has choices to offer, and allowed notifications. */
