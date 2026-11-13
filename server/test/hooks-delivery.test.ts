@@ -179,6 +179,24 @@ describe("webhook notices, delivered", () => {
     }
   });
 
+  it("while Away the default phone wins over a phone seen more recently", async () => {
+    await restart({}, { tts });
+    await board();
+    const first = await closedPhone();
+    const second = await newPairedClient({ capabilities: ["screen"], name: "iPhone Two" });
+    ctx.app.store.setPushSubscription(second.clientId, { endpoint: "http://127.0.0.1:9/never", p256dh: "x", auth: "y" });
+    try {
+      ctx.app.store.setMeta("away", "1");
+      const latest = ctx.app.hub.pickDestination({}, true);
+      expect("push" in latest && latest.push.id).toBe(second.clientId);
+      ctx.app.store.patchLayer("global", "", { defaultPhone: first.identity.clientId });
+      const pinned = ctx.app.hub.pickDestination({}, true);
+      expect("push" in pinned && pinned.push.id).toBe(first.identity.clientId);
+    } finally {
+      first.close();
+    }
+  });
+
   it("explicit client, location and everywhere follow the say mapping", async () => {
     const { client: desk } = await board("Desk", { location: "office" });
     const { identity: denId, client: den } = await board("Den", { location: "den" });

@@ -282,14 +282,21 @@ export class Hub implements TurnPort {
     return known === undefined ? /phone/i.test(client.name) : known === "1";
   }
 
-  /** While away: the phone with its page closed that takes notifications and was seen most recently. */
+  /** The phone named in the global `defaultPhone` setting, if it still exists. */
+  private defaultPhone(): ClientRecord | undefined {
+    const configured = this.store.getLayer("global", "").defaultPhone;
+    return typeof configured === "string" && configured ? this.store.findClient(configured) : undefined;
+  }
+
+  /** While away: the default phone if its page is closed and it takes notifications, else the phone with its page closed and push on that was seen most recently. */
   awayPhone(): ClientRecord | undefined {
-    return this.store
+    const closed = this.store
       .pushClientIds()
       .filter((id) => !this.online.has(id))
       .map((id) => this.store.getClient(id))
-      .filter((c): c is ClientRecord => Boolean(c) && this.isPhone(c as ClientRecord))
-      .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
+      .filter((c): c is ClientRecord => Boolean(c) && this.isPhone(c as ClientRecord));
+    const pinned = this.defaultPhone();
+    return closed.find((c) => c.id === pinned?.id) ?? closed.sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
   }
 
   /**
@@ -298,7 +305,8 @@ export class Hub implements TurnPort {
    *   1. A named client or location wins (that client even when offline for a notice; a location needs a device there).
    *   2. The client the person last used within outputHoldMs, if it is online and can output, whether away or not.
    *   3. Not away: the default client if online, then any client that can speak or show text.
-   *   4. Away: a phone (online, else with its page closed and push on, the latest seen); with no phone, as 3.
+   *   4. Away: a phone, the `defaultPhone` setting first (online, else page closed with push on), then any other phone the same way
+   *      (the latest seen); with no phone, as 3.
    * `allowPush`: a closed phone may be the answer (a notice or question can be pushed); otherwise a live session is required.
    */
   pickDestination(target: { client?: string | undefined; location?: string | undefined }, allowPush: boolean): { session: Session } | { push: ClientRecord } {
@@ -331,7 +339,8 @@ export class Hub implements TurnPort {
     if (fromRecent) return { session: fromRecent };
 
     if (this.isAway()) {
-      const phoneOnline = able.find((s) => this.isPhone(s.client));
+      const pinned = this.defaultPhone();
+      const phoneOnline = able.find((s) => s.client.id === pinned?.id) ?? able.find((s) => this.isPhone(s.client));
       if (phoneOnline) return { session: phoneOnline };
       if (allowPush) {
         const phone = this.awayPhone();

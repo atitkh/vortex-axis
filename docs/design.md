@@ -148,7 +148,7 @@ With several tasks, `Progress.list` puts one that waits for the person first and
 
 **`vortex.axis.admin`** (`action` actions, run, rename or pairing_code). `actions` lists what each device described; `run` carries one of those out and returns what the device reported (never an action the device did not describe); `rename` renames a client; `pairing_code` makes a one-time code for a new device. Removing a client is deliberately not offered to agents: it cannot be undone and stays on the admin page.
 
-Where agent-started output goes: a named client, else a named location, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. A client in a conversation is waited for, up to 20 seconds.
+Where agent-started output goes: a named client, else a named location, else the client last spoken to (for 10 minutes by default), else the client named in the global `defaultClient` setting, else any client that can speak or show text. While Home Assistant says the person is away, the order is: last spoken to within the hold, then a phone (the global `defaultPhone` setting first, then the phone seen most recently; online, else with its page closed and push on), else as above; the one place is `Hub.pickDestination`. A client in a conversation is waited for, up to 20 seconds.
 
 ## 7. Failure behavior
 

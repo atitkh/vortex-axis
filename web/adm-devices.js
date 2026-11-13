@@ -568,6 +568,7 @@ function TypeFirmware({ type, members }) {
 // --- Defaults for everything ------------------------------------------------------------------------
 
 /** Not one of Axis's built-ins, but read by Axis from the shared layer. */
+const DEFAULT_PHONE = { key: "defaultPhone", label: "Default phone", kind: "client", group: "Axis", help: "Where notices, reminders and questions go while you are away from home (when no device was used lately). Not set: the phone seen most recently." };
 const DEFAULT_CLIENT = { key: "defaultClient", label: "Default device", kind: "client", group: "Axis", help: "Where an agent's unprompted speech goes when nobody has spoken lately. Not set: any device that can speak or show text." };
 
 function sharedDeviceSettings(skip) {
@@ -586,7 +587,7 @@ function sharedDeviceSettings(skip) {
 export function Defaults({ focusKey }) {
   useStore();
   const entity = "global";
-  const builtIns = [...store.builtIns.filter((d) => !DEVICE_ONLY.has(d.key)), DEFAULT_CLIENT];
+  const builtIns = [...store.builtIns.filter((d) => !DEVICE_ONLY.has(d.key)), DEFAULT_CLIENT, DEFAULT_PHONE];
   const known = new Set([...builtIns.map((d) => d.key), ...DEVICE_ONLY]);
   const shared = sharedDeviceSettings(known).map((e) => ({ ...e.def, group: `Shared by ${e.types.length} types`, help: `${e.def.help ? `${e.def.help} ` : ""}Used by ${e.types.map(typeName).join(", ")}.` }));
   const described = new Set([...known, ...shared.map((d) => d.key)]);

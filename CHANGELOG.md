@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.79.0 (2026-11-12): default phone
+
+- New hub setting `defaultPhone` (Devices > Defaults, "Default phone", next to Default device). While away, `Hub.pickDestination` tries it first: online if its page is open, else with its page closed and push on; if it is unavailable the phone seen most recently is used. Not set: as before. The task push and the reminder push use the same phone pick. Checked by a test with two phones; not tried on a real phone.
+
 ## Axis 0.78.0 (2026-11-12): one order for where output goes, live inbox on web clients
 
 - `Hub.pickDestination` is the only place that decides where a notice, announcement, reminder, question or agent-started output goes when nothing names a device: a named client or location wins; else the client last used within 10 minutes if online (even while away); else, not away, the default client then any device that can speak or show text; else, away, a phone (online, or with its page closed and push on, the latest seen), and with no phone as not away. `pickOutput` is the same order asking for a live session. Webhooks, say/notify, reminders, background answers, agent questions and the task push all use it.
