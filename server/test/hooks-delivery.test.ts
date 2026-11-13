@@ -220,4 +220,32 @@ describe("webhook notices, delivered", () => {
     expect(row(sent.body.id).status).toBe("pending");
     release();
   });
+
+  it("a store call that throws inside deliver() is logged, not an unhandled rejection", async () => {
+    const { client: desk } = await board("Desk");
+    const stop = finishSpeech(desk);
+    const auth = source("speak");
+    const rejections: unknown[] = [];
+    const seen = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", seen);
+    const real = ctx.app.store.getNotification.bind(ctx.app.store);
+    let armed = true;
+    let calls = 0;
+    ctx.app.store.getNotification = ((id: number) => {
+      calls++;
+      if (armed) throw new Error("db gone");
+      return real(id);
+    }) as typeof ctx.app.store.getNotification;
+    try {
+      expect((await post("ci", { body: "hello", priority: "normal" }, auth)).status).toBe(202);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(rejections).toEqual([]);
+      expect(calls).toBeGreaterThan(0);
+    } finally {
+      armed = false;
+      stop();
+      ctx.app.store.getNotification = real;
+      process.off("unhandledRejection", seen);
+    }
+  });
 });

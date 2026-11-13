@@ -108,6 +108,7 @@ describe("payload rules", () => {
     expect(sanitize("[whispers] hello [shouting, angry] now", 100)).toBe("(whispers) hello (shouting, angry) now");
     expect(spokenLine("CI", "[whispers]", "]][[x")).toBe("From CI: (whispers). ))((x");
     expect(sanitize("​", 10)).toBeUndefined();
+    expect(sanitize("a\u061Cb\u00ADc\u180Ed\u2060e\u2061f\u2064g", 100)).toBe("abcdefg");
   });
 
   it("reads markdown and links out plainly and cuts the spoken line at a word, the stored body at 1000", () => {

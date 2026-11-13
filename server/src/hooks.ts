@@ -164,6 +164,7 @@ export class HookSources {
       return { status: 400, body: { error: parsed.error } };
     }
     const notice = parsed.notice;
+    if (notice.client && notice.everywhere === true) return this.bad(source, "give a client or everywhere, not both");
     if (notice.client && !this.store.findClient(notice.client)) return this.bad(source, `no client called "${notice.client}"`);
     if (notice.location && !this.options.knownLocation?.(notice.location)) return this.bad(source, `no client is in "${notice.location}"`);
     const dedupeKey = notice.dedupe === undefined ? undefined : `${source.id}:${notice.dedupe}`;
@@ -175,7 +176,7 @@ export class HookSources {
       }
     }
     const limited = clamp(notice.priority, source.ceiling);
-    const explicit = notice.client !== undefined || notice.location !== undefined || notice.everywhere !== undefined;
+    const explicit = notice.client !== undefined || notice.location !== undefined || notice.everywhere === true;
     const target: NoticeTarget = explicit
       ? { client: notice.client, location: notice.location, everywhere: notice.everywhere === true }
       : { client: source.targetClient, location: source.targetLocation, everywhere: source.targetEverywhere };
@@ -358,8 +359,8 @@ export function sanitize(text: string | undefined, max: number, oneLine = false)
   let s = text
     .normalize("NFC")
     .replace(/\t/g, " ")
-    // C0 except newline, DEL and C1, bidi embeddings and isolates, zero-width marks and the byte order mark.
-    .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F‪-‮⁦-⁩​-‏﻿]/g, "")
+    // C0 except newline, DEL and C1, bidi embeddings and isolates, zero-width marks, the byte order mark, the Arabic letter mark, soft hyphen, Mongolian vowel separator and word joiners.
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F‪-‮⁦-⁩​-‏﻿\u061c\u00ad\u180e\u2060-\u2064]/g, "")
     .replace(/\[/g, "(")
     .replace(/\]/g, ")");
   s = oneLine ? s.replace(/\s+/g, " ") : s.replace(/[^\S\n]+/g, " ").replace(/ ?\n[\s]*/g, "\n");

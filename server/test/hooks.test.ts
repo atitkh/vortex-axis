@@ -123,4 +123,31 @@ describe("webhook door", () => {
     expect(got.status).toBe(405);
     expect(got.headers.get("allow")).toBe("POST");
   });
+
+  it("refuses a payload naming both a client and everywhere, with a 400 and no row", async () => {
+    const auth = bearerSource();
+    const sent = await post("ci", { body: "x", client: "Desk", everywhere: true }, auth);
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toContain("not both");
+    expect(webhookRows()).toHaveLength(0);
+  });
+
+  it("everywhere:false alone does not count as an explicit target; the source's own target stays", async () => {
+    const auth = bearerSource("ci", { targetEverywhere: true });
+    const sent = await post("ci", { body: "x", everywhere: false }, auth);
+    expect(sent.status).toBe(202);
+    expect(webhookRows()[0]!.everywhere).toBe(true);
+  });
+
+  it("an unauthenticated caller cannot change a source's last status, and an unauthenticated 413 writes nothing", async () => {
+    const auth = bearerSource("ci", { maxBody: 1024 });
+    expect((await post("ci", { body: "x" }, auth)).status).toBe(202);
+    const before = ctx.app.hooks.record("ci")!;
+    expect((await post("ci", { body: "x".repeat(2000) })).status).toBe(413);
+    expect(ctx.app.hooks.record("ci")!).toMatchObject({ lastStatus: "ok", lastSeenAt: before.lastSeenAt });
+    ctx.app.hooks.update("ci", { enabled: false });
+    const mid = ctx.app.hooks.record("ci")!.lastStatus;
+    expect((await post("ci", { body: "x" })).status).toBe(404);
+    expect(ctx.app.hooks.record("ci")!.lastStatus).toBe(mid);
+  });
 });

@@ -659,18 +659,26 @@ export function createHttpHandler(deps: HttpDeps) {
       const source = deps.hooks.record(parts[2]!);
       if (!source || !source.enabled || (isPublic(req) && !source.public)) {
         if (hasCredential(req.headers)) hookLock.fail(address);
-        if (source && !source.enabled) deps.hooks.touch(source.id, "disabled");
+        if (source && !source.enabled && hasCredential(req.headers)) deps.hooks.touch(source.id, "disabled");
         throw new HttpError(404, "not found");
       }
+      // Only a caller that presented a credential may write to the source's row or count toward the lockout.
+      const credentialed = hasCredential(req.headers);
       if (Number(req.headers["content-length"] ?? 0) > source.maxBody) {
-        deps.hooks.touch(source.id, "too-large");
+        if (credentialed) {
+          hookLock.fail(address);
+          deps.hooks.touch(source.id, "too-large");
+        }
         throw new HttpError(413, "request body too large");
       }
       let raw: Buffer;
       try {
         raw = await readBytes(req, source.maxBody);
       } catch (error) {
-        if (error instanceof HttpError && error.status === 413) deps.hooks.touch(source.id, "too-large");
+        if (error instanceof HttpError && error.status === 413 && credentialed) {
+          hookLock.fail(address);
+          deps.hooks.touch(source.id, "too-large");
+        }
         throw error;
       }
       if (!verifyHook(source, req.headers, raw)) {
@@ -683,7 +691,7 @@ export function createHttpHandler(deps: HttpDeps) {
       const answer = deps.hooks.handle(source, raw, req.headers);
       sendJson(res, answer.status, answer.body);
       // Delivered after the answer has gone back, so a slow speaker never holds the sender; deliver() notes its own failures.
-      if (answer.deliver) void answer.deliver();
+      if (answer.deliver) answer.deliver().catch((error) => activity?.note("webhook", source.id, `Webhook notice delivery failed after sending: ${(error as Error).message}`, "bad"));
       return;
     }
 
@@ -1366,7 +1374,7 @@ export function createHttpHandler(deps: HttpDeps) {
           const payload = Buffer.from(JSON.stringify({ title: "Test notice", body: "Sent from the admin page.", priority: "normal", tag: "test" }));
           const answer = hooks.handle(source, payload, { "content-type": "application/json" });
           sendJson(res, answer.status, answer.body);
-          if (answer.deliver) void answer.deliver();
+          if (answer.deliver) answer.deliver().catch((error) => activity?.note("webhook", source.id, `Webhook notice delivery failed after sending: ${(error as Error).message}`, "bad"));
           return;
         }
       }
