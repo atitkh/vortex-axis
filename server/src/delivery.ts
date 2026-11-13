@@ -364,8 +364,14 @@ export class Delivery {
   /** While the person is away: a client whose page is closed and that takes notifications, to reach them there. */
   awayPhone(): ClientRecord | undefined {
     if (this.options.store.getMeta("away") !== "1") return undefined;
-    const phone = this.options.store.pushClientIds().find((id) => !this.options.hub.session(id));
-    return phone ? this.options.store.getClient(phone) : undefined;
+    // The one seen most recently: an old browser that still holds a subscription must not win over the phone in a pocket.
+    const closed = this.options.store
+      .pushClientIds()
+      .filter((id) => !this.options.hub.session(id))
+      .map((id) => this.options.store.getClient(id))
+      .filter((c): c is ClientRecord => Boolean(c))
+      .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0));
+    return closed[0];
   }
 
   /** True when a question can be put to this client as a notification: it is away, has choices to offer, and allowed notifications. */
