@@ -16,6 +16,7 @@ import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
 import { Reminders } from "./reminders.js";
 import { ToolAccess } from "./tools.js";
+import { HookSources } from "./hooks.js";
 import { AXIS_COMMIT, AXIS_VERSION } from "./version.js";
 import { WakeWordStore, WakeWordSync } from "./wakewords.js";
 import type { Config } from "./config.js";
@@ -64,6 +65,8 @@ export interface App {
   progress: Progress;
   /** Which tools agents have, and the tokens that let a harness in by MCP. */
   tools: ToolAccess;
+  /** Webhook sources and the rules a posted notification goes through. */
+  hooks: HookSources;
   /** What is happening now, for the admin page's Live view: turns, wake words and tool calls. */
   live: Live;
   /** Pictures put on screens by the show tool and the admin page. */
@@ -464,6 +467,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const watchGateway = () =>
     gateway.watch([...(config.mirrorQuestions ? ["operator.questions"] : []), ...(config.mirrorApprovals ? ["operator.approvals"] : [])]);
   const tools = new ToolAccess(store, activity);
+  const hooks = new HookSources(store, activity, {
+    knownLocation: (name) => store.listClients().some((client) => String(hub.effectiveSettings(client).location ?? "").toLowerCase() === name.toLowerCase()),
+  });
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
@@ -576,7 +582,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   }
 
   const server = createServer(
-    createHttpHandler({ shows, pictureSource, desktopApp, questApp, rollouts, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, invoke, progress, timers, reminders, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
+    createHttpHandler({ shows, pictureSource, desktopApp, questApp, rollouts, devices, desktops, mediaStore, liveActivities, voices, attachment, selfCheck, talk, config, store, hub, gateway, activity, live, homeAssistant: () => homeAssistant, applyHubSettings, backup, tools, hooks, invoke, progress, timers, reminders, wakeWords, wakeWordSync, push, delivery, services, reloadServices, version: AXIS_VERSION, commit: AXIS_COMMIT, startedAt }),
   );
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -607,6 +613,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
 
   return {
     store,
+    hooks,
     activity,
     hub,
     gateway,

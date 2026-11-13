@@ -22,6 +22,8 @@ import type { PushService } from "./push.js";
 import type { Config } from "./config.js";
 import type { GatewayClient, InvokeHandler } from "./gateway/client.js";
 import { createMcpHandler } from "./mcp.js";
+import { hasCredential, verify as verifyHook, type HookSources } from "./hooks.js";
+import { ADMIN_FAILURES, ADMIN_LOCK_MS, Lockout } from "./lockout.js";
 import type { ToolAccess } from "./tools.js";
 import { DESKTOP_TYPE, MACOS_DESKTOP_TYPE, type DesktopApp } from "./desktopapp.js";
 import { QUEST_TYPE, type QuestApp } from "./questapp.js";
@@ -46,9 +48,6 @@ const MAX_BODY_BYTES = 64 * 1024;
 const PAIR_ATTEMPTS_PER_MINUTE = 10;
 /** Wrong pairing codes, from anywhere, before every unused code is thrown away. A code has a million values. */
 const PAIR_FAILURES_BEFORE_RESET = 30;
-/** Wrong admin tokens from one address before it is shut out for a while. */
-const ADMIN_FAILURES = 10;
-const ADMIN_LOCK_MS = 5 * 60_000;
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
@@ -194,6 +193,8 @@ export interface HttpDeps {
   /** Which tools agents have and which agents hold a token, and the function that carries a tool call out. */
   tools?: ToolAccess;
   invoke?: InvokeHandler;
+  /** Webhook sources: the door at /v1/hook/<source>. */
+  hooks?: HookSources;
   /** Long work agents are doing, shown on the screens and on the admin page. */
   progress?: Progress;
   talk?: RealtimeTalk;
@@ -279,7 +280,9 @@ export function createHttpHandler(deps: HttpDeps) {
 
   const mcp = deps.tools && deps.invoke ? createMcpHandler({ tools: deps.tools, invoke: deps.invoke, version: deps.version ?? "" }) : undefined;
   /** Wrong agent tokens per address, shut out the same way wrong admin tokens are. */
-  const mcpFailures = new Map<string, { count: number; until: number }>();
+  const mcpLock = new Lockout("agent tokens", now, activity, (status, message) => new HttpError(status, message));
+  /** Wrong webhook credentials, counted apart: a source with a wrong secret must not shut the agent harness out. */
+  const hookLock = new Lockout("webhook credentials", now, activity, (status, message) => new HttpError(status, message));
 
   const adminFailures = new Map<string, { count: number; until: number }>();
   let pairFailures: number[] = [];
@@ -645,31 +648,56 @@ export function createHttpHandler(deps: HttpDeps) {
       return sendJson(res, 200, { cancelled: gone.length });
     }
 
+    // The webhook door: a service posting a notification. Answered before the body is read when it cannot be taken.
+    if (parts[0] === "v1" && parts[1] === "hook" && parts.length === 3 && deps.hooks) {
+      if (method !== "POST") {
+        res.setHeader("allow", "POST");
+        throw new HttpError(405, "post a notification here");
+      }
+      const address = addressOf(req);
+      hookLock.check(address);
+      const source = deps.hooks.record(parts[2]!);
+      if (!source || !source.enabled || (isPublic(req) && !source.public)) {
+        if (hasCredential(req.headers)) hookLock.fail(address);
+        if (source && !source.enabled) deps.hooks.touch(source.id, "disabled");
+        throw new HttpError(404, "not found");
+      }
+      if (Number(req.headers["content-length"] ?? 0) > source.maxBody) {
+        deps.hooks.touch(source.id, "too-large");
+        throw new HttpError(413, "request body too large");
+      }
+      let raw: Buffer;
+      try {
+        raw = await readBytes(req, source.maxBody);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 413) deps.hooks.touch(source.id, "too-large");
+        throw error;
+      }
+      if (!verifyHook(source, req.headers, raw)) {
+        hookLock.fail(address);
+        deps.hooks.touch(source.id, "bad-auth");
+        if (source.auth === "bearer") res.setHeader("www-authenticate", "Bearer");
+        throw new HttpError(401, source.auth === "bearer" ? "missing or wrong token" : "missing or wrong signature");
+      }
+      hookLock.clear(address);
+      const answer = deps.hooks.handle(source, raw, req.headers);
+      return sendJson(res, answer.status, answer.body);
+    }
+
     // The MCP door: an agent harness calling Axis's tools. One POST, one JSON-RPC message (or a batch), one JSON answer.
     if (url.pathname === "/mcp" && mcp && deps.tools) {
       // Under a public name it does not exist unless that was asked for, like the admin side.
       if (isPublic(req) && !config.mcpPublic) throw new HttpError(404, "not found");
       const address = addressOf(req);
-      const locked = mcpFailures.get(address);
-      if (locked && locked.count >= ADMIN_FAILURES) {
-        if (now() < locked.until) throw new HttpError(429, "too many wrong tokens from this address, wait five minutes");
-        mcpFailures.delete(address);
-      }
+      mcpLock.check(address);
       const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
       const holder = deps.tools.authenticate(token);
       if (!holder) {
-        if (token) {
-          const failed = mcpFailures.get(address) ?? { count: 0, until: 0 };
-          failed.count += 1;
-          failed.until = now() + ADMIN_LOCK_MS;
-          mcpFailures.set(address, failed);
-          if (failed.count === ADMIN_FAILURES) activity?.note("admin", "", `Ten wrong agent tokens from ${address}; that address is shut out for five minutes`, "warn");
-          if (mcpFailures.size > 5000) mcpFailures.clear();
-        }
+        if (token) mcpLock.fail(address);
         res.setHeader("www-authenticate", "Bearer");
         throw new HttpError(401, "missing or wrong agent token: make one on the VorteX Axis admin page and send it as a Bearer token");
       }
-      mcpFailures.delete(address);
+      mcpLock.clear(address);
       // Axis sends nothing unasked, so there is no stream to open and no session to end.
       if (method !== "POST") {
         res.setHeader("allow", "POST");
