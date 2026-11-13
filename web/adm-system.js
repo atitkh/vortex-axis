@@ -6,7 +6,7 @@ import { html, useEffect, useState } from "/web/preact.js";
 import { Button, ago, api, ask, deviceHref, download, enc, loadSlow, plural, signOut, span, store, toast } from "/web/adm-core.js";
 import { SaveBar } from "/web/adm-settings.js";
 import { PAGES, PageHead } from "/web/adm-shell.js";
-import { F, Loading, copy, Stat, Switch, Text, saveForm, useForm, useLoad } from "/web/adm-agent.js";
+import { F, Loading, copy, Stat, Switch, Text, saveForm, useAgents, useForm, useLoad } from "/web/adm-agent.js";
 
 const Head = ({ page, children }) => html`<${PageHead} title=${PAGES[page].title} purpose=${PAGES[page].purpose}>${children}</${PageHead}>`;
 const list = (text) => String(text ?? "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -108,7 +108,7 @@ export function IntegrationsPage() {
 // --- Webhooks (a card on Integrations) -----------------------------------------------------------
 
 const CEILING_WORDS = { notify: "shown only", speak: "may be spoken", urgent: "may interrupt" };
-const BLANK = { id: "", label: "", auth: "bearer", ceiling: "notify", format: "generic", ratePerMin: 30, maxBody: 16384, targetClient: "", targetLocation: "", targetEverywhere: false, public: false };
+const BLANK = { id: "", label: "", auth: "bearer", ceiling: "notify", format: "generic", ratePerMin: 30, maxBody: 16384, targetClient: "", targetLocation: "", targetEverywhere: false, public: false, askAgent: false };
 
 function WebhooksCard() {
   const [d, load, error] = useLoad("/admin/hooks", 10_000);
@@ -116,8 +116,15 @@ function WebhooksCard() {
   const [made, setMade] = useState(null); // { id, secret } shown once
   const put = (k, v) => setEdit((e) => ({ ...e, [k]: v }));
   const hooks = d?.hooks ?? [];
+  const agents = useAgents();
+  const hookAgent = d?.settings?.hookAgent ?? "";
+  const agentOptions = [...new Set([...(agents ?? []), hookAgent].filter(Boolean))];
+  const setHookAgent = async (value) => {
+    await api("PATCH", "/admin/hooks", { hookAgent: value });
+    await load();
+  };
   const save = async () => {
-    const body = { label: edit.label.trim(), ceiling: edit.ceiling, format: edit.format, ratePerMin: Number(edit.ratePerMin), maxBody: Number(edit.maxBody), targetClient: edit.targetClient.trim() || null, targetLocation: edit.targetLocation.trim() || null, targetEverywhere: Boolean(edit.targetEverywhere), public: Boolean(edit.public) };
+    const body = { label: edit.label.trim(), ceiling: edit.ceiling, format: edit.format, ratePerMin: Number(edit.ratePerMin), maxBody: Number(edit.maxBody), targetClient: edit.targetClient.trim() || null, targetLocation: edit.targetLocation.trim() || null, targetEverywhere: Boolean(edit.targetEverywhere), public: Boolean(edit.public), askAgent: Boolean(edit.askAgent) };
     if (edit.editing) {
       await api("PATCH", `/admin/hooks/${enc(edit.editing)}`, body);
       toast("Saved.");
@@ -156,7 +163,7 @@ function WebhooksCard() {
       ? html`<div class="tablebox"><table class="t" id="hook-list"><tbody>${hooks.map((h) => html`<tr key=${h.id} class=${h.enabled ? "" : "off"}>
           <td><input type="checkbox" class="switch" aria-label=${`${h.label} enabled`} checked=${h.enabled} onChange=${() => toggle(h)} /></td>
           <td>${h.label}<div class="dim sm mono">${origin}${h.path}</div></td>
-          <td class="dim">${h.auth === "hmac" ? "signature" : "bearer token"} · ${CEILING_WORDS[h.ceiling]}${h.public ? " · public" : ""}</td>
+          <td class="dim">${h.auth === "hmac" ? "signature" : "bearer token"} · ${CEILING_WORDS[h.ceiling]}${h.public ? " · public" : ""}${h.askAgent ? " · asks the agent" : ""}</td>
           <td class="dim">${h.lastSeenAt ? `${ago(h.lastSeenAt)}${h.lastStatus ? ` · ${h.lastStatus}` : ""}` : "never used"}</td>
           <td class="acts">
             <${Button} class="btn sm" run=${() => test(h)}>Send test</${Button}>
@@ -185,11 +192,17 @@ function WebhooksCard() {
           ${field("Default device", html`<input class="field" id="hook-client" maxlength="120" placeholder="a device name, or empty" value=${edit.targetClient} onInput=${(e) => put("targetClient", e.currentTarget.value)} />`)}
           ${field("Default place", html`<input class="field" id="hook-location" maxlength="120" placeholder="a location, or empty" value=${edit.targetLocation} onInput=${(e) => put("targetLocation", e.currentTarget.value)} />`)}
           ${field("Everywhere", html`<input type="checkbox" class="switch" id="hook-everywhere" checked=${edit.targetEverywhere} onChange=${(e) => put("targetEverywhere", e.currentTarget.checked)} />`)}
+          ${field("Ask the agent", html`<input type="checkbox" class="switch" id="hook-ask" checked=${edit.askAgent} onChange=${(e) => put("askAgent", e.currentTarget.checked)} />`)}
+          ${edit.askAgent ? html`<p class="msg bad" id="hook-ask-warn">Risky: an agent with tools reads text from outside. It is told the text is information, not instructions, and runs in a conversation of its own, but a crafted payload may still try to steer it. Only for sources you trust. It runs for payloads with mode "ask-agent" (or preset events above low), one at a time, and its answer is sent instead of the notice.</p>` : null}
           ${field("Under the public name", html`<input type="checkbox" class="switch" id="hook-public" checked=${edit.public} onChange=${(e) => put("public", e.currentTarget.checked)} />`)}
           <div class="inline"><${Button} class="btn primary" id="hook-save" run=${save}>${edit.editing ? "Save" : "Make the source"}</${Button}><button type="button" class="btn ghost" onClick=${() => setEdit(null)}>Cancel</button></div>
         </div>`
       : html`<div class="inline add"><button type="button" class="btn primary" id="hook-new" onClick=${() => setEdit({ ...BLANK })}>Add a source</button></div>`}
-    <p class="help">A service posts JSON <code>{"title", "body", "priority"}</code> to its address with the token (or a signature of the body). Notices are shown quietly unless the source may speak; the cap above is the most it can ever do. Asking the agent and an inbox are not built yet.</p>
+    <label class="f"><span class="f-l">Agent for webhooks</span><div class="f-c f-v"><select class="field" id="hook-agent" value=${hookAgent} onChange=${(e) => setHookAgent(e.currentTarget.value)}>
+      <option value="">same as the guest agent, else the usual one</option>
+      ${agentOptions.map((id) => html`<option key=${id} value=${id}>${id}</option>`)}
+    </select></div></label>
+    <p class="help">A service posts JSON <code>{"title", "body", "priority"}</code> to its address with the token (or a signature of the body). Notices are shown quietly unless the source may speak; the cap above is the most it can ever do. A source that may ask the agent sends <code>"mode": "ask-agent"</code>; the agent above answers in a conversation of its own (never the main chat), and says something only when it decides you need to know.</p>
   </${Card}>`;
 }
 

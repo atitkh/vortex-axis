@@ -33,7 +33,7 @@ describe("webhook admin", () => {
   it("refuses what is not valid", async () => {
     expect((await make({ id: "Bad Name" })).status).toBe(400);
     expect((await make({ ceiling: "shout" })).status).toBe(400);
-    expect((await make({ askAgent: true })).status).toBe(400);
+    expect((await make({ askAgent: "yes" })).status).toBe(400);
     expect((await make({ ratePerMin: 0 })).status).toBe(400);
     expect((await make({ ratePerMin: 601 })).status).toBe(400);
     expect((await make({ maxBody: 10 })).status).toBe(400);
@@ -41,7 +41,7 @@ describe("webhook admin", () => {
     expect((await make({ auth: "basic" })).status).toBe(400);
     expect((await make()).status).toBe(201);
     expect((await make()).status).toBe(400);
-    expect((await admin("PATCH", "/admin/hooks/ci", { askAgent: true })).status).toBe(400);
+    expect((await admin("PATCH", "/admin/hooks/ci", { askAgent: "yes" })).status).toBe(400);
     expect((await admin("PATCH", "/admin/hooks/nope", { enabled: true })).status).toBe(404);
     expect((await admin("POST", "/admin/hooks/nope/rotate")).status).toBe(404);
     expect((await admin("DELETE", "/admin/hooks/nope")).status).toBe(404);

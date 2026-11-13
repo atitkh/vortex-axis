@@ -37,7 +37,7 @@ describe("hook sources", () => {
     expect(() => hooks.create({ id: "Bad Id", label: "x", auth: "bearer" })).toThrow(HookInputError);
     hooks.create({ id: "a", label: "A", auth: "bearer" });
     expect(() => hooks.create({ id: "a", label: "A", auth: "bearer" })).toThrow(HookInputError);
-    expect(() => hooks.update("a", { askAgent: true })).toThrow(HookInputError);
+    expect(() => hooks.update("a", { askAgent: "yes" as any })).toThrow(HookInputError);
     expect(() => hooks.update("a", { format: "bogus" })).toThrow(HookInputError);
     expect(() => hooks.update("a", { ratePerMin: 601 })).toThrow(HookInputError);
     expect(() => hooks.update("a", { maxBody: 100 })).toThrow(HookInputError);

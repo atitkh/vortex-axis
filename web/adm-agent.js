@@ -126,7 +126,7 @@ export function useLoad(path, every = 0, pause) {
 }
 
 /** The agents the gateway lists, for the agent field and the guest agent. */
-function useAgents() {
+export function useAgents() {
   const [list, setList] = useState();
   useEffect(() => {
     api("GET", "/admin/gateway/agents").then((l) => setList(l.agents.map((a) => a.id)), () => setList([]));

@@ -479,11 +479,14 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     knownLocation: (name) => store.listClients().some((client) => String(hub.effectiveSettings(client).location ?? "").toLowerCase() === name.toLowerCase()),
     route: (target, text, urgent, meta) => delivery.routeNotice(target, text, urgent, meta),
     reachable: (client) => Boolean(hub.session(client.id)) || Boolean(push?.has(client.id)),
+    agent: () => services.agent,
+    sessionKey: config.gateway.sessionKey,
+    guestAgent: () => voices.settings().guestAgent || undefined,
   });
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(
     tools.guard(
-      createInvokeHandler({ hub, store, devices, timers, reminders, timeZone: () => config.timeZone, delivery, shows, pictureSource, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt }),
+      createInvokeHandler({ hub, store, devices, timers, reminders, timeZone: () => config.timeZone, delivery, shows, pictureSource, progress, attachment, desktops, activity, pairingCodeTtlMs: config.pairingCodeTtlMs, version: AXIS_VERSION, startedAt, hookAgentBusy: () => hooks.agentBusy() }),
     ),
     (command) => (command === "system.notify" ? "vortex_axis_say (notify)" : (NODE_TOOLS.find((t) => t.command === command)?.name ?? command)),
   );

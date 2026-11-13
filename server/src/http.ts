@@ -1390,7 +1390,14 @@ export function createHttpHandler(deps: HttpDeps) {
           throw new HttpError(error instanceof HookInputError ? 400 : 500, (error as Error).message);
         };
         if (method === "GET" && parts.length === 2) {
-          return sendJson(res, 200, { hooks: hooks.list().map((h) => ({ ...h, path: `/v1/hook/${h.id}` })) });
+          return sendJson(res, 200, { hooks: hooks.list().map((h) => ({ ...h, path: `/v1/hook/${h.id}` })), settings: hooks.settings() });
+        }
+        if (method === "PATCH" && parts.length === 2) {
+          try {
+            return sendJson(res, 200, { settings: hooks.saveSettings(await readJson(req)) });
+          } catch (error) {
+            return fail(error);
+          }
         }
         if (method === "POST" && parts.length === 2) {
           const body = (await readJson(req)) as HookSourceInput;

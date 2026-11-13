@@ -426,6 +426,8 @@ export interface CommandDeps {
   pictureSource?: SourceDeps | undefined;
   /** How long a pairing code made for an agent stays good. */
   pairingCodeTtlMs: number;
+  /** Whether a webhook's ask-agent run is under way: risky desktop actions cannot be unconfirmed meanwhile. */
+  hookAgentBusy?: (() => boolean) | undefined;
   version: string;
   startedAt: number;
   now?: () => number;
@@ -513,6 +515,10 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
           if (!isScalar(params.value)) throw new Error("value must be text, a number, true/false or null");
           if (key === "profile" && params.value !== null && !["auto", ...hub.profiles.names()].includes(params.value as string)) {
             throw new Error(`profile must be one of ${["auto", ...hub.profiles.names()].join(", ")}`);
+          }
+          // Text from a webhook may be what is asking: while such a run is under way, risky desktop actions stay confirmed.
+          if (key === "confirmRisky" && [0, false, "0", "false", "off"].includes(params.value as never) && deps.hookAgentBusy?.()) {
+            throw new Error("confirmRisky cannot be switched off while an agent is answering a webhook; the person can change it on the admin page");
           }
           const def = BUILT_IN_SETTINGS.find((d) => d.key === key);
           const problem = key === "chargeLimit" && def ? settingProblem(def, params.value) : undefined;
