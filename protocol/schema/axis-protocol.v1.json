@@ -444,6 +444,38 @@
         }
       }
     },
+    "inbox.act": {
+      "$id": "inbox.act",
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "t",
+        "id",
+        "act"
+      ],
+      "properties": {
+        "t": {
+          "const": "inbox.act",
+          "type": "string"
+        },
+        "id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "act": {
+          "anyOf": [
+            {
+              "const": "read",
+              "type": "string"
+            },
+            {
+              "const": "dismiss",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
     "ping": {
       "$id": "ping",
       "additionalProperties": false,

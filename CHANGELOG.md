@@ -4,6 +4,13 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.77.0 (2026-11-12): unread inbox on the boards (server side)
+
+- New admin-only command `inbox.show {count, items}` (like `progress.show`) tells each board with a screen and touch how many notifications are unread for it (addressed to it or to everyone) and the newest five, `items` being `<id>\t<line>\n` a row (title, else body, one line, 48 characters at most). Sent when the count or rows change (changes within 500 ms make one send), when a board connects, and checked every 60 s. `server/src/boardinbox.ts`.
+- New board-to-Axis message `inbox.act {id, act: "read"|"dismiss"}`: marks read or dismisses a notification the board may see (its own or everyone's); another board's is left alone, an unknown id does nothing. Added to protocol 1 (addition only, the schema is regenerated).
+- The store tells a listener after any change to notifications (`onNotificationsChanged`).
+- Checked by tests only. No firmware change: boards ignore `inbox.show` until firmware that reads it ships (1.8 0.28.0, round 0.12.0, planned). Deploy Axis first (an old Axis rejects `inbox.act`). NOT verified: a real board.
+
 ## Axis 0.76.0 (2026-11-12): notifications kept on record, a webhook door, an inbox
 
 ### Webhook door and shared routing

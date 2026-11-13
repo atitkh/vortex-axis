@@ -138,6 +138,7 @@ export class Hub implements TurnPort {
   private readonly connectListeners: Array<(session: Session) => void> = [];
   private readonly changeListeners = new Set<(clientId: string, change: ClientChange) => void>();
   private readonly gestureListeners: Array<(session: Session, gesture: string) => void> = [];
+  private readonly inboxActListeners: Array<(session: Session, id: number, act: "read" | "dismiss") => void> = [];
   private readonly settingsListeners: Array<() => void> = [];
   private upstream: Status["upstream"] = { openclaw: "unknown", stt: "unknown", tts: "unknown" };
 
@@ -249,6 +250,11 @@ export class Hub implements TurnPort {
   /** Called with each touch gesture a client reports and has no use for itself (a hold, a swipe). */
   onGesture(listener: (session: Session, gesture: string) => void): void {
     this.gestureListeners.push(listener);
+  }
+
+  /** Called with each tap on a row of the unread list a board shows: mark read or dismiss. */
+  onInboxAct(listener: (session: Session, id: number, act: "read" | "dismiss") => void): void {
+    this.inboxActListeners.push(listener);
   }
 
   onConnect(listener: (session: Session) => void): void {
@@ -466,6 +472,9 @@ export class Hub implements TurnPort {
         for (const key of Object.keys(message.readings)) session.readAt[key] = this.now();
         this.changed(session.client.id, "readings");
         this.checkProfile(session);
+        return;
+      case "inbox.act":
+        for (const listener of this.inboxActListeners) listener(session, message.id, message.act);
         return;
       case "gesture":
         for (const listener of this.gestureListeners) listener(session, message.gesture);

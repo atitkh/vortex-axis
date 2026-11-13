@@ -528,6 +528,16 @@ export interface EventRecord {
 /** Everything Axis keeps on disk. Live state (who is online) is not stored here. */
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly notificationListeners: Array<() => void> = [];
+
+  /** Called after the unread notifications may have changed: an insert, an update, a take, a drop, a sweep, a read or a dismiss. */
+  onNotificationsChanged(listener: () => void): void {
+    this.notificationListeners.push(listener);
+  }
+
+  private inboxChanged(): void {
+    for (const listener of this.notificationListeners) listener();
+  }
 
   constructor(dataDir: string, private readonly now: () => number = Date.now) {
     if (dataDir === ":memory:") {
@@ -881,6 +891,7 @@ export class Store {
         expiresAt,
       );
     const { createdAt: _created, expiresAt: _expires, ...rest } = input;
+    this.inboxChanged();
     return { ...rest, id: Number(result.lastInsertRowid), createdAt, expiresAt: expiresAt ?? undefined };
   }
 
@@ -902,7 +913,9 @@ export class Store {
       else values.push(typeof value === "boolean" ? (value ? 1 : 0) : ((value as string | number | undefined) ?? null));
     }
     if (sets.length === 0) return this.db.prepare("SELECT 1 FROM notifications WHERE id = ?").get(id) !== undefined;
-    return this.db.prepare(`UPDATE notifications SET ${sets.join(", ")} WHERE id = ?`).run(...values, id).changes === 1;
+    const changed = this.db.prepare(`UPDATE notifications SET ${sets.join(", ")} WHERE id = ?`).run(...values, id).changes === 1;
+    if (changed) this.inboxChanged();
+    return changed;
   }
 
   /**
@@ -971,6 +984,7 @@ export class Store {
       this.db.prepare("UPDATE notification_deliveries SET taken_at = ? WHERE notification_id = ? AND client_id = ?").run(now, id, clientId);
       this.db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL").run(now, id);
     }
+    if (ids.length > 0) this.inboxChanged();
     return ids;
   }
 
@@ -980,6 +994,7 @@ export class Store {
       this.db.prepare("UPDATE notification_deliveries SET taken_at = ? WHERE notification_id = ? AND client_id = ? AND taken_at IS NULL").run(now, id, clientId);
       this.db.prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL").run(now, id);
     }
+    if (notificationIds.length > 0) this.inboxChanged();
   }
 
   /** How many deliveries a client has in a state. */
@@ -997,6 +1012,7 @@ export class Store {
         "UPDATE notifications SET status = 'dropped' WHERE status = 'held' AND NOT EXISTS (SELECT 1 FROM notification_deliveries d WHERE d.notification_id = notifications.id AND d.state = 'held' AND (d.until IS NULL OR d.until > ?))",
       )
       .run(now);
+    if (result.changes > 0) this.inboxChanged();
     return Number(result.changes);
   }
 
@@ -1011,6 +1027,7 @@ export class Store {
         "DELETE FROM notifications WHERE status NOT IN ('pending', 'held') AND id IN (SELECT n.id FROM notifications n WHERE (SELECT COUNT(*) FROM notifications m WHERE m.source = n.source AND (n.source <> 'webhook' OR m.source_name IS n.source_name) AND (m.created_at > n.created_at OR (m.created_at = n.created_at AND m.id > n.id))) >= ?)",
       )
       .run(SOURCE_CAP).changes;
+    if (Number(expired) + Number(capped) > 0) this.inboxChanged();
     return Number(expired) + Number(capped);
   }
 
@@ -1062,6 +1079,7 @@ export class Store {
     where.push("read_at IS NULL");
     const idMarks = this.idClause(ids, where, params);
     const result = this.db.prepare(`UPDATE notifications SET read_at = ? WHERE ${where.join(" AND ")}${idMarks}`).run(now, ...params);
+    if (result.changes > 0) this.inboxChanged();
     return Number(result.changes);
   }
 
@@ -1076,6 +1094,7 @@ export class Store {
     const result = this.db
       .prepare(`UPDATE notifications SET dismissed_at = ?, expires_at = ?, read_at = COALESCE(read_at, ?) WHERE ${where.join(" AND ")}${idMarks}`)
       .run(now, now, now, ...params);
+    if (result.changes > 0) this.inboxChanged();
     return Number(result.changes);
   }
 

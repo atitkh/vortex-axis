@@ -11,6 +11,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { CLIENT_SOCKET_PATH } from "@vortex-axis/protocol";
 import { Activity } from "./activity.js";
+import { BoardInbox } from "./boardinbox.js";
 import { Backup } from "./backup.js";
 import { NODE_COMMANDS, NODE_TOOLS, createInvokeHandler } from "./commands.js";
 import { Timers } from "./timers.js";
@@ -534,6 +535,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
     homeAssistant?.start();
   };
   startHomeAssistant();
+  const boardInbox = new BoardInbox(hub, store, { note: (kind, subject, text, level) => activity.note(kind, subject, text, level) });
+  boardInbox.start();
+  hub.onInboxAct((session, id, act) => boardInbox.act(session, id, act));
   hub.onGesture((session, gesture) => homeAssistant?.gesture(session.client.id, gesture));
   // A swipe down on a device puts away the tasks that are finished, on every screen.
   hub.onGesture((session, gesture) => {
@@ -645,6 +649,7 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
       rollouts.close();
       backup.stop();
       progress.stop();
+      boardInbox.stop();
       liveActivities.stop();
       cards.stop();
       clearTimeout(checkTimer);

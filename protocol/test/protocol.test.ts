@@ -52,6 +52,8 @@ const clientSamples: ClientMessage[] = [
     address: "192.168.1.42",
   },
   { t: "gesture", gesture: "swipe_down" },
+  { t: "inbox.act", id: 7, act: "read" },
+  { t: "inbox.act", id: 8, act: "dismiss" },
 ];
 
 const serverSamples: ServerMessage[] = [
@@ -153,6 +155,11 @@ describe("rejections", () => {
 
   it("rejects out-of-range values", () => {
     expect(bad({ t: "wake", wakeId: "w1", score: 1.5, level: 0.2 })).toMatch(/^wake: \/score/);
+  });
+
+  it("rejects an inbox.act with an unknown act or a bad id", () => {
+    expect(bad({ t: "inbox.act", id: 3, act: "x" })).toMatch(/^inbox.act:/);
+    expect(bad({ t: "inbox.act", id: 0, act: "read" })).toMatch(/^inbox.act:/);
   });
 
   it("rejects an unknown capability", () => {

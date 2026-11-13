@@ -124,6 +124,16 @@ export const Gesture = message("gesture", {
 });
 
 /**
+ * A tap on a row of the unread list a board shows (after `inbox.show`): mark it read or dismiss it. Addition only, the protocol stays 1.
+ * `id` is the notification id the row carried.
+ */
+export const INBOX_ACTS = ["read", "dismiss"] as const;
+export const InboxAct = message("inbox.act", {
+  id: Type.Integer({ minimum: 1 }),
+  act: Type.Union(INBOX_ACTS.map((a) => Type.Literal(a))),
+});
+
+/**
  * A heartbeat from a client that cannot see the WebSocket's own pings (browsers, .NET and Apple's URLSession hide
  * them): Axis answers with `pong`. A client that hears nothing for a while knows the connection is dead and
  * connects again.
@@ -396,6 +406,7 @@ export const CLIENT_MESSAGE_SCHEMAS = [
   Playback,
   Sense,
   Gesture,
+  InboxAct,
   Ping,
   SettingsGet,
   CommandResult,
@@ -438,6 +449,7 @@ export type Answer = Static<typeof Answer>;
 export type Playback = Static<typeof Playback>;
 export type Sense = Static<typeof Sense>;
 export type Gesture = Static<typeof Gesture>;
+export type InboxAct = Static<typeof InboxAct>;
 export type Ping = Static<typeof Ping>;
 export type Pong = Static<typeof Pong>;
 export type SettingsGet = Static<typeof SettingsGet>;
