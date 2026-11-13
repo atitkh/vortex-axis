@@ -54,6 +54,7 @@ export function InboxPage() {
             <span class="badge">${n.from}</span>
             ${n.priority && n.priority !== "normal" ? html`<span class=${`badge ${n.priority === "urgent" ? "bad" : ""}`}>${n.priority}</span>` : null}
             ${n.status && n.status !== "sent" ? html`<span class="badge">${n.status}</span>` : null}
+            ${(n.devices ?? []).map((d) => html`<span class="badge" key=${d.name} title=${`${d.route} · ${d.state}`}>${d.name}</span>`)}
             <span class="dim sm">${n.age} ago</span>
           </div>
           ${n.body ? html`<div class="inbox-body">${n.body}</div>` : null}

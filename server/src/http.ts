@@ -304,7 +304,10 @@ export function createHttpHandler(deps: HttpDeps) {
       const scope = { ...(viewer !== undefined ? { viewer } : {}) };
       const { limit, ...rest } = q;
       return {
-        items: store.listNotifications({ ...rest, ...scope, limit }).map((n) => inboxItem(n, at)),
+        items: store.listNotifications({ ...rest, ...scope, limit }).map((n) =>
+          // The admin (no viewer) also sees which devices it went to; a phone sees only its own list.
+          inboxItem(n, at, undefined, viewer === undefined ? store.deliveriesOf(n.id).map((d) => ({ name: store.getClient(d.clientId)?.name ?? d.clientId, route: d.route, state: d.state })) : undefined),
+        ),
         unread: store.unreadCount(scope),
         sources: store.inboxSources(viewer),
       };

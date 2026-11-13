@@ -96,6 +96,9 @@ describe("webhook notices, delivered", () => {
     expect(spoke(client)).toBe(false);
     // One row only: Delivery updated the webhook row, it made no second one.
     expect(ctx.app.store.listNotifications()).toHaveLength(1);
+    // The admin's inbox names the device it went to; a device chip carries the route and state in its title.
+    const listed = await admin("GET", "/admin/notifications");
+    expect(listed.body.items[0].devices).toEqual([{ name: "Desk", route: "silent", state: "shown" }]);
   });
 
   it("normal under ceiling speak: spoken; in quiet hours shown, not spoken", async () => {
@@ -179,7 +182,7 @@ describe("webhook notices, delivered", () => {
     }
   });
 
-  it("while Away the default phone wins over a phone seen more recently", async () => {
+  it("while Away the default phone wins over the other phone", async () => {
     await restart({}, { tts });
     await board();
     const first = await closedPhone();
@@ -187,11 +190,12 @@ describe("webhook notices, delivered", () => {
     ctx.app.store.setPushSubscription(second.clientId, { endpoint: "http://127.0.0.1:9/never", p256dh: "x", auth: "y" });
     try {
       ctx.app.store.setMeta("away", "1");
-      const latest = ctx.app.hub.pickDestination({}, true);
-      expect("push" in latest && latest.push.id).toBe(second.clientId);
-      ctx.app.store.patchLayer("global", "", { defaultPhone: first.identity.clientId });
-      const pinned = ctx.app.hub.pickDestination({}, true);
-      expect("push" in pinned && pinned.push.id).toBe(first.identity.clientId);
+      // Pinned either way round: the default phone wins whichever was seen last.
+      for (const pin of [first.identity.clientId, second.clientId]) {
+        ctx.app.store.patchLayer("global", "", { defaultPhone: pin });
+        const where = ctx.app.hub.pickDestination({}, true);
+        expect("push" in where && where.push.id).toBe(pin);
+      }
     } finally {
       first.close();
     }

@@ -3,7 +3,7 @@ import type { NotificationRecord, NotificationSource } from "./store.js";
 export const INBOX_SOURCES: readonly NotificationSource[] = ["agent", "reminder", "ask", "system", "webhook"];
 
 /** A notification as the inbox shows it. Never carries the url, answer token or any secret. Title and body are text from outside. */
-export function inboxItem(n: NotificationRecord, now: number, bodyMax = 2000): Record<string, unknown> {
+export function inboxItem(n: NotificationRecord, now: number, bodyMax = 2000, devices?: { name: string; route: string; state: string }[]): Record<string, unknown> {
   return {
     id: n.id,
     source: n.source,
@@ -15,6 +15,7 @@ export function inboxItem(n: NotificationRecord, now: number, bodyMax = 2000): R
     unread: n.readAt === undefined,
     createdAt: new Date(n.createdAt).toISOString(),
     age: ageOf(now - n.createdAt),
+    ...(devices?.length ? { devices } : {}),
   };
 }
 

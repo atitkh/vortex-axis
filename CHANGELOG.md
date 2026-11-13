@@ -4,6 +4,10 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Axis 0.80.0 (2026-11-12): device chips in the admin Inbox
+
+- Each admin Inbox entry now shows a chip per device it was delivered to (name; hover for route and state, e.g. "silent · shown" or "push · pushed"). The admin list only: the phone's own inbox list does not carry it. Checked by a test; the chip's look is not seen in a browser beyond the browser-check.
+
 ## Axis 0.79.0 (2026-11-12): default phone
 
 - New hub setting `defaultPhone` (Devices > Defaults, "Default phone", next to Default device). While away, `Hub.pickDestination` tries it first: online if its page is open, else with its page closed and push on; if it is unavailable the phone seen most recently is used. Not set: as before. The task push and the reminder push use the same phone pick. Checked by a test with two phones; not tried on a real phone.
