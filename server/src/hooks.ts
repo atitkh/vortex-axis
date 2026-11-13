@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import type { Activity } from "./activity.js";
 import type { DeliveryMeta, NoticeTarget } from "./delivery.js";
+import { HOOK_FORMATS, mapPreset } from "./presets.js";
 import { hashSecret, newToken, secretMatches } from "./secrets.js";
 import type { ClientRecord, HookAuth, HookCeiling, HookSourceRecord, NotificationPriority, NotificationRecord, Store } from "./store.js";
 
@@ -89,7 +90,7 @@ export class HookSources {
       hmacSecret: input.auth === "hmac" ? secret : undefined,
       ceiling: fields.ceiling ?? "notify",
       askAgent: false,
-      format: "generic",
+      format: fields.format ?? "generic",
       targetClient: fields.targetClient,
       targetLocation: fields.targetLocation,
       targetEverywhere: fields.targetEverywhere ?? false,
@@ -149,7 +150,7 @@ export class HookSources {
       return { status: 429, body: { error: `more than ${source.ratePerMin} a minute from this source` } };
     }
     const label = sanitize(source.label, TITLE_MAX) ?? source.id;
-    const parsed = parsePayload(raw, headers);
+    const parsed = parsePayload(raw, headers, source.format);
     if (parsed.kind === "foreign") {
       // A payload in someone else's shape: one quiet line that it came, nothing from it shown or spoken.
       const row = this.store.addNotification({
@@ -241,7 +242,8 @@ function checkFields(input: HookSourcePatch, creating: boolean): HookSourcePatch
     out.ceiling = input.ceiling;
   }
   if (input.askAgent !== undefined && input.askAgent !== false) throw new HookInputError("askAgent: not available yet");
-  if (input.format !== undefined && input.format !== "generic") throw new HookInputError("format: only generic for now");
+  if (input.format !== undefined && !(HOOK_FORMATS as readonly string[]).includes(input.format)) throw new HookInputError(`format: ${HOOK_FORMATS.join(", ")}`);
+  if (input.format !== undefined) out.format = input.format;
   if (input.targetClient !== undefined) out.targetClient = optionalText(input.targetClient, "targetClient");
   if (input.targetLocation !== undefined) out.targetLocation = optionalText(input.targetLocation, "targetLocation");
   if (input.targetEverywhere !== undefined) out.targetEverywhere = bool(input.targetEverywhere, "targetEverywhere");
@@ -315,9 +317,10 @@ export type ParsedHook = { kind: "generic"; notice: HookNotice } | { kind: "fore
  * Reads a payload. A GitHub or Gitea event (their event header) is foreign: only the event name is kept. Anything else must be our
  * shape: `{title?, body, priority?, tag?, dedupe?, url?, retain?, client?, location?, everywhere?}`.
  */
-export function parsePayload(raw: Buffer, headers: IncomingHttpHeaders): ParsedHook {
+export function parsePayload(raw: Buffer, headers: IncomingHttpHeaders, format = "generic"): ParsedHook {
+  const preset = format !== "generic";
   const event = header(headers, "x-github-event") || header(headers, "x-gitea-event");
-  if (event) return { kind: "foreign", event: /^[a-z_]{1,40}$/.test(event) ? event : "unknown" };
+  if (event && !preset) return { kind: "foreign", event: /^[a-z_]{1,40}$/.test(event) ? event : "unknown" };
   let data: unknown;
   try {
     data = JSON.parse(raw.toString("utf8"));
@@ -325,7 +328,14 @@ export function parsePayload(raw: Buffer, headers: IncomingHttpHeaders): ParsedH
     return { kind: "error", error: "body is not valid JSON" };
   }
   if (typeof data !== "object" || data === null || Array.isArray(data)) return { kind: "error", error: "body must be a JSON object" };
-  const d = data as Record<string, unknown>;
+  let d = data as Record<string, unknown>;
+  if (preset) {
+    // The mapped text is as untrusted as a generic body: it goes through the same checks and sanitize below.
+    const mapped = mapPreset(format, headers, data);
+    if ("error" in mapped) return { kind: "error", error: mapped.error };
+    if ("ignore" in mapped) return { kind: "foreign", event: /^[a-z_]{1,40}$/.test(mapped.ignore) ? mapped.ignore : "unknown" };
+    d = mapped.data;
+  }
   for (const name of ["title", "body", "tag", "dedupe", "url", "client", "location"]) {
     if (d[name] !== undefined && typeof d[name] !== "string") return { kind: "error", error: `${name} must be text` };
   }

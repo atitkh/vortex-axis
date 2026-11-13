@@ -108,7 +108,7 @@ export function IntegrationsPage() {
 // --- Webhooks (a card on Integrations) -----------------------------------------------------------
 
 const CEILING_WORDS = { notify: "shown only", speak: "may be spoken", urgent: "may interrupt" };
-const BLANK = { id: "", label: "", auth: "bearer", ceiling: "notify", ratePerMin: 30, maxBody: 16384, targetClient: "", targetLocation: "", targetEverywhere: false, public: false };
+const BLANK = { id: "", label: "", auth: "bearer", ceiling: "notify", format: "generic", ratePerMin: 30, maxBody: 16384, targetClient: "", targetLocation: "", targetEverywhere: false, public: false };
 
 function WebhooksCard() {
   const [d, load, error] = useLoad("/admin/hooks", 10_000);
@@ -117,7 +117,7 @@ function WebhooksCard() {
   const put = (k, v) => setEdit((e) => ({ ...e, [k]: v }));
   const hooks = d?.hooks ?? [];
   const save = async () => {
-    const body = { label: edit.label.trim(), ceiling: edit.ceiling, ratePerMin: Number(edit.ratePerMin), maxBody: Number(edit.maxBody), targetClient: edit.targetClient.trim() || null, targetLocation: edit.targetLocation.trim() || null, targetEverywhere: Boolean(edit.targetEverywhere), public: Boolean(edit.public) };
+    const body = { label: edit.label.trim(), ceiling: edit.ceiling, format: edit.format, ratePerMin: Number(edit.ratePerMin), maxBody: Number(edit.maxBody), targetClient: edit.targetClient.trim() || null, targetLocation: edit.targetLocation.trim() || null, targetEverywhere: Boolean(edit.targetEverywhere), public: Boolean(edit.public) };
     if (edit.editing) {
       await api("PATCH", `/admin/hooks/${enc(edit.editing)}`, body);
       toast("Saved.");
@@ -178,6 +178,7 @@ function WebhooksCard() {
           ${edit.editing ? null : field("Address name", html`<input class="field mono" id="hook-id" maxlength="40" placeholder="gitea" spellcheck="false" value=${edit.id} onInput=${(e) => put("id", e.currentTarget.value)} />`)}
           ${field("Label", html`<input class="field" id="hook-label" maxlength="60" placeholder="Gitea" value=${edit.label} onInput=${(e) => put("label", e.currentTarget.value)} />`)}
           ${edit.editing ? null : field("Sent with", html`<select class="field" id="hook-auth" value=${edit.auth} onChange=${(e) => put("auth", e.currentTarget.value)}><option value="bearer">A bearer token</option><option value="hmac">An HMAC signature (Gitea, GitHub)</option></select>`)}
+          ${field("Payload format", html`<select class="field" id="hook-format" value=${edit.format} onChange=${(e) => put("format", e.currentTarget.value)}><option value="generic">Our own shape</option><option value="gitea">Gitea</option><option value="github">GitHub</option><option value="kuma">Uptime Kuma</option><option value="ha">Home Assistant</option></select>`)}
           ${field("Most it may do", html`<select class="field" id="hook-ceiling" value=${edit.ceiling} onChange=${(e) => put("ceiling", e.currentTarget.value)}><option value="notify">Show only, never speak</option><option value="speak">Speak at a device you are at</option><option value="urgent">Urgent ones may interrupt</option></select>`)}
           ${field("Per minute", html`<input class="field num" id="hook-rate" type="number" min="1" max="600" value=${edit.ratePerMin} onInput=${(e) => put("ratePerMin", e.currentTarget.value)} />`)}
           ${field("Largest body (bytes)", html`<input class="field num" id="hook-body" type="number" min="1024" max="262144" value=${edit.maxBody} onInput=${(e) => put("maxBody", e.currentTarget.value)} />`)}
