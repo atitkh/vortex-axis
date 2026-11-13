@@ -21,7 +21,7 @@
  * (`-D AXIS_FIRMWARE_VERSION=\"x.y.z\"`).
  */
 #ifndef AXIS_FIRMWARE_VERSION
-#define AXIS_FIRMWARE_VERSION "0.27.0"
+#define AXIS_FIRMWARE_VERSION "0.28.0"
 #endif
 
 namespace axis {
@@ -141,6 +141,14 @@ struct Snapshot {
     uint8_t asksElsewhere = 0;
     /** An agent is using a computer near this device (Axis's desktop.busy). */
     bool desktopBusy = false;
+    /**
+     * Unread notifications for this device, as Axis last told it (inbox.show): how many, and up to five of
+     * them newest first, one to a line as "<id>\t<text>". Both empty/0 when there are none or while offline.
+     */
+    uint16_t inboxCount = 0;
+    String inboxItems;
+    /** Goes up by one each time Axis asks for that list to be opened on the screen (inbox.show with open 1). */
+    uint32_t inboxOpens = 0;
 };
 
 /**
@@ -229,6 +237,17 @@ class Client {
      * "swipe_up" or "swipe_down". `name` must stay valid (a literal). Dropped while offline. Safe from any task.
      */
     void gesture(const char *name) { wantGesture_ = name; }
+    /**
+     * Marks the inbox notification `id` read, or dismisses it, as tapped on the screen (sent as inbox.act).
+     * Up to four wait; more are dropped, and all are dropped while offline. Safe from any one task.
+     */
+    void inboxAct(uint32_t id, bool dismiss) {
+        if (!id || !online_) return;
+        const uint8_t next = (uint8_t)((inboxHead_ + 1) & 3);
+        if (next == inboxTail_) return;
+        inboxActs_[inboxHead_] = (id << 1) | (dismiss ? 1u : 0u);
+        inboxHead_ = next;
+    }
 
     /**
      * A picture Axis sent over the socket (for the `image-frames` capability): a baseline JPEG sized for the
@@ -291,6 +310,9 @@ class Client {
     volatile bool wantInterrupt_ = false;
     volatile int8_t wantAnswer_ = -1;
     const char *volatile wantGesture_ = nullptr;
+    /** inboxAct's queue: written by the screen's task at inboxHead_, read by the client's at inboxTail_. */
+    volatile uint32_t inboxActs_[4] = {};
+    volatile uint8_t inboxHead_ = 0, inboxTail_ = 0;
     volatile bool recording_ = false;
     volatile bool micOff_ = false;
     volatile bool speakerOff_ = false;

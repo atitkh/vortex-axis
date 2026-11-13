@@ -278,6 +278,36 @@ static const uint16_t COLOR_PILL = 0x1CCA;  // the listening face's mint, dimmed
 static String timerLine(uint32_t now);
 static String taskLine();
 static void listSteps();
+static void listInbox();
+static int inboxUnread();
+
+// ---- the inbox: a dot with the unread count on the idle face, and a short list it opens -----------
+// Axis sends the unread notifications (inbox.show); a tap on the dot lists the newest few for a while, a tap
+// on a row marks it read, a hold on a row dismisses it, a tap anywhere else puts the list away.
+static uint32_t inboxOpenUntil = 0;
+static const uint32_t INBOX_OPEN_MS = 8000;
+// Where the dot sits: its block's top left, in logical pixels. Not seen on a screen yet: set for the
+// top right, clear of the face's square and of the edge glow (12 pixels deep, rounded at the corners).
+static const int INBOX_DOT_BLOCK = 32;  // the block the dot is drawn in, square, even
+static const int INBOX_DOT_R = 13;      // the dot's radius
+static const uint8_t INBOX_DOT_TEXT = 2; // the count's text kind: the body font, as the battery mark's percent
+static const int INBOX_DOT_RIGHT = 24;  // the block's right edge, in from the screen's right
+static const int INBOX_DOT_TOP = 22;    // the block's top, down from the screen's top
+static int inboxDotX() { return (display::width() - INBOX_DOT_RIGHT - INBOX_DOT_BLOCK) & ~1; }
+static int inboxDotY() { return INBOX_DOT_TOP; }
+// With words on the screen the face is at the top: on the round board it then covers the dot's place, so the dot hides.
+static const bool INBOX_DOT_WITH_TEXT = true;
+static const uint32_t INBOX_DOT_REDRAW_MS = 250;  // drawn again this often anyway, over whatever strayed onto it
+static const int INBOX_HIT = 48;        // a tap this close to the dot's centre (square) opens the list
+static const uint16_t COLOR_INBOX = 0x6EBD;  // the idle face's cyan
+// The rows on show and the notification each stands for; what was marked here before Axis has answered.
+static uint32_t inboxRowId[MAX_BODY_LINES];
+static int inboxRows = 0;
+static uint32_t inboxRead[5], inboxGone[5];
+static String inboxMarkedFor;
+static int inboxDotDrawn = 0;  // the count the dot shows on the panel, 0 for none
+static uint32_t inboxDotClears = 0, inboxDotAt = 0;
+static uint32_t inboxOpensSeen = 0;  // the last of Axis's requests to open the list (inbox.show with open) acted on
 
 /** Where the face sits while there is text under it. */
 static int faceTop() { return display::height() > display::width() ? 20 : 0; }
@@ -753,6 +783,23 @@ static void present() {
     const String timer = timerLine(now), task = taskLine();
     // A tap on the task's line lists its steps for a while; the line then stays put.
     if (task.isEmpty() || (state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) stepsOpenUntil = 0;
+    // Axis asked for the list ("show me the inbox"): it opens as a tap on the dot would, here, once the board is idle,
+    // and also with touch off, when the rows are only to read. Already open, it just stays open for another while.
+    if (state.inboxOpens != inboxOpensSeen) {
+        inboxOpensSeen = state.inboxOpens;
+        logOut.printf("[inbox] opened by Axis (%d unread)\n", inboxUnread());
+        inboxOpenUntil = now + INBOX_OPEN_MS;
+        if (!inboxOpenUntil) inboxOpenUntil = 1;
+    }
+    // The inbox list, opened by a tap on the dot or by Axis, has the words to itself until it closes.
+    if (inboxOpenUntil && (down || inboxUnread() == 0 || (int32_t)(inboxOpenUntil - now) <= 0)) inboxOpenUntil = 0;
+    if (inboxOpenUntil) {
+        stepsOpenUntil = 0;
+        const int unread = inboxUnread();
+        show(String("Inbox: ") + unread + " unread", COLOR_HEAD, "");
+        listInbox();
+        return;
+    }
     const bool open = !down && stepsOpenUntil && (int32_t)(stepsOpenUntil - now) > 0;
     if (!open) stepsOpenUntil = 0;
     const bool showTask = !task.isEmpty() && (open || timer.isEmpty() || (now / 4000) % 2 == 1);
@@ -812,6 +859,114 @@ static void listSteps() {
         }
         at = end + 1;
     }
+}
+
+/** Forgets what was marked here once Axis sends a new list (which then has those rows read or gone). */
+static void inboxSync() {
+    if (state.inboxItems == inboxMarkedFor) return;
+    inboxMarkedFor = state.inboxItems;
+    memset(inboxRead, 0, sizeof inboxRead);
+    memset(inboxGone, 0, sizeof inboxGone);
+}
+
+static bool inboxHas(const uint32_t *marks, uint32_t id) {
+    for (int i = 0; i < 5; i++) if (id && marks[i] == id) return true;
+    return false;
+}
+
+/** The unread count as Axis said, less what was marked read or dismissed here since. */
+static int inboxUnread() {
+    inboxSync();
+    int marked = 0;
+    for (int i = 0; i < 5; i++) marked += (inboxRead[i] || inboxGone[i]) ? 1 : 0;
+    return max(0, (int)state.inboxCount - marked);
+}
+
+/** Fills the list with the unread rows, newest first: one marked read here dimmed, one dismissed here left out. */
+static void listInbox() {
+    inboxSync();
+    const int room = min(bodyLines(), MAX_BODY_LINES);
+    wantListCount = 0;
+    inboxRows = 0;
+    const String &all = state.inboxItems;
+    for (int at = 0; at < (int)all.length() && wantListCount < room;) {
+        int end = all.indexOf('\n', at);
+        if (end < 0) end = all.length();
+        const int tab = all.indexOf('\t', at);
+        if (tab > at && tab < end) {
+            const uint32_t id = (uint32_t)all.substring(at, tab).toInt();
+            if (id && !inboxHas(inboxGone, id)) {
+                wantList[wantListCount] = display::plain(all.substring(tab + 1, end));
+                wantListColor[wantListCount] = inboxHas(inboxRead, id) ? COLOR_DIM : COLOR_BODY;
+                inboxRowId[inboxRows++] = id;
+                wantListCount++;
+            }
+        }
+        at = end + 1;
+    }
+}
+
+/** The row of the open list under logical y, as its notification's id; 0 for none. */
+static uint32_t inboxRowAt(int y) {
+    const int h = display::lineHeight(2);
+    if (y < bodyTop()) return 0;
+    const int row = (y - bodyTop()) / h;
+    return row >= 0 && row < inboxRows ? inboxRowId[row] : 0;
+}
+
+/** Marks a row read or dismissed: at once on the screen, and to Axis (not while a console preview is on). */
+static void inboxMark(uint32_t id, bool dismiss);
+
+/** The dot, drawn in its own block beside the battery mark, again only when its count changes or the screen was cleared. */
+static void drawInboxDot(bool on) {
+    static uint16_t *block = nullptr;
+    static int blockCount = -1;  // the count the block holds
+    const int B = INBOX_DOT_BLOCK;
+    const int count = on ? inboxUnread() : 0;
+    const bool wiped = display::clears() != inboxDotClears;
+    inboxDotClears = display::clears();
+    if (!block) block = (uint16_t *)heap_caps_malloc(B * B * 2, MALLOC_CAP_SPIRAM);
+    if (!block) return;
+    const uint32_t now = millis();
+    if (count == 0) {
+        // Gone: its place is blacked out once, unless the whole screen was (then whatever is there now is not the dot).
+        if (inboxDotDrawn && !wiped) {
+            memset(block, 0, B * B * 2);
+            blockCount = 0;
+            display::blitRect(inboxDotX(), inboxDotY(), B, B, block);
+        }
+        inboxDotDrawn = 0;
+        return;
+    }
+    if (!wiped && count == inboxDotDrawn && now - inboxDotAt < INBOX_DOT_REDRAW_MS) return;
+    if (count != blockCount) {
+        // A filled circle with soft edges, the count in black on it ("9+" above 9).
+        memset(block, 0, B * B * 2);
+        const float c = (B - 1) / 2.0f;
+        for (int j = 0; j < B; j++)
+            for (int i = 0; i < B; i++) {
+                const float d = sqrtf((i - c) * (i - c) + (j - c) * (j - c));
+                const float a = constrain(INBOX_DOT_R + 0.5f - d, 0.0f, 1.0f);
+                if (a <= 0.0f) continue;
+                const int r = (int)(((COLOR_INBOX >> 11) & 31) * a + 0.5f), g = (int)(((COLOR_INBOX >> 5) & 63) * a + 0.5f),
+                          b = (int)((COLOR_INBOX & 31) * a + 0.5f);
+                block[j * B + i] = (uint16_t)((r << 11) | (g << 5) | b);
+            }
+        const String text = count > 9 ? String("9+") : String(count);
+        const int w = display::textWidth(INBOX_DOT_TEXT, text);
+        // textInto writes only pixels that are not black, so the figures are drawn white on a spare block and cut out.
+        static uint16_t *figures = nullptr;
+        if (!figures) figures = (uint16_t *)heap_caps_malloc(B * B * 2, MALLOC_CAP_SPIRAM);
+        if (figures) {
+            memset(figures, 0, B * B * 2);
+            display::textInto(figures, B, B, (B - w) / 2, INBOX_DOT_TEXT, 0xFFFF, text);
+            for (int i = 0; i < B * B; i++) if (figures[i]) block[i] = 0x0000;
+        }
+        blockCount = count;
+    }
+    display::blitRect(inboxDotX(), inboxDotY(), B, B, block);
+    inboxDotDrawn = count;
+    inboxDotAt = now;
 }
 
 /** "Backup 3/5", "Backup: waiting for you", "Backup done". Empty with no task. */
@@ -913,6 +1068,17 @@ static void drawAsk(const AskLayout &l) {
 
 /** A hold or a swipe, which the board has no use for itself, goes to Axis (and from there to Home Assistant). */
 static void onGesture(touch::Gesture g) {
+    // While the inbox list is open a hold is for it: on a row it dismisses that one, and it is never sent on.
+    if (g == touch::Gesture::Hold && inboxOpenUntil) {
+        touches++;
+        int px, py, x, y;
+        touch::tapPoint(px, py);  // where the finger came down and stayed
+        display::toLogical(px, py, x, y);
+        const uint32_t id = inboxRowAt(y);
+        logOut.printf("[inbox] hold at %d,%d: %u\n", x, y, (unsigned)id);
+        if (id) inboxMark(id, true);
+        return;
+    }
     const char *name = "hold";
     if (g == touch::Gesture::Swipe) {
         int x0, y0, x1, y1, a, b, c, d;
@@ -959,6 +1125,28 @@ static void onTap() {
     // A task with named steps: a tap anywhere under the face lists them, and another puts the list away.
     // The line alone was too small to hit. A tap on the face still starts listening.
     const bool quiet = state.turn == axis::Turn::Idle && !client.listening() && !speaker::playing();
+    // The inbox: a tap on the dot opens the list; with it open a tap on a row marks that one read and any
+    // other tap puts it away.
+    if (!screenOff && quiet && state.link == axis::Link::Online && (inboxOpenUntil || inboxUnread() > 0)) {
+        int px, py, x, y;
+        touch::tapPoint(px, py);
+        display::toLogical(px, py, x, y);
+        if (inboxOpenUntil) {
+            const uint32_t id = inboxRowAt(y);
+            logOut.printf("[inbox] tap at %d,%d: %u\n", x, y, (unsigned)id);
+            if (id) inboxMark(id, false);
+            else inboxOpenUntil = 0;
+            return;
+        }
+        const int cx = inboxDotX() + INBOX_DOT_BLOCK / 2, cy = inboxDotY() + INBOX_DOT_BLOCK / 2;
+        if (inboxDotDrawn && abs(x - cx) <= INBOX_HIT / 2 && abs(y - cy) <= INBOX_HIT / 2) {
+            logOut.printf("[inbox] opened (%d unread)\n", inboxUnread());
+            stepsOpenUntil = 0;
+            inboxOpenUntil = millis() + INBOX_OPEN_MS;
+            if (!inboxOpenUntil) inboxOpenUntil = 1;
+            return;
+        }
+    }
     if (!screenOff && quiet && state.link == axis::Link::Online && state.taskCount && !(state.taskSteps.isEmpty() && state.taskOthers.isEmpty())) {
         int px, py, x, y;
         touch::tapPoint(px, py);
@@ -990,12 +1178,25 @@ static void onTap() {
 
 // ---- diagnostics: `preview NAME` puts a made-up state on the screen for a minute ----------------
 // For checking the layout without Axis: what Axis would send is laid over the snapshot.
-static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup", "idle"};
+static const char *const PREVIEWS[] = {"ask", "ask4", "ask6", "reply", "speak", "thinking", "listening", "timer", "task", "steps", "error", "setup", "idle", "inbox", "inboxlist"};
 static const int PREVIEW_COUNT = sizeof PREVIEWS / sizeof PREVIEWS[0];
 static volatile int previewWanted = -1;
 static volatile uint32_t previewRequests = 0;
 static int previewShown = -1;
 static uint32_t previewUntil = 0, previewStarted = 0;
+static volatile int previewInboxCount = 3;  // `preview inbox N`
+
+static void inboxMark(uint32_t id, bool dismiss) {
+    uint32_t *marks = dismiss ? inboxGone : inboxRead;
+    for (int i = 0; i < 5; i++)
+        if (!marks[i] || marks[i] == id) {
+            marks[i] = id;
+            break;
+        }
+    if (inboxOpenUntil) inboxOpenUntil = millis() + INBOX_OPEN_MS;
+    if (previewShown >= 0) logOut.printf("[inbox] %s %u (preview: not sent)\n", dismiss ? "dismiss" : "read", (unsigned)id);
+    else client.inboxAct(id, dismiss);
+}
 
 static void applyPreview(axis::Snapshot &s, uint32_t now) {
     const char *name = PREVIEWS[previewShown];
@@ -1040,6 +1241,15 @@ static void applyPreview(axis::Snapshot &s, uint32_t now) {
         s.taskNote = "copying the photos";
         s.taskSteps = "xFind the files\nxPack them\n>Copy the photos\n-Check the copy\n-Tidy up";
         s.taskOthers = " Monthly report\n!Invoice: needs you";
+    } else if (!strncmp(name, "inbox", 5)) {
+        // Unread notifications, the newest first, as Axis cuts them (48 characters at most, maybe ending in "…").
+        const int n = !strcmp(name, "inboxlist") ? 5 : previewInboxCount;
+        s.inboxCount = (uint16_t)n;
+        s.inboxItems = "";
+        static const char *const ROWS[] = {"Parcel delivered to the front door",
+                                           "Backup finished: 1,204 files copied, nothing faile\xE2\x80\xA6",
+                                           "Dentist tomorrow at 9:30", "Build failed on main", "Laundry is done"};
+        for (int i = 0; i < min(n, 5); i++) s.inboxItems += String(9001 + i) + "\t" + ROWS[i] + "\n";
     } else if (!strcmp(name, "error")) {
         s.turn = axis::Turn::Error;
         s.note = "Hearing is down: the speech service did not answer";
@@ -1244,6 +1454,12 @@ void setup() {
             textSizeRequests++;
             return true;
         }
+        if (word == "inboxlist") {
+            // The inbox list with five made-up rows for a minute, the same as `preview inboxlist`: taps and holds are logged, not sent.
+            previewWanted = PREVIEW_COUNT - 1;
+            previewRequests++;
+            return true;
+        }
         if (word == "preview") {
             // The battery's looks, with no battery: a made-up reading for a minute, beside the other previews.
             if (rest == "lowbattery" || rest == "charging" || rest.startsWith("battery")) {
@@ -1258,12 +1474,22 @@ void setup() {
                 return true;
             }
             if (rest == "off") batterycue::preview(batterycue::Preview::Off);
+            // `preview inbox N`: the dot with N unread (1 to 99, 3 without a number).
+            if (rest.startsWith("inbox ")) {
+                const int n = rest.substring(6).toInt();
+                if (n < 1 || n > 99) {
+                    logOut.println("[preview] inbox COUNT (1 to 99)");
+                    return true;
+                }
+                previewInboxCount = n;
+            }
+            const String which = rest.startsWith("inbox ") ? String("inbox") : rest;
             int found = -1;
-            for (int i = 0; i < PREVIEW_COUNT; i++) if (rest == PREVIEWS[i]) found = i;
+            for (int i = 0; i < PREVIEW_COUNT; i++) if (which == PREVIEWS[i]) found = i;
             if (found < 0 && rest != "off") {
                 String names;
                 for (int i = 0; i < PREVIEW_COUNT; i++) names += String(" ") + PREVIEWS[i];
-                logOut.printf("[preview] one of:%s lowbattery charging battery off\n", names.c_str());
+                logOut.printf("[preview] one of:%s lowbattery charging battery off (inbox N: the dot with N unread)\n", names.c_str());
                 return true;
             }
             previewWanted = found;
@@ -1383,6 +1609,7 @@ void loop() {
             previewStarted = started;
             previewUntil = started + 60000;
             stepsOpenUntil = previewShown >= 0 && !strcmp(PREVIEWS[previewShown], "steps") ? previewUntil : 0;
+            inboxOpenUntil = previewShown >= 0 && !strcmp(PREVIEWS[previewShown], "inboxlist") ? previewUntil : 0;
         }
         if (previewShown >= 0 && (int32_t)(started - previewUntil) >= 0) previewShown = -1;
         if (previewShown >= 0 || wasShown) {
@@ -1573,6 +1800,10 @@ void loop() {
 
     // The battery mark at the bottom, on its own small block, after the face and the words.
     batterycue::draw(started, client.settingInt("batteryGlyph", 1) != 0);
+    // The inbox dot, top right, only on the idle face with nothing else going on.
+    drawInboxDot(!askShown && state.link == axis::Link::Online && state.turn == axis::Turn::Idle && !client.listening() &&
+                 !speaker::playing() && state.updatePercent < 0 &&
+                 (INBOX_DOT_WITH_TEXT || (wantHead.isEmpty() && wantBody.isEmpty() && wantListCount == 0)));
 
     // The notification light, only while nothing else is going on: amber while a task waits for the person,
     // a green flash when one finishes. It stays off the face, which draws itself.

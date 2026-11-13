@@ -921,7 +921,7 @@ struct Client::Impl {
             cancelRecording();
             // A question cannot be answered now, and Axis sends the timers again on the next connect.
             endAsk();
-            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; s.taskSteps = ""; s.taskOthers = ""; s.asksElsewhere = 0; });
+            update([](Snapshot &s) { s.timerCount = 0; s.taskCount = 0; s.taskSteps = ""; s.taskOthers = ""; s.asksElsewhere = 0; s.inboxCount = 0; s.inboxItems = ""; });
             // Whatever is already queued may finish, but nothing more is coming.
             if (!speakTurn.isEmpty() && self.sink_) self.sink_->streamEnd();
             speakTurn = "";
@@ -1596,6 +1596,19 @@ struct Client::Impl {
             });
             handled = true;
         }
+        else if (!strcmp(name, "inbox.show")) {
+            // Axis keeps the notifications. This is only for a dot and a short list on a screen.
+            const uint16_t count = (uint16_t)constrain((int)(doc["params"]["count"] | 0), 0, 9999);
+            const String items = doc["params"]["items"] | "";
+            // open 1: the person asked to see the list, so the screen opens it as a tap on the dot would. Absent: 0.
+            const bool open = (int)(doc["params"]["open"] | 0) != 0;
+            update([&](Snapshot &s) {
+                s.inboxCount = count;
+                s.inboxItems = count ? items : String();
+                if (open) s.inboxOpens++;
+            });
+            handled = true;
+        }
         else if (!strcmp(name, "desktop.busy")) {
             const bool on = (int)(doc["params"]["on"] | 0) != 0;
             update([&](Snapshot &s) { s.desktopBusy = on; });
@@ -1655,6 +1668,7 @@ struct Client::Impl {
             if (state.link == Link::Online) setLink(Link::Connecting, "Lost Axis, reconnecting");
             else if (state.link != Link::Connecting) setLink(Link::Connecting, "");
             self.wantGesture_ = nullptr;  // a swipe made while offline means nothing later
+            self.inboxTail_ = self.inboxHead_;  // so does a tap on a list Axis may since have changed
             return;
         }
         setLink(Link::Online, state.turn == Turn::Error ? state.note : "");
@@ -1688,6 +1702,17 @@ struct Client::Impl {
             doc["gesture"] = name;
             send(doc);
             logf("gesture: %s", name);
+        }
+        while (self.inboxTail_ != self.inboxHead_) {
+            const uint8_t at = self.inboxTail_;
+            const uint32_t packed = self.inboxActs_[at];
+            self.inboxTail_ = (uint8_t)((at + 1) & 3);
+            JsonDocument doc;
+            doc["t"] = "inbox.act";
+            doc["id"] = packed >> 1;
+            doc["act"] = (packed & 1) ? "dismiss" : "read";
+            send(doc);
+            logf("inbox: %s %u", (packed & 1) ? "dismiss" : "read", (unsigned)(packed >> 1));
         }
         if (askDeadline && (int32_t)(millis() - askDeadline) > 0) endAsk();
         if (resetWanted) {

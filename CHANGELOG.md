@@ -4,6 +4,16 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Board firmware 0.28.0 (Waveshare 1.8) (2026-11-12)
+
+- The inbox on the screen, for Axis 0.77.0's `inbox.show`: a cyan dot with the unread count ("9+" above 9) on the idle face, top right, drawn with the battery mark. A tap on the dot lists the newest five for 8 s; a tap on a row marks it read, a hold on a row dismisses it (sent as `inbox.act`, not as a gesture), a tap elsewhere closes the list; the row dims or goes at once. `inbox.show` with `open: 1` opens the list from Axis once the board is idle, also with touch off (rows then only to read); a new `inbox.show` while it is open changes the rows without closing it. Nothing is shown offline. Console: `preview inbox N` (the dot with N unread), `preview inboxlist` (the list; taps there are logged, not sent).
+- **Compile-checked only. Not flashed, not tried on a board.** The dot's place and size are named constants (`INBOX_DOT_*` in `main.cpp`) set without a screen to look at. NOT verified: everything a screen or a finger shows: the dot's place, size and look against the face, the glow and the battery mark, the count's figures inside the dot, the dot's hit area, a tap on a row, a hold on a row, the list's rows and their cut, the 8 s close, `open` from Axis, touch off, the frame rate with the dot.
+
+## Round board firmware 0.12.0 (Waveshare 1.75) (2026-11-12)
+
+- The 1.8's 0.28.0 inbox dot and list, same code. The dot sits top centre, its middle 30 pixels in from the glass, between the edge glow and the idle face; it hides while words are on the screen, because the face is then at the top under it (so the list shows without the dot). Rows are cut to the circle by the list's own `display::roomAt` fit.
+- **Compile-checked only. Not flashed, not tried on a board.** NOT verified: everything a screen or a finger shows: the dot's place, size and look against the face, the glow and the battery mark, the count's figures inside the dot, the dot's hit area, a tap on a row, a hold on a row, the list's rows and their cut, the 8 s close, `open` from Axis, touch off, the frame rate with the dot, the rows inside the circle.
+
 ## Axis 0.77.0 (2026-11-12): unread inbox on the boards (server side)
 
 - New admin-only command `inbox.show {count, items}` (like `progress.show`) tells each board with a screen and touch how many notifications are unread for it (addressed to it or to everyone) and the newest five, `items` being `<id>\t<line>\n` a row (title, else body, one line, 48 characters at most). Sent when the count or rows change (changes within 500 ms make one send), when a board connects, and checked every 60 s. `server/src/boardinbox.ts`.
