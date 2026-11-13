@@ -24,7 +24,7 @@ const AGENT_HOLD_MS = 5 * 60_000;
 const REPLY_MAX = 500;
 const SETTINGS_KEY = "hooks.settings";
 
-/** Hub-wide webhook settings. `hookAgent`: the agent that answers ask-agent sources; empty: the guest agent when one is set, else the usual one. */
+/** Hub-wide webhook settings. `hookAgent`: the agent that answers ask-agent sources; empty: the same agent as Axis's own conversation. */
 export interface HookSettings {
   hookAgent: string;
 }
@@ -73,9 +73,7 @@ export interface HookOptions {
   agent?: () => Agent | undefined;
   /** The voice conversation's key; ask-agent runs go to `<key>-hooks`, never the main chat. */
   sessionKey?: string;
-  /** The guest agent when one is set: the fallback for an empty hookAgent. */
-  guestAgent?: () => string | undefined;
-  /** How long an ask-agent run may take; 10 minutes. */
+    /** How long an ask-agent run may take; 10 minutes. */
   agentMs?: number;
   /** After a timed-out run whose abort failed, how long the source stays busy; 5 minutes. */
   agentHoldMs?: number;
@@ -168,7 +166,7 @@ export class HookSources {
 
   /** Where an ask-agent run goes: its own conversation, with the webhook agent (or the guest agent, or the usual one). */
   agentRoute(): AgentRoute {
-    const agentId = this.settings().hookAgent || this.options.guestAgent?.() || undefined;
+    const agentId = this.settings().hookAgent || undefined;
     return { agentId, sessionKey: `${this.options.sessionKey ?? "axis"}-hooks` };
   }
 

@@ -199,7 +199,7 @@ function WebhooksCard() {
         </div>`
       : html`<div class="inline add"><button type="button" class="btn primary" id="hook-new" onClick=${() => setEdit({ ...BLANK })}>Add a source</button></div>`}
     <label class="f"><span class="f-l">Agent for webhooks</span><div class="f-c f-v"><select class="field" id="hook-agent" value=${hookAgent} onChange=${(e) => setHookAgent(e.currentTarget.value)}>
-      <option value="">same as the guest agent, else the usual one</option>
+      <option value="">Same agent as Axis (the one you talk to)</option>
       ${agentOptions.map((id) => html`<option key=${id} value=${id}>${id}</option>`)}
     </select></div></label>
     <p class="help">A service posts JSON <code>{"title", "body", "priority"}</code> to its address with the token (or a signature of the body). Notices are shown quietly unless the source may speak; the cap above is the most it can ever do. A source that may ask the agent sends <code>"mode": "ask-agent"</code>; the agent above answers in a conversation of its own (never the main chat), and says something only when it decides you need to know.</p>

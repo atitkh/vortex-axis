@@ -41,7 +41,6 @@ function setup(answer: string | (() => Promise<string>), extra: { askAgent?: boo
   const hooks = new HookSources(store, activity, {
     agent: () => agent,
     sessionKey: "axis",
-    guestAgent: () => extra.guestAgent,
     agentMs: extra.agentMs,
     route: async (_target, text, urgent, meta) => {
       routed.push({ text, urgent, meta });
@@ -189,14 +188,14 @@ describe("ask-agent for webhook sources", () => {
     await vi.waitFor(() => expect(hooks.agentBusy()).toBe(false), { timeout: 1000 });
   });
 
-  it("uses the hookAgent setting, else the guest agent, else the usual one", async () => {
+  it("uses the hookAgent setting, else the same agent as Axis", async () => {
     const set = setup("ok", { hookAgent: "watcher", guestAgent: "guest" });
     await (await set.post({ body: "x", mode: "ask-agent" })).done;
     expect(set.calls[0]!.route).toEqual({ agentId: "watcher", sessionKey: "axis-hooks" });
-    const guest = setup("ok", { guestAgent: "guest" });
-    await (await guest.post({ body: "x", mode: "ask-agent" })).done;
-    expect(guest.calls[0]!.route?.agentId).toBe("guest");
-    expect(() => guest.hooks.saveSettings({ other: 1 })).toThrow();
+    const same = setup("ok", { guestAgent: "guest" });
+    await (await same.post({ body: "x", mode: "ask-agent" })).done;
+    expect(same.calls[0]!.route?.agentId).toBeUndefined();
+    expect(() => same.hooks.saveSettings({ other: 1 })).toThrow();
   });
 
   it("refuses a bad mode", () => {
