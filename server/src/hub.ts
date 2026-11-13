@@ -221,7 +221,7 @@ export class Hub implements TurnPort {
   }
 
   /** A turn started by Axis for something the person asked to have done later; see Turns.task. */
-  task(session: Session, text: string, title: string, options?: { plain?: boolean }): Promise<{ handedOver: boolean; heard: boolean; silent: boolean }> {
+  task(session: Session, text: string, title: string, options?: { plain?: boolean }): Promise<{ handedOver: boolean; heard: boolean; silent: boolean; text?: string }> {
     return this.turns.task(session, text, title, undefined, options);
   }
 

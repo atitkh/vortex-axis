@@ -793,17 +793,17 @@ export class TurnManager {
    * Waits for a conversation on that device to end first. Resolves when the turn has ended, saying whether
    * the agent's run was handed over to go on in the background.
    */
-  async task(session: Session, text: string, title: string, waitMs = 120_000, options: { plain?: boolean } = {}): Promise<{ handedOver: boolean; heard: boolean; silent: boolean }> {
+  async task(session: Session, text: string, title: string, waitMs = 120_000, options: { plain?: boolean } = {}): Promise<{ handedOver: boolean; heard: boolean; silent: boolean; text?: string }> {
     const deadline = Date.now() + waitMs;
     while (this.busy(session) || this.active.has(session.client.id)) {
       if (Date.now() > deadline) throw new Error(`${session.client.name} is busy with a conversation`);
       await Promise.race([this.active.get(session.client.id)?.finished, new Promise((r) => setTimeout(r, 250))]);
     }
     const turnId = `task-${++this.sayCount}`;
-    const outcome: { heard: boolean; silent?: boolean } = { heard: false };
+    const outcome: { heard: boolean; silent?: boolean; text?: string } = { heard: false };
     const failure = await this.run(session, turnId, { text, title, ...(options.plain ? { plain: true } : {}) }, outcome);
     if (failure && failure !== "interrupted") throw new Error(failure);
-    return { handedOver: this.lastHandedOver === turnId, heard: outcome.heard, silent: Boolean(outcome.silent) };
+    return { handedOver: this.lastHandedOver === turnId, heard: outcome.heard, silent: Boolean(outcome.silent), ...(outcome.text ? { text: outcome.text } : {}) };
   }
   /** The last turn whose run was handed over to the background. */
   private lastHandedOver: string | undefined;
@@ -878,7 +878,7 @@ export class TurnManager {
       // `plain`: no "About <title>:" and no second chime; the title still names the handover.
       | { text: string; title?: string; plain?: boolean }
       | { say: string; silent?: boolean; share?: SpeechShare },
-    outcome?: { heard: boolean; silent?: boolean },
+    outcome?: { heard: boolean; silent?: boolean; text?: string },
   ): Promise<string | undefined> {
     const id = session.client.id;
     // Timings for the activity log, filled in as the turn goes.
@@ -1255,6 +1255,8 @@ export class TurnManager {
       if (silent) {
         record.outcome = "silent";
         if (outcome) outcome.silent = true;
+      } else if (outcome && full.trim()) {
+        outcome.text = full.trim();
       }
       if (!silent) await release();
       // Everything queued has been spoken (or the turn was stopped) once this returns.

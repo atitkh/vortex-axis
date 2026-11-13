@@ -1,4 +1,5 @@
 import type { Activity } from "./activity.js";
+import { stripAudioTags } from "./audiotags.js";
 import type { Delivery } from "./delivery.js";
 import type { Hub, Session } from "./hub.js";
 import type { Progress } from "./progress.js";
@@ -38,7 +39,7 @@ export interface RemindersOptions {
    * Has the agent say the reminder in one natural sentence on `session` (a plain turn that holds computers look-only).
    * `late` is how long past its time it is, in words, when it is. Without it the static line is said.
    */
-  runLine?: (session: Session, reminder: ReminderRecord, late?: string) => Promise<{ handedOver: boolean; heard: boolean; silent: boolean }>;
+  runLine?: (session: Session, reminder: ReminderRecord, late?: string) => Promise<{ handedOver: boolean; heard: boolean; silent: boolean; text?: string }>;
   /** A notification for a phone that is away and has the page closed; nothing is promised about it. */
   tellPhones?: (title: string, body: string, tag: string) => void;
   /** A notification to every phone not online, away or not; how many were sent. */
@@ -359,7 +360,7 @@ export class Reminders {
       const chimed = await hub.command(session, "chime", undefined, 3000).catch(() => undefined);
       if (chimed?.ok) await new Promise((resolve) => setTimeout(resolve, this.chimeMs));
     }
-    let said: { handedOver: boolean; heard: boolean; silent: boolean } | undefined;
+    let said: { handedOver: boolean; heard: boolean; silent: boolean; text?: string } | undefined;
     if (this.options.runLine) said = await this.options.runLine(session, r, late).catch((error: Error) => {
       this.log(`reminder ${r.id}: the agent could not say it: ${error.message}`);
       return undefined;
@@ -375,6 +376,9 @@ export class Reminders {
     }
     const delivered = heard || handedOver || screens > 0 || (shown && session.client.capabilities.includes("screen"));
     activity?.note("reminder", session.client.id, `Reminder said on ${session.client.name}${delivered ? "" : " (not confirmed)"}: ${r.text}`);
+    // The row records the sentence that was spoken; the static line stays when the agent gave none.
+    const spoken = said && !said.silent && said.text ? stripAudioTags(said.text).trim().slice(0, 500) : "";
+    if (spoken) this.options.store.updateNotification(nid, { body: spoken });
     this.settle(nid, heard ? "heard" : delivered ? "delivered" : "pending");
     return delivered;
   }

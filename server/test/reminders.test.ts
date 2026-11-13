@@ -74,6 +74,27 @@ describe("reminders", () => {
     expect((await admin("GET", "/admin/now")).body.tasks).toEqual([]);
   });
 
+  it("records the spoken sentence as the row body, and the static line when the agent said nothing", async () => {
+    const desk = await device("Desk");
+    add();
+    ctx.app.reminders.start();
+    await hearOut(desk);
+    await sleep(100);
+    const spokenRow = ctx.app.store.listNotifications({}).find((n) => n.source === "reminder");
+    expect(spokenRow?.body).toBe("Time to take the pills.");
+  });
+
+  it("keeps the static line as the row body on NO_REPLY", async () => {
+    const desk = await device("Desk");
+    answer = ["NO_REPLY"];
+    add();
+    ctx.app.reminders.start();
+    await hearOut(desk);
+    await sleep(100);
+    const row = ctx.app.store.listNotifications({}).find((n) => n.source === "reminder");
+    expect(row?.body).toBe("Reminder: Take the pills.");
+  });
+
   it("says the static line when the agent answers NO_REPLY", async () => {
     const desk = await device("Desk");
     answer = ["NO_REPLY"];
@@ -465,7 +486,7 @@ describe("reminders, kept in the notifications table", () => {
     const kept = ctx.app.store.listNotifications({ source: "reminder" });
     expect(kept).toHaveLength(1);
     expect(kept[0]).toMatchObject({ reminderId: row.id, status: "heard" });
-    expect(kept[0]!.body).toContain("Take the pills");
+    expect(kept[0]!.body).toBe("Time to take the pills."); // the sentence the agent spoke (was the static line)
     expect(kept[0]!.deliveredAt).toBeDefined();
     expect(ctx.app.store.notificationsForReminder(row.id)).toHaveLength(1);
   });
