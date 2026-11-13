@@ -318,6 +318,7 @@ describe("dragging, the block list and asking before risky actions", () => {
     phone.send({ t: "answer", askId: question.askId, choice: "Allow" });
     await answer("desktop.click", {}, (m) => m.params.id === 1);
     expect((await sending).body.result.confirmed).toMatch(/allowed: click "Send"/);
+    expect(ctx.app.store.listNotifications({}).find((n) => n.sourceName === "permission" && /May the agent click "Send"/.test(n.body))).toMatchObject({ source: "ask", status: "answered", answer: "Allow" });
 
     // Declined: the computer never hears of it. Enter in a mail window, and a click at the Send button's spot, ask too.
     const pressing = tryTool({ action: "keys", keys: "ctrl+enter" });

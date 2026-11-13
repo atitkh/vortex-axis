@@ -1,3 +1,4 @@
+import type { AskResult } from "./ask.js";
 import type { Hub, Session } from "./hub.js";
 import { riskyName, sendingWindow, submitKeys, submitText } from "./risky.js";
 import type { Store } from "./store.js";
@@ -62,6 +63,10 @@ export class Desktops {
   /** Failed deliveries to a screen in a row, so a screen that never answers is not asked for ever. */
   private readonly failures = new Map<string, number>();
   private retry: NodeJS.Timeout | undefined;
+  /** Keeps a confirm question as an ask notification (wired once Delivery exists); it must never throw into the confirm. */
+  /** Told when a question could not be kept; the answer stands. */
+  onRecordFailure: ((client: Session["client"], error: Error) => void) | undefined;
+  recordAsk: ((client: Session["client"], question: string, choices: string[], result: AskResult) => void) | undefined;
 
   constructor(
     private readonly hub: Hub,
@@ -403,7 +408,13 @@ export class Desktops {
         throw new Error(`to ${what} the person must allow it first, and no device can ask them (${(error as Error).message}). Tell them what you would do`);
       }
     }
-    const answer = await this.hub.ask(asked, `May the agent ${what} on ${computer}?`, ["Allow", "Deny"], CONFIRM_MS);
+    const question = `May the agent ${what} on ${computer}?`;
+    const answer = await this.hub.ask(asked, question, ["Allow", "Deny"], CONFIRM_MS);
+    try {
+      this.recordAsk?.(asked.client, question, ["Allow", "Deny"], answer);
+    } catch (error) {
+      this.onRecordFailure?.(asked.client, error as Error);
+    }
     if (answer.answer !== "Allow") {
       throw new Error(`the user declined: ${what} was not done${answer.timedOut ? " (no answer in 30 seconds counts as no)" : ""}. Do not try it another way; ask them what they want`);
     }

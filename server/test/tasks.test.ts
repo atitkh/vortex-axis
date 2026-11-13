@@ -113,6 +113,8 @@ describe("a timer that does something", () => {
     desk.send({ t: "answer", askId: question.askId, choice: "Allow" });
     const set = await setting;
     expect(set).toMatchObject({ asked: "allowed", set: { mayAct: true } });
+    // The permission question is kept as an ask notification too.
+    expect(ctx.app.store.listNotifications({}).find((n) => n.sourceName === "permission" && /may it click and type/.test(n.body))).toMatchObject({ source: "ask", status: "answered", answer: "Allow" });
     let acted = "";
     during = async () => {
       const going = invoke("vortex.axis.desktop", { action: "click", x: 9, y: 9 });

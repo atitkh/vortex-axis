@@ -275,6 +275,9 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   });
   // Questions sent as notifications before a restart can no longer be answered: recorded as missed.
   delivery.startup();
+  // Permission questions put to a device are kept as ask notifications too; keeping one never loses the answer.
+  desktops.recordAsk = (client, question, choices, result) => void delivery.recordAsk(client, question, choices, result, { sourceName: "permission" });
+  desktops.onRecordFailure = (client, error) => activity.note("agent", client.id, `A permission answer from ${client.name} could not be recorded: ${error.message}`, "warn");
   // One function carries out every tool call, whichever door it came in by: the OpenClaw node here, MCP in http.ts.
   // A phone is told about a task only while the person is away from the screens: Home Assistant says so.
   const tellPhones = (title: string, body: string, tag: string) => {
@@ -429,7 +432,14 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
         if (!caps.includes("mic") && !(choices.length && canTap(caps))) return undefined;
         // A choice to tap needs a tappable screen; without one an approval cannot be given here at all.
         if (silent && !canTap(caps)) return undefined;
-        return hub.ask(session, question, choices, timeoutMs, { silent, signal });
+        const result = await hub.ask(session, question, choices, timeoutMs, { silent, signal });
+        // Kept as an ask notification; not being able to keep it must not lose the answer.
+        try {
+          delivery.recordAsk(session.client, question, choices, result, { sourceName: "agent-ask" });
+        } catch (error) {
+          activity.note("agent", session.client.id, `The answer from ${session.client.name} could not be recorded: ${(error as Error).message}`, "warn");
+        }
+        return result;
       },
     },
   });

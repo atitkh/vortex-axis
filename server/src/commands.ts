@@ -647,7 +647,13 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             if (caps.includes("mic") || canTap(caps)) {
               try {
                 const what = label ? `the ${label} task` : "that task";
-                const answer = await hub.ask(session, `When ${what} runs later, may it click and type on your computer?`, ["Allow", "Look only"], 30_000);
+                const permission = `When ${what} runs later, may it click and type on your computer?`;
+                const answer = await hub.ask(session, permission, ["Allow", "Look only"], 30_000);
+                try {
+                  delivery.recordAsk(session.client, permission, ["Allow", "Look only"], answer, { sourceName: "permission" });
+                } catch (error) {
+                  deps.activity?.note("agent", session.client.id, `The answer from ${session.client.name} could not be recorded: ${(error as Error).message}`, "warn");
+                }
                 mayAct = answer.answer === "Allow";
                 asked = mayAct ? "allowed" : answer.timedOut ? "no answer" : "look only";
               } catch (error) {
