@@ -469,6 +469,8 @@ export async function startApp(config: Config, options: StartOptions = {}): Prom
   const tools = new ToolAccess(store, activity);
   const hooks = new HookSources(store, activity, {
     knownLocation: (name) => store.listClients().some((client) => String(hub.effectiveSettings(client).location ?? "").toLowerCase() === name.toLowerCase()),
+    route: (target, text, urgent, meta) => delivery.routeNotice(target, text, urgent, meta),
+    reachable: (client) => Boolean(hub.session(client.id)) || Boolean(push?.has(client.id)),
   });
   // Every call shows on the Live page, a refused one too, so what an agent says it did can be checked.
   const invoke = live.recordTools(

@@ -1,8 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import type { Activity } from "./activity.js";
+import type { DeliveryMeta, NoticeTarget } from "./delivery.js";
 import { hashSecret, newToken, secretMatches } from "./secrets.js";
-import type { HookAuth, HookCeiling, HookSourceRecord, NotificationPriority, NotificationRecord, Store } from "./store.js";
+import type { ClientRecord, HookAuth, HookCeiling, HookSourceRecord, NotificationPriority, NotificationRecord, Store } from "./store.js";
 
 // Webhook sources: who may post to /v1/hook/<id>, the signature check, and the rules a payload goes through before it becomes a notification.
 
@@ -45,12 +46,18 @@ export interface HookAnswer {
   body: Record<string, unknown>;
   /** The row written, when one was. */
   row?: NotificationRecord;
+  /** Sends the notice on, after the answer has gone back; never throws (a failure is noted and the row left recorded). */
+  deliver?: () => Promise<void>;
 }
 
 export interface HookOptions {
   now?: () => number;
   /** Whether a location is one some client is in; without it no location is accepted. */
   knownLocation?: (name: string) => boolean;
+  /** The shared notice route (Delivery.routeNotice); without it notices are only recorded. */
+  route?: (target: NoticeTarget, text: string, urgent: boolean, meta: DeliveryMeta) => Promise<unknown>;
+  /** Whether a client can take something now: connected, or a closed page that takes notifications. */
+  reachable?: (client: ClientRecord) => boolean;
 }
 
 export class HookSources {
@@ -169,6 +176,13 @@ export class HookSources {
     }
     const limited = clamp(notice.priority, source.ceiling);
     const explicit = notice.client !== undefined || notice.location !== undefined || notice.everywhere !== undefined;
+    const target: NoticeTarget = explicit
+      ? { client: notice.client, location: notice.location, everywhere: notice.everywhere === true }
+      : { client: source.targetClient, location: source.targetLocation, everywhere: source.targetEverywhere };
+    // A named client that cannot take it now gets nothing: a webhook notice is never kept to be said later.
+    const named = target.client && !target.everywhere ? this.store.findClient(target.client) : undefined;
+    const unreachable = named !== undefined && this.options.reachable !== undefined && !this.options.reachable(named);
+    const send = limited.priority !== "low" && this.options.route !== undefined && !unreachable;
     const row = this.store.addNotification({
       source: "webhook",
       sourceName: source.id,
@@ -178,14 +192,28 @@ export class HookSources {
       tag: notice.tag,
       dedupeKey,
       url: notice.url,
-      clientId: explicit ? notice.client : source.targetClient,
-      location: explicit ? notice.location : source.targetLocation,
-      everywhere: explicit ? notice.everywhere === true : source.targetEverywhere,
+      clientId: target.client,
+      location: target.location,
+      everywhere: target.everywhere === true,
       retain: notice.retain,
-      status: "recorded",
+      status: send ? "pending" : "recorded",
     });
     this.touch(source.id, "ok");
-    return { status: 202, body: { id: row.id, priority: limited.priority, clamped: limited.clamped }, row };
+    const body: Record<string, unknown> = { id: row.id, priority: limited.priority, clamped: limited.clamped };
+    if (unreachable && limited.priority !== "low") body.note = `${named!.name} is offline and takes no notifications: recorded, nothing sent`;
+    if (!send) return { status: 202, body, row };
+    const text = spokenLine(label, notice.title, notice.body);
+    const meta: DeliveryMeta = { id: row.id, source: "webhook", sourceName: source.id, keep: false, ...(notice.title ? { title: notice.title } : {}), ...(limited.quietly ? { quietly: true } : {}) };
+    const deliver = async () => {
+      try {
+        await this.options.route!(target, text, limited.priority === "urgent", meta);
+      } catch (error) {
+        this.activity?.note("webhook", source.id, `Webhook "${label}" notice ${row.id} was not delivered: ${(error as Error).message}`, "bad");
+      }
+      // Nothing carried it: back to recorded, not left pending.
+      if (this.store.getNotification(row.id)?.status === "pending") this.store.updateNotification(row.id, { status: "recorded" });
+    };
+    return { status: 202, body, row, deliver };
   }
 
   private bad(source: HookSourceRecord, error: string): HookAnswer {

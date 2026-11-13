@@ -681,7 +681,10 @@ export function createHttpHandler(deps: HttpDeps) {
       }
       hookLock.clear(address);
       const answer = deps.hooks.handle(source, raw, req.headers);
-      return sendJson(res, answer.status, answer.body);
+      sendJson(res, answer.status, answer.body);
+      // Delivered after the answer has gone back, so a slow speaker never holds the sender; deliver() notes its own failures.
+      if (answer.deliver) void answer.deliver();
+      return;
     }
 
     // The MCP door: an agent harness calling Axis's tools. One POST, one JSON-RPC message (or a batch), one JSON answer.

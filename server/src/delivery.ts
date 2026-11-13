@@ -39,6 +39,17 @@ export interface DeliveryMeta {
   title?: string;
   priority?: NotificationPriority;
   reminderId?: number;
+  /** Shown without sound wherever it goes, as in quiet hours, urgent or not. */
+  quietly?: boolean | undefined;
+  /** false: never kept for a client that cannot take it now (offline, or silent with no screen), so it is not said later. */
+  keep?: boolean | undefined;
+}
+
+/** Where a notice goes: a named client, a location, everywhere (in a location when one is given), or none for the usual choice. */
+export interface NoticeTarget {
+  client?: string | undefined;
+  location?: string | undefined;
+  everywhere?: boolean | undefined;
 }
 
 interface PendingAsk {
@@ -104,6 +115,10 @@ export class Delivery {
     try {
       if (this.options.hub.profile(session.client).profile === "silent") {
         if (!shown) {
+          if (meta?.keep === false) {
+            this.delivered(id, clientId, "silent", "dropped");
+            return { client: session.client.name, heard: false, shown: false, note: "It is on the silent profile and has no screen, so nothing was said." };
+          }
           const minutes = this.keep(session.client, id);
           return {
             client: session.client.name,
@@ -117,13 +132,15 @@ export class Delivery {
         this.delivered(id, clientId, "silent", "shown");
         return { client: session.client.name, heard: false, shown: true, note: "It is on the silent profile: shown on its screen as text, not spoken." };
       }
-      if (!urgent && this.options.hub.quiet(session.client)) {
+      if (meta?.quietly || (!urgent && this.options.hub.quiet(session.client))) {
         if (!shown) {
           this.delivered(id, clientId, "silent", "dropped");
+          if (meta?.quietly) return { client: session.client.name, heard: false, shown: false, note: "It is to be shown quietly and this client has no screen, so nothing was said." };
           return { client: session.client.name, heard: false, shown: false, note: "It is in its quiet hours and has no screen, so nothing was said. Mark it urgent to speak anyway." };
         }
         await this.options.hub.say(session, text, { silent: true });
         this.delivered(id, clientId, "silent", "shown");
+        if (meta?.quietly) return { client: session.client.name, heard: false, shown: true, note: "Shown on its screen quietly, not spoken." };
         return { client: session.client.name, heard: false, shown: true, note: "It is in its quiet hours: shown on its screen, not spoken. Mark it urgent to speak anyway." };
       }
       const { heard } = await this.options.hub.say(session, text, share ? { share } : {});
@@ -167,6 +184,10 @@ export class Delivery {
       }
     }
 
+    if (meta?.keep === false) {
+      this.options.note?.(client.id, `${client.name} is offline and takes no notifications: a message for it was not sent`);
+      return { client: client.name, heard: false, shown: false, note: `${client.name} is offline and takes no notifications, so nothing was sent.` };
+    }
     const minutes = this.keep(client, id);
     this.options.note?.(client.id, `${client.name} is offline: one message is kept for it for ${minutes} min`);
     return {
@@ -308,11 +329,43 @@ export class Delivery {
     const share = new SpeechShare();
     const results = await Promise.all([
       ...speaking.map((session) =>
-        this.sayOn(session, text, urgent, share, { id }).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
+        this.sayOn(session, text, urgent, share, { id, quietly: meta?.quietly, keep: meta?.keep }).catch((error): Delivered => ({ client: session.client.name, heard: false, shown: false, note: (error as Error).message })),
       ),
-      ...closed.map((client) => this.sayTo(client, text, urgent, { id })),
+      ...closed.map((client) => this.sayTo(client, text, urgent, { id, quietly: meta?.quietly, keep: meta?.keep })),
     ]);
     return { clients: results, heard: results.some((r) => r.heard) };
+  }
+
+  /**
+   * The one way a notice finds where to go, for say, notify, webhooks and the agent's own answers.
+   * everywhere: every device that can speak (in the location given); a named client: that client, connected or not;
+   * a location: the device there; otherwise, while Home Assistant says the person is away, a phone whose page is closed
+   * gets it as a notification; else the device last spoken to (then the default client, then any).
+   */
+  async routeNotice(target: NoticeTarget, text: string, urgent = false, meta?: DeliveryMeta): Promise<Delivered | { clients: Delivered[]; heard: boolean }> {
+    const named = target.client?.trim();
+    const location = target.location?.trim() || undefined;
+    if (target.everywhere === true) {
+      if (named) throw new Error("give a client or everywhere, not both");
+      return this.sayToAll(location, text, urgent, meta);
+    }
+    if (named) {
+      const client = this.options.store.findClient(named);
+      if (!client) throw new Error(`there is no client called "${named}"`);
+      return this.sayTo(client, text, urgent, meta);
+    }
+    if (!location) {
+      const phone = this.awayPhone();
+      if (phone) return this.sayTo(phone, text, urgent, meta);
+    }
+    return this.sayOn(this.options.hub.pickOutput({ location }), text, urgent, undefined, meta);
+  }
+
+  /** While the person is away: a client whose page is closed and that takes notifications, to reach them there. */
+  awayPhone(): ClientRecord | undefined {
+    if (this.options.store.getMeta("away") !== "1") return undefined;
+    const phone = this.options.store.pushClientIds().find((id) => !this.options.hub.session(id));
+    return phone ? this.options.store.getClient(phone) : undefined;
   }
 
   /** True when a question can be put to this client as a notification: it is away, has choices to offer, and allowed notifications. */
