@@ -270,7 +270,7 @@ try {
   // The history keeps what arrived unasked apart from the conversation, marked and timed, in this browser.
   {
     const session = app.hub.session((await client.run(`JSON.parse(localStorage.getItem('axis-client-identity')).clientId`)));
-    step("announcements kept apart", await client.until(`(n => n.length >= 2 && n.every(b => /^announcement · /.test(b.dataset.meta)) && JSON.parse(localStorage.getItem('axis-client-inbox')).length === n.length && n.length + ' kept, last: ' + n[n.length - 1].dataset.meta.replace(/\\d.*/, 'time'))([...document.querySelectorAll('#log .bubble[data-cat="note"]')])`, "the kept announcements"));
+    step("announcements shown apart, not kept in the browser", await client.until(`(n => n.length >= 2 && n.every(b => /^announcement · /.test(b.dataset.meta)) && localStorage.getItem('axis-client-inbox') === null && n.length + ' shown, none kept in the browser, last: ' + n[n.length - 1].dataset.meta.replace(/\\d.*/, 'time'))([...document.querySelectorAll('#log .bubble[data-cat="note"]')])`, "the announcements"));
     await client.run(`document.querySelector('#history-filter [data-filter="note"]').click()`);
     step("history filter", await client.run(`(shown => shown.length && shown.every(b => b.dataset.cat === 'note') && shown.length + ' shown, all notifications')([...document.querySelectorAll('#log .bubble')].filter(b => getComputedStyle(b).display !== 'none'))`));
     await client.run(`document.querySelector('#history-filter [data-filter="all"]').click()`);

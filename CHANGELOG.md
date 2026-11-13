@@ -4,11 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
-## Unreleased (2026-11-12): one order for where output goes
+## Axis 0.78.0 (2026-11-12): one order for where output goes, live inbox on web clients
 
 - `Hub.pickDestination` is the only place that decides where a notice, announcement, reminder, question or agent-started output goes when nothing names a device: a named client or location wins; else the client last used within 10 minutes if online (even while away); else, not away, the default client then any device that can speak or show text; else, away, a phone (online, or with its page closed and push on, the latest seen), and with no phone as not away. `pickOutput` is the same order asking for a live session. Webhooks, say/notify, reminders, background answers, agent questions and the task push all use it.
 - Away push goes to phones only (a browser reporting an iPhone or Android phone, or named "phone" until it reports), never to any browser that once subscribed; an old Brave Windows subscription had won the first-in-the-table pick.
 - Behaviour change: a device used within 10 minutes now also wins while away (before, the phone won).
+- Web client: the inbox badge follows Axis at once (`inbox.show` command, the same one the boards get; the 60 s poll stays as a backstop), an open panel redraws, and `vortex_axis_inbox` action `show` opens the panel. The copy of announcements and questions the page kept in the browser's own storage (`axis-client-inbox`) is gone and removed from the browser; the server inbox is the one kept list (what shows in the history is only this page's session).
 
 ## Board firmware 0.28.0 (Waveshare 1.8) (2026-11-12)
 

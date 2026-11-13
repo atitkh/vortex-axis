@@ -73,22 +73,23 @@ function bubble(kind, text, { cat = "talk", meta } = {}) {
 
 // --- notifications and questions, kept in this browser ---------------------------------------
 // The conversation lives in the page and goes when it is reloaded. What arrived unasked (something an
-// agent said, a notification, a question and whether it was answered) is worth finding again, so the
-// last few are kept in this browser's own storage. Axis keeps none of it.
+// agent said, a notification, a question) shows here while the page is open; the list that is kept is
+// Axis's inbox (the panel beside the history), the same for every device. Older versions kept a copy of
+// this in the browser's own storage; it is removed.
 
 const INBOX_KEY = "axis-client-inbox";
 const INBOX_MAX = 20;
 let inbox = [];
 try {
-  inbox = JSON.parse(localStorage.getItem(INBOX_KEY) || "[]").filter((e) => e && typeof e.text === "string");
+  localStorage.removeItem(INBOX_KEY);
 } catch {
-  // Unreadable: start again with none.
+  // No storage: nothing to remove.
 }
 /** The line drawn for each entry, by entry id. */
 const inboxLines = new Map();
 let inboxCount = 0;
 
-const saveInbox = () => localStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
+const saveInbox = () => undefined;
 
 /** "3:04 PM" for today, "8 Oct, 3:04 PM" for another day. */
 function when(at) {
@@ -597,6 +598,13 @@ face.setIconStyle(settings.values.toolIcons);
         $("task-list").replaceChildren(...rows);
         if (!rows.length) openTask(false);
         if (p.chime) player.chime();
+        send({ t: "command.result", id: message.id, ok: true });
+      } else if (message.name === "inbox.show") {
+        // Axis says what is unread, as it changes: the badge follows at once, an open panel redraws, `open` opens it.
+        const p = message.params ?? {};
+        paintBadge(Math.max(0, Number(p.count) || 0));
+        if (Number(p.open) === 1) toggleInbox(true);
+        else if (!inboxPanel().classList.contains("hidden")) refreshInbox();
         send({ t: "command.result", id: message.id, ok: true });
       } else {
         send({ t: "command.result", id: message.id, ok: false, error: "this client does not do that" });
