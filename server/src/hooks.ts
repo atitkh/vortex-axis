@@ -20,6 +20,7 @@ const URL_MAX = 2048;
 const LINE_MAX = 300;
 const WINDOW_MS = 60_000;
 const AGENT_MS = 10 * 60_000;
+const AGENT_HOLD_MS = 5 * 60_000;
 const REPLY_MAX = 500;
 const SETTINGS_KEY = "hooks.settings";
 
@@ -76,6 +77,8 @@ export interface HookOptions {
   guestAgent?: () => string | undefined;
   /** How long an ask-agent run may take; 10 minutes. */
   agentMs?: number;
+  /** After a timed-out run whose abort failed, how long the source stays busy; 5 minutes. */
+  agentHoldMs?: number;
 }
 
 export class HookSources {
@@ -283,11 +286,13 @@ export class HookSources {
   /** One ask-agent run: the untrusted text to the agent in its own conversation, its answer on as a notice. Never throws. */
   private async runAgent(source: HookSourceRecord, label: string, row: NotificationRecord, notice: HookNotice, target: NoticeTarget, limited: { priority: NotificationPriority; quietly: boolean }): Promise<void> {
     const signal = AbortSignal.timeout(this.options.agentMs ?? AGENT_MS);
+    let agent: Agent | undefined;
+    let run: { runId: string; sessionKey: string } | undefined;
     try {
-      const agent = this.options.agent?.();
+      agent = this.options.agent?.();
       if (!agent) throw new Error("no agent answers turns now");
       let reply = "";
-      for await (const piece of agent.reply(agentMessage(label, source.id, notice), signal, undefined, undefined, this.agentRoute())) {
+      for await (const piece of agent.reply(agentMessage(label, source.id, notice), signal, undefined, undefined, this.agentRoute(), (r) => (run = r))) {
         if (signal.aborted) break;
         reply += piece;
       }
@@ -317,7 +322,19 @@ export class HookSources {
         priority: "low", tag: `hook-${row.id}`, everywhere: false, retain: false, status: "recorded",
       });
     } finally {
-      this.asking.delete(source.id);
+      // The timeout only ends the local listener: stop the gateway run before the source (and confirmRisky) is free again.
+      let hold = false;
+      if (signal.aborted && run) {
+        try {
+          if (!agent?.abortRun) throw new Error("this agent cannot abort a run");
+          await agent.abortRun(run);
+        } catch (error) {
+          hold = true;
+          this.activity?.note("webhook", source.id, `Webhook "${label}" notice ${row.id}: the timed-out agent run could not be stopped (${(error as Error).message}); the source stays busy a while`, "bad");
+        }
+      }
+      if (hold) setTimeout(() => this.asking.delete(source.id), this.options.agentHoldMs ?? AGENT_HOLD_MS).unref?.();
+      else this.asking.delete(source.id);
     }
   }
 

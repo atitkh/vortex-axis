@@ -517,7 +517,9 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
             throw new Error(`profile must be one of ${["auto", ...hub.profiles.names()].join(", ")}`);
           }
           // Text from a webhook may be what is asking: while such a run is under way, risky desktop actions stay confirmed.
-          if (key === "confirmRisky" && [0, false, "0", "false", "off"].includes(params.value as never) && deps.hookAgentBusy?.()) {
+          // Judged on the value after the change: null clears the device's own value and falls back to a wider layer.
+          const after = params.value === null ? { ...store.getLayer("global", ""), ...store.getLayer("type", client.type) }.confirmRisky : params.value;
+          if (key === "confirmRisky" && [0, false, "0", "false", "off"].includes(after as never) && deps.hookAgentBusy?.()) {
             throw new Error("confirmRisky cannot be switched off while an agent is answering a webhook; the person can change it on the admin page");
           }
           const def = BUILT_IN_SETTINGS.find((d) => d.key === key);

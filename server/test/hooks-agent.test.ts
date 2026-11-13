@@ -152,6 +152,43 @@ describe("ask-agent for webhook sources", () => {
     expect(broken.hooks.agentBusy()).toBe(false);
   });
 
+  it("on a timeout the gateway run is aborted before the source is free; a failed abort keeps it busy a while", async () => {
+    const store = new Store(":memory:");
+    const notes: string[] = [];
+    const activity = { note: (_k: string, _s: string, text: string) => notes.push(text) } as any;
+    let finishAbort!: () => void;
+    let failAbort = false;
+    const abortRun = vi.fn((_run: { sessionKey: string; runId: string }) => (failAbort ? Promise.reject(new Error("gateway gone")) : new Promise<void>((r) => (finishAbort = r))));
+    const agent = {
+      reply: (_m: string, signal: AbortSignal, _t: unknown, _s: unknown, _r: unknown, onRun?: (run: { runId: string; sessionKey: string }) => void) =>
+        (async function* () {
+          onRun?.({ runId: "r1", sessionKey: "agent:main:axis-hooks" });
+          await new Promise<void>((r) => signal.addEventListener("abort", () => r(), { once: true }));
+          yield* [];
+        })(),
+      abortRun,
+      healthy: async () => true,
+    } as unknown as Agent;
+    const hooks = new HookSources(store, activity, { agent: () => agent, sessionKey: "axis", agentMs: 20, agentHoldMs: 60, route: async () => ({}) });
+    hooks.create({ id: "ci", label: "CI", auth: "bearer", ceiling: "speak", askAgent: true });
+    const done = hooks.handle(hooks.record("ci")!, json({ body: "x", mode: "ask-agent" }), {}).deliver!();
+    await vi.waitFor(() => expect(abortRun).toHaveBeenCalledTimes(1));
+    expect(abortRun).toHaveBeenCalledWith({ runId: "r1", sessionKey: "agent:main:axis-hooks" });
+    expect(hooks.agentBusy()).toBe(true);
+    finishAbort();
+    await done;
+    expect(hooks.agentBusy()).toBe(false);
+    expect(abortRun).toHaveBeenCalledTimes(1);
+
+    failAbort = true;
+    const again = hooks.handle(hooks.record("ci")!, json({ body: "y", mode: "ask-agent" }), {}).deliver!();
+    await again;
+    expect(abortRun).toHaveBeenCalledTimes(2);
+    expect(notes.some((n) => n.includes("gateway gone"))).toBe(true);
+    expect(hooks.agentBusy()).toBe(true);
+    await vi.waitFor(() => expect(hooks.agentBusy()).toBe(false), { timeout: 1000 });
+  });
+
   it("uses the hookAgent setting, else the guest agent, else the usual one", async () => {
     const set = setup("ok", { hookAgent: "watcher", guestAgent: "guest" });
     await (await set.post({ body: "x", mode: "ask-agent" })).done;
@@ -182,6 +219,26 @@ describe("ask-agent for webhook sources", () => {
     await expect(invoke("vortex.axis.config", { client: "pc", key: "confirmRisky", value: true })).resolves.toBeTruthy();
     busy = false;
     await expect(invoke("vortex.axis.config", { client: "pc", key: "confirmRisky", value: false })).resolves.toBeTruthy();
+  });
+
+  it("clearing confirmRisky is refused during a hook run when a wider layer has it off", async () => {
+    await newPairedClient({ capabilities: ["screen"], type: "desktop", name: "pc2" });
+    const { hub, store, timers, reminders, delivery, activity } = ctx.app;
+    let busy = true;
+    const invoke = createInvokeHandler({ hub, store, timers, reminders, delivery, activity, pairingCodeTtlMs: 60_000, version: "test", startedAt: 0, hookAgentBusy: () => busy });
+    await invoke("vortex.axis.config", { client: "pc2", key: "confirmRisky", value: true });
+    store.patchLayer("type", "desktop", { confirmRisky: false });
+    try {
+      await expect(invoke("vortex.axis.config", { client: "pc2", key: "confirmRisky", value: null })).rejects.toThrow(/confirmRisky/);
+      store.patchLayer("type", "desktop", { confirmRisky: true });
+      await expect(invoke("vortex.axis.config", { client: "pc2", key: "confirmRisky", value: null })).resolves.toBeTruthy();
+      await invoke("vortex.axis.config", { client: "pc2", key: "confirmRisky", value: true });
+      store.patchLayer("type", "desktop", { confirmRisky: "0" });
+      busy = false;
+      await expect(invoke("vortex.axis.config", { client: "pc2", key: "confirmRisky", value: null })).resolves.toBeTruthy();
+    } finally {
+      store.patchLayer("type", "desktop", { confirmRisky: null });
+    }
   });
 
   it("admin: GET shows the setting, PATCH sets it, a source can opt in", async () => {
