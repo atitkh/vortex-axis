@@ -462,14 +462,9 @@ export function createInvokeHandler(deps: CommandDeps): InvokeHandler {
         // Recorded with where it came from, for the notifications kept.
         const title = text(params.title);
         const meta: DeliveryMeta = { source: "agent", sourceName: command === "vortex.axis.say" ? "say" : "notify", ...(title ? { title } : {}) };
-        // On every device that can speak, in one location or in the whole place.
-        if (params.everywhere === true) {
-          if (named) throw new Error("give a client or everywhere, not both");
-          return delivery.sayToAll(placeNamed(params), words, urgent, meta);
-        }
-        // A named client need not be connected: a closed browser gets a notification, anything else is kept for a while.
-        if (named) return delivery.sayTo(clientNamed(named), words, urgent, meta);
-        return delivery.sayOn(hub.pickOutput({ location: placeNamed(params) }), words, urgent, undefined, meta);
+        // Everywhere (in one location or the whole place), a named client (connected or not), a location, or the usual
+        // choice, which while the person is away is a phone with its page closed: the same route as every notice.
+        return delivery.routeNotice({ client: named, location: placeNamed(params), everywhere: params.everywhere === true }, words, urgent, meta);
       }
 
       case "vortex.axis.show": {
