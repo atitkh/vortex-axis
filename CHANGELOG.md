@@ -4,6 +4,12 @@ What changed in VorteX Axis, newest first. One number covers the server and its 
 
 Numbers go `0.middle.last`: the middle one for a batch of new things, the last for fixes. Before 0.14.0 everything called itself 0.1.0; the entries below that are written back from the history.
 
+## Unreleased: webhook door and shared routing
+
+- **A service can post notifications.** `POST /v1/hook/<source>` takes a JSON notice with a bearer token or an HMAC signature (Gitea and GitHub headers), with its own lockout apart from `/mcp`, a rate limit, a size limit and a per-source ceiling (show only, may speak, may interrupt). Text is cleaned (controls, bidi, square brackets) before it is stored or spoken. Sources are made on the admin page under Integrations, Webhooks (secret shown once, rotate, delete, send test).
+- **`say` and `notify` with no target now reach the closed phone while you are Away**, through the shared `Delivery.routeNotice` that webhooks use. They went only to a connected device before.
+- Not built yet: asking the agent from a webhook, an inbox page, Gitea/GitHub presets.
+
 ## Unreleased: notifications kept on record
 
 - **Held, pushed and missed messages survive a restart.** Everything Axis sends an agent to say, show or ask is now a row in a new `notifications` table, with one row per device in `notification_deliveries`. The held and missed queues are read from these tables instead of memory, so a restart no longer loses a message held for a device that is away, a message pushed to a closed browser, or a missed question. Reminder firings are recorded too, linked to their reminder. Missed questions and missed reminders stay until dismissed; other low and normal notifications are kept 7 days, and each source is capped at 500 rows. A question still open at a restart becomes missed. Still to come: the webhook route, the inbox page and the ask agent. Tests: `server/test/notifications.test.ts`, `delivery.test.ts`, `reminders.test.ts`.

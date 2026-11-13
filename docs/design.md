@@ -451,6 +451,28 @@ Besides offering its tools as an OpenClaw node's commands, Axis is an MCP server
 
 **Tools on and off.** One list on the admin page, kept in `meta` as `tools_off`, for every agent alike. MCP stops listing a tool that is off and refuses a call to it. The node still declares all its commands to the gateway (changing the declared list can cost a re-approval) and Axis refuses the call; `system.notify` follows `vortex_axis_say`.
 
+## Webhooks: services posting notifications
+
+A service (Gitea, a build, a script) can put a notice on the user's devices with `POST /v1/hook/<source>`. It is a third door beside the clients' socket and `/mcp`, and the least trusted one, so what it can do is capped by the source, not by the sender.
+
+**Sources.** Each is a row in `hook_sources`, made on the admin page (Integrations, Webhooks) with a label, an address name, how it proves itself, a ceiling, a rate and a body size. Under a public name a source does not exist unless it is marked public, the same rule as `/mcp`.
+
+**Auth.** Either a bearer token (kept as a hash, compared in constant time) or an HMAC-SHA256 of the raw body (`X-Hub-Signature-256: sha256=<hex>` or Gitea's `X-Gitea-Signature: <hex>`). The HMAC secret is stored readable, not hashed: verifying a signature needs the key itself, so a hash would make it unusable. It is shown once when made or rotated and never listed. A signed body is not tied to a time, so a replay of the same bytes verifies again; that is handled by dedupe below, not by auth.
+
+**Lockout.** Wrong credentials count per address in their own `Lockout` (`lockout.ts`), separate from `/mcp`'s: a wrong secret from Gitea must not shut an agent harness out. Ten failures lock the address for a while; a right credential clears it. A request is refused before its body is read when it cannot be taken (405, 404, 413).
+
+**Ceilings and clamp.** A source's ceiling is the most any notice from it can do: `notify` (shown quietly, never spoken), `speak` (urgent is lowered to normal; spoken only at a device the user is at), `urgent` (urgent ones may interrupt). A payload asking for more is clamped and the 202 says `clamped: true`. `low` is only recorded.
+
+**Sanitizing.** Text is untrusted. Non-strings are refused; text is NFC-normalized, control, bidi and zero-width characters removed, whitespace collapsed; title is cut at 120, body at 1000 stored. Markdown links become their text, bare URLs "a link". Every square bracket becomes a parenthesis, because the speech engine acts on any bracketed span (audio tags). The spoken line is "From <label>: <title>. <body>" cut at 300 characters. A URL is stored only, never shown or spoken. A payload in another service's own shape becomes one low "event received" row with nothing from it shown.
+
+**Dedupe: ignore.** A repeated dedupe key from the same source answers 200 with the original id and does nothing new. It does not replace or refresh the first notice.
+
+**202, then deliver.** The row is written first and the 202 sent; delivery runs after, so a slow speaker never holds the sender. A failure is noted in the activity feed and the row left `recorded`.
+
+**Routing.** Delivery goes through the one shared `Delivery.routeNotice`, the same path `say` and `notify` use. Target given: everywhere, a named client, or a location. No target: while the user is Away, the closed phone is pushed to; otherwise the device they last used for output. Webhook notices are `keep: false` (an offline named client gets nothing held) and `quietly` for a `notify` ceiling (silent show). What changed for agents: `vortex.axis.say` and `system.notify` with no target now push to the closed phone while Away, as Background replies already did; before, they only reached a connected device.
+
+**Not built (P3).** Asking the agent from a webhook (`ask_agent` is refused), an inbox page for notices, and presets for Gitea/GitHub payload shapes.
+
 ## Local speech and telling voices apart
 
 Axis's stack includes its own speech services as containers, so no separate speech machine is needed, and Axis can tell voices apart.
