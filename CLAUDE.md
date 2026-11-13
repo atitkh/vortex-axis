@@ -113,7 +113,7 @@ docs/              design and decisions, the face, and the guide for new client 
 
 The gateway protocol has traps that are not obvious from its docs. Section 13 of the design doc lists the ones already paid for. Check that list before writing or debugging the gateway client.
 
-The command surface in section 6 is declared in full at first pairing. Adding a command later forces a human re-approval of the node, so do not add commands casually.
+The command surface in section 6 is declared in full at first pairing. Adding a command later forces a human re-approval of the node, so do not add commands casually. `vortex.axis.inbox` (notification inbox, unreleased) widened the list again: at deploy, add it to the gateway's `gateway.nodes.commands.allow` and approve the node (`openclaw nodes approve <id>`) before the `vortex_axis_inbox` tool appears.
 
 ## Commands
 
@@ -139,7 +139,7 @@ scripts/test-quest-client.sh          # the Quest client's JVM tests and its end
 
 ## Server map
 
-- `server/src/store.ts`: everything on disk (clients, pairing codes, settings). Tokens and codes are stored as hashes only. The `notifications` and `notification_deliveries` tables hold the record of what reached the user and the held and missed queues.
+- `server/src/store.ts`: everything on disk (clients, pairing codes, settings). Tokens and codes are stored as hashes only. Inbox queries (filters, unread count, mark read, dismiss) live here too. The `notifications` and `notification_deliveries` tables hold the record of what reached the user and the held and missed queues.
 - `server/src/hub.ts`: connected clients and the client protocol, including what each device described and commands sent to a device. Live state stays in memory.
 - `server/src/http.ts`: pairing, health and the admin API.
 - `server/src/turns.ts`: one turn from input to spoken reply, plus pacing of audio to the client.

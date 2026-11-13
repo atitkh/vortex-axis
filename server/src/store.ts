@@ -335,6 +335,17 @@ export type NotificationPriority = "low" | "normal" | "urgent";
 export type NotificationStatus = "pending" | "delivered" | "heard" | "held" | "missed" | "answered" | "timed_out" | "dropped" | "recorded";
 
 /** One thing that reached (or tried to reach) the user. `expiresAt` absent: kept until dismissed. */
+export interface InboxFilter {
+  source?: NotificationSource;
+  sourceName?: string;
+  unread?: boolean;
+  includeDismissed?: boolean;
+  /** Only rows below this id. */
+  before?: number;
+  /** Only what this client may see: addressed to everyone or to it. */
+  viewer?: string;
+}
+
 export interface NotificationRecord {
   id: number;
   source: NotificationSource;
@@ -1013,12 +1024,89 @@ export class Store {
     return this.notificationsWhere("n.source = ? AND n.dedupe_key = ?", [source, key], "n.id", true)[0];
   }
 
-  /** Notifications, newest first; for tests and the admin page. */
-  listNotifications(filter: { source?: NotificationSource; limit?: number } = {}): NotificationRecord[] {
+  /**
+   * Notifications, newest first. Dismissed ones are left out unless `includeDismissed`. `before` pages (ids below it), `viewer` limits to what one client may see
+   * (addressed to everyone, or to it). The limit is not capped here; the API layers cap it.
+   */
+  listNotifications(filter: InboxFilter & { limit?: number } = {}): NotificationRecord[] {
+    const { where, params } = this.inboxWhere(filter);
+    if (filter.before !== undefined) {
+      where.push("id < ?");
+      params.push(filter.before);
+    }
     const rows = this.db
-      .prepare(`SELECT * FROM notifications ${filter.source ? "WHERE source = ?" : ""} ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .all(...(filter.source ? [filter.source] : []), filter.limit ?? 200) as unknown as Array<Record<string, string | number | null>>;
+      .prepare(`SELECT * FROM notifications ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(...params, filter.limit ?? 200) as unknown as Array<Record<string, string | number | null>>;
     return rows.map((r) => this.notificationFromRow(r));
+  }
+
+  /** How many notifications match and are unread and not dismissed. */
+  unreadCount(filter: InboxFilter = {}): number {
+    const { where, params } = this.inboxWhere({ ...filter, unread: true });
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${where.join(" AND ")}`).get(...params) as { n: number };
+    return row.n;
+  }
+
+  /** Notification counts per source and source name, dismissed ones left out; for the inbox filters. */
+  inboxSources(viewer?: string): Array<{ source: NotificationSource; name?: string; count: number }> {
+    const { where, params } = this.inboxWhere(viewer === undefined ? {} : { viewer });
+    const rows = this.db
+      .prepare(`SELECT source, source_name, COUNT(*) AS n FROM notifications WHERE ${where.join(" AND ")} GROUP BY source, source_name ORDER BY source, source_name`)
+      .all(...params) as unknown as Array<{ source: NotificationSource; source_name: string | null; n: number }>;
+    return rows.map((r) => ({ source: r.source, ...(r.source_name === null ? {} : { name: r.source_name }), count: r.n }));
+  }
+
+  /** Marks notifications read (the given ids, or every one matching `filter` for "all"). Returns how many changed. */
+  markRead(ids: number[] | "all", now: number, filter: InboxFilter = {}): number {
+    const { where, params } = this.inboxWhere(filter);
+    where.push("read_at IS NULL");
+    const idMarks = this.idClause(ids, where, params);
+    const result = this.db.prepare(`UPDATE notifications SET read_at = ? WHERE ${where.join(" AND ")}${idMarks}`).run(now, ...params);
+    return Number(result.changes);
+  }
+
+  /**
+   * Dismisses notifications: they leave the inbox and expire now, so the next sweep removes them. A pending or held one is left alone, its delivery is still running.
+   * Returns how many were dismissed.
+   */
+  dismissNotifications(ids: number[] | "all", now: number, filter: InboxFilter = {}): number {
+    const { where, params } = this.inboxWhere({ ...filter, includeDismissed: false });
+    where.push("status NOT IN ('pending', 'held')");
+    const idMarks = this.idClause(ids, where, params);
+    const result = this.db
+      .prepare(`UPDATE notifications SET dismissed_at = ?, expires_at = ?, read_at = COALESCE(read_at, ?) WHERE ${where.join(" AND ")}${idMarks}`)
+      .run(now, now, now, ...params);
+    return Number(result.changes);
+  }
+
+  private idClause(ids: number[] | "all", where: string[], params: Array<string | number>): string {
+    if (ids === "all") return "";
+    if (ids.length === 0) {
+      where.push("0");
+      return "";
+    }
+    params.push(...ids);
+    return ` AND id IN (${ids.map(() => "?").join(", ")})`;
+  }
+
+  private inboxWhere(filter: InboxFilter): { where: string[]; params: Array<string | number> } {
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+    if (!filter.includeDismissed) where.push("dismissed_at IS NULL");
+    if (filter.source) {
+      where.push("source = ?");
+      params.push(filter.source);
+    }
+    if (filter.sourceName !== undefined) {
+      where.push("source_name = ?");
+      params.push(filter.sourceName);
+    }
+    if (filter.unread) where.push("read_at IS NULL");
+    if (filter.viewer !== undefined) {
+      where.push("(client_id IS NULL OR client_id = ?)");
+      params.push(filter.viewer);
+    }
+    return { where, params };
   }
 
   /** `where` may use `n` (notifications) and, unless `plain`, `d` (notification_deliveries). */

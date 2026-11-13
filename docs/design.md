@@ -119,6 +119,7 @@ The commands:
 | `vortex.axis.session` | Point every device at another of the agent's conversations, and back. |
 | `vortex.axis.timer` | Set and manage timers on a client. |
 | `vortex.axis.reminder` | Set, list, cancel or dismiss reminders at a wall-clock time, once or repeating (section "Reminders"). Added with Axis 0.70.0, so a gateway paired before needs `vortex.axis.reminder` in `gateway.nodes.commands.allow` and the node approved again. |
+| `vortex.axis.inbox` | List unread or recent notifications, mark read, dismiss (`vortex_axis_inbox`; titles and text from webhooks are outside information, no links are returned). Inbox data: `listNotifications`, `unreadCount`, `markRead`, `dismissNotifications` in `store.ts`; admin `/admin/notifications` and the browser client's `/v1/inbox`. Needs `vortex.axis.inbox` in `gateway.nodes.commands.allow` and a node re-approval. |
 | `vortex.axis.admin` | Reboot, re-pair and similar actions. |
 | `vortex.axis.show` | Put a picture on a client's screen for a number of seconds, silently, with no turn behind it. Added with Axis 0.68.0, so a gateway paired before needs `vortex.axis.show` in `gateway.nodes.commands.allow` and the node approved again; until then only MCP has the tool. |
 

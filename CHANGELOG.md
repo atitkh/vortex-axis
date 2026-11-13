@@ -6,6 +6,7 @@ Numbers go `0.middle.last`: the middle one for a batch of new things, the last f
 
 ## Unreleased: webhook door and shared routing
 
+- **An inbox for notifications.** `GET /admin/notifications` (with read and dismiss) and the browser client's `GET /v1/inbox` list what was sent, filtered by source, name and unread; the agent tool `vortex_axis_inbox` lists, marks read and dismisses without returning links. Dismissing leaves a notification still being delivered alone. Needs `vortex.axis.inbox` allowed on the gateway and the node approved again.
 - **A service can post notifications.** `POST /v1/hook/<source>` takes a JSON notice with a bearer token or an HMAC signature (Gitea and GitHub headers), with its own lockout apart from `/mcp`, a rate limit, a size limit and a per-source ceiling (show only, may speak, may interrupt). Text is cleaned (controls, bidi, square brackets) before it is stored or spoken. Sources are made on the admin page under Integrations, Webhooks (secret shown once, rotate, delete, send test).
 - **`say` and `notify` with no target now reach the closed phone while you are Away**, through the shared `Delivery.routeNotice` that webhooks use. They went only to a connected device before.
 - Not built yet: asking the agent from a webhook, an inbox page, Gitea/GitHub presets.

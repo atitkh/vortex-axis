@@ -35,6 +35,7 @@ import type { Hub } from "./hub.js";
 import { withBuiltIns, settingProblem, type ClientSchema } from "./schema.js";
 import { parseProfile, PROFILES } from "./profiles.js";
 import type { SettingsScope, Store } from "./store.js";
+import { inboxIds, inboxItem, inboxQuery } from "./inbox.js";
 import type { Services } from "./turns.js";
 import { BLUEPRINT, type LiveActivities } from "./liveactivity.js";
 import type { MediaStore } from "./media.js";
@@ -286,6 +287,46 @@ export function createHttpHandler(deps: HttpDeps) {
 
   const adminFailures = new Map<string, { count: number; until: number }>();
   let pairFailures: number[] = [];
+
+  /** The inbox calls shared by the admin page (everything) and a browser client (what it may see, `viewer`). */
+  async function inboxCall(req: IncomingMessage, url: URL, method: string, action: string | undefined, viewer?: string): Promise<unknown> {
+    const bad = (error: unknown): never => {
+      throw new HttpError(400, (error as Error).message);
+    };
+    const at = now();
+    if (method === "GET" && action === undefined) {
+      let q;
+      try {
+        q = inboxQuery((k) => url.searchParams.get(k));
+      } catch (error) {
+        return bad(error);
+      }
+      const scope = { ...(viewer !== undefined ? { viewer } : {}) };
+      const { limit, ...rest } = q;
+      return {
+        items: store.listNotifications({ ...rest, ...scope, limit }).map((n) => inboxItem(n, at)),
+        unread: store.unreadCount(scope),
+        sources: store.inboxSources(viewer),
+      };
+    }
+    if (method === "POST" && (action === "read" || action === "dismiss")) {
+      const body = (await readJson(req)) as { ids?: unknown; all?: unknown; source?: unknown; name?: unknown };
+      let ids;
+      try {
+        ids = inboxIds(body);
+      } catch (error) {
+        return bad(error);
+      }
+      const filter = {
+        ...(viewer !== undefined ? { viewer } : {}),
+        ...(typeof body.source === "string" && ["agent", "reminder", "ask", "system", "webhook"].includes(body.source) ? { source: body.source as "agent" } : {}),
+        ...(typeof body.name === "string" && body.name ? { sourceName: body.name } : {}),
+      };
+      const changed = action === "read" ? store.markRead(ids, at, filter) : store.dismissNotifications(ids, at, filter);
+      return { [action === "read" ? "read" : "dismissed"]: changed, unread: store.unreadCount(viewer !== undefined ? { viewer } : {}) };
+    }
+    throw new HttpError(404, "not found");
+  }
 
   function requireAdmin(req: IncomingMessage): void {
     if (!config.adminToken)
@@ -804,6 +845,15 @@ export function createHttpHandler(deps: HttpDeps) {
         if (!taken) throw new HttpError(410, "that question is no longer open");
         return sendJson(res, 200, { answered: true });
       }
+    }
+
+    // --- the inbox, for a browser client: what was addressed to everyone or to it ---
+    if (parts[0] === "v1" && parts[1] === "inbox" && parts.length <= 3) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      const client = store.authenticate(String(req.headers["x-axis-client"] ?? ""), token);
+      if (!client) throw new HttpError(401, "unknown client or wrong token");
+      if (client.type !== "web") throw new HttpError(403, "the inbox is for browser clients");
+      return sendJson(res, 200, await inboxCall(req, url, method, parts[2], client.id));
     }
 
     // A device fetching the wake word its settings chose, again with its own token.
@@ -1328,6 +1378,10 @@ export function createHttpHandler(deps: HttpDeps) {
           stop();
         });
         return;
+      }
+      // The inbox: every notification, for reading and clearing.
+      if (parts[1] === "notifications" && parts.length <= 3) {
+        return sendJson(res, 200, await inboxCall(req, url, method, parts[2]));
       }
       // Webhook sources: who may post notices in. Secrets are shown once, when made or rotated, and never listed.
       if (parts[1] === "hooks" && deps.hooks) {
