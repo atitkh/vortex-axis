@@ -234,6 +234,26 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX deliveries_client ON notification_deliveries(client_id, state);
   `,
+  // Webhook sources: who may post to /v1/hook/<id>, how they prove it, and how far their notices may reach. A bearer token is kept only as a hash; an HMAC secret has to be kept as is.
+  `
+  CREATE TABLE hook_sources (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    auth TEXT NOT NULL,
+    token_hash TEXT,
+    hmac_secret TEXT,
+    ceiling TEXT NOT NULL DEFAULT 'notify',
+    ask_agent INTEGER NOT NULL DEFAULT 0,
+    format TEXT NOT NULL DEFAULT 'generic',
+    target_client TEXT, target_location TEXT, target_everywhere INTEGER NOT NULL DEFAULT 0,
+    rate_per_min INTEGER NOT NULL DEFAULT 30,
+    public INTEGER NOT NULL DEFAULT 0,
+    max_body INTEGER NOT NULL DEFAULT 16384,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    last_seen_at INTEGER, last_status TEXT
+  );
+  `,
 ];
 
 /** A voice Axis knows, with how many recordings of it it holds. */
@@ -277,16 +297,42 @@ export interface ReminderRecord {
   createdAt: number;
 }
 
+export type HookAuth = "bearer" | "hmac";
+export type HookCeiling = "notify" | "speak" | "urgent";
+
+/** A webhook source. Holds the bearer token's hash and the HMAC secret: callers must not pass it on to the admin page as is. */
+export interface HookSourceRecord {
+  id: string;
+  label: string;
+  enabled: boolean;
+  auth: HookAuth;
+  tokenHash?: string | undefined;
+  hmacSecret?: string | undefined;
+  ceiling: HookCeiling;
+  askAgent: boolean;
+  format: string;
+  targetClient?: string | undefined;
+  targetLocation?: string | undefined;
+  targetEverywhere: boolean;
+  ratePerMin: number;
+  public: boolean;
+  maxBody: number;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt?: number | undefined;
+  lastStatus?: string | undefined;
+}
+
 /** Days a low or normal notification is kept; urgent and retained ones stay until dismissed. */
 export const RETENTION_DAYS = 7;
-/** Most notifications kept per source; the oldest go first. */
+/** Most notifications kept per source (per source name for webhooks); the oldest go first. */
 export const SOURCE_CAP = 500;
 /** Most messages held for one device; older ones are dropped. */
 const HELD_CAP = 5;
 
-export type NotificationSource = "agent" | "reminder" | "ask" | "system";
+export type NotificationSource = "agent" | "reminder" | "ask" | "system" | "webhook";
 export type NotificationPriority = "low" | "normal" | "urgent";
-export type NotificationStatus = "pending" | "delivered" | "heard" | "held" | "missed" | "answered" | "timed_out" | "dropped";
+export type NotificationStatus = "pending" | "delivered" | "heard" | "held" | "missed" | "answered" | "timed_out" | "dropped" | "recorded";
 
 /** One thing that reached (or tried to reach) the user. `expiresAt` absent: kept until dismissed. */
 export interface NotificationRecord {
@@ -944,14 +990,14 @@ export class Store {
   }
 
   /**
-   * Deletes notifications past `expiresAt`, then those beyond SOURCE_CAP per source, oldest first. A pending or held one is never
+   * Deletes notifications past `expiresAt`, then those beyond SOURCE_CAP per source (per source_name for webhook rows), oldest first. A pending or held one is never
    * removed by the cap. Returns how many rows went; their deliveries go with them.
    */
   sweepNotifications(now: number): number {
     const expired = this.db.prepare("DELETE FROM notifications WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now).changes;
     const capped = this.db
       .prepare(
-        "DELETE FROM notifications WHERE status NOT IN ('pending', 'held') AND id IN (SELECT n.id FROM notifications n WHERE (SELECT COUNT(*) FROM notifications m WHERE m.source = n.source AND (m.created_at > n.created_at OR (m.created_at = n.created_at AND m.id > n.id))) >= ?)",
+        "DELETE FROM notifications WHERE status NOT IN ('pending', 'held') AND id IN (SELECT n.id FROM notifications n WHERE (SELECT COUNT(*) FROM notifications m WHERE m.source = n.source AND (n.source <> 'webhook' OR m.source_name IS n.source_name) AND (m.created_at > n.created_at OR (m.created_at = n.created_at AND m.id > n.id))) >= ?)",
       )
       .run(SOURCE_CAP).changes;
     return Number(expired) + Number(capped);
@@ -960,6 +1006,11 @@ export class Store {
   /** Every notification a reminder produced, oldest first. */
   notificationsForReminder(reminderId: number): NotificationRecord[] {
     return this.notificationsWhere("n.reminder_id = ?", [reminderId], "n.created_at, n.id", true);
+  }
+
+  /** The notification of a source holding this dedupe key, if any. */
+  findNotificationByDedupe(source: NotificationSource, key: string): NotificationRecord | undefined {
+    return this.notificationsWhere("n.source = ? AND n.dedupe_key = ?", [source, key], "n.id", true)[0];
   }
 
   /** Notifications, newest first; for tests and the admin page. */
@@ -1016,6 +1067,112 @@ export class Store {
       at: r.at as number,
       until: opt(r.until as number | null),
       takenAt: opt(r.taken_at as number | null),
+    };
+  }
+
+  // --- hook sources ---------------------------------------------------------------
+
+  /** Adds a webhook source; throws when the id is taken. `lastSeenAt`/`lastStatus` start empty. */
+  createHookSource(input: Omit<HookSourceRecord, "createdAt" | "updatedAt" | "lastSeenAt" | "lastStatus">): HookSourceRecord {
+    const at = this.now();
+    this.db
+      .prepare(
+        "INSERT INTO hook_sources (id, label, enabled, auth, token_hash, hmac_secret, ceiling, ask_agent, format, target_client, target_location, target_everywhere, rate_per_min, public, max_body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        input.id,
+        input.label,
+        input.enabled ? 1 : 0,
+        input.auth,
+        input.tokenHash ?? null,
+        input.hmacSecret ?? null,
+        input.ceiling,
+        input.askAgent ? 1 : 0,
+        input.format,
+        input.targetClient ?? null,
+        input.targetLocation ?? null,
+        input.targetEverywhere ? 1 : 0,
+        input.ratePerMin,
+        input.public ? 1 : 0,
+        input.maxBody,
+        at,
+        at,
+      );
+    return { ...input, createdAt: at, updatedAt: at };
+  }
+
+  getHookSource(id: string): HookSourceRecord | undefined {
+    const r = this.db.prepare("SELECT * FROM hook_sources WHERE id = ?").get(id) as unknown as Record<string, string | number | null> | undefined;
+    return r ? this.hookSourceFromRow(r) : undefined;
+  }
+
+  /** Every webhook source, by id. */
+  listHookSources(): HookSourceRecord[] {
+    const rows = this.db.prepare("SELECT * FROM hook_sources ORDER BY id").all() as unknown as Array<Record<string, string | number | null>>;
+    return rows.map((r) => this.hookSourceFromRow(r));
+  }
+
+  /** Changes the named fields (not the id) and stamps `updatedAt`; a field set to `undefined` is cleared. Returns false when there is no such source. */
+  updateHookSource(id: string, patch: Partial<Omit<HookSourceRecord, "id" | "createdAt" | "updatedAt" | "lastSeenAt" | "lastStatus">>): boolean {
+    const columns: Record<string, string> = {
+      label: "label",
+      enabled: "enabled",
+      auth: "auth",
+      tokenHash: "token_hash",
+      hmacSecret: "hmac_secret",
+      ceiling: "ceiling",
+      askAgent: "ask_agent",
+      format: "format",
+      targetClient: "target_client",
+      targetLocation: "target_location",
+      targetEverywhere: "target_everywhere",
+      ratePerMin: "rate_per_min",
+      public: "public",
+      maxBody: "max_body",
+    };
+    const sets: string[] = ["updated_at = ?"];
+    const values: Array<string | number | null> = [this.now()];
+    for (const [key, value] of Object.entries(patch)) {
+      const column = columns[key];
+      if (!column) continue;
+      sets.push(`${column} = ?`);
+      values.push(typeof value === "boolean" ? (value ? 1 : 0) : (value ?? null));
+    }
+    return this.db.prepare(`UPDATE hook_sources SET ${sets.join(", ")} WHERE id = ?`).run(...values, id).changes === 1;
+  }
+
+  /** Records that a request reached the source, and how it went. */
+  touchHookSource(id: string, status: string): void {
+    this.db.prepare("UPDATE hook_sources SET last_seen_at = ?, last_status = ? WHERE id = ?").run(this.now(), status, id);
+  }
+
+  /** Removes a source; its notifications stay on record. */
+  removeHookSource(id: string): boolean {
+    return Number(this.db.prepare("DELETE FROM hook_sources WHERE id = ?").run(id).changes) === 1;
+  }
+
+  private hookSourceFromRow(r: Record<string, string | number | null>): HookSourceRecord {
+    const opt = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
+    return {
+      id: r.id as string,
+      label: r.label as string,
+      enabled: r.enabled === 1,
+      auth: r.auth as HookAuth,
+      tokenHash: opt(r.token_hash as string | null),
+      hmacSecret: opt(r.hmac_secret as string | null),
+      ceiling: r.ceiling as HookCeiling,
+      askAgent: r.ask_agent === 1,
+      format: r.format as string,
+      targetClient: opt(r.target_client as string | null),
+      targetLocation: opt(r.target_location as string | null),
+      targetEverywhere: r.target_everywhere === 1,
+      ratePerMin: r.rate_per_min as number,
+      public: r.public === 1,
+      maxBody: r.max_body as number,
+      createdAt: r.created_at as number,
+      updatedAt: r.updated_at as number,
+      lastSeenAt: opt(r.last_seen_at as number | null),
+      lastStatus: opt(r.last_status as string | null),
     };
   }
 

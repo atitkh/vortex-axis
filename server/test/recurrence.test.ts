@@ -93,10 +93,11 @@ describe("reminder store", () => {
       const raw = new DatabaseSync(join(dir, "axis.sqlite"));
       const version = (raw.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
       // Step back to the schema before reminders: reminders is no longer the newest migration, so undo the later ones too.
+      raw.exec("DROP TABLE hook_sources");
       raw.exec("DROP TABLE notification_deliveries");
       raw.exec("DROP TABLE notifications");
       raw.exec("DROP TABLE reminders");
-      raw.exec(`PRAGMA user_version = ${version - 2}`);
+      raw.exec(`PRAGMA user_version = ${version - 3}`);
       raw.close();
       const store = new Store(dir);
       expect(store.listReminders()).toEqual([]);

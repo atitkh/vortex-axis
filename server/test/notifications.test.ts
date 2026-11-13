@@ -8,7 +8,7 @@ import { RETENTION_DAYS, SOURCE_CAP, Store, type NotificationRecord } from "../s
 const DAY = 86_400_000;
 const T0 = 1_800_000_000_000;
 /** Number of entries in MIGRATIONS; raise it when a migration is added. */
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 type Input = Parameters<Store["addNotification"]>[0];
 const note = (over: Partial<Input> = {}): Input => ({
